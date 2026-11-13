@@ -114,7 +114,7 @@ Each part owns one concern. Its dependencies on other kobako parts may only poin
 | `kobako-wasmtime` | one Wasm Driver, `kobako_wasmtime::Driver`, and its preview1 and preview2 encodings | runtime, transport |
 | `kobako` | the Rust SDK: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
 | `lib/` | the Ruby gem and its own Codec | the native ext |
-| `ext/` | the magnus bridge: Ruby values to Envelopes, objects to a Filesystem or network entry | runtime, transport, wasmtime |
+| `ext/` | the magnus bridge: Ruby values to Envelopes, objects to a Filesystem or network entry | runtime, transport, wasmtime *(to build the runtime)*, the error and `Network` value classes `lib/` defines |
 | `kobako-core` | the guest ABI: `Guest`, `export_guest!`, the dispatch proxy | transport |
 | `kobako-mruby` | the mruby guest model: `MrbGuest` flows and the bridge gem | core, transport, codec *(optional)* |
 | `kobako-io` · `-regexp` · `-json` | capability gems: guest-local behavior, no wire | none |

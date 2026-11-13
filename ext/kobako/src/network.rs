@@ -8,7 +8,7 @@
 use std::net::IpAddr;
 use std::sync::Arc;
 
-use magnus::value::{Opaque, ReprValue};
+use magnus::value::{Lazy, Opaque, ReprValue};
 use magnus::{
     function, prelude::*, Error as MagnusError, RArray, RClass, RHash, RModule, RString, Ruby,
     Symbol, Value,
@@ -168,16 +168,17 @@ fn normalize_endpoint(
     let endpoint = build_endpoint(ruby, host, port, protocol, addresses, rules)?;
     let host = ruby.str_new(&endpoint.host);
     host.freeze();
-    let addresses = addresses.unwrap_or_else(|| {
-        let addresses = ruby.ary_from_iter(
-            endpoint
-                .addresses
-                .iter()
-                .map(|addresses| addresses_name(ruby, addresses)),
-        );
-        addresses.freeze();
-        addresses
-    });
+    let addresses = match addresses {
+        Some(addresses) => addresses,
+        None => {
+            let addresses = ruby.ary_new();
+            for each in &endpoint.addresses {
+                addresses.push(addresses_name(ruby, each)?)?;
+            }
+            addresses.freeze();
+            addresses
+        }
+    };
     let rules = rules.unwrap_or_else(|| {
         let rules = ruby.ary_new();
         rules.freeze();
@@ -186,7 +187,7 @@ fn normalize_endpoint(
     Ok((
         host,
         endpoint.port,
-        protocol_name(ruby, endpoint.protocol),
+        protocol_name(ruby, endpoint.protocol)?,
         addresses,
         rules,
     ))
@@ -218,26 +219,34 @@ fn validate_name(ruby: &Ruby, name: RString) -> Result<(), MagnusError> {
         .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))
 }
 
-/// `protocol` as the Symbol an endpoint's `protocol` names it by.
-fn protocol_name(ruby: &Ruby, protocol: Protocol) -> Symbol {
-    ruby.to_symbol(match protocol {
+/// `protocol` as the Symbol Ruby names it by.
+fn protocol_name(ruby: &Ruby, protocol: Protocol) -> Result<Symbol, MagnusError> {
+    Ok(ruby.to_symbol(match protocol {
         Protocol::Http => "http",
         Protocol::Tcp => "tcp",
         Protocol::Udp => "udp",
-        _ => unreachable!("an endpoint speaks only a protocol `to_endpoint` reads"),
-    })
+        other => return Err(unnamed(ruby, other)),
+    }))
+}
+
+/// A contract value the ext gives no Ruby name.
+fn unnamed(ruby: &Ruby, value: impl std::fmt::Debug) -> MagnusError {
+    MagnusError::new(
+        ruby.exception_runtime_error(),
+        format!("{value:?} has no Ruby name"),
+    )
 }
 
 /// `addresses` as an endpoint's `addresses` names it: a Symbol for a set,
 /// or a CIDR String.
-fn addresses_name(ruby: &Ruby, addresses: &Addresses) -> Value {
-    match addresses {
+fn addresses_name(ruby: &Ruby, addresses: &Addresses) -> Result<Value, MagnusError> {
+    Ok(match addresses {
         Addresses::Public => ruby.to_symbol("public").as_value(),
         Addresses::Private => ruby.to_symbol("private").as_value(),
         Addresses::Local => ruby.to_symbol("local").as_value(),
         Addresses::Cidr(address, prefix) => ruby.str_new(&format!("{address}/{prefix}")).as_value(),
-        _ => unreachable!("an endpoint leads only to addresses `to_addresses` reads"),
-    }
+        other => return Err(unnamed(ruby, other)),
+    })
 }
 
 /// The placement a credential's `placement` names: `:bearer`, `:basic`, or
@@ -286,10 +295,9 @@ fn each_of<T>(
 
 /// `request` as the `Kobako::Network::Request` a Ruby policy reads.
 fn to_request(ruby: &Ruby, request: &Request<'_>) -> Result<Value, MagnusError> {
-    let class: RClass = network_module(ruby)?.const_get("Request")?;
     let (host, port) = request.authority;
     let names = ruby.ary_from_iter(request.header_names.iter().map(|name| ruby.str_new(name)));
-    class.funcall(
+    ruby.get_inner(&REQUEST).funcall(
         "new",
         (
             ruby.ary_from_iter([
@@ -304,27 +312,25 @@ fn to_request(ruby: &Ruby, request: &Request<'_>) -> Result<Value, MagnusError> 
     )
 }
 
-fn network_module(ruby: &Ruby) -> Result<RModule, MagnusError> {
-    ruby.class_object()
-        .const_get::<_, RModule>("Kobako")?
-        .const_get::<_, RModule>("Network")
+/// `lib/kobako/network.rb` defines the classes the ext hands a Ruby policy
+/// before any invocation reads an entry, so a missing one is a wiring bug
+/// and the `unwrap` fails fast.
+fn network_class(ruby: &Ruby, name: &str) -> RClass {
+    let kobako: RModule = ruby.class_object().const_get("Kobako").unwrap();
+    let network: RModule = kobako.const_get("Network").unwrap();
+    network.const_get(name).unwrap()
 }
+
+static REQUEST: Lazy<RClass> = Lazy::new(|ruby| network_class(ruby, "Request"));
+
+static CONNECTION: Lazy<RClass> = Lazy::new(|ruby| network_class(ruby, "Connection"));
+
+static BUILDER: Lazy<RClass> = Lazy::new(|ruby| network_class(ruby, "Builder"));
 
 /// `connection` as the `Kobako::Network::Connection` a Ruby policy reads.
 fn to_connection(ruby: &Ruby, connection: &Connection<'_>) -> Result<Value, MagnusError> {
-    let class: RClass = network_module(ruby)?.const_get("Connection")?;
-    let protocol = ruby.to_symbol(match connection.protocol {
-        Protocol::Http => "http",
-        Protocol::Tcp => "tcp",
-        Protocol::Udp => "udp",
-        other => {
-            return Err(MagnusError::new(
-                ruby.exception_runtime_error(),
-                format!("{other:?} has no Ruby name"),
-            ))
-        }
-    });
-    class.funcall(
+    let protocol = protocol_name(ruby, connection.protocol)?;
+    ruby.get_inner(&CONNECTION).funcall(
         "new",
         (ruby.str_new(connection.host), connection.port, protocol),
     )
@@ -363,8 +369,7 @@ fn to_entry(
     entry: Value,
     pins: &mut Vec<PinnedValue>,
 ) -> Result<Arc<dyn Entry>, MagnusError> {
-    let builder_class: RClass = network_module(ruby)?.const_get("Builder")?;
-    if !entry.is_kind_of(builder_class) {
+    if !entry.is_kind_of(ruby.get_inner(&BUILDER)) {
         return to_ruby_entry(ruby, entry, pins).map(|entry| Arc::new(entry) as Arc<dyn Entry>);
     }
     let (given, endpoints, credentials, policies): (Value, RArray, RArray, RHash) =
