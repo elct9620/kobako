@@ -314,22 +314,21 @@ fn parts(path: &str) -> VecDeque<String> {
 }
 
 impl Nameidata {
-    /// The mount standing on `name` in the directory the walk stands in, as
-    /// `__lookup_mnt` answers for a mount point: one standing on that very name,
-    /// or on another name the Filesystem answers with the same entry.
-    fn lookup_mnt(&self, name: &str) -> Result<Option<Arc<VfsMount>>, Errno> {
-        if !self.cred.mnt_ns().holds_mounts_beneath(&self.mnt) {
+    /// The mount standing on the dentry `name` reaches in the directory the walk
+    /// stands in, by whatever spelling or link reached that dentry.
+    fn lookup_mnt_by_name(&self, name: &str) -> Result<Option<Arc<VfsMount>>, Errno> {
+        if !self.cred.mnt_ns().mnt_has_children(&self.mnt) {
             return Ok(None);
         }
         let dentry = lookup_dentry(self.mnt.sb(), &self.dir, name)?;
-        Ok(self.mount_on(&dentry))
+        Ok(self.lookup_mnt(&dentry))
     }
 
-    /// The mount standing on `dentry`, which the walk found in the directory it
-    /// stands in, as `__lookup_mnt` answers for a mount point.
-    fn mount_on(&self, dentry: &Arc<Dentry>) -> Option<Arc<VfsMount>> {
+    /// The mount standing on `dentry` beneath the mount the walk stands on, as
+    /// Linux's `lookup_mnt` asks `d_mountpoint` before `__lookup_mnt`.
+    fn lookup_mnt(&self, dentry: &Arc<Dentry>) -> Option<Arc<VfsMount>> {
         match dentry.d_mountpoint() {
-            true => self.cred.mnt_ns().lookup_mnt(&self.mnt, dentry),
+            true => self.cred.mnt_ns().__lookup_mnt(&self.mnt, dentry),
             false => None,
         }
     }
@@ -346,7 +345,7 @@ impl Nameidata {
     /// or follow the link standing there.
     fn walk_component(&mut self, name: &str) -> Result<(), Errno> {
         let dentry = lookup_dentry(self.mnt.sb(), self.dentry(), name)?;
-        if let Some(mnt) = self.mount_on(&dentry) {
+        if let Some(mnt) = self.lookup_mnt(&dentry) {
             self.traverse_mounts(mnt);
             return Ok(());
         }
@@ -450,7 +449,7 @@ impl Nameidata {
     /// Stand on the root of the mount standing on the last name, if one does,
     /// as `step_into` answers a mount point with what is mounted there.
     fn step_onto_last_mount(&mut self) -> Result<bool, Errno> {
-        let Some(mnt) = self.lookup_mnt(&self.last)? else {
+        let Some(mnt) = self.lookup_mnt_by_name(&self.last)? else {
             return Ok(false);
         };
         self.traverse_mounts(mnt);
@@ -998,7 +997,7 @@ fn filename_create(
     nd: &mut Nameidata,
     want_dir: bool,
 ) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Errno> {
-    if nd.last_type != LastType::Norm || nd.lookup_mnt(&nd.last)?.is_some() {
+    if nd.last_type != LastType::Norm || nd.lookup_mnt_by_name(&nd.last)?.is_some() {
         return Err(Errno::AlreadyExists);
     }
     let write = nd.mnt.mnt_want_write();
@@ -1053,7 +1052,7 @@ pub fn filename_rmdir(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Resul
                 LastType::DotDot => return Err(Errno::DirectoryNotEmpty),
             }
             nd.mnt.mnt_want_write()?;
-            if nd.lookup_mnt(&nd.last)?.is_some() {
+            if nd.lookup_mnt_by_name(&nd.last)?.is_some() {
                 return Err(Errno::ResourceBusy);
             }
             let (_held, child) = start_dirop(&mut nd)?;
@@ -1074,7 +1073,7 @@ pub fn filename_unlinkat(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Re
                 return Err(Errno::IsADirectory);
             }
             nd.mnt.mnt_want_write()?;
-            if nd.lookup_mnt(&nd.last)?.is_some() {
+            if nd.lookup_mnt_by_name(&nd.last)?.is_some() {
                 return Err(Errno::IsADirectory);
             }
             let (_held, child) = start_dirop(&mut nd)?;
@@ -1113,7 +1112,8 @@ pub fn filename_renameat2(
             return Err(Errno::ResourceBusy);
         }
         source.mnt.mnt_want_write()?;
-        if source.lookup_mnt(&source.last)?.is_some() || target.lookup_mnt(&target.last)?.is_some()
+        if source.lookup_mnt_by_name(&source.last)?.is_some()
+            || target.lookup_mnt_by_name(&target.last)?.is_some()
         {
             return Err(Errno::ResourceBusy);
         }

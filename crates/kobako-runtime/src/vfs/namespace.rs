@@ -54,8 +54,7 @@ impl MntNamespace {
                     .iter()
                     .filter(|(above, _)| beneath(above, at))
                     .max_by_key(|(above, _)| above.len())?;
-                let mountpoint = mountpoint(cred, parent, &at[parent_at.len()..])?;
-                mountpoint.d_set_mounted();
+                let mountpoint = get_mountpoint(cred, parent, &at[parent_at.len()..])?;
                 Some(Mounted {
                     parent: Arc::clone(parent),
                     mountpoint,
@@ -66,8 +65,8 @@ impl MntNamespace {
         Self { mounted }
     }
 
-    /// The mount standing on `dentry` beneath `mnt`, as `__lookup_mnt` answers.
-    pub(crate) fn lookup_mnt(
+    /// The mount standing on `dentry` beneath `mnt`, as Linux's `__lookup_mnt`.
+    pub(crate) fn __lookup_mnt(
         &self,
         mnt: &Arc<VfsMount>,
         dentry: &Arc<Dentry>,
@@ -78,9 +77,8 @@ impl MntNamespace {
             .map(|child| Arc::clone(&child.mnt))
     }
 
-    /// Whether any mount stands beneath `mnt`, so a walk through one with none
-    /// asks nothing more, as Linux's `d_mountpoint` spares `__lookup_mnt`.
-    pub(crate) fn holds_mounts_beneath(&self, mnt: &Arc<VfsMount>) -> bool {
+    /// Whether any mount stands beneath `mnt`, as Linux's `mnt_has_children`.
+    pub(crate) fn mnt_has_children(&self, mnt: &Arc<VfsMount>) -> bool {
         self.mounted
             .iter()
             .any(|child| Arc::ptr_eq(&child.parent, mnt))
@@ -88,11 +86,15 @@ impl MntNamespace {
 }
 
 /// The dentry `path` reaches beneath the root of `parent` as `cred` walks it,
-/// none where a directory above its last name stands nowhere.
-fn mountpoint(cred: &Arc<Cred>, parent: &Arc<VfsMount>, path: &str) -> Option<Arc<Dentry>> {
+/// marked a mount point, as `do_mount` looks its target up and
+/// `get_mountpoint` pins it; none where a directory above its last name
+/// stands nowhere.
+fn get_mountpoint(cred: &Arc<Cred>, parent: &Arc<VfsMount>, path: &str) -> Option<Arc<Dentry>> {
     let path = path.trim_start_matches('/');
     let nd = filename_parentat(cred, &Path::root(parent), path).ok()?;
-    lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last).ok()
+    let dentry = lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last).ok()?;
+    dentry.d_set_mounted();
+    Some(dentry)
 }
 
 /// Whether the guest path `inner` lies strictly beneath `outer`.
