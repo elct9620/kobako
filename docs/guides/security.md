@@ -202,6 +202,15 @@ the guest's own memory, which the host already treats as hostile.
 | unmodified compiler output of the Guest Binary's mruby release | yes |
 | anything else, such as an upload or a hand-edited dump | no; preload the source instead |
 
+## Guest Advisories
+
+An advisory against the guest's mruby stays inside the Wasm sandbox, as a hostile
+blob does. The table lists those that reach the bundled Guest Binary.
+
+| Advisory | What a script reaches | Fixed by |
+|---|---|---|
+| CVE-2026-79590, the compiler handing a null pointer to `memcpy` | a `SyntaxError`, the run going on | mruby 4.1 |
+
 ## Service Design
 
 A Service is the one place untrusted code touches your application, so each
