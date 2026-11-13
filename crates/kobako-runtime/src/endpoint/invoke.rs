@@ -58,7 +58,7 @@ pub fn write_request<G: GuestInstance>(
         }
         WriteError::TooLarge => trap("payload exceeds the 16 MiB limit".to_string()),
         WriteError::Incompatible(message) => trap(message.to_string()),
-        WriteError::Trapped(e) => G::cap_trap(&e)
+        WriteError::Trapped(e) => G::cap_trap_of(&e)
             .unwrap_or_else(|| Trap::Other(format!("failed to allocate input buffer: {e}")))
             .into(),
         WriteError::OutOfBounds => {

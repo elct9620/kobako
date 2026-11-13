@@ -73,7 +73,7 @@ impl Driver {
             .instance_pre
             .instantiate(store.as_context_mut())
             .map_err(|e| {
-                trap::cap_trap(&e).unwrap_or_else(|| {
+                trap::cap_trap_of(&e).unwrap_or_else(|| {
                     Trap::Other(format!("failed to instantiate the Sandbox runtime: {e}"))
                 })
             })?;

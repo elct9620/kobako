@@ -45,7 +45,7 @@ pub(crate) fn load_instance_pre(
     let linker = imports::linker()?;
     let pre = linker
         .instantiate_pre(&module)
-        .map_err(trap::instantiate_err)?;
+        .map_err(trap::to_setup_error)?;
     // Verify before the insert, so a rejected artifact is never
     // remembered as a usable template.
     abi::verify(&pre, setup_timeout)?;

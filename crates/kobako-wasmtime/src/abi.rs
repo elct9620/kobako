@@ -31,7 +31,7 @@ pub(crate) fn verify(
     let mut store = WtStore::new(load_engine()?, Invocation::new(wasi));
     trap::arm_deadline(&mut store, setup_timeout);
     let past_deadline = |err: &wasmtime::Error| {
-        matches!(trap::cap_trap(err), Some(Trap::Timeout(_))).then(|| {
+        matches!(trap::cap_trap_of(err), Some(Trap::Timeout(_))).then(|| {
             SetupError::Dead(format!(
                 "the Guest Binary did not finish being set up within {:?}",
                 setup_timeout.unwrap_or_default()
@@ -40,7 +40,7 @@ pub(crate) fn verify(
     };
     let instance = pre
         .instantiate(store.as_context_mut())
-        .map_err(|e| past_deadline(&e).unwrap_or_else(|| trap::instantiate_err(e)))?;
+        .map_err(|e| past_deadline(&e).unwrap_or_else(|| trap::to_setup_error(e)))?;
     let Ok(probe) =
         instance.get_typed_func::<(), u32>(store.as_context_mut(), "__kobako_abi_version")
     else {

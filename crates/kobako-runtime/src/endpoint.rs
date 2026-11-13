@@ -75,7 +75,7 @@ pub trait GuestInstance {
 
     /// The cap `fault` carries, if one of the invocation's caps fired, which
     /// names itself rather than the step it fired during.
-    fn cap_trap(fault: &Self::Fault) -> Option<Trap>;
+    fn cap_trap_of(fault: &Self::Fault) -> Option<Trap>;
 }
 
 #[cfg(test)]
@@ -115,7 +115,7 @@ mod tests {
             None
         }
 
-        fn cap_trap(_fault: &String) -> Option<Trap> {
+        fn cap_trap_of(_fault: &String) -> Option<Trap> {
             None
         }
     }

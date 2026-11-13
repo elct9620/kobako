@@ -1,4 +1,5 @@
-//! Trap classification for the run path.
+//! Trap classification for the run path, and the setup fault a template's
+//! instantiation answers.
 //!
 //! Classifies a `wasmtime` run error into the engine-neutral `Trap`
 //! kind (`Timeout` / `MemoryLimit` / `Other`) that each frontend maps
@@ -68,7 +69,7 @@ pub(crate) fn epoch_deadline_callback(
 /// attach the caller's verb instead. A cap trap carries its own message,
 /// since wasmtime's backtrace framing is noise there.
 pub(crate) fn to_trap(err: wasmtime::Error) -> Trap {
-    cap_trap(&err).unwrap_or_else(|| Trap::Other(other_trap_message(&err)))
+    cap_trap_of(&err).unwrap_or_else(|| Trap::Other(other_trap_message(&err)))
 }
 
 /// Arm a Store's wall-clock deadline `limit` from now, or none. Epoch
@@ -88,7 +89,7 @@ pub(crate) fn arm_deadline(store: &mut Store<Invocation>, limit: Option<Duration
 
 /// The cap trap `err` carries, if a cap fired: a setup step that fails
 /// for any other reason words its own message instead.
-pub(crate) fn cap_trap(err: &wasmtime::Error) -> Option<Trap> {
+pub(crate) fn cap_trap_of(err: &wasmtime::Error) -> Option<Trap> {
     if let Some(t) = err.downcast_ref::<TimeoutTrap>() {
         Some(Trap::Timeout(t.to_string()))
     } else {
@@ -114,7 +115,7 @@ fn other_trap_message(err: &wasmtime::Error) -> String {
 /// fire: the memory budget is not yet armed, and the probe's own setup
 /// deadline is told apart where it fires. Every failure here is a setup
 /// fault, not a trap.
-pub(crate) fn instantiate_err(err: wasmtime::Error) -> SetupError {
+pub(crate) fn to_setup_error(err: wasmtime::Error) -> SetupError {
     SetupError::Dead(format!("instantiate: {err}"))
 }
 

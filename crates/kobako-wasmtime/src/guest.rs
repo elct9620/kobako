@@ -32,7 +32,7 @@ impl GuestInstance for Guest<'_> {
         Some(downcall.call(&mut self.0, (ptr, len)))
     }
 
-    fn cap_trap(fault: &wasmtime::Error) -> Option<Trap> {
-        trap::cap_trap(fault)
+    fn cap_trap_of(fault: &wasmtime::Error) -> Option<Trap> {
+        trap::cap_trap_of(fault)
     }
 }
