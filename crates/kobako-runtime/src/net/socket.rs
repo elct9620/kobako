@@ -146,7 +146,7 @@ impl BindHash {
 
     /// `port` held for one socket, or `EADDRINUSE` while another holds it,
     /// as `inet_csk_get_port` finds its bucket taken.
-    fn claim(self: &Arc<Self>, port: u16) -> Result<BoundPort, Errno> {
+    fn get_port(self: &Arc<Self>, port: u16) -> Result<BoundPort, Errno> {
         match self.ports().held.insert(port) {
             true => Ok(BoundPort {
                 hash: self.clone(),
@@ -157,9 +157,10 @@ impl BindHash {
     }
 
     /// The first free port of `VIRTUAL_PORTS` from where the last search
-    /// left off, as `inet_hash_connect` walks `ip_local_port_range` past each
-    /// port held; `None` once every one is held.
-    fn claim_free_port(self: &Arc<Self>) -> Option<BoundPort> {
+    /// left off, as `inet_csk_find_open_port` and `inet_hash_connect` walk
+    /// `ip_local_port_range` past each port held; `None` once every one is
+    /// held.
+    fn find_open_port(self: &Arc<Self>) -> Option<BoundPort> {
         let mut ports = self.ports();
         let start = ports.next;
         let mut port = start;
@@ -226,21 +227,21 @@ pub(crate) struct InetSock {
     /// How much each queue holds, as `sk_rcvbuf` and `sk_sndbuf`.
     pub(crate) buffers: Buffers,
     /// The hop limit sent with, as `inet_sock` keeps `uc_ttl`.
-    pub(crate) ttl: u8,
+    pub(crate) uc_ttl: u8,
     /// The socket's pending failure, as `sk_err`: answered once, then
     /// cleared, as `sock_error` swaps it with zero.
-    pub(crate) error: Option<Errno>,
+    pub(crate) err: Option<Errno>,
     /// The guest shut its reading side down, as `sk_shutdown`'s
     /// `RCV_SHUTDOWN`.
-    pub(crate) rcv_shut: bool,
+    pub(crate) rcv_shutdown: bool,
     /// The guest shut its writing side down, as `SEND_SHUTDOWN`.
-    pub(crate) send_shut: bool,
+    pub(crate) send_shutdown: bool,
     /// The socket's place against its Sandbox's cap and the process's, given
     /// back as it is released.
     pub(crate) place: Option<Place>,
     /// Whether the bind named its port, which the socket then keeps once it
     /// closes, as `SOCK_BINDPORT_LOCK` does.
-    port_locked: bool,
+    bindport_locked: bool,
     /// What its queues may hold, reserved against the Invocation's memory
     /// until the socket is released.
     memory: Option<MemoryCharge>,
@@ -256,12 +257,12 @@ impl InetSock {
             rcv_saddr: Ipv4Addr::UNSPECIFIED,
             peer: None,
             buffers,
-            ttl: IPDEFTTL,
-            error: None,
-            rcv_shut: false,
-            send_shut: false,
+            uc_ttl: IPDEFTTL,
+            err: None,
+            rcv_shutdown: false,
+            send_shutdown: false,
             place: None,
-            port_locked: false,
+            bindport_locked: false,
             memory: Some(memory),
         }
     }
@@ -285,12 +286,12 @@ impl InetSock {
             return Err(Errno::InvalidInput);
         }
         let bound = match addr.port() {
-            0 => hash.claim_free_port().ok_or(Errno::AddressInUse)?,
-            port => hash.claim(port)?,
+            0 => hash.find_open_port().ok_or(Errno::AddressInUse)?,
+            port => hash.get_port(port)?,
         };
         self.sport = Some(bound.port);
         self.num = Some(bound);
-        self.port_locked = addr.port() != 0;
+        self.bindport_locked = addr.port() != 0;
         self.rcv_saddr = ip;
         Ok(())
     }
@@ -299,7 +300,7 @@ impl InetSock {
     /// named it, as `tcp_set_state` puts the port on entering `TCP_CLOSE`
     /// without `SOCK_BINDPORT_LOCK`.
     pub(crate) fn put_port(&mut self) {
-        if !self.port_locked {
+        if !self.bindport_locked {
             self.num = None;
         }
     }
@@ -328,9 +329,9 @@ impl InetSock {
     /// zero, answering `EADDRNOTAVAIL` once none is left. A port put back once
     /// the socket closed is then replaced, while reading the socket's own end
     /// still answers the old one until then, as `inet_sport` keeps it.
-    pub(crate) fn hold_port(&mut self, hash: &Arc<BindHash>) -> Result<(), Errno> {
+    pub(crate) fn hash_connect(&mut self, hash: &Arc<BindHash>) -> Result<(), Errno> {
         if self.num.is_none() {
-            let bound = hash.claim_free_port().ok_or(Errno::AddressNotAvailable)?;
+            let bound = hash.find_open_port().ok_or(Errno::AddressNotAvailable)?;
             self.sport = Some(bound.port);
             self.num = Some(bound);
         }
@@ -353,8 +354,8 @@ impl InetSock {
     /// Mark the sides `how` names shut, as `inet_shutdown` sets
     /// `sk_shutdown`.
     pub(crate) fn mark_shutdown(&mut self, how: Shutdown) {
-        self.rcv_shut |= matches!(how, Shutdown::Read | Shutdown::Both);
-        self.send_shut |= matches!(how, Shutdown::Write | Shutdown::Both);
+        self.rcv_shutdown |= matches!(how, Shutdown::Read | Shutdown::Both);
+        self.send_shutdown |= matches!(how, Shutdown::Write | Shutdown::Both);
     }
 
     /// Shut the sides `how` names, as `inet_shutdown` does for TCP and UDP
@@ -381,7 +382,7 @@ impl InetSock {
         let value = match opt {
             SockOpt::RcvBuf => self.buffers.rcvbuf,
             SockOpt::SndBuf => self.buffers.sndbuf,
-            SockOpt::Ttl => usize::from(self.ttl),
+            SockOpt::Ttl => usize::from(self.uc_ttl),
             _ => return Err(Errno::ProtocolNotAvailable),
         };
         Ok(u32::try_from(value).unwrap_or(u32::MAX))
@@ -408,7 +409,7 @@ impl InetSock {
                 if let Some(host) = host {
                     set_hop_limit(host, ttl).map_err(|err| to_error(&err))?;
                 }
-                self.ttl = ttl;
+                self.uc_ttl = ttl;
             }
             _ => return Err(Errno::ProtocolNotAvailable),
         }
@@ -808,7 +809,8 @@ pub(crate) enum Destination {
 
 /// What a socket's connect to `addr` reaches in `net` once its state check
 /// passed, as cgroup `connect4` runs inside the protocol's `connect`: an IPv6
-/// address answers `EAFNOSUPPORT`, as `inet_stream_connect` refuses one; a
+/// address answers `EAFNOSUPPORT`, as `tcp_v4_connect` and
+/// `__ip4_datagram_connect` refuse one; a
 /// virtual address turns into the name it stands for and the one real
 /// address it stands for, one no name holds answering `EACCES`; any other
 /// stands as itself.

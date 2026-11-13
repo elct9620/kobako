@@ -170,7 +170,7 @@ impl TcpSock {
             Phase::Connecting => Err(Errno::AlreadyInProgress),
             Phase::Connected | Phase::Reset => Err(Errno::AlreadyConnected),
             Phase::Failed => {
-                let err = state.inet.error.take().unwrap_or(Errno::ConnectionAborted);
+                let err = state.inet.err.take().unwrap_or(Errno::ConnectionAborted);
                 Self::disconnect(&mut state);
                 Err(err)
             }
@@ -226,14 +226,14 @@ impl TcpSock {
         ports: &Arc<BindHash>,
         connect: impl FnOnce() -> Result<(), Errno>,
     ) -> Result<(), Errno> {
-        self.hold_port(ports)?;
+        self.hash_connect(ports)?;
         connect().inspect_err(|_| self.state().inet.put_port())
     }
 
     /// Begin connecting to `addr` for the guest's `peer`: no failure pending,
     /// as `tcp_connect_init` clears `sk_err`, then the host socket's dial.
     fn start_connect(&self, state: &mut State, addr: SocketAddr, peer: SocketAddr) {
-        state.inet.error = None;
+        state.inet.err = None;
         state.inet.peer = Some(peer);
         state.phase = Phase::Connecting;
         self.dial_host(state, addr);
@@ -246,8 +246,8 @@ impl TcpSock {
     }
 
     /// Hold a free port from `ports` as the guest's own, unless one is held.
-    pub(crate) fn hold_port(&self, ports: &Arc<BindHash>) -> Result<(), Errno> {
-        self.state().inet.hold_port(ports)
+    pub(crate) fn hash_connect(&self, ports: &Arc<BindHash>) -> Result<(), Errno> {
+        self.state().inet.hash_connect(ports)
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -280,7 +280,7 @@ impl TcpSock {
         socket.set_tcp_keepalive(&state.keepalive.to_params())?;
         socket.set_keepalive(state.keepalive.on)?;
         socket.set_tcp_nodelay(state.nodelay)?;
-        set_hop_limit(socket, state.inet.ttl)
+        set_hop_limit(socket, state.inet.uc_ttl)
     }
 
     /// End the socket on `err`, as `tcp_done_with_error` does after a failed
@@ -293,7 +293,7 @@ impl TcpSock {
             Phase::Connected => Phase::Reset,
             _ => Phase::Failed,
         };
-        state.inet.error = Some(err);
+        state.inet.err = Some(err);
     }
 
     /// Return a socket whose connect failed or was given up to one never
@@ -302,11 +302,11 @@ impl TcpSock {
         state.phase = Phase::Unconnected;
         state.receive_queue.clear();
         state.received_end = false;
-        state.inet.rcv_shut = false;
+        state.inet.rcv_shutdown = false;
         state.write_queue.clear();
-        state.inet.send_shut = false;
+        state.inet.send_shutdown = false;
         state.fin_sent = false;
-        state.inet.error = None;
+        state.inet.err = None;
         state.inet.peer = None;
         state.inet.put_port();
     }
@@ -360,7 +360,7 @@ impl TcpSock {
                 Err(err) => return Err(to_error(&err)),
             }
         }
-        if state.inet.send_shut && state.write_queue.is_empty() && !state.fin_sent {
+        if state.inet.send_shutdown && state.write_queue.is_empty() && !state.fin_sent {
             let _ = stream.shutdown(Shutdown::Write);
             state.fin_sent = true;
         }
@@ -430,17 +430,17 @@ impl TcpSock {
         drop(orphan);
     }
 
-    /// How the connect under way ended, as `__inet_stream_connect` settles it
-    /// once `inet_wait_for_connect` returns: `EAGAIN` while it is under way;
-    /// success once connected; otherwise the failure pending, taken once as
-    /// `sock_error` takes `sk_err`, or `ENOTCONN` when none is.
+    /// How the connect under way ended, as a non-blocking connect reads it
+    /// through `SO_ERROR`: `EAGAIN` while it is under way; success once
+    /// connected; otherwise the failure pending, taken once as `sock_error`
+    /// takes `sk_err`, or `ENOTCONN` when none is.
     pub fn connect_outcome(&self) -> Result<(), Errno> {
         let mut state = self.state();
         match &state.phase {
             Phase::Connecting => Err(Errno::WouldBlock),
             Phase::Connected => Ok(()),
             Phase::Unconnected | Phase::Failed | Phase::Reset => {
-                Err(state.inet.error.take().unwrap_or(Errno::NotConnected))
+                Err(state.inet.err.take().unwrap_or(Errno::NotConnected))
             }
         }
     }
@@ -471,14 +471,14 @@ impl TcpSock {
     /// host refuse, as a failed `setsockopt` changes nothing.
     fn set_options_with(&self, change: impl FnOnce(&mut State)) -> Result<(), Errno> {
         let mut state = self.state();
-        let kept = (state.keepalive, state.nodelay, state.inet.ttl);
+        let kept = (state.keepalive, state.nodelay, state.inet.uc_ttl);
         change(&mut state);
         let Some((stream, _)) = &state.host else {
             return Ok(());
         };
         let set = Self::set_options(SockRef::from(stream), &state);
         set.map_err(|err| {
-            (state.keepalive, state.nodelay, state.inet.ttl) = kept;
+            (state.keepalive, state.nodelay, state.inet.uc_ttl) = kept;
             to_error(&err)
         })
     }
@@ -538,11 +538,11 @@ impl ProtoOps for TcpSock {
         if state.received_end {
             return Ok((0, None));
         }
-        if let Some(err) = state.inet.error.take() {
+        if let Some(err) = state.inet.err.take() {
             return Err(err);
         }
         match state.phase {
-            _ if state.inet.rcv_shut => Ok((0, None)),
+            _ if state.inet.rcv_shutdown => Ok((0, None)),
             Phase::Failed | Phase::Reset => Ok((0, None)),
             Phase::Unconnected => Err(Errno::NotConnected),
             Phase::Connecting | Phase::Connected => Err(Errno::WouldBlock),
@@ -559,8 +559,8 @@ impl ProtoOps for TcpSock {
         let mut state = self.state();
         match state.phase {
             Phase::Connecting => return Err(Errno::WouldBlock),
-            Phase::Connected if !state.inet.send_shut && state.inet.error.is_none() => {}
-            _ => return Err(state.inet.error.take().unwrap_or(Errno::BrokenPipe)),
+            Phase::Connected if !state.inet.send_shutdown && state.inet.err.is_none() => {}
+            _ => return Err(state.inet.err.take().unwrap_or(Errno::BrokenPipe)),
         }
         let take = buf.len().min(
             state
@@ -586,21 +586,21 @@ impl ProtoOps for TcpSock {
         poll_wait(&self.wait, table);
         let state = self.state();
         let closed = state.phase == Phase::Unconnected || state.phase.is_closed();
-        let rcv_shut = state.received_end || state.inet.rcv_shut || state.phase.is_closed();
-        let send_shut = state.inet.send_shut || state.phase.is_closed();
+        let rcv_shutdown = state.received_end || state.inet.rcv_shutdown || state.phase.is_closed();
+        let send_shutdown = state.inet.send_shutdown || state.phase.is_closed();
         let mut mask = PollMask::default();
-        if closed || (rcv_shut && send_shut) {
+        if closed || (rcv_shutdown && send_shutdown) {
             mask = mask | PollMask::HUP;
         }
-        if !state.receive_queue.is_empty() || rcv_shut {
+        if !state.receive_queue.is_empty() || rcv_shutdown {
             mask = mask | PollMask::IN;
         }
         let queued = state.write_queue.len();
         let writable = state.inet.buffers.sndbuf.saturating_sub(queued) >= queued / 2;
-        if state.phase != Phase::Connecting && (send_shut || writable) {
+        if state.phase != Phase::Connecting && (send_shutdown || writable) {
             mask = mask | PollMask::OUT;
         }
-        if state.inet.error.is_some() {
+        if state.inet.err.is_some() {
             mask = mask | PollMask::ERR;
         }
         mask
@@ -618,7 +618,7 @@ impl ProtoOps for TcpSock {
         if state.phase == Phase::Connecting {
             Self::close_host(&mut state);
             Self::disconnect(&mut state);
-            state.inet.error = Some(Errno::ConnectionReset);
+            state.inet.err = Some(Errno::ConnectionReset);
             drop(state);
             self.wait.wake_up();
             return Ok(());
@@ -1205,14 +1205,14 @@ mod tests {
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         let ports = BindHash::new();
         // The port is held before the dial, as a connect holds it.
-        sock.hold_port(&ports).expect("a port is free");
+        sock.hash_connect(&ports).expect("a port is free");
         let before = sock.getname(false).unwrap().port();
         sock.dial(closed, closed, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         wait_for(|table| file.poll(table), PollMask::ERR);
         let failed = sock.connect_outcome();
         let kept = sock.getname(false).unwrap().port();
-        sock.hold_port(&ports).expect("a port is free");
+        sock.hash_connect(&ports).expect("a port is free");
         assert_eq!(
             (failed, before, kept, sock.getname(false).unwrap().port()),
             (Err(Errno::ConnectionRefused), 32768, 32768, 32769),
@@ -1323,7 +1323,7 @@ mod tests {
         let (marked, placed) = {
             let state = sock.state();
             (
-                (state.inet.rcv_shut, state.inet.send_shut),
+                (state.inet.rcv_shutdown, state.inet.send_shutdown),
                 state.inet.place.is_some(),
             )
         };

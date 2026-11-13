@@ -137,7 +137,7 @@ impl UdpSock {
         let host = family
             .connect_datagram(addr)
             .and_then(|socket| {
-                set_hop_limit(SockRef::from(&socket), self.state().inet.ttl).map(|()| socket)
+                set_hop_limit(SockRef::from(&socket), self.state().inet.uc_ttl).map(|()| socket)
             })
             .map_err(|err| to_error(&err))?;
         let mut socket = mio::net::UdpSocket::from_std(host);
@@ -162,8 +162,8 @@ impl UdpSock {
     }
 
     /// Hold a free port from `ports` as the guest's own, unless one is held.
-    pub(crate) fn hold_port(&self, ports: &Arc<BindHash>) -> Result<(), Errno> {
-        self.state().inet.hold_port(ports)
+    pub(crate) fn hash_connect(&self, ports: &Arc<BindHash>) -> Result<(), Errno> {
+        self.state().inet.hash_connect(ports)
     }
 
     fn state(&self) -> MutexGuard<'_, State> {
@@ -207,7 +207,7 @@ impl UdpSock {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
                 Err(err) => {
                     taken += 1;
-                    state.inet.error = Some(to_udp_error(&err));
+                    state.inet.err = Some(to_udp_error(&err));
                 }
             }
         }
@@ -246,7 +246,7 @@ impl ProtoOps for UdpSock {
     fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), Errno> {
         let dest = connect4(net, addr)?;
         net.within_connection_budget(Errno::WouldBlock, || {
-            self.hold_port(net.ports_of(Protocol::Udp))
+            self.hash_connect(net.ports_of(Protocol::Udp))
                 .map_err(|_| Errno::WouldBlock)?;
             let real = filter(net, &dest, Protocol::Udp)?;
             self.dial(net.family(), real, addr, net.open_connections())
@@ -272,7 +272,7 @@ impl ProtoOps for UdpSock {
     /// bounded turn left in the host socket comes with the reactor's next.
     fn recvmsg(&self, buf: &mut [u8]) -> Result<(usize, Option<SocketAddr>), Errno> {
         let mut state = self.state();
-        if let Some(err) = state.inet.error.take() {
+        if let Some(err) = state.inet.err.take() {
             return Err(err);
         }
         let Some((datagram, from)) = state.receive_queue.pop_front() else {
@@ -296,13 +296,13 @@ impl ProtoOps for UdpSock {
             return Err(Errno::MessageTooLong);
         }
         let mut state = self.state();
-        if let Some(err) = state.inet.error.take() {
+        if let Some(err) = state.inet.err.take() {
             return Err(err);
         }
         if state.inet.peer.is_none() {
             return Err(Errno::DestinationAddressRequired);
         }
-        if state.inet.send_shut {
+        if state.inet.send_shutdown {
             return Err(Errno::BrokenPipe);
         }
         let Some((socket, _)) = state.host.as_ref() else {
@@ -332,16 +332,16 @@ impl ProtoOps for UdpSock {
         poll_wait(&self.wait, table);
         let state = self.state();
         let mut mask = PollMask::default();
-        if !state.receive_queue.is_empty() || state.inet.rcv_shut {
+        if !state.receive_queue.is_empty() || state.inet.rcv_shutdown {
             mask = mask | PollMask::IN;
         }
         if (state.host.is_some() && state.writable) || state.inet.peer.is_none() {
             mask = mask | PollMask::OUT;
         }
-        if state.inet.rcv_shut && state.inet.send_shut {
+        if state.inet.rcv_shutdown && state.inet.send_shutdown {
             mask = mask | PollMask::HUP;
         }
-        if state.inet.error.is_some() {
+        if state.inet.err.is_some() {
             mask = mask | PollMask::ERR;
         }
         mask
@@ -642,7 +642,7 @@ mod tests {
     #[test]
     fn a_failure_answers_before_the_datagram_it_holds() {
         let (sock, _peer) = readable_socket();
-        sock.state().inet.error = Some(Errno::ConnectionRefused);
+        sock.state().inet.err = Some(Errno::ConnectionRefused);
         let polled = sock.poll(None);
         let mut buf = [0; 8];
         let first = sock.recvmsg(&mut buf);
