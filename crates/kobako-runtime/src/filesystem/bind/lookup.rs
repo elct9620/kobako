@@ -66,7 +66,7 @@ fn stored_by_inode(
         .ok_or(Errno::PermissionDenied)?
         .file_name()
         .into_string()
-        .map_err(|_| to_error(io::ErrorKind::InvalidData.into()))
+        .map_err(|_| Errno::IllegalSequence)
 }
 
 /// Without an inode nothing ties a spelling to a listed name.
@@ -181,8 +181,40 @@ mod linux {
     mod tests {
         use cap_std::ambient_authority;
 
-        use super::super::lookup_by_listing;
+        use super::super::{lookup_by_listing, stored_by_inode, Errno};
         use super::{fstatfs, matches_exactly, Dir, EXACT};
+
+        // A host spelling found by its inode answers as a listing of the
+        // same name does, so one condition gives the guest one error.
+        // @behavior FS-066
+        #[test]
+        fn a_stored_name_that_is_not_utf8_is_an_illegal_sequence() {
+            use std::os::unix::ffi::OsStrExt;
+
+            let path = std::env::temp_dir().join(format!("kobako-ilseq-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("the host directory must be created");
+            let stored = std::ffi::OsStr::from_bytes(b"\xff");
+            std::fs::write(path.join(stored), "x").expect("the host file must be written");
+            let dir = Dir::open_ambient_dir(&path, ambient_authority())
+                .expect("the host directory must open");
+            let found = dir
+                .symlink_metadata(stored)
+                .expect("the host file must stand");
+            let names = dir
+                .entries()
+                .expect("the host directory must list")
+                .collect::<Result<Vec<_>, _>>()
+                .expect("each listed name must be read");
+            let answered = stored_by_inode(names, &found);
+            let _ = std::fs::remove_dir_all(&path);
+            assert_eq!(
+                answered,
+                Err(Errno::IllegalSequence),
+                "a host name that is not UTF-8, found by its inode through stored_by_inode, must \
+                 fail as IllegalSequence, as a listing of it does"
+            );
+        }
 
         // A Directory opens its directories as cap-std does, for a path
         // alone, and a filesystem known to match exactly still spells
