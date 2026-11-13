@@ -4324,3 +4324,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a walk asking a directory's dentry whether it still names its entry |
 | When | a move carries the directory to another name before the walk drops the dentry |
 | Then | the dentry stays where the move put it, so a move beneath itself is still refused. `lookup_fast` retries once `d_seq` moved |
+
+## `RT-392` A file opened to sync reports every sync flag it holds
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-251` |
+
+| Step | Statement |
+| --- | --- |
+| Given | files opened with `O_DSYNC`, with `O_SYNC`, and with `O_RSYNC` |
+| When | the guest asks each for its flags |
+| Then | `O_DSYNC` reports `DSYNC` alone, and `O_SYNC` and `O_RSYNC` each report `DSYNC`, `SYNC`, and `RSYNC`, as Linux's `O_RSYNC` is `O_SYNC` |
