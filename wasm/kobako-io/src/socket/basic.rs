@@ -17,7 +17,7 @@ use super::ip::to_addr_array;
 use super::option::Refusal;
 use super::tcp::Connection;
 use crate::errno;
-use crate::io::{argument_error, split_options, would_wait, Direction};
+use crate::io::{argument_error, split_options, to_int, would_wait, Direction};
 use crate::wasi::wasi::io::poll::Pollable;
 
 /// Whether one call waits for the socket, as Linux's `MSG_DONTWAIT` chooses
@@ -258,7 +258,7 @@ fn written_bytes_of(mrb: &Mrb, object: Value) -> Result<Vec<u8>, Error> {
 /// The length `read` and `readpartial` are given, refusing a negative one as
 /// CRuby's `io_getpartial` does.
 pub(super) fn read_length_of(mrb: &Mrb, length: Value) -> Result<usize, Error> {
-    let length = i64::try_convert(length, mrb)?;
+    let length = to_int(mrb, length)?.to_i64(mrb)?;
     usize::try_from(length)
         .map_err(|_| argument_error(mrb, &format!("negative length {length} given")))
 }
@@ -266,7 +266,7 @@ pub(super) fn read_length_of(mrb: &Mrb, length: Value) -> Result<usize, Error> {
 /// The length a socket read sizes its buffer by, as CRuby's `rsock_strbuf`
 /// makes one, so a negative one raises what `rb_str_new` raises.
 pub(super) fn strbuf_length_of(mrb: &Mrb, length: Value) -> Result<usize, Error> {
-    usize::try_from(i64::try_convert(length, mrb)?)
+    usize::try_from(to_int(mrb, length)?.to_i64(mrb)?)
         .map_err(|_| argument_error(mrb, "negative string size (or size too big)"))
 }
 
@@ -821,7 +821,7 @@ fn socket_advise(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error
     open_socket_of(mrb, self_)?;
     // The offset and the length read as `NUM2OFFT`, after the open IO.
     for number in args[1..].iter().filter(|number| !number.is_nil()) {
-        i64::try_convert(*number, mrb)?;
+        to_int(mrb, *number)?.to_i64(mrb)?;
     }
     Ok(qnil().as_value())
 }

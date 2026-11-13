@@ -11,6 +11,7 @@ use beni::{
 use super::basic::{open_socket_of, string_bytes_of};
 use super::{family_of, name_of, socket_error, to_error, Family, AF_INET, AF_INET6};
 use crate::errno;
+use crate::io::to_int;
 use crate::wasi::wasi::sockets::network::ErrorCode;
 use crate::wasi::wasi::sockets::tcp::TcpSocket;
 use crate::wasi::wasi::sockets::udp::UdpSocket;
@@ -172,7 +173,7 @@ pub(super) fn init(mrb: &Mrb, socket: RClass, basic: RClass) -> Result<(), Error
 /// String, or an Integer.
 fn level_of(mrb: &Mrb, value: Value) -> Result<i32, Error> {
     let Some(name) = name_of(mrb, value)? else {
-        return i32::try_convert(value, mrb);
+        return to_int(mrb, value)?.to_i32(mrb);
     };
     LEVELS
         .iter()
@@ -186,7 +187,7 @@ fn level_of(mrb: &Mrb, value: Value) -> Result<i32, Error> {
 fn optname_of(mrb: &Mrb, level: i32, value: Value) -> Result<i32, Error> {
     let known = LEVELS.iter().find(|known| known.number == level);
     let (Some(level), Some(name)) = (known, name_of(mrb, value)?) else {
-        return i32::try_convert(value, mrb);
+        return to_int(mrb, value)?.to_i32(mrb);
     };
     let bare = name.strip_prefix(level.option_prefix).unwrap_or(&name);
     level
@@ -530,7 +531,7 @@ fn option_s_int(
     optname: Value,
     int: Value,
 ) -> Result<Value, Error> {
-    let data = i32::try_convert(int, mrb)?.to_le_bytes().to_vec();
+    let data = to_int(mrb, int)?.to_i32(mrb)?.to_le_bytes().to_vec();
     new_option(mrb, class, (family, level, optname), data)
 }
 

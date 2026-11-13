@@ -1274,6 +1274,30 @@ fn a_seek_by_a_whence_no_name_stands_for_raises_type_error() {
     );
 }
 
+// @behavior FL-088
+#[test]
+fn a_number_a_file_call_takes_converts_through_to_int() {
+    let script = r#"
+        o = Object.new
+        def o.to_int = 2
+        refused = begin
+          File.open("/data/lines.txt") { |f| f.gets(true) }
+        rescue TypeError => e
+          e.message
+        end
+        print [File.open("/data/lines.txt") { |f| f.gets(o) }, refused].inspect
+    "#;
+    let Some(answer) = run(script, &[mount(lines_tmpfs(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(r#"["on", "no implicit conversion of true into Integer"]"#.to_string()),
+        "File#gets limited by an object answering to_int 2 through the bundled guest must read \
+         two bytes, and a limit of true must raise TypeError naming it, as CRuby's NUM2LONG"
+    );
+}
+
 // @behavior FL-087
 #[test]
 fn a_seek_reads_a_float_whence_as_the_integer_it_truncates_to() {

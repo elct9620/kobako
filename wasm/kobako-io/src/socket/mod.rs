@@ -29,7 +29,7 @@ use std::ffi::CString;
 
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{Error, Exception, ExceptionClass, Module, Mrb, RClass, Symbol, TryConvert, Value};
+use beni::{Error, Exception, ExceptionClass, Module, Mrb, RClass, Symbol, Value};
 
 pub(crate) use address::port_of;
 pub(crate) use basic::{
@@ -173,7 +173,7 @@ fn socket_error(mrb: &Mrb, message: &str) -> Error {
 /// String, or an Integer; a name no family has raises `SocketError`.
 fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
     let Some(name) = name_of(mrb, value)? else {
-        return Ok(Family::Number(i64::try_convert(value, mrb)?));
+        return Ok(Family::Number(crate::io::to_int(mrb, value)?.to_i64(mrb)?));
     };
     let bare = name
         .strip_prefix("AF_")

@@ -16,7 +16,7 @@ use super::ip::ensure_reverse_lookup_flag;
 use super::{
     family_of, name_of, resolution_error, socket_error, Family, AF_INET, AF_INET6, EAI_NONAME,
 };
-use crate::io::{argument_error, split_options};
+use crate::io::{argument_error, split_options, to_int};
 
 /// Linux's socket kinds, and the protocols each IP kind carries.
 pub(super) const SOCK_STREAM: i64 = 1;
@@ -190,7 +190,7 @@ fn socktype_of(mrb: &Mrb, value: Option<Value>) -> Result<i64, Error> {
         return Ok(0);
     };
     let Some(name) = name_of(mrb, value)? else {
-        return i64::try_convert(value, mrb);
+        return to_int(mrb, value)?.to_i64(mrb);
     };
     match name.strip_prefix("SOCK_").unwrap_or(&name) {
         "STREAM" => Ok(SOCK_STREAM),
@@ -301,11 +301,11 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
 fn hints_of(mrb: &Mrb, args: &[Value]) -> Result<Hints, Error> {
     let at = |i: usize| args.get(i).copied();
     let flags = match at(3).filter(|flags| !flags.is_nil()) {
-        Some(flags) => i64::try_convert(flags, mrb)?,
+        Some(flags) => to_int(mrb, flags)?.to_i64(mrb)?,
         None => 0,
     };
     let protocol = match at(2).filter(|protocol| !protocol.is_nil()) {
-        Some(protocol) => i64::try_convert(protocol, mrb)?,
+        Some(protocol) => to_int(mrb, protocol)?.to_i64(mrb)?,
         None => 0,
     };
     Ok(Hints {
@@ -412,7 +412,7 @@ fn addrinfo_s_new(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Erro
     };
     let at = |i: usize| rest.get(i).copied();
     let protocol = match at(2).filter(|protocol| !protocol.is_nil()) {
-        Some(protocol) => i64::try_convert(protocol, mrb)?,
+        Some(protocol) => to_int(mrb, protocol)?.to_i64(mrb)?,
         None => 0,
     };
     let mut info = Addrinfo::new(ip, port, (socktype_of(mrb, at(1))?, protocol));
@@ -577,7 +577,7 @@ fn addrinfo_ipv6_to_ipv4(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// `NI_NUMERICHOST` and `NI_NUMERICSERV` ask.
 fn addrinfo_getnameinfo(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if let Some(flags) = args.first().filter(|_| args.len() == 1) {
-        i64::try_convert(*flags, mrb)?;
+        to_int(mrb, *flags)?.to_i64(mrb)?;
     } else if !args.is_empty() {
         return Err(Error::argnum(mrb, args.len(), 0, 1));
     }

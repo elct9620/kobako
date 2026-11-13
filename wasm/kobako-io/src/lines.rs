@@ -7,7 +7,7 @@ use beni::prelude::*;
 use beni::value::qnil;
 use beni::{Error, Mrb, RHash, RString, Symbol, TryConvert, Value};
 
-use crate::io::{argument_error, required_block};
+use crate::io::{argument_error, required_block, to_int};
 use crate::socket::string_value_of;
 
 /// What a stream reads lines from: the next bytes it has, `None` at the end,
@@ -47,7 +47,7 @@ fn separator_and_limit_of(
         if value.is_nil() {
             return Ok(None);
         }
-        Ok(usize::try_from(i64::try_convert(value, mrb)?).ok())
+        Ok(usize::try_from(to_int(mrb, value)?.to_i64(mrb)?).ok())
     };
     let separator_of = |value: Value| -> Result<Option<Vec<u8>>, Error> {
         if value.is_nil() {
