@@ -231,20 +231,20 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | When | guest code's last expression puts a character |
 | Then | the invocation answers that character, as CRuby's `Kernel#putc` does |
 
-## `IO-027` The writing delegators are not callable on a receiver
+## `IO-027` The Kernel writers are not callable on a receiver
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | guest code calls a writing delegator with an explicit receiver |
+| When | guest code calls a Kernel writer with an explicit receiver |
 | Then | the invocation fails with the guest's no-method error |
 
-## `IO-028` A refused delegator writes nothing on its way out
+## `IO-028` A refused Kernel writer writes nothing on its way out
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | guest code calls a writing delegator with an explicit receiver |
+| When | guest code calls a Kernel writer with an explicit receiver |
 | Then | the output capture is empty |
 
 ## `IO-029` Putting a string writes its first character
