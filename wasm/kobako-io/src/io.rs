@@ -441,12 +441,7 @@ fn to_putc_byte(mrb: &Mrb, obj: Value) -> Result<Option<u8>, Error> {
         // SAFETY: the first byte is copied out before the next mruby call.
         return Ok(unsafe { s.as_slice(mrb) }.first().copied());
     }
-    let number = match (Integer::from_value(obj), Float::from_value(obj)) {
-        (Some(int), _) => int,
-        (None, Some(_)) => obj.funcall(mrb, c"to_i", ())?,
-        (None, None) => to_int(mrb, obj)?,
-    };
-    let wide = number.to_i64(mrb)?;
+    let wide = to_int(mrb, obj)?.to_i64(mrb)?;
     let narrow = i32::try_from(wide).map_err(|_| {
         errno::to_error(
             mrb,
@@ -457,10 +452,17 @@ fn to_putc_byte(mrb: &Mrb, obj: Value) -> Result<Option<u8>, Error> {
     Ok(Some(narrow as u8))
 }
 
-/// The Integer `obj` converts to through its `to_int`, as CRuby's `rb_to_int`
-/// asks; one with no `to_int`, or whose `to_int` answers no Integer, raises
-/// `TypeError`.
+/// The Integer `obj` stands for, as CRuby's `rb_num2long` reads it: an
+/// Integer as itself, a Float truncated, and anything else through its
+/// `to_int`, as `rb_to_int` asks; one with no `to_int`, or whose `to_int`
+/// answers no Integer, raises `TypeError`.
 pub(crate) fn to_int(mrb: &Mrb, obj: Value) -> Result<Integer, Error> {
+    if let Some(int) = Integer::from_value(obj) {
+        return Ok(int);
+    }
+    if Float::from_value(obj).is_some() {
+        return obj.funcall(mrb, c"to_i", ());
+    }
     let to_int = Symbol::new(mrb, "to_int")?.as_value();
     if !obj.is_nil() && obj.funcall::<_, _, bool>(mrb, c"respond_to?", [to_int])? {
         let converted: Value = obj.funcall(mrb, c"to_int", ())?;

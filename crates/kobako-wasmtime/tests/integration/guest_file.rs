@@ -1273,3 +1273,20 @@ fn a_seek_by_a_whence_no_name_stands_for_raises_type_error() {
          refuses a Symbol"
     );
 }
+
+// @behavior FL-087
+#[test]
+fn a_seek_reads_a_float_whence_as_the_integer_it_truncates_to() {
+    let script = r#"
+        print File.open("/data/lines.txt") { |f| f.seek(4); f.seek(2, 1.5); f.pos }.inspect
+    "#;
+    let Some(answer) = run(script, &[mount(lines_tmpfs(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok("6".to_string()),
+        "File#seek by the whence 1.5 through the bundled guest must seek from where it stands, \
+         as CRuby truncates a Float"
+    );
+}
