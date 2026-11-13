@@ -17,7 +17,8 @@ use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
 use super::path::retry_eagain;
 use super::types::{self, Fdflags, Filetype, Fstflags, Rights};
-use crate::descriptors::{Descriptor, Descriptors};
+use crate::descriptors::Descriptor;
+use crate::wasi::Wasi;
 
 /// What a preopen allows itself: every path call, as wasmtime-wasi hands
 /// most userlands.
@@ -62,14 +63,14 @@ fn directory_rights_inheriting() -> Rights {
 
 /// What `fd` stands for, a file that stands only for its path included, as
 /// `fdget_raw` takes one.
-fn descriptor(table: &Descriptors, fd: u32) -> Answer<&Descriptor> {
-    table.get(fd).ok_or_else(|| Errno::Badf.into())
+fn descriptor(wasi: &Wasi, fd: u32) -> Answer<&Descriptor> {
+    wasi.descriptors().get(fd).ok_or_else(|| Errno::Badf.into())
 }
 
 /// The open file `fd` stands for, refusing one that stands only for its path,
 /// as `fdget` does.
-pub(crate) fn file(table: &Descriptors, fd: u32) -> Answer<&File> {
-    match table.get(fd) {
+pub(crate) fn file(wasi: &Wasi, fd: u32) -> Answer<&File> {
+    match wasi.descriptors().get(fd) {
         Some(descriptor) if !descriptor.file.is_path() => Ok(&descriptor.file),
         _ => Err(Errno::Badf.into()),
     }
@@ -77,8 +78,8 @@ pub(crate) fn file(table: &Descriptors, fd: u32) -> Answer<&File> {
 
 /// The open file `fd` stands for, to change, refusing one that stands only for
 /// its path, as `fdget` does.
-fn file_mut(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
-    match table.get_mut(fd) {
+fn file_mut(wasi: &mut Wasi, fd: u32) -> Answer<&mut File> {
+    match wasi.descriptors_mut().get_mut(fd) {
         Some(descriptor) if !descriptor.file.is_path() => Ok(&mut descriptor.file),
         _ => Err(Errno::Badf.into()),
     }
@@ -86,8 +87,8 @@ fn file_mut(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
 
 /// The open file `fd` stands for, in a call about its position. wasi-testsuite
 /// has a directory refuse one, where Linux would seek it.
-fn seekable_file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
-    match file_mut(table, fd)? {
+fn seekable_file(wasi: &mut Wasi, fd: u32) -> Answer<&mut File> {
+    match file_mut(wasi, fd)? {
         file if file.is_directory() => Err(Errno::Badf.into()),
         file => Ok(file),
     }
@@ -95,8 +96,8 @@ fn seekable_file(table: &mut Descriptors, fd: u32) -> Answer<&mut File> {
 
 /// A call any file or directory answers, which preview1 refuses for
 /// stdio.
-fn refuse_stream(table: &Descriptors, fd: u32) -> Answer {
-    match descriptor(table, fd)?.file.is_stream() {
+fn refuse_stream(wasi: &Wasi, fd: u32) -> Answer {
+    match descriptor(wasi, fd)?.file.is_stream() {
         true => Err(Errno::Badf.into()),
         false => Ok(()),
     }
@@ -116,10 +117,10 @@ fn to_filetype(file_type: FileType) -> Filetype {
     }
 }
 
-/// A `filestat` for what a Filesystem reports a path names, as the guest
-/// holding `table` sees it, at time zero where it keeps no time.
-pub(crate) fn to_filestat(table: &Descriptors, stat: Kstat) -> types::Filestat {
-    let stat = vfs::cp_new_stat(table.cred(), stat);
+/// A `filestat` for what a Filesystem reports a path names, as `cred` sees
+/// it, at time zero where it keeps no time.
+pub(crate) fn to_filestat(cred: &Cred, stat: Kstat) -> types::Filestat {
+    let stat = vfs::cp_new_stat(cred, stat);
     types::Filestat {
         dev: stat.dev,
         ino: stat.ino,
@@ -174,24 +175,29 @@ fn to_iattr(
     Ok((atime.is_some() || mtime.is_some()).then(|| Iattr::times(atime, mtime)))
 }
 
-pub(crate) fn advise(table: &mut Descriptors, fd: u32, offset: u64, len: u64) -> Answer {
-    Ok(file_mut(table, fd)?.fadvise(offset, len)?)
+pub(crate) fn advise(wasi: &mut Wasi, fd: u32, offset: u64, len: u64) -> Answer {
+    Ok(file_mut(wasi, fd)?.fadvise(offset, len)?)
 }
 
-pub(crate) fn allocate(table: &mut Descriptors, fd: u32, offset: u64, len: u64) -> Answer {
-    Ok(file_mut(table, fd)?.fallocate(offset, len)?)
+pub(crate) fn allocate(wasi: &mut Wasi, fd: u32, offset: u64, len: u64) -> Answer {
+    Ok(file_mut(wasi, fd)?.fallocate(offset, len)?)
 }
 
-pub(crate) fn close(table: &mut Descriptors, fd: u32) -> Answer {
-    Ok(table.remove(fd).ok_or(Errno::Badf)?.file.close()?)
+pub(crate) fn close(wasi: &mut Wasi, fd: u32) -> Answer {
+    Ok(wasi
+        .descriptors_mut()
+        .remove(fd)
+        .ok_or(Errno::Badf)?
+        .file
+        .close()?)
 }
 
-pub(crate) fn sync(table: &mut Descriptors, fd: u32, datasync: bool) -> Answer {
-    Ok(file_mut(table, fd)?.fsync(datasync)?)
+pub(crate) fn sync(wasi: &mut Wasi, fd: u32, datasync: bool) -> Answer {
+    Ok(file_mut(wasi, fd)?.fsync(datasync)?)
 }
 
-pub(crate) fn fdstat_get(table: &Descriptors, fd: u32) -> Answer<types::Fdstat> {
-    let descriptor = descriptor(table, fd)?;
+pub(crate) fn fdstat_get(wasi: &Wasi, fd: u32) -> Answer<types::Fdstat> {
+    let descriptor = descriptor(wasi, fd)?;
     Ok(to_fdstat(
         &descriptor.file,
         descriptor.preopen_path.is_some(),
@@ -240,8 +246,8 @@ fn to_fdstat(file: &File, preopen: bool) -> types::Fdstat {
     }
 }
 
-pub(crate) fn fdstat_set_flags(table: &mut Descriptors, fd: u32, flags: Fdflags) -> Answer {
-    file_mut(table, fd)?.setfl(
+pub(crate) fn fdstat_set_flags(wasi: &mut Wasi, fd: u32, flags: Fdflags) -> Answer {
+    file_mut(wasi, fd)?.setfl(
         flags.contains(Fdflags::APPEND),
         flags.contains(Fdflags::NONBLOCK),
     );
@@ -249,47 +255,48 @@ pub(crate) fn fdstat_set_flags(table: &mut Descriptors, fd: u32, flags: Fdflags)
 }
 
 /// Rights only narrow at open, so a later change is unsupported.
-pub(crate) fn fdstat_set_rights(table: &Descriptors, fd: u32) -> Answer {
-    refuse_stream(table, fd)?;
+pub(crate) fn fdstat_set_rights(wasi: &Wasi, fd: u32) -> Answer {
+    refuse_stream(wasi, fd)?;
     Err(Errno::Notsup.into())
 }
 
-pub(crate) fn filestat_get(table: &Descriptors, fd: u32) -> Answer<types::Filestat> {
-    Ok(to_filestat(table, descriptor(table, fd)?.file.getattr()?))
+pub(crate) fn filestat_get(wasi: &Wasi, fd: u32) -> Answer<types::Filestat> {
+    let stat = descriptor(wasi, fd)?.file.getattr()?;
+    Ok(to_filestat(wasi.cred(), stat))
 }
 
 /// A size Linux's signed `loff_t` reads as negative answers before the
 /// descriptor is looked for, as `ksys_ftruncate` checks it before `fdget`.
-pub(crate) fn filestat_set_size(table: &mut Descriptors, fd: u32, size: u64) -> Answer {
+pub(crate) fn filestat_set_size(wasi: &mut Wasi, fd: u32, size: u64) -> Answer {
     if i64::try_from(size).is_err() {
         return Err(Errno::Inval.into());
     }
-    Ok(file_mut(table, fd)?.truncate(size)?)
+    Ok(file_mut(wasi, fd)?.truncate(size)?)
 }
 
-pub(crate) fn filestat_set_times(table: &Descriptors, fd: u32, times: &Iattr) -> Answer {
-    let file = file(table, fd)?;
+pub(crate) fn filestat_set_times(wasi: &Wasi, fd: u32, times: &Iattr) -> Answer {
+    let file = file(wasi, fd)?;
     Ok(retry_eagain(|| {
-        table.walk_guard().check(file.path())?;
-        vfs::do_utimes_fd(table.cred(), file.path(), times)
+        wasi.walk_guard().check(file.path())?;
+        vfs::do_utimes_fd(wasi.cred(), file.path(), times)
     })?)
 }
 
 pub(crate) fn pread(
-    table: &mut Descriptors,
+    wasi: &mut Wasi,
     mem: &mut GuestMemory<'_, '_>,
     fd: u32,
     iovs: types::IovecArray,
     offset: u64,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_iovec(iovs)?;
-    let file = file_mut(table, fd)?;
+    let file = file_mut(wasi, fd)?;
     file.may_pread(offset)?;
     Ok(file.pread(mem.bytes_mut(buf)?, offset)? as u32)
 }
 
-pub(crate) fn prestat_get(table: &Descriptors, fd: u32) -> Answer<types::Prestat> {
-    match &descriptor(table, fd)?.preopen_path {
+pub(crate) fn prestat_get(wasi: &Wasi, fd: u32) -> Answer<types::Prestat> {
+    match &descriptor(wasi, fd)?.preopen_path {
         Some(at) => Ok(types::Prestat::Dir(types::PrestatDir {
             pr_name_len: at.len() as u32,
         })),
@@ -298,13 +305,13 @@ pub(crate) fn prestat_get(table: &Descriptors, fd: u32) -> Answer<types::Prestat
 }
 
 pub(crate) fn prestat_dir_name(
-    table: &Descriptors,
+    wasi: &Wasi,
     mem: &mut GuestMemory<'_, '_>,
     fd: u32,
     path: GuestPtr<u8>,
     path_len: u32,
 ) -> Answer {
-    match &descriptor(table, fd)?.preopen_path {
+    match &descriptor(wasi, fd)?.preopen_path {
         Some(at) => {
             let name = at.as_bytes();
             if name.len() > path_len as usize {
@@ -317,26 +324,26 @@ pub(crate) fn prestat_dir_name(
 }
 
 pub(crate) fn pwrite(
-    table: &mut Descriptors,
+    wasi: &mut Wasi,
     mem: &mut GuestMemory<'_, '_>,
     fd: u32,
     ciovs: types::CiovecArray,
     offset: u64,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_ciovec(ciovs)?;
-    let file = file_mut(table, fd)?;
+    let file = file_mut(wasi, fd)?;
     file.may_pwrite(offset)?;
     Ok(file.pwrite(mem.bytes(buf)?, offset)? as u32)
 }
 
 pub(crate) fn read(
-    table: &mut Descriptors,
+    wasi: &mut Wasi,
     mem: &mut GuestMemory<'_, '_>,
     fd: u32,
     iovs: types::IovecArray,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_iovec(iovs)?;
-    let file = file_mut(table, fd)?;
+    let file = file_mut(wasi, fd)?;
     file.may_read()?;
     // Bounded before the file is asked, as a trap takes no bytes from a pipe.
     Ok(file.read(mem.bytes_mut(buf)?)? as u32)
@@ -399,15 +406,15 @@ fn write_d_next(
 /// A directory's entries from the `cookie`th on, cut off where the buffer
 /// ends.
 pub(crate) fn readdir(
-    table: &mut Descriptors,
+    wasi: &mut Wasi,
     mem: &mut GuestMemory<'_, '_>,
     fd: u32,
     start: GuestPtr<u8>,
     capacity: u32,
     cookie: u64,
 ) -> Answer<types::Size> {
-    let cred = table.cred().clone();
-    let dir = file_mut(table, fd)?;
+    let cred = wasi.cred().clone();
+    let dir = file_mut(wasi, fd)?;
     // preview1 names where a listing goes on by its cookie, as wasi-libc's
     // `seekdir` moves a directory's position before `getdents`; a listing going
     // on from where the last one stopped needs no seek.
@@ -455,46 +462,42 @@ pub(crate) fn readdir(
 /// preview1 renumbering moves `from` onto `to`, both already open, then
 /// closes what stood at `to`, ignoring how its close answers, as Linux's
 /// `do_dup2` installs the file before `filp_close` of the one it replaced.
-pub(crate) fn renumber(table: &mut Descriptors, from: u32, to: u32) -> Answer {
-    if table.get(from).is_none() || table.get(to).is_none() {
+pub(crate) fn renumber(wasi: &mut Wasi, from: u32, to: u32) -> Answer {
+    let descriptors = wasi.descriptors_mut();
+    if descriptors.get(from).is_none() || descriptors.get(to).is_none() {
         return Err(Errno::Badf.into());
     }
     if from == to {
         return Ok(());
     }
-    let moved = table.remove(from).expect("found open above");
-    let replaced = table.remove(to).expect("found open above");
-    table.place(to, moved);
+    let moved = descriptors.remove(from).expect("found open above");
+    let replaced = descriptors.remove(to).expect("found open above");
+    descriptors.place(to, moved);
     let _ = replaced.file.close();
     Ok(())
 }
 
-pub(crate) fn seek(
-    table: &mut Descriptors,
-    fd: u32,
-    offset: i64,
-    whence: types::Whence,
-) -> Answer<u64> {
+pub(crate) fn seek(wasi: &mut Wasi, fd: u32, offset: i64, whence: types::Whence) -> Answer<u64> {
     let whence = match whence {
         types::Whence::Set => Whence::Set,
         types::Whence::Cur => Whence::Cur,
         types::Whence::End => Whence::End,
     };
-    Ok(seekable_file(table, fd)?.llseek(offset, whence)?)
+    Ok(seekable_file(wasi, fd)?.llseek(offset, whence)?)
 }
 
-pub(crate) fn tell(table: &mut Descriptors, fd: u32) -> Answer<u64> {
-    seek(table, fd, 0, types::Whence::Cur)
+pub(crate) fn tell(wasi: &mut Wasi, fd: u32) -> Answer<u64> {
+    seek(wasi, fd, 0, types::Whence::Cur)
 }
 
 pub(crate) fn write(
-    table: &mut Descriptors,
+    wasi: &mut Wasi,
     mem: &mut GuestMemory<'_, '_>,
     fd: u32,
     ciovs: types::CiovecArray,
 ) -> Answer<types::Size> {
     let buf = mem.first_non_empty_ciovec(ciovs)?;
-    let file = file_mut(table, fd)?;
+    let file = file_mut(wasi, fd)?;
     file.may_write()?;
     Ok(file.write(mem.bytes(buf)?)? as u32)
 }
@@ -538,17 +541,17 @@ mod tests {
 
     /// `fd_filestat_set_times` of `fd` setting both times to zero as `flags`
     /// ask, as the dispatcher answers it.
-    fn set_times(table: &Descriptors, fd: u32, flags: Fstflags) -> Answer {
-        utimensat(0, 0, flags, |times| filestat_set_times(table, fd, times))
+    fn set_times(wasi: &Wasi, fd: u32, flags: Fstflags) -> Answer {
+        utimensat(0, 0, flags, |times| filestat_set_times(wasi, fd, times))
     }
-    use crate::descriptors::{Descriptor, Descriptors};
+    use crate::descriptors::Descriptor;
     use crate::preview1::memory::GuestMemory;
     use crate::preview1::path::{
         create_directory, filestat_set_times as path_set_times, open as path_open, readlink,
         rename, symlink, PathOpen,
     };
     use crate::preview1::types::{self, Rights, Whence};
-    use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
+    use crate::wasi::Wasi;
     use kobako_runtime::filesystem::{
         FileOperations, FileType, Filesystem, InodeOperations, Kstat, Lookup,
     };
@@ -562,30 +565,15 @@ mod tests {
         vfs::build_open_flags(how).expect("the flags must mean an open")
     }
 
-    /// A table holding the three standard streams and `mounts`, at most `limit`
-    /// descriptors open, as a Driver makes one.
-    fn table_of(
-        mounts: Vec<Mount>,
-        limit: Option<usize>,
-    ) -> Result<Descriptors, kobako_runtime::Errno> {
-        let cred = prepare_creds_within(&[], None);
-        let ends = |pipe| create_pipe_files(&pipe, &cred);
-        Descriptors::new(
-            ends(PipeInodeInfo::from_bytes(Vec::new())).0,
-            ends(PipeInodeInfo::new(1)).1,
-            ends(PipeInodeInfo::new(1)).1,
-            &mounts
-                .into_iter()
-                .map(kobako_runtime::grant::Grant::Mount)
-                .collect::<Vec<_>>(),
-            kobako_runtime::vfs::OpenFiles::new(limit),
-            cred.clone(),
-        )
+    /// A context holding the three standard streams and `mounts`, at most
+    /// `limit` descriptors open, as a Driver makes one.
+    fn wasi_of(mounts: Vec<Mount>, limit: Option<usize>) -> Wasi {
+        Wasi::with_mounts(mounts, limit).unwrap_or_else(|_| panic!("the context must make"))
     }
 
-    /// A table holding only the three standard streams.
-    fn standard_streams() -> Descriptors {
-        table_of(Vec::new(), None).expect("a table holding no Mount must make")
+    /// A context holding only the three standard streams.
+    fn standard_streams() -> Wasi {
+        wasi_of(Vec::new(), None)
     }
 
     /// The code a call answered, if it answered one.
@@ -596,13 +584,13 @@ mod tests {
     // @behavior RT-177
     #[test]
     fn a_standard_stream_answers_as_a_pipe_does() {
-        let mut table = standard_streams();
+        let mut wasi = standard_streams();
         assert_eq!(
             [
-                errno(sync(&mut table, 1, false)),
-                errno(filestat_set_size(&mut table, 1, 0)),
-                errno(tell(&mut table, 0)),
-                errno(tell(&mut table, 1)),
+                errno(sync(&mut wasi, 1, false)),
+                errno(filestat_set_size(&mut wasi, 1, 0)),
+                errno(tell(&mut wasi, 0)),
+                errno(tell(&mut wasi, 1)),
             ],
             [
                 Some(Errno::Inval),
@@ -706,10 +694,13 @@ mod tests {
     // @behavior RT-176
     #[test]
     fn a_file_without_fsync_refuses_a_sync() {
-        let mut table = standard_streams();
-        let fd = table.push(open_file()).expect("a descriptor to sync");
+        let mut wasi = standard_streams();
+        let fd = wasi
+            .descriptors_mut()
+            .push(open_file())
+            .expect("a descriptor to sync");
         assert_eq!(
-            errno(sync(&mut table, fd, false)),
+            errno(sync(&mut wasi, fd, false)),
             Some(Errno::Inval),
             "fd_sync on a file whose Filesystem has no fsync must answer EINVAL"
         );
@@ -718,19 +709,22 @@ mod tests {
     // @behavior RT-129
     #[test]
     fn a_file_set_not_to_block_reports_it() {
-        let mut table = standard_streams();
-        let fd = table.push(open_file()).expect("a descriptor to set");
-        let flags = |table: &Descriptors| {
-            fdstat_get(table, fd)
+        let mut wasi = standard_streams();
+        let fd = wasi
+            .descriptors_mut()
+            .push(open_file())
+            .expect("a descriptor to set");
+        let flags = |wasi: &Wasi| {
+            fdstat_get(wasi, fd)
                 .unwrap_or_else(|_| panic!("the file must report its flags"))
                 .fs_flags
         };
         assert!(
-            fdstat_set_flags(&mut table, fd, Fdflags::NONBLOCK | Fdflags::SYNC).is_ok(),
+            fdstat_set_flags(&mut wasi, fd, Fdflags::NONBLOCK | Fdflags::SYNC).is_ok(),
             "fd_fdstat_set_flags asking not to block and to sync must succeed, as Linux's setfl"
         );
         assert_eq!(
-            flags(&table),
+            flags(&wasi),
             Fdflags::NONBLOCK,
             "fd_fdstat_get after fd_fdstat_set_flags must report not blocking and, as Linux's \
              setfl ignores it, no sync"
@@ -742,21 +736,22 @@ mod tests {
     // @behavior RT-275
     #[test]
     fn a_stream_reports_what_it_was_opened_and_set_for() {
-        let mut table = standard_streams();
+        let mut wasi = standard_streams();
         let mut how = OpenHow::default();
         how.read = true;
         how.write = true;
-        let fd = table
+        let fd = wasi
+            .descriptors_mut()
             .push(open_held(
                 Holds(FileType::RegFile, || Box::new(Stream)),
                 &how,
             ))
             .expect("a descriptor to set");
         assert!(
-            fdstat_set_flags(&mut table, fd, Fdflags::APPEND | Fdflags::NONBLOCK).is_ok(),
+            fdstat_set_flags(&mut wasi, fd, Fdflags::APPEND | Fdflags::NONBLOCK).is_ok(),
             "fd_fdstat_set_flags asking a stream to append and not to block must succeed"
         );
-        let stat = fdstat_get(&table, fd).unwrap_or_else(|_| panic!("the stream must report"));
+        let stat = fdstat_get(&wasi, fd).unwrap_or_else(|_| panic!("the stream must report"));
         assert_eq!(
             (
                 stat.fs_flags,
@@ -772,15 +767,16 @@ mod tests {
     // @behavior RT-276
     #[test]
     fn a_descriptor_reports_the_kind_its_file_is() {
-        let mut table = standard_streams();
-        let fd = table
+        let mut wasi = standard_streams();
+        let fd = wasi
+            .descriptors_mut()
             .push(open_held(
                 Holds(FileType::Chrdev, || Box::new(RefusesClose)),
                 &OpenHow::default(),
             ))
             .expect("a descriptor to ask about");
         assert_eq!(
-            fdstat_get(&table, fd)
+            fdstat_get(&wasi, fd)
                 .unwrap_or_else(|_| panic!("the device must report"))
                 .fs_filetype,
             types::Filetype::CharacterDevice,
@@ -800,12 +796,11 @@ mod tests {
             Access::Read,
         )
         .expect("/data is a guest path");
-        let mut table =
-            table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
+        let mut wasi = wasi_of(vec![mount], None);
         assert_eq!(
             (
-                errno(tell(&mut table, 3)),
-                errno(seek(&mut table, 3, 0, Whence::Set)),
+                errno(tell(&mut wasi, 3)),
+                errno(seek(&mut wasi, 3, 0, Whence::Set)),
             ),
             (Some(Errno::Badf), Some(Errno::Badf)),
             "fd_tell and fd_seek on a directory through preview1 must answer EBADF, as \
@@ -824,9 +819,8 @@ mod tests {
         )
         .expect("/data is a guest path");
         let root = Path::root(mount.mnt());
-        let mut table =
-            table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
-        let cred = table.cred().clone();
+        let mut wasi = wasi_of(vec![mount], None);
+        let cred = wasi.cred().clone();
         let mut reported = |dsync, sync| {
             let mut how = OpenHow::default();
             how.write = true;
@@ -834,10 +828,11 @@ mod tests {
             how.sync = sync;
             let opened = vfs::do_file_open(&cred, &root, "f", &flags_of(&how))
                 .unwrap_or_else(|_| panic!("the file must open"));
-            let fd = table
+            let fd = wasi
+                .descriptors_mut()
                 .push(Descriptor::for_file(opened))
                 .unwrap_or_else(|| panic!("the table must have room"));
-            let Ok(stat) = fdstat_get(&table, fd) else {
+            let Ok(stat) = fdstat_get(&wasi, fd) else {
                 panic!("the descriptor must report itself");
             };
             (
@@ -880,21 +875,21 @@ mod tests {
         .expect("/data is a guest path")
         .with_policy(policy.clone());
         let root = Path::root(mount.mnt());
-        let mut table =
-            table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
-        let cred = table.cred().clone();
+        let mut wasi = wasi_of(vec![mount], None);
+        let cred = wasi.cred().clone();
         let mut read = OpenHow::default();
         read.read = true;
         let opened = vfs::do_file_open(&cred, &root, "f", &flags_of(&read))
             .unwrap_or_else(|_| panic!("the file must open"));
-        let fd = table
+        let fd = wasi
+            .descriptors_mut()
             .push(Descriptor::for_file(opened))
             .unwrap_or_else(|| panic!("the table must have room"));
         vfs::filename_unlinkat(&cred, &root, "f").unwrap_or_else(|_| panic!("the name must go"));
         policy.0.store(0, Ordering::SeqCst);
         assert_eq!(
             (
-                errno(set_times(&table, fd, Fstflags::ATIM_NOW)),
+                errno(set_times(&wasi, fd, Fstflags::ATIM_NOW)),
                 policy.0.load(Ordering::SeqCst)
             ),
             (Some(Errno::Noent), 0),
@@ -912,12 +907,12 @@ mod tests {
             Access::Read,
         )
         .expect("/data is a guest path");
-        let table = table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
+        let wasi = wasi_of(vec![mount], None);
         assert_eq!(
             (
-                errno(set_times(&table, 3, Fstflags::MTIM)),
-                errno(set_times(&table, 3, Fstflags::empty())),
-                errno(set_times(&table, 3, Fstflags::MTIM | Fstflags::MTIM_NOW)),
+                errno(set_times(&wasi, 3, Fstflags::MTIM)),
+                errno(set_times(&wasi, 3, Fstflags::empty())),
+                errno(set_times(&wasi, 3, Fstflags::MTIM | Fstflags::MTIM_NOW)),
             ),
             (Some(Errno::Rofs), None, Some(Errno::Inval)),
             "fd_filestat_set_times beneath a read-only Mount through preview1 must answer EROFS, \
@@ -928,13 +923,16 @@ mod tests {
     // @behavior RT-185
     #[test]
     fn a_path_call_starting_from_a_file_is_not_a_directory() {
-        let mut table = standard_streams();
-        let fd = table.push(open_file()).expect("a descriptor to start from");
+        let mut wasi = standard_streams();
+        let fd = wasi
+            .descriptors_mut()
+            .push(open_file())
+            .expect("a descriptor to start from");
         let mut bytes = *b"a";
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 1);
         assert_eq!(
-            errno(create_directory(&table, &mem, fd, GuestPtr::new((0, 1)))),
+            errno(create_directory(&wasi, &mem, fd, GuestPtr::new((0, 1)))),
             Some(Errno::Notdir),
             "path_create_directory starting from a file through preview1 must answer ENOTDIR, as \
              Linux refuses a walk starting there"
@@ -946,8 +944,11 @@ mod tests {
     // @behavior RT-225 RT-230 RT-231 RT-232
     #[test]
     fn a_call_no_walk_can_take_answers_before_where_it_starts() {
-        let mut table = standard_streams();
-        let fd = table.push(open_file()).expect("a descriptor to start from");
+        let mut wasi = standard_streams();
+        let fd = wasi
+            .descriptors_mut()
+            .push(open_file())
+            .expect("a descriptor to start from");
         let mut bytes = vec![b'a'; PATH_MAX];
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 2 * PATH_MAX);
@@ -960,11 +961,11 @@ mod tests {
         let path = |len| GuestPtr::new((0, len));
         assert_eq!(
             (
-                errno(path_open(&mut table, &mem, fd, path(1), &call)),
-                errno(create_directory(&table, &mem, fd, path(0))),
-                errno(create_directory(&table, &mem, fd, path(PATH_MAX as u32))),
+                errno(path_open(&mut wasi, &mem, fd, path(1), &call)),
+                errno(create_directory(&wasi, &mem, fd, path(0))),
+                errno(create_directory(&wasi, &mem, fd, path(PATH_MAX as u32))),
                 errno(utimensat(0, 0, Fstflags::empty(), |times| path_set_times(
-                    &table,
+                    &wasi,
                     &mem,
                     fd,
                     types::Lookupflags::empty(),
@@ -989,7 +990,7 @@ mod tests {
     // @behavior RT-257 RT-258
     #[test]
     fn a_call_no_walk_can_take_answers_before_the_descriptor_it_names() {
-        let mut table = standard_streams();
+        let mut wasi = standard_streams();
         let mut bytes = vec![b'a'; PATH_MAX];
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 2 * PATH_MAX);
@@ -1004,15 +1005,15 @@ mod tests {
         let create_dir = call(types::Oflags::CREAT | types::Oflags::DIRECTORY);
         assert_eq!(
             (
-                errno(path_open(&mut table, &mem, unopened, path(1), &create_dir)),
-                errno(create_directory(&table, &mem, unopened, path(0))),
+                errno(path_open(&mut wasi, &mem, unopened, path(1), &create_dir)),
+                errno(create_directory(&wasi, &mem, unopened, path(0))),
                 errno(create_directory(
-                    &table,
+                    &wasi,
                     &mem,
                     unopened,
                     path(PATH_MAX as u32)
                 )),
-                errno(create_directory(&table, &mem, unopened, path(1))),
+                errno(create_directory(&wasi, &mem, unopened, path(1))),
             ),
             (
                 Some(Errno::Inval),
@@ -1031,7 +1032,7 @@ mod tests {
     // @behavior RT-286
     #[test]
     fn a_call_naming_two_paths_answers_for_its_first_before_its_second() {
-        let table = standard_streams();
+        let wasi = standard_streams();
         let mut bytes = vec![b'a'; PATH_MAX];
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 2 * PATH_MAX);
@@ -1040,12 +1041,12 @@ mod tests {
         assert_eq!(
             (
                 errno(rename(
-                    &table,
+                    &wasi,
                     &mem,
                     (stdout, path(1)),
                     (stdout, path(PATH_MAX as u32))
                 )),
-                errno(rename(&table, &mem, (stdout, path(1)), (unopened, path(1)))),
+                errno(rename(&wasi, &mem, (stdout, path(1)), (unopened, path(1)))),
             ),
             (Some(Errno::Notdir), Some(Errno::Notdir)),
             "path_rename from standard output to a path past PATH_MAX, or to a descriptor \
@@ -1056,12 +1057,12 @@ mod tests {
     // @behavior RT-287
     #[test]
     fn an_absolute_path_answers_before_the_descriptor_it_names() {
-        let table = standard_streams();
+        let wasi = standard_streams();
         let mut bytes = b"/a".to_vec();
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 16);
         assert_eq!(
-            errno(create_directory(&table, &mem, 99, GuestPtr::new((0, 2)))),
+            errno(create_directory(&wasi, &mem, 99, GuestPtr::new((0, 2)))),
             Some(Errno::Notcapable),
             "path_create_directory of an absolute path from a descriptor number naming nothing \
              through preview1 must answer ENOTCAPABLE, as path_init looks at no descriptor"
@@ -1071,13 +1072,13 @@ mod tests {
     // @behavior RT-277
     #[test]
     fn a_readlink_into_no_room_is_invalid() {
-        let table = standard_streams();
+        let wasi = standard_streams();
         let mut bytes = vec![0u8; 8];
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mut mem = GuestMemory::new(&mut memory, 16);
         assert_eq!(
             errno(readlink(
-                &table,
+                &wasi,
                 &mut mem,
                 99,
                 GuestPtr::new((0, 0)),
@@ -1098,14 +1099,17 @@ mod tests {
     // @behavior RT-289
     #[test]
     fn a_readlink_of_an_empty_path_answers_for_its_descriptor() {
-        let mut table = standard_streams();
-        let fd = table.push(open_file()).expect("a descriptor to start from");
+        let mut wasi = standard_streams();
+        let fd = wasi
+            .descriptors_mut()
+            .push(open_file())
+            .expect("a descriptor to start from");
         let mut bytes = vec![0u8; 8];
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mut mem = GuestMemory::new(&mut memory, 16);
         let mut empty_from = |start| {
             errno(readlink(
-                &table,
+                &wasi,
                 &mut mem,
                 start,
                 GuestPtr::new((0, 0)),
@@ -1127,16 +1131,16 @@ mod tests {
     // @behavior RT-271
     #[test]
     fn a_call_asking_no_time_succeeds_whatever_descriptor_it_names() {
-        let table = standard_streams();
+        let wasi = standard_streams();
         let mut bytes = *b"a";
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 1);
         let unopened = 99;
         assert_eq!(
             (
-                errno(set_times(&table, unopened, Fstflags::empty())),
+                errno(set_times(&wasi, unopened, Fstflags::empty())),
                 errno(utimensat(0, 0, Fstflags::empty(), |times| path_set_times(
-                    &table,
+                    &wasi,
                     &mem,
                     unopened,
                     types::Lookupflags::empty(),
@@ -1155,7 +1159,7 @@ mod tests {
     // @behavior RT-259
     #[test]
     fn a_full_table_answers_after_the_flags_and_before_the_start() {
-        let mut table = table_of(Vec::new(), Some(3)).expect("a table holding no Mount must make");
+        let mut wasi = wasi_of(Vec::new(), Some(3));
         let mut bytes = *b"a";
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 1);
@@ -1170,14 +1174,14 @@ mod tests {
         assert_eq!(
             (
                 errno(path_open(
-                    &mut table,
+                    &mut wasi,
                     &mem,
                     unopened,
                     path,
                     &call(types::Oflags::CREAT | types::Oflags::DIRECTORY)
                 )),
                 errno(path_open(
-                    &mut table,
+                    &mut wasi,
                     &mem,
                     unopened,
                     path,
@@ -1263,16 +1267,15 @@ mod tests {
             Access::Read,
         )
         .expect("/data is a guest path");
-        let mut table =
-            table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
+        let mut wasi = wasi_of(vec![mount], None);
         let header = types::Dirent::guest_size();
         let dots = 2 * header + 3;
         let mut bytes = vec![0u8; 256];
         let used = {
             let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
             let mut mem = GuestMemory::new(&mut memory, 256);
-            let first = readdir(&mut table, &mut mem, 3, GuestPtr::new(0), dots, 0);
-            let rest = readdir(&mut table, &mut mem, 3, GuestPtr::new(128), 128, 2);
+            let first = readdir(&mut wasi, &mut mem, 3, GuestPtr::new(0), dots, 0);
+            let rest = readdir(&mut wasi, &mut mem, 3, GuestPtr::new(128), 128, 2);
             (first.ok(), rest.ok())
         };
         let entry = |name: &str, d_next| (name.to_string(), d_next);
@@ -1306,15 +1309,14 @@ mod tests {
                 Access::Read,
             )
             .expect("/data is a guest path");
-            let mut table =
-                table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
+            let mut wasi = wasi_of(vec![mount], None);
             let mut bytes = vec![0u8; 256];
             let (first, next) = {
                 let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
                 let mut mem = GuestMemory::new(&mut memory, 256);
                 let buf = GuestPtr::new(0);
-                let first = readdir(&mut table, &mut mem, 3, buf, 256, 0).ok();
-                (first, errno(readdir(&mut table, &mut mem, 3, buf, 256, 3)))
+                let first = readdir(&mut wasi, &mut mem, 3, buf, 256, 0).ok();
+                (first, errno(readdir(&mut wasi, &mut mem, 3, buf, 256, 3)))
             };
             let handed_over = bytes.windows(bad.len().max(1)).any(|w| w == bad.as_bytes());
             (
@@ -1370,7 +1372,7 @@ mod tests {
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
-        let table = table_of(vec![mount], None).unwrap_or_else(|_| panic!("the table must make"));
+        let wasi = wasi_of(vec![mount], None);
         let mut bytes = *b"/trelative";
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
         let mem = GuestMemory::new(&mut memory, 64);
@@ -1381,8 +1383,8 @@ mod tests {
         );
         assert_eq!(
             (
-                errno(symlink(&table, &mem, absolute, 3, name)),
-                errno(symlink(&table, &mem, relative, 3, name)),
+                errno(symlink(&wasi, &mem, absolute, 3, name)),
+                errno(symlink(&wasi, &mem, relative, 3, name)),
             ),
             (Some(Errno::Perm), None),
             "path_symlink through preview1 to an absolute target must answer EPERM, as \
@@ -1395,14 +1397,20 @@ mod tests {
     // @behavior RT-114
     #[test]
     fn renumbering_onto_an_open_file_replaces_it_whatever_its_close_answers() {
-        let mut table = standard_streams();
-        let from = table.push(open_file()).expect("a descriptor to move");
-        let to = table.push(open_file()).expect("a descriptor to move onto");
+        let mut wasi = standard_streams();
+        let from = wasi
+            .descriptors_mut()
+            .push(open_file())
+            .expect("a descriptor to move");
+        let to = wasi
+            .descriptors_mut()
+            .push(open_file())
+            .expect("a descriptor to move onto");
         assert_eq!(
             (
-                errno(renumber(&mut table, from, to)),
-                table.get(from).is_none(),
-                table.get(to).is_some()
+                errno(renumber(&mut wasi, from, to)),
+                wasi.descriptors().get(from).is_none(),
+                wasi.descriptors().get(to).is_some()
             ),
             (None, true, true),
             "fd_renumber through preview1 onto a file whose Filesystem refuses the close must \
@@ -1414,14 +1422,17 @@ mod tests {
     // @behavior RT-309
     #[test]
     fn renumbering_onto_a_number_not_open_answers_ebadf_and_keeps_the_source() {
-        let mut table = standard_streams();
-        let from = table.push(open_file()).expect("a descriptor to move");
+        let mut wasi = standard_streams();
+        let from = wasi
+            .descriptors_mut()
+            .push(open_file())
+            .expect("a descriptor to move");
         let to = from + 1;
         assert_eq!(
             (
-                errno(renumber(&mut table, from, to)),
-                table.get(from).is_some(),
-                table.get(to).is_none()
+                errno(renumber(&mut wasi, from, to)),
+                wasi.descriptors().get(from).is_some(),
+                wasi.descriptors().get(to).is_none()
             ),
             (Some(Errno::Badf), true, true),
             "fd_renumber through preview1 onto a number nothing stands at must answer EBADF and \

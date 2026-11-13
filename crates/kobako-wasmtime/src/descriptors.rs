@@ -12,8 +12,7 @@ use std::collections::BTreeMap;
 use std::sync::Arc;
 
 use kobako_runtime::cred::Cred;
-use kobako_runtime::grant::Grant;
-use kobako_runtime::security::{restrict_self, WalkGuard};
+use kobako_runtime::mount::Mount;
 use kobako_runtime::vfs::{File, OpenFiles};
 use kobako_runtime::Errno;
 
@@ -42,47 +41,32 @@ pub(crate) struct Descriptors {
     next_fd: u32,
     /// The files the Invocation holds, a preview2 resource's included.
     open_files: OpenFiles,
-    /// Who the guest's calls are made for, as a task holds its `cred`.
-    cred: Arc<Cred>,
-    /// What a descriptor's call asks before it starts.
-    walk_guard: WalkGuard,
 }
 
 impl Descriptors {
     /// The table every invocation starts from: stdin, then the two
-    /// Channels, then one preopen per Mount `grants` holds, from descriptor
+    /// Channels, then one preopen per Mount among `mounts`, from descriptor
     /// 3. Each counts against `open_files`, those included, as a process's
     /// `RLIMIT_NOFILE` counts every one it holds. Each Mount's root opens as
-    /// `opener`, the Cred the Driver prepared, before the Grants' policies
-    /// apply.
+    /// `opener`, the Cred the Driver prepared.
     pub(crate) fn new(
         stdin: File,
         stdout: File,
         stderr: File,
-        grants: &[Grant],
+        mounts: &[&Mount],
         open_files: OpenFiles,
-        opener: Arc<Cred>,
+        opener: &Arc<Cred>,
     ) -> Result<Self, Errno> {
         let mut used = BTreeMap::from([
             (0, Descriptor::for_file(stdin)),
             (1, Descriptor::for_file(stdout)),
             (2, Descriptor::for_file(stderr)),
         ]);
-        // Each Mount's root opens before its Policy applies, as a Linux task
-        // opens what it keeps and then calls `landlock_restrict_self`, so a
-        // Policy judges only what the guest asks for.
-        let mounts = grants
-            .iter()
-            .filter_map(|grant| match grant {
-                Grant::Mount(mount) => Some(mount),
-                _ => None,
-            })
-            .collect::<Vec<_>>();
-        for (fd, mount) in (3..).zip(&mounts) {
+        for (fd, mount) in (3..).zip(mounts) {
             used.insert(
                 fd,
                 Descriptor {
-                    file: File::root(mount.mnt(), &opener)?,
+                    file: File::root(mount.mnt(), opener)?,
                     preopen_path: Some(mount.at().to_string()),
                 },
             );
@@ -90,26 +74,11 @@ impl Descriptors {
         for _ in used.keys() {
             open_files.open()?;
         }
-        let cred = restrict_self(&opener, grants);
-        let walk_guard = WalkGuard::new(mounts);
         Ok(Self {
             next_fd: used.len() as u32,
             used,
             open_files,
-            cred,
-            walk_guard,
         })
-    }
-
-    /// Who the guest's calls are made for.
-    pub(crate) fn cred(&self) -> &Arc<Cred> {
-        &self.cred
-    }
-
-    /// What every call through a descriptor asks first, so a Policy judges the
-    /// path it stands at.
-    pub(crate) fn walk_guard(&self) -> &WalkGuard {
-        &self.walk_guard
     }
 
     pub(crate) fn get(&self, fd: u32) -> Option<&Descriptor> {
@@ -182,7 +151,7 @@ mod tests {
             pipe_end(),
             &[],
             OpenFiles::new(None),
-            prepare_creds_within(&[], None),
+            &prepare_creds_within(&[], None),
         )
         .unwrap_or_else(|_| panic!("a table holding no Mount must make"));
         let mut open = || {

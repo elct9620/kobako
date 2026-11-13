@@ -129,8 +129,7 @@ fn poll_descriptor(
     subscribed: types::SubscriptionFdReadwrite,
     event: PollMask,
 ) -> Answer<Errno> {
-    let descriptors = invocation.wasi().descriptors();
-    let Ok(file) = file(descriptors, subscribed.file_descriptor.into()) else {
+    let Ok(file) = file(invocation.wasi(), subscribed.file_descriptor.into()) else {
         return Ok(Errno::Badf);
     };
     match file.poll(None).contains(event) {

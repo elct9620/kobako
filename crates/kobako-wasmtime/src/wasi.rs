@@ -21,7 +21,7 @@ use kobako_runtime::grant::Grant;
 use kobako_runtime::net::{HostInet, HyperOutbound, Namespace, OpenConnections};
 use kobako_runtime::network::EntryError;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::security::prepare_creds_within;
+use kobako_runtime::security::{prepare_creds_within, restrict_self, WalkGuard};
 use kobako_runtime::vfs::OpenFiles;
 
 /// The Cred an invocation's Mounts open as: kobako's own rules, then each
@@ -45,6 +45,9 @@ pub(crate) struct Wasi {
     /// Who the guest's calls are made for, through either encoding, as a
     /// task holds its `cred`, and the isolation it runs under.
     cred: Arc<Cred>,
+    /// What every call through a descriptor asks first, so a Policy judges
+    /// the path it stands at.
+    walk_guard: WalkGuard,
     descriptors: Descriptors,
     table: preview2::Table,
     /// The network the Invocation's Grants make, where every socket and
@@ -110,6 +113,26 @@ impl Wasi {
         )
     }
 
+    /// A hermetic context presenting `mounts` as preopens from descriptor 3,
+    /// at most `open_file_limit` files open, so a test reaches preview1's calls
+    /// as an invocation does.
+    #[cfg(test)]
+    pub(crate) fn with_mounts(
+        mounts: Vec<kobako_runtime::mount::Mount>,
+        open_file_limit: Option<usize>,
+    ) -> Result<Self, Trap> {
+        let grants = mounts.into_iter().map(Grant::Mount).collect::<Vec<_>>();
+        Self::new(
+            Vec::new(),
+            None,
+            None,
+            open_file_limit,
+            prepare_creds_within(&[], None),
+            Profile::Hermetic,
+            &grants,
+        )
+    }
+
     /// An uncapped output channel has no ceiling on the host: a guest
     /// rewriting one buffer grows the pipe, not its own memory.
     fn new(
@@ -133,18 +156,27 @@ impl Wasi {
         // table numbers its own and counts against the same open files.
         let open_files = OpenFiles::new(open_file_limit);
         let table = preview2::Table::new(open_files.clone());
+        let mounts = grants
+            .iter()
+            .filter_map(|grant| match grant {
+                Grant::Mount(mount) => Some(mount),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        // Each Mount's root opens before its Policy applies, as a Linux task
+        // opens what it keeps and then calls `landlock_restrict_self`, so a
+        // Policy judges only what the guest asks for.
         let descriptors = Descriptors::new(
             create_pipe_files(&PipeInodeInfo::from_bytes(stdin), &opener).0,
             create_pipe_files(&stdout, &opener).1,
             create_pipe_files(&stderr, &opener).1,
-            grants,
+            &mounts,
             open_files,
-            opener,
+            &opener,
         )
         .map_err(|err| Trap::Other(format!("a Mount's root did not open: {err:?}")))?;
-        // The Cred the Grants' policies restrict, which preview1's table and
-        // preview2's calls share, as every fd a task holds shares its cred.
-        let cred = descriptors.cred().clone();
+        let cred = restrict_self(&opener, grants);
+        let walk_guard = WalkGuard::new(mounts);
 
         let mut builder = WasiCtxBuilder::new();
         // The profile decides the ambient authority granted: the hermetic
@@ -174,6 +206,7 @@ impl Wasi {
         Ok(Self {
             ctx: builder.build_p1(),
             cred,
+            walk_guard,
             descriptors,
             table,
             network: None,
@@ -189,6 +222,10 @@ impl Wasi {
 
     pub(crate) fn cred(&self) -> &Arc<Cred> {
         &self.cred
+    }
+
+    pub(crate) fn walk_guard(&self) -> &WalkGuard {
+        &self.walk_guard
     }
 
     pub(crate) fn profile(&self) -> Profile {

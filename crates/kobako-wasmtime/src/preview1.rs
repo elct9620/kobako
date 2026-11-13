@@ -27,7 +27,6 @@ mod testsuite;
 use wasmtime::Linker;
 use wiggle::GuestPtr;
 
-use crate::descriptors::Descriptors;
 use crate::invocation::Invocation;
 use errno::Answer;
 use memory::GuestMemory;
@@ -70,10 +69,6 @@ pub(crate) fn shadow(linker: &mut Linker<Invocation>) -> wasmtime::Result<()> {
     Ok(())
 }
 
-fn table(invocation: &mut Invocation) -> &mut Descriptors {
-    invocation.wasi_mut().descriptors_mut()
-}
-
 impl Invocation {
     /// Run one call against the calling instance's memory, answering what it
     /// answers unless its host has given the invocation up by then.
@@ -105,7 +100,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         _advice: types::Advice,
     ) -> Answer {
         self.answer(memory, |_, inv| {
-            fd::advise(table(inv), fd.into(), offset, len)
+            fd::advise(inv.wasi_mut(), fd.into(), offset, len)
         })
     }
 
@@ -117,16 +112,16 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         len: types::Filesize,
     ) -> Answer {
         self.answer(memory, |_, inv| {
-            fd::allocate(table(inv), fd.into(), offset, len)
+            fd::allocate(inv.wasi_mut(), fd.into(), offset, len)
         })
     }
 
     fn fd_close(&mut self, memory: &mut wiggle::GuestMemory<'_>, fd: types::Fd) -> Answer {
-        self.answer(memory, |_, inv| fd::close(table(inv), fd.into()))
+        self.answer(memory, |_, inv| fd::close(inv.wasi_mut(), fd.into()))
     }
 
     fn fd_datasync(&mut self, memory: &mut wiggle::GuestMemory<'_>, fd: types::Fd) -> Answer {
-        self.answer(memory, |_, inv| fd::sync(table(inv), fd.into(), true))
+        self.answer(memory, |_, inv| fd::sync(inv.wasi_mut(), fd.into(), true))
     }
 
     fn fd_fdstat_get(
@@ -134,7 +129,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         memory: &mut wiggle::GuestMemory<'_>,
         fd: types::Fd,
     ) -> Answer<types::Fdstat> {
-        self.answer(memory, |_, inv| fd::fdstat_get(table(inv), fd.into()))
+        self.answer(memory, |_, inv| fd::fdstat_get(inv.wasi_mut(), fd.into()))
     }
 
     fn fd_fdstat_set_flags(
@@ -144,7 +139,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         flags: types::Fdflags,
     ) -> Answer {
         self.answer(memory, |_, inv| {
-            fd::fdstat_set_flags(table(inv), fd.into(), flags)
+            fd::fdstat_set_flags(inv.wasi_mut(), fd.into(), flags)
         })
     }
 
@@ -156,7 +151,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         _fs_rights_inheriting: types::Rights,
     ) -> Answer {
         self.answer(memory, |_, inv| {
-            fd::fdstat_set_rights(table(inv), fd.into())
+            fd::fdstat_set_rights(inv.wasi_mut(), fd.into())
         })
     }
 
@@ -165,7 +160,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         memory: &mut wiggle::GuestMemory<'_>,
         fd: types::Fd,
     ) -> Answer<types::Filestat> {
-        self.answer(memory, |_, inv| fd::filestat_get(table(inv), fd.into()))
+        self.answer(memory, |_, inv| fd::filestat_get(inv.wasi(), fd.into()))
     }
 
     fn fd_filestat_set_size(
@@ -175,7 +170,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         size: types::Filesize,
     ) -> Answer {
         self.answer(memory, |_, inv| {
-            fd::filestat_set_size(table(inv), fd.into(), size)
+            fd::filestat_set_size(inv.wasi_mut(), fd.into(), size)
         })
     }
 
@@ -189,7 +184,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
     ) -> Answer {
         self.answer(memory, |_, inv| {
             fd::utimensat(atim, mtim, fst_flags, |times| {
-                fd::filestat_set_times(table(inv), fd.into(), times)
+                fd::filestat_set_times(inv.wasi(), fd.into(), times)
             })
         })
     }
@@ -202,7 +197,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         offset: types::Filesize,
     ) -> Answer<types::Size> {
         self.answer(memory, |mem, inv| {
-            fd::pread(table(inv), mem, fd.into(), iovs, offset)
+            fd::pread(inv.wasi_mut(), mem, fd.into(), iovs, offset)
         })
     }
 
@@ -211,7 +206,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         memory: &mut wiggle::GuestMemory<'_>,
         fd: types::Fd,
     ) -> Answer<types::Prestat> {
-        self.answer(memory, |_, inv| fd::prestat_get(table(inv), fd.into()))
+        self.answer(memory, |_, inv| fd::prestat_get(inv.wasi_mut(), fd.into()))
     }
 
     fn fd_prestat_dir_name(
@@ -222,7 +217,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         path_max_len: types::Size,
     ) -> Answer {
         self.answer(memory, |mem, inv| {
-            fd::prestat_dir_name(table(inv), mem, fd.into(), path, path_max_len)
+            fd::prestat_dir_name(inv.wasi_mut(), mem, fd.into(), path, path_max_len)
         })
     }
 
@@ -234,7 +229,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         offset: types::Filesize,
     ) -> Answer<types::Size> {
         self.answer(memory, |mem, inv| {
-            fd::pwrite(table(inv), mem, fd.into(), ciovs, offset)
+            fd::pwrite(inv.wasi_mut(), mem, fd.into(), ciovs, offset)
         })
     }
 
@@ -245,7 +240,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         iovs: types::IovecArray,
     ) -> Answer<types::Size> {
         self.answer(memory, |mem, inv| {
-            fd::read(table(inv), mem, fd.into(), iovs)
+            fd::read(inv.wasi_mut(), mem, fd.into(), iovs)
         })
     }
 
@@ -258,7 +253,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         cookie: types::Dircookie,
     ) -> Answer<types::Size> {
         self.answer(memory, |mem, inv| {
-            fd::readdir(table(inv), mem, fd.into(), buf, buf_len, cookie)
+            fd::readdir(inv.wasi_mut(), mem, fd.into(), buf, buf_len, cookie)
         })
     }
 
@@ -269,7 +264,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         to: types::Fd,
     ) -> Answer {
         self.answer(memory, |_, inv| {
-            fd::renumber(table(inv), from.into(), to.into())
+            fd::renumber(inv.wasi_mut(), from.into(), to.into())
         })
     }
 
@@ -281,12 +276,12 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         whence: types::Whence,
     ) -> Answer<types::Filesize> {
         self.answer(memory, |_, inv| {
-            fd::seek(table(inv), fd.into(), offset, whence)
+            fd::seek(inv.wasi_mut(), fd.into(), offset, whence)
         })
     }
 
     fn fd_sync(&mut self, memory: &mut wiggle::GuestMemory<'_>, fd: types::Fd) -> Answer {
-        self.answer(memory, |_, inv| fd::sync(table(inv), fd.into(), false))
+        self.answer(memory, |_, inv| fd::sync(inv.wasi_mut(), fd.into(), false))
     }
 
     fn fd_tell(
@@ -294,7 +289,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         memory: &mut wiggle::GuestMemory<'_>,
         fd: types::Fd,
     ) -> Answer<types::Filesize> {
-        self.answer(memory, |_, inv| fd::tell(table(inv), fd.into()))
+        self.answer(memory, |_, inv| fd::tell(inv.wasi_mut(), fd.into()))
     }
 
     fn fd_write(
@@ -304,7 +299,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         ciovs: types::CiovecArray,
     ) -> Answer<types::Size> {
         self.answer(memory, |mem, inv| {
-            fd::write(table(inv), mem, fd.into(), ciovs)
+            fd::write(inv.wasi_mut(), mem, fd.into(), ciovs)
         })
     }
 
@@ -315,7 +310,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         path: GuestPtr<str>,
     ) -> Answer {
         self.answer(memory, |mem, inv| {
-            path::create_directory(table(inv), mem, fd.into(), path)
+            path::create_directory(inv.wasi(), mem, fd.into(), path)
         })
     }
 
@@ -327,7 +322,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         path: GuestPtr<str>,
     ) -> Answer<types::Filestat> {
         self.answer(memory, |mem, inv| {
-            path::filestat_get(table(inv), mem, fd.into(), flags, path)
+            path::filestat_get(inv.wasi(), mem, fd.into(), flags, path)
         })
     }
 
@@ -343,7 +338,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
     ) -> Answer {
         self.answer(memory, |mem, inv| {
             fd::utimensat(atim, mtim, fst_flags, |times| {
-                path::filestat_set_times(table(inv), mem, fd.into(), flags, path, times)
+                path::filestat_set_times(inv.wasi(), mem, fd.into(), flags, path, times)
             })
         })
     }
@@ -359,7 +354,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
     ) -> Answer {
         self.answer(memory, |mem, inv| {
             path::link(
-                table(inv),
+                inv.wasi_mut(),
                 mem,
                 (old_fd.into(), old_path),
                 (new_fd.into(), new_path),
@@ -381,7 +376,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
     ) -> Answer<types::Fd> {
         self.answer(memory, |mem, inv| {
             path::open(
-                table(inv),
+                inv.wasi_mut(),
                 mem,
                 fd.into(),
                 path,
@@ -404,7 +399,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         buf_len: types::Size,
     ) -> Answer<types::Size> {
         self.answer(memory, |mem, inv| {
-            path::readlink(table(inv), mem, fd.into(), path, buf, buf_len)
+            path::readlink(inv.wasi(), mem, fd.into(), path, buf, buf_len)
         })
     }
 
@@ -415,7 +410,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         path: GuestPtr<str>,
     ) -> Answer {
         self.answer(memory, |mem, inv| {
-            path::remove_directory(table(inv), mem, fd.into(), path)
+            path::remove_directory(inv.wasi(), mem, fd.into(), path)
         })
     }
 
@@ -429,7 +424,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
     ) -> Answer {
         self.answer(memory, |mem, inv| {
             path::rename(
-                table(inv),
+                inv.wasi_mut(),
                 mem,
                 (old_fd.into(), old_path),
                 (new_fd.into(), new_path),
@@ -445,7 +440,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         new_path: GuestPtr<str>,
     ) -> Answer {
         self.answer(memory, |mem, inv| {
-            path::symlink(table(inv), mem, old_path, fd.into(), new_path)
+            path::symlink(inv.wasi(), mem, old_path, fd.into(), new_path)
         })
     }
 
@@ -456,7 +451,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         path: GuestPtr<str>,
     ) -> Answer {
         self.answer(memory, |mem, inv| {
-            path::unlink_file(table(inv), mem, fd.into(), path)
+            path::unlink_file(inv.wasi(), mem, fd.into(), path)
         })
     }
 
@@ -479,7 +474,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         _flags: types::Fdflags,
     ) -> Answer<types::Fd> {
         self.answer(memory, |_, inv| {
-            sock::refuse_socket_call(table(inv), fd.into())
+            sock::refuse_socket_call(inv.wasi_mut(), fd.into())
         })
     }
 
@@ -491,7 +486,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         _ri_flags: types::Riflags,
     ) -> Answer<(types::Size, types::Roflags)> {
         self.answer(memory, |_, inv| {
-            sock::refuse_socket_call(table(inv), fd.into())
+            sock::refuse_socket_call(inv.wasi_mut(), fd.into())
         })
     }
 
@@ -503,7 +498,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         _si_flags: types::Siflags,
     ) -> Answer<types::Size> {
         self.answer(memory, |_, inv| {
-            sock::refuse_socket_call(table(inv), fd.into())
+            sock::refuse_socket_call(inv.wasi_mut(), fd.into())
         })
     }
 
@@ -514,7 +509,7 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         _how: types::Sdflags,
     ) -> Answer {
         self.answer(memory, |_, inv| {
-            sock::refuse_socket_call(table(inv), fd.into())
+            sock::refuse_socket_call(inv.wasi_mut(), fd.into())
         })
     }
 }
