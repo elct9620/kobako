@@ -932,3 +932,15 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount holding a file |
 | When | the script seeks by the Symbol `:FOO` |
 | Then | it raises `TypeError`, as CRuby's `NUM2INT` refuses a Symbol |
+
+## `FL-087` A seek reads a Float whence as the Integer it truncates to
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-085` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file |
+| When | the script seeks by the whence `1.5` |
+| Then | it seeks from where it stands, as CRuby's `rb_num2long` truncates a Float |
