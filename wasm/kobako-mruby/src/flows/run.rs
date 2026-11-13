@@ -45,7 +45,7 @@ fn call_entrypoint<G: crate::MrbGuest>(preamble: &Preamble, run: Run) -> Result<
     // resolution: a request that is both unreadable and aimed at a
     // missing entrypoint reports the payload, not the entrypoint miss.
     let arguments = G::Codec::decode_run_arguments(&kobako, &run.payload).map_err(|err| {
-        panic::panic_for(&crate::refusal::at(
+        panic::to_panic(&crate::refusal::at(
             crate::refusal::Position::RunArguments,
             err,
         ))
@@ -101,9 +101,6 @@ fn call_entrypoint<G: crate::MrbGuest>(preamble: &Preamble, run: Run) -> Result<
     // positional argument and must accept it as a plain `Hash` (e.g.
     // `def call(req, opts = {})` rather than `def call(req,
     // multiplier: 1)`).
-    // An argument the guest cannot represent — an integer outside the
-    // 64-bit range — fails the invocation rather than reaching the
-    // entrypoint with a saturated value.
     let mut argv = arguments.args;
     if let Some(kwargs) = arguments.kwargs {
         argv.push(kwargs.as_value());

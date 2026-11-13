@@ -171,7 +171,7 @@ impl Kobako {
     /// guest code branches on the class with `rescue` rather than by
     /// reading the text.
     pub(crate) fn service_error(&self, fault: &kobako_transport::envelope::Fault) -> beni::Error {
-        beni::Error::new(self.mrb(), self.class_of(fault.kind), &fault.message)
+        beni::Error::new(self.mrb(), self.class_by_kind(fault.kind), &fault.message)
     }
 
     /// The class a Fault category raises under, so guest code branches
@@ -184,7 +184,7 @@ impl Kobako {
     /// pays nothing for it. A category this build predates, or a class an
     /// alternative shell did not register, falls back to the base — the
     /// same fallback the wire takes when it meets a category it predates.
-    fn class_of(&self, kind: kobako_transport::envelope::FaultKind) -> beni::ExceptionClass {
+    fn class_by_kind(&self, kind: kobako_transport::envelope::FaultKind) -> beni::ExceptionClass {
         use kobako_transport::envelope::FaultKind;
 
         let mrb = self.mrb();

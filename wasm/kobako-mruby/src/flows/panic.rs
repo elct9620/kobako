@@ -17,7 +17,7 @@ pub(super) fn boot_panic(message: impl Into<String>) -> Panic {
 
 /// The class and wording are the refusal's; this only gives them the
 /// invocation boundary's envelope shape.
-pub(super) fn panic_for(refusal: &Refusal) -> Panic {
+pub(super) fn to_panic(refusal: &Refusal) -> Panic {
     sandbox_panic(refusal.class, refusal.message.clone())
 }
 
@@ -37,7 +37,7 @@ pub(super) fn value_outcome<G: crate::MrbGuest>(
 
     match G::Codec::encode_value(kobako, result_val) {
         Ok(payload) => Outcome::Ok(payload),
-        Err(err) => Outcome::Panic(panic_for(&crate::refusal::at(
+        Err(err) => Outcome::Panic(to_panic(&crate::refusal::at(
             Position::InvocationValue,
             err,
         ))),
@@ -45,7 +45,7 @@ pub(super) fn value_outcome<G: crate::MrbGuest>(
 }
 
 /// The classes a dispatch raises when a Service call fails — the names
-/// `Kobako::class_of` picks from. Named rather than matched by shape:
+/// `Kobako::class_by_kind` picks from. Named rather than matched by shape:
 /// a guest is free to define its own `ServiceError`, and what it calls
 /// its exceptions must not decide what the host attributes them to.
 const SERVICE_ERROR_CLASSES: [&str; 3] = [
@@ -56,7 +56,7 @@ const SERVICE_ERROR_CLASSES: [&str; 3] = [
 
 /// Mirrors the host-side rules: an exception a Service capability raised
 /// attributes to the Service, everything else to the sandbox.
-pub(super) fn origin_for_class(class_name: &str) -> Origin {
+pub(super) fn origin_by_class(class_name: &str) -> Origin {
     if SERVICE_ERROR_CLASSES.contains(&class_name) {
         Origin::Service
     } else {
@@ -118,7 +118,7 @@ pub(super) fn exception_fields(
 fn panic_from_exception(kobako: &Kobako, exc_val: beni::Value) -> Panic {
     let (class, message, backtrace) = exception_fields(kobako, exc_val);
     Panic {
-        origin: origin_for_class(&class),
+        origin: origin_by_class(&class),
         error: ErrorRecord {
             name: class,
             message,
@@ -167,10 +167,10 @@ mod tests {
 
     // @behavior OC-045
     #[test]
-    fn origin_for_class_routes_every_service_error_to_service() {
+    fn origin_by_class_routes_every_service_error_to_service() {
         for class in SERVICE_ERROR_CLASSES {
             assert_eq!(
-                origin_for_class(class),
+                origin_by_class(class),
                 Origin::Service,
                 "{class} is raised by a failed Service call, so a Panic naming it must \
                  attribute to the Service"
@@ -180,7 +180,7 @@ mod tests {
 
     // @behavior OC-046
     #[test]
-    fn origin_for_class_defaults_to_sandbox() {
+    fn origin_by_class_defaults_to_sandbox() {
         for class in [
             "RuntimeError",
             "Kobako::Transport::Error",
@@ -188,9 +188,9 @@ mod tests {
             "Kobako::UnsupportedError",
         ] {
             assert_eq!(
-                origin_for_class(class),
+                origin_by_class(class),
                 Origin::Sandbox,
-                "{class} through origin_for_class is not a Service failure, so a Panic \
+                "{class} through origin_by_class is not a Service failure, so a Panic \
                  naming it must attribute to the Sandbox"
             );
         }
@@ -200,7 +200,7 @@ mod tests {
     #[test]
     fn a_guests_own_error_named_like_kobakos_does_not_claim_service_origin() {
         assert_eq!(
-            origin_for_class("MyApp::ServiceError"),
+            origin_by_class("MyApp::ServiceError"),
             Origin::Sandbox,
             "a class the guest defined must not reach Service attribution by resembling \
              the name of one kobako raises"
