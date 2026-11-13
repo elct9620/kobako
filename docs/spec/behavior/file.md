@@ -836,3 +836,39 @@ disable_file flag -> no File constant
 | Given | a script holding a file opened only to write |
 | When | it asks `eof?` |
 | Then | it raises `IOError` "not opened for reading", as CRuby's does |
+
+## `FL-079` A second Linux name for an errno is the same Errno class
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount |
+| When | the script reads `Errno::EWOULDBLOCK`, `Errno::EDEADLOCK`, and `Errno::EOPNOTSUPP` |
+| Then | each is `Errno::EAGAIN`, `Errno::EDEADLK`, and `Errno::ENOTSUP`, as CRuby's `set_syserr` names a number twice |
+
+## `FL-080` Every errno the runtime answers names an Errno class
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount |
+| When | the script reads the `errno` of `Errno::ESTALE` and of `Errno::EALREADY` |
+| Then | they read 116 and 114, the numbers Linux gives them |
+
+## `FL-081` SystemCallError takes its arguments as CRuby's does
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount |
+| When | the script builds `SystemCallError` bare, then with 2⁴⁰ alone, and `Errno::ENOENT` with `m` and `f`, then with three |
+| Then | they raise `ArgumentError`, `RangeError`, read `No such file or directory @ f - m`, and raise `ArgumentError` |
