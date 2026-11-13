@@ -2516,3 +2516,16 @@ endpoint "api.example.com", port: 443
 | Given | a guest holding a network Grant and two new TCP sockets, one with a send buffer size set |
 | When | it reads each socket's buffer sizes before and after each connects to a loopback server |
 | Then | the send buffer reads Linux's `tcp_wmem` default until the connect, then the socket's own buffer. One set reads what was set throughout, as Linux keeps a set buffer from growing |
+
+## `NW-203` A request's method is judged as it is sent
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-044` |
+| relates | `NW-045` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint allowing GET and denying DELETE on one path, another with no rules, and a recording request policy |
+| When | the guest sends that path by `GET`, `get`, and `delete`, and sends `get` to the other endpoint |
+| Then | a method matches an allowing rule only in its case, as HTTP methods are case-sensitive. A denied method stays refused in any case. The policy sees `get` as sent |
