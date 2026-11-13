@@ -2246,3 +2246,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind made exclusive, so only the guest changes its directory, and a directory a walk went through |
 | When | the host moves another directory into that name |
 | Then | a walk through the name still reaches the directory it found, as gVisor's exclusive mount skips revalidation |
+
+## `FS-208` A Bind never opens an entry it refuses
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-090` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind on a Linux host holding a FIFO, and a watch on its host directory |
+| When | the FIFO is opened through the Bind |
+| Then | it is refused as permission denied, and the watch reports no open. gVisor's directfs holds an entry by `O_PATH` |
