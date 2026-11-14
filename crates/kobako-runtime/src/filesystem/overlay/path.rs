@@ -108,13 +108,6 @@ impl OverlayPath {
         self.tmpfs().is_some_and(|tmpfs| tmpfs.is_whiteout(name))
     }
 
-    /// Whether `dentry`, found in this directory, stands for a whiteout, as
-    /// `ovl_is_whiteout` reads a dentry, a character device being one only in a
-    /// Tmpfs, whose marks an Overlay reads.
-    pub(super) fn is_whiteout_dentry(&self, dentry: &Dentry) -> bool {
-        dentry.kind() == Ok(FileType::Chrdev) && self.tmpfs().is_some()
-    }
-
     /// Whether this directory hides the Layers below it.
     pub(super) fn is_opaque(&self) -> bool {
         self.tmpfs()

@@ -98,7 +98,7 @@ impl Presence {
 /// `ovl_is_whiteout` and `d_is_dir` from the dentry it found.
 fn entry(dir: &OverlayPath, name: &str) -> Result<Presence, Errno> {
     match dir.lookup_single(name) {
-        Ok(Some((_, dentry))) if dir.is_whiteout_dentry(&dentry) => Ok(Presence::Whiteout),
+        Ok(Some((stored_name, _))) if dir.is_whiteout(&stored_name) => Ok(Presence::Whiteout),
         Ok(Some((stored_name, dentry))) => Ok(Presence::Entry(LayerEntry {
             stored_name,
             dentry,
