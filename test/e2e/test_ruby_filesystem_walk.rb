@@ -71,6 +71,22 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
                  "the second read through an exclusive Ruby Filesystem must ask its stat nothing about a/b again"
   end
 
+  # A DeepFilesystem that cannot say whether only the guest changes it.
+  class UnsureDeepFilesystem < DeepFilesystem
+    def exclusive? = raise(IOError, "cannot tell")
+  end
+
+  # @behavior RF-041
+  def test_what_exclusive_raises_reaches_the_mount
+    err = assert_raises(IOError) do
+      Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", UnsureDeepFilesystem.new, access: :read)
+    end
+
+    assert_equal "cannot tell", err.message,
+                 "Sandbox#mount of a Ruby Filesystem whose exclusive? raises IOError must raise that " \
+                 "IOError rather than mount it as not exclusive"
+  end
+
   # @behavior RF-026
   def test_a_directory_reports_the_size_its_stat_answers
     size = Kobako::Sandbox.new(wasm_path: REAL_WASM)

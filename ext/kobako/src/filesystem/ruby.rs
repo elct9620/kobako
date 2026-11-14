@@ -46,18 +46,20 @@ pub(crate) struct RubyFilesystem {
 }
 
 impl RubyFilesystem {
-    /// The object as a Filesystem, when it answers `open` and `stat`.
-    pub(crate) fn from_value(value: Value) -> Option<Self> {
+    /// The object as a Filesystem, when it answers `open` and `stat`; what
+    /// its `exclusive?` raises comes back to the mount.
+    pub(crate) fn from_value(value: Value) -> Result<Option<Self>, magnus::Error> {
         let answers = |name| value.respond_to(name, false).unwrap_or(false);
-        let exclusive = answers("exclusive?")
-            && value
-                .funcall::<_, _, Value>("exclusive?", ())
-                .is_ok_and(|answer| answer.to_bool());
-        (answers("open") && answers("stat")).then(|| Self {
+        if !(answers("open") && answers("stat")) {
+            return Ok(None);
+        }
+        let exclusive =
+            answers("exclusive?") && value.funcall::<_, _, Value>("exclusive?", ())?.to_bool();
+        Ok(Some(Self {
             object: Opaque::from(value),
             dev: Kstat::unique_device(),
             exclusive,
-        })
+        }))
     }
 
     /// What the object's `stat` answers for `path`.
