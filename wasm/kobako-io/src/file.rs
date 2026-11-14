@@ -17,8 +17,9 @@ use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{Error, IntoValue, Mrb, Object, RArray, RClass, Value};
 
-use crate::io::{argument_error, Stream};
-use crate::{descriptors, errno};
+use crate::io::{argument_error, required_block, Stream};
+use crate::stream::FileLines;
+use crate::{descriptors, errno, lines};
 
 pub(crate) mod mode;
 mod stat;
@@ -43,6 +44,8 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     file.define_singleton_method(mrb, c"truncate", beni::method!(file_s_truncate, 2))?;
 
     file.define_singleton_method(mrb, c"read", beni::method!(file_s_read, 1))?;
+    file.define_singleton_method(mrb, c"readlines", beni::method!(file_s_readlines, -1))?;
+    file.define_singleton_method(mrb, c"foreach", beni::method!(file_s_foreach, -1))?;
     file.define_singleton_method(mrb, c"write", beni::method!(file_s_write, 2))?;
     file.define_singleton_method(mrb, c"exist?", beni::method!(file_s_exist_p, 1))?;
     file.define_singleton_method(mrb, c"file?", beni::method!(file_s_file_p, 1))?;
@@ -178,6 +181,54 @@ fn file_s_read(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
     let path = path_arg(mrb, path)?;
     let bytes = fs::read(&path).map_err(|err| errno::from_io(mrb, &err, &path))?;
     Ok(mrb.str_new(&bytes).as_value())
+}
+
+/// `readlines(name, sep = $/, limit = nil, chomp: false)`: every line of the
+/// file `name` opens for reading, as CRuby's `IO.readlines`.
+fn file_s_readlines(mrb: &Mrb, file: Value, args: &[Value]) -> Result<Value, Error> {
+    let (path, rest) = path_and_line_args(mrb, "File.readlines", args)?;
+    with_opened(mrb, file, path, |opened| {
+        lines::readlines(mrb, rest, || FileLines::new(mrb, opened))
+    })
+}
+
+/// `foreach(name, sep = $/, limit = nil, chomp: false) { |line| }`: each line
+/// of the file `name` opens, yielded in turn, as CRuby's `IO.foreach`; with
+/// no `Enumerator`, a call without a block raises.
+fn file_s_foreach(mrb: &Mrb, file: Value, args: &[Value]) -> Result<Value, Error> {
+    required_block(mrb, "File.foreach")?;
+    let (path, rest) = path_and_line_args(mrb, "File.foreach", args)?;
+    with_opened(mrb, file, path, |opened| {
+        lines::each_line(mrb, opened, rest, || FileLines::new(mrb, opened))
+    })?;
+    Ok(qnil().as_value())
+}
+
+/// The path a class-level line reader opens, and the line arguments after it.
+fn path_and_line_args<'a>(
+    mrb: &Mrb,
+    call: &str,
+    args: &'a [Value],
+) -> Result<(Value, &'a [Value]), Error> {
+    args.split_first()
+        .map(|(path, rest)| (*path, rest))
+        .ok_or_else(|| argument_error(mrb, &format!("{call} needs a path")))
+}
+
+/// `read` over the file `path` opens for reading, closed again however `read`
+/// ends, as CRuby's `rb_io_s_readlines` ensures.
+fn with_opened(
+    mrb: &Mrb,
+    file: Value,
+    path: Value,
+    read: impl FnOnce(Value) -> Result<Value, Error>,
+) -> Result<Value, Error> {
+    let opened: Value = file.funcall(mrb, c"new", [path])?;
+    let answer = read(opened);
+    let closed: Result<Value, Error> = opened.funcall(mrb, c"close", ());
+    let answer = answer?;
+    closed?;
+    Ok(answer)
 }
 
 fn file_s_write(mrb: &Mrb, _self: Value, path: Value, data: Value) -> Result<Value, Error> {

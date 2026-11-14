@@ -167,7 +167,7 @@ fn io_read(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
 
 /// A file read line by line: a chunk at a time from its position, a read
 /// past the line given back by seeking, since the host keeps the position.
-struct FileLines {
+pub(crate) struct FileLines {
     fd: i32,
     stream: Value,
 }
@@ -193,7 +193,7 @@ impl LineSource for FileLines {
 
 impl FileLines {
     /// The lines `self_` reads, as every IO reads them.
-    fn new(mrb: &Mrb, self_: Value) -> Result<Self, Error> {
+    pub(crate) fn new(mrb: &Mrb, self_: Value) -> Result<Self, Error> {
         Ok(FileLines {
             fd: readable_fd(mrb, self_)?,
             stream: self_,
