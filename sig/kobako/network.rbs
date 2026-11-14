@@ -20,7 +20,7 @@ module Kobako
 
       def route: (String address, Integer port, to: [String, Integer]) -> nil
 
-      def refuse: (String address, Integer port, Integer | singleton(SystemCallError) errno) -> nil
+      def refuse: (String address, Integer port, singleton(SystemCallError) errno) -> nil
 
       def hold: [T] (String name) { () -> T } -> T
 

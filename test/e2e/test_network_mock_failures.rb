@@ -19,7 +19,7 @@ class TestE2ENetworkMockFailures < Minitest::Test
     end
   RUBY
 
-  # Each host errno a dial fails with, and the Errno the guest raises for
+  # Each errno a host socket's dial fails with, and the Errno the guest raises for
   # the wasi:sockets code it answers, read through wasi-libc's mapping:
   # unknown reads as EIO, remote-unreachable as EHOSTUNREACH,
   # out-of-memory as ENOMEM, invalid-state as ENOTCONN, and not-supported
@@ -40,8 +40,6 @@ class TestE2ENetworkMockFailures < Minitest::Test
 
   # @behavior NW-074
   def test_a_host_failure_answers_the_code_wasmtime_wasi_gives_it
-    skip "a host errno no io::ErrorKind names is read on Unix alone" if Gem.win_platform?
-
     assert_equal HOST_FAILURES, HOST_FAILURES.keys.to_h { |name| [name, raised_for(name)] },
                  "a connect failing on the host with each errno must raise what its wasi:sockets code reads as, " \
                  "the code wasmtime-wasi gives that errno"

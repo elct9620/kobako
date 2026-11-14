@@ -2658,9 +2658,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a Mock told to refuse an address with a host errno |
+| Given | a Mock told to refuse an address with an errno by its POSIX name |
 | When | the guest connects to that address |
-| Then | the connect fails as a host socket failing with that errno does |
+| Then | the connect fails as a host socket failing with that errno does, alike on every host |
 
 ## `NW-214` A Mock's held name answers once its hold ends
 

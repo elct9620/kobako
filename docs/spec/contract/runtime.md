@@ -179,11 +179,11 @@ impl Mock {
 
 ## `Mock::refuse`
 
-The host errno a dial to one address fails with.
+The errno a dial to one address fails with, alike on every host.
 
 ```rust
 impl Mock {
-    pub fn refuse(&self, addr: SocketAddr, errno: i32) {}
+    pub fn refuse(&self, addr: SocketAddr, err: Errno) {}
 }
 ```
 

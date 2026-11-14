@@ -12,6 +12,8 @@ use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 
 use super::family::{HostInet, ProtocolFamily};
 use super::lookup::Resolver;
+use super::socket::Carried;
+use crate::Errno;
 
 /// A table of names, routes, and refusals, answering the guest's network in
 /// place of the host's.
@@ -32,10 +34,10 @@ struct State {
 }
 
 /// What a dial to one address does.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum Dial {
     To(SocketAddr),
-    Refused(i32),
+    Refused(Errno),
 }
 
 impl Default for Mock {
@@ -79,9 +81,10 @@ impl Mock {
         self.state().routes.insert(from, Dial::To(to));
     }
 
-    /// Fail a dial to `addr` as a host socket failing with `errno` does.
-    pub fn refuse(&self, addr: SocketAddr, errno: i32) {
-        self.state().routes.insert(addr, Dial::Refused(errno));
+    /// Fail a dial to `addr` with `err`, which the socket layer answers as a
+    /// host socket failing with it, alike on every host.
+    pub fn refuse(&self, addr: SocketAddr, err: Errno) {
+        self.state().routes.insert(addr, Dial::Refused(err));
     }
 
     /// Keep each lookup of `name` waiting until the hold drops, as a
@@ -134,11 +137,11 @@ impl ProtocolFamily for Mock {
         let dial = {
             let mut state = self.state();
             state.dials.push(addr);
-            state.routes.get(&addr).copied()
+            state.routes.get(&addr).cloned()
         };
         match dial {
             Some(Dial::To(target)) => HostInet.connect(target),
-            Some(Dial::Refused(errno)) => Err(io::Error::from_raw_os_error(errno)),
+            Some(Dial::Refused(err)) => Err(io::Error::other(Carried(err))),
             None => Err(io::ErrorKind::ConnectionRefused.into()),
         }
     }

@@ -76,6 +76,13 @@ class TestE2ENetworkMock < Minitest::Test
     [running.join(0.2).nil?, running]
   end
 
+  def test_refuse_with_an_errno_kobako_never_answers_raises_argument_error
+    assert_raises(ArgumentError, "Mock#refuse with Errno::ECHILD, an errno no socket answers, must raise " \
+                                 "ArgumentError") do
+      Kobako::Network::Mock.new.refuse(PUBLIC, 80, Errno::ECHILD)
+    end
+  end
+
   def test_hold_without_a_block_raises_argument_error
     assert_raises(ArgumentError, "Mock#hold without a block must raise ArgumentError, as a hold lasts for its block") do
       Kobako::Network::Mock.new.hold("held.test")

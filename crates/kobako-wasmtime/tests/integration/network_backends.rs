@@ -11,7 +11,7 @@ use kobako_runtime::grant::Grant;
 use kobako_runtime::net::{Backends, Mock, ProtocolFamily, Resolver};
 use kobako_runtime::network::{Builder, Endpoint, Network, Protocol};
 use kobako_runtime::snapshot::Completion;
-use kobako_runtime::{Entry, Runtime};
+use kobako_runtime::{Entry, Errno, Runtime};
 use kobako_transport::envelope::{Outcome, Preamble};
 
 use crate::support;
@@ -148,15 +148,11 @@ fn a_mock_answers_names_from_its_table_and_dials_only_its_routes() {
 }
 
 // @behavior NW-213
-#[cfg(unix)]
 #[test]
 fn a_mock_refuses_a_dial_with_the_error_it_was_given() {
     let mock = Arc::new(Mock::default());
     mock.answer("app.test", vec![IpAddr::from(PUBLIC)]);
-    mock.refuse(
-        SocketAddr::from((PUBLIC, 80)),
-        rustix::io::Errno::CONNRESET.raw_os_error(),
-    );
+    mock.refuse(SocketAddr::from((PUBLIC, 80)), Errno::ConnectionReset);
     if support::bundled_driver().is_none() {
         return;
     }
