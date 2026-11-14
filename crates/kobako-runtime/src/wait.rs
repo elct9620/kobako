@@ -7,7 +7,7 @@
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::task::Waker;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use crate::sched;
 use crate::Errno;
@@ -118,16 +118,17 @@ pub fn poll_wait(queue: &Arc<WaitQueueHead>, table: Option<&mut PollTable>) {
     }
 }
 
-/// Ask `poll` until it finds something ready, `timeout` passes, or the run is
-/// to stop, as Linux's `do_poll` asks each file again whenever a queue it
-/// registered on wakes. The first ask registers through the table it is
-/// handed; nothing ready by `timeout` answers `None`, and a run that is to stop
-/// answers EINTR.
+/// Ask `poll` until it finds something ready, `end` passes, or the run is to
+/// stop, as Linux's `do_poll` asks each file again whenever a queue it
+/// registered on wakes. `end` is read afresh each turn, so a wait whose
+/// soonest due moves earlier, as an exchange's next timeout starting once the
+/// last ends, sleeps only to the new one. The first ask registers through the
+/// table it is handed; nothing ready by `end` answers `None`, and a run that is
+/// to stop answers EINTR.
 pub fn do_poll<T>(
-    timeout: Option<Duration>,
+    end: impl Fn() -> Option<Instant>,
     mut poll: impl FnMut(Option<&mut PollTable>) -> Option<T>,
 ) -> Result<Option<T>, Errno> {
-    let end = timeout.map(|timeout| Instant::now() + timeout);
     let mut table = PollTable {
         waiter: Arc::default(),
         queues: Vec::new(),
@@ -142,6 +143,7 @@ pub fn do_poll<T>(
                 answer = Err(Errno::Interrupted);
                 return;
             }
+            let end = end();
             if end.is_some_and(|end| Instant::now() >= end) {
                 return;
             }
@@ -163,10 +165,17 @@ pub fn do_poll<T>(
 mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread;
+    use std::time::Duration;
 
     use super::*;
     use crate::sched::testing::{count_waits, join, within_max_wait};
     use crate::sched::{run_task, Task};
+
+    /// An end `after` from now, the same each time it is read.
+    fn end_after(after: Duration) -> impl Fn() -> Option<Instant> {
+        let end = Instant::now() + after;
+        move || Some(end)
+    }
 
     // @behavior RT-335
     #[test]
@@ -188,10 +197,13 @@ mod tests {
         };
         let started = Instant::now();
         let answer = within_max_wait(|| {
-            do_poll(None, |table| {
-                poll_wait(&queue, table);
-                ready.load(Ordering::SeqCst).then_some("ready")
-            })
+            do_poll(
+                || None,
+                |table| {
+                    poll_wait(&queue, table);
+                    ready.load(Ordering::SeqCst).then_some("ready")
+                },
+            )
         });
         let spent = started.elapsed();
         join("the producer", producer);
@@ -236,12 +248,48 @@ mod tests {
     #[test]
     fn a_poll_finding_nothing_answers_none_once_its_timeout_passes() {
         let started = Instant::now();
-        let answer = do_poll(Some(Duration::from_millis(20)), |_| None::<()>);
+        let answer = do_poll(end_after(Duration::from_millis(20)), |_| None::<()>);
         assert!(
             answer == Ok(None) && started.elapsed() >= Duration::from_millis(20),
             "do_poll with a 20 ms timeout over nothing ready must answer None once it passes, \
              got {answer:?} after {:?}",
             started.elapsed()
+        );
+    }
+
+    // @behavior RT-395
+    #[test]
+    fn a_poll_sleeps_only_to_its_end_once_a_wake_moves_it_earlier() {
+        let queue = Arc::new(WaitQueueHead::default());
+        let moved = Arc::new(Mutex::new(None::<Instant>));
+        let far = Instant::now() + Duration::from_secs(30);
+        let waker = {
+            let (queue, moved) = (queue.clone(), moved.clone());
+            thread::spawn(move || {
+                while queue.waiters().is_empty() {
+                    thread::yield_now();
+                }
+                thread::sleep(Duration::from_millis(50));
+                *moved.lock().unwrap() = Some(Instant::now() + Duration::from_millis(20));
+                queue.wake_up();
+            })
+        };
+        let started = Instant::now();
+        let answer = within_max_wait(|| {
+            do_poll(
+                || Some(moved.lock().unwrap().unwrap_or(far)),
+                |table| {
+                    poll_wait(&queue, table);
+                    None::<()>
+                },
+            )
+        });
+        let spent = started.elapsed();
+        join("the waker", waker);
+        assert!(
+            answer == Ok(None) && spent < Duration::from_secs(5),
+            "do_poll over nothing ready, its 30 s end moved to 20 ms after a wake, must answer \
+             None once the moved end passes, got {answer:?} after {spent:?}"
         );
     }
 
@@ -254,10 +302,13 @@ mod tests {
             thread::spawn(move || {
                 run_task(Some(Instant::now() + Duration::from_secs(10)), || {
                     *task.lock().unwrap() = Some(Task::current());
-                    do_poll(None, |_| {
-                        waiting.store(true, Ordering::SeqCst);
-                        None::<()>
-                    })
+                    do_poll(
+                        || None,
+                        |_| {
+                            waiting.store(true, Ordering::SeqCst);
+                            None::<()>
+                        },
+                    )
                 })
             })
         };
@@ -280,7 +331,7 @@ mod tests {
     #[test]
     fn a_poll_ends_with_eintr_once_its_deadline_passes() {
         let answer = run_task(Some(Instant::now() + Duration::from_millis(20)), || {
-            do_poll(None, |_| None::<()>)
+            do_poll(|| None, |_| None::<()>)
         });
         assert_eq!(
             answer,
@@ -293,8 +344,8 @@ mod tests {
     #[test]
     fn a_poll_that_sleeps_waits_through_the_registered_blocking() {
         let waits = count_waits();
-        let _ = do_poll(Some(Duration::from_millis(1)), |_| None::<()>);
-        let _ = do_poll(Some(Duration::from_secs(1)), |_| Some(()));
+        let _ = do_poll(end_after(Duration::from_millis(1)), |_| None::<()>);
+        let _ = do_poll(end_after(Duration::from_secs(1)), |_| Some(()));
         assert_eq!(
             waits.load(Ordering::SeqCst),
             1,

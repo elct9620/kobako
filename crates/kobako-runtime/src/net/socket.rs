@@ -843,7 +843,7 @@ pub(crate) mod testing {
     /// the longest a test waits, the test fails.
     pub(crate) fn wait_for(poll: impl Fn(Option<&mut PollTable>) -> PollMask, mask: PollMask) {
         let found =
-            within_max_wait(|| do_poll(None, |table| poll(table).contains(mask).then_some(())));
+            within_max_wait(|| do_poll(|| None, |table| poll(table).contains(mask).then_some(())));
         assert_eq!(found, Ok(Some(())), "the socket's poll must find {mask:?}");
     }
 }

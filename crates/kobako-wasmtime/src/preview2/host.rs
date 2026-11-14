@@ -150,9 +150,8 @@ impl Invocation {
 
     /// Wait until `ready` answers, or end with `TimeoutTrap` at the deadline
     /// and with `Interrupted` as the frontend interrupts; the wait sleeps
-    /// until the soonest pollable is due, read afresh each turn as an
-    /// exchange's next timeout starts once the last ends, or a queue `ready`
-    /// registered on wakes.
+    /// until the soonest pollable is due, or a queue `ready` registered on
+    /// wakes.
     fn wait_for<T>(
         &self,
         due: impl Fn() -> Option<Instant>,
@@ -162,19 +161,10 @@ impl Invocation {
             return Ok(answer);
         }
         loop {
-            let at = due();
-            let timeout = at.map(|at| at.saturating_duration_since(Instant::now()));
-            // A wake that finds nothing ready yet moved the soonest due ends
-            // this turn, so the next sleeps to the new one.
-            let turn = do_poll(timeout, |table| match ready(table) {
-                Some(answer) => Some(Some(answer)),
-                None => due()
-                    .is_some_and(|due| at.is_none_or(|at| due < at))
-                    .then_some(None),
-            });
-            match turn {
-                Ok(Some(Some(answer))) => return Ok(answer),
-                Ok(Some(None)) => {}
+            match do_poll(&due, &mut ready) {
+                Ok(Some(answer)) => return Ok(answer),
+                // A due passed, which a pollable reads as ready; one that
+                // moved later leaves nothing ready, and the wait goes on.
                 Ok(None) => {
                     if let Some(answer) = ready(None) {
                         return Ok(answer);
