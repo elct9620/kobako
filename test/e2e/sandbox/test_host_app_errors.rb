@@ -25,11 +25,7 @@ class TestE2EHostAppErrors < Minitest::Test
   def test_an_argument_of_another_class_raises_type_error
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    [-> { sandbox.preload(code: 1, name: "Snip") },
-     -> { sandbox.preload(code: "1", name: 1) },
-     -> { sandbox.flag(1, "1") },
-     -> { sandbox.flag(:name, 1) },
-     -> { sandbox.run(:Entry, **{ "key" => 1 }) }].each do |call|
+    calls_of_another_class(sandbox).each do |call|
       assert_raises(TypeError, "a call given an argument of a class it does not take must raise TypeError") do
         call.call
       end
@@ -44,5 +40,17 @@ class TestE2EHostAppErrors < Minitest::Test
     assert_raises(TypeError, "Sandbox.new with timeout: of another class must raise TypeError") do
       Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: "soon")
     end
+  end
+
+  private
+
+  def calls_of_another_class(sandbox)
+    [-> { sandbox.preload(code: 1, name: "Snip") },
+     -> { sandbox.preload(code: "1", name: 1) },
+     -> { sandbox.flag(1, "1") },
+     -> { sandbox.flag(:name, 1) },
+     -> { sandbox.bind(1, Object.new) },
+     -> { sandbox.network(1) { |net| net.endpoint "api.example.com", port: 443 } },
+     -> { sandbox.run(:Entry, **{ "key" => 1 }) }]
   end
 end

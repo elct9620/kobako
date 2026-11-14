@@ -13,12 +13,10 @@ module Kobako
       end
 
       def register(name, value, advisory:)
-        unless name.is_a?(Symbol) || name.is_a?(String)
-          raise TypeError, "flag name must be a Symbol or String, got #{name.class}"
-        end
+        name = Catalog.to_name(name, "flag name")
         raise TypeError, "flag value must be a String, got #{value.class}" unless value.is_a?(String)
 
-        key = Catalog.to_utf8(name.to_s, "flag name")
+        key = Catalog.to_utf8(name, "flag name")
         raise ArgumentError, "flag #{key.inspect} already set" if @entries.key?(key)
 
         @entries[key] = [Catalog.to_utf8(value, "flag value"), !advisory]

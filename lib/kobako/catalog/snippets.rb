@@ -92,11 +92,7 @@ module Kobako
       end
 
       def normalize_name(name)
-        unless name.is_a?(Symbol) || name.is_a?(String)
-          raise TypeError, "snippet name must be a Symbol or String, got #{name.class}"
-        end
-
-        name_str = name.to_s
+        name_str = Catalog.to_name(name, "snippet name")
         unless Kobako.constant_name?(name_str)
           raise ArgumentError, "snippet name must be a Ruby constant name (got #{name.inspect})"
         end

@@ -38,7 +38,7 @@ module Kobako
     def bind(path, object)
       raise ArgumentError, "Kobako::Context is spent; ctx.bind is only valid inside the #eval / #run block" if @spent
 
-      key = path.to_s
+      key = Catalog.to_name(path, "bind path")
       raise ArgumentError, "cannot override undeclared path #{key.inspect}" unless @services.bound?(key)
 
       @overrides[key] = Transport::Exposure.of(object)

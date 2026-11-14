@@ -4,10 +4,11 @@ module Kobako
   module Catalog
     class Network < Data.define(:name, :entry) # :nodoc:
       # The entry named +name+: +entry+ as it stands, or a Builder adding what
-      # the block declares to it. Raises ArgumentError for an empty name, which
-      # no Context could replace it by.
+      # the block declares to it. Raises TypeError for a name of another class,
+      # and ArgumentError for an empty name, which no Context could replace it
+      # by.
       def initialize(name:, entry:)
-        name = name.to_s.freeze
+        name = Catalog.to_name(name, "network name").freeze
         Kobako::Network.validate_name(name)
 
         if block_given?

@@ -1,5 +1,6 @@
 module Kobako
   module Catalog
+    def self.to_name: (untyped name, String what) -> String
     def self.to_utf8: (String text, String what) -> String
   end
 end

@@ -59,7 +59,8 @@ module Kobako
     # the constant, and Context#bind supplies the object for each invocation.
     # A call to one left unfilled fails as a ServiceError.
     #
-    # Raises ArgumentError for a malformed path, a path under the reserved
+    # Raises TypeError for a path that is no Symbol or String, ArgumentError
+    # for a malformed path, a path under the reserved
     # +Kobako+ namespace, or a path that collides with an existing binding,
     # and FrozenError for a call after the first invocation.
     def bind(path, object = Unresolved)
@@ -115,7 +116,8 @@ module Kobako
     # Kobako::Network::Connection, and its +request?+ each
     # Kobako::Network::Request; any entry refusing refuses. Returns +self+.
     #
-    # Raises ArgumentError for an empty or duplicate name, an endpoint with an
+    # Raises TypeError for a name that is no Symbol or String, ArgumentError
+    # for an empty or duplicate name, an endpoint with an
     # empty host, a port outside 1 to 65535, or an unknown protocol, and
     # FrozenError for a call after the first invocation. An
     # endpoint the ruleset refuses, such as a wildcard leading to +:private+,
