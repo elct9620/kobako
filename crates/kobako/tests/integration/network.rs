@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 
 use kobako::filesystem::{Filesystem, Tmpfs};
 use kobako::network::{Endpoint, Entry};
-use kobako::{Access, Error, Profile, RunPayload, Sandbox};
+use kobako::{Access, ArgumentKind, Error, Profile, RunPayload, Sandbox};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::InvokeError;
 use kobako_runtime::grant::{Grant, GrantKind};
@@ -125,7 +125,10 @@ fn a_name_given_twice_is_refused() {
     assert!(
         matches!(
             sandbox.network("github", Arc::new(Reaches("other.example.com"))),
-            Err(Error::Argument(_))
+            Err(Error::Argument {
+                kind: ArgumentKind::Taken,
+                ..
+            })
         ),
         "Sandbox::network with a name already given must be refused"
     );
@@ -170,7 +173,13 @@ fn a_context_cannot_replace_a_name_never_declared() {
         ctx.network("other", Arc::new(Reaches("api.example.com")))
     });
     assert!(
-        matches!(result, Err(Error::Argument(_))) && received.lock().unwrap().is_empty(),
+        matches!(
+            result,
+            Err(Error::Argument {
+                kind: ArgumentKind::Undeclared,
+                ..
+            })
+        ) && received.lock().unwrap().is_empty(),
         "Context::network of a name the Sandbox never gave must be refused before the guest \
          runs"
     );
@@ -236,7 +245,10 @@ fn an_entry_with_an_empty_name_is_refused() {
     assert!(
         matches!(
             sandbox.network("", Arc::new(Reaches("api.example.com"))),
-            Err(Error::Argument(_))
+            Err(Error::Argument {
+                kind: ArgumentKind::Entry,
+                ..
+            })
         ),
         "Sandbox::network with an empty name must be refused"
     );
@@ -272,7 +284,13 @@ fn a_wildcard_endpoint_leading_to_private_addresses_is_an_argument_error() {
         .expect_err("a wildcard endpoint leading to private addresses must fail the invocation");
 
     assert!(
-        matches!(err, Error::Argument(_)),
+        matches!(
+            err,
+            Error::Argument {
+                kind: ArgumentKind::Entry,
+                ..
+            }
+        ),
         "Sandbox::eval with a wildcard endpoint whose addresses name private must answer \
          Error::Argument, never a trap, got {err:?}"
     );

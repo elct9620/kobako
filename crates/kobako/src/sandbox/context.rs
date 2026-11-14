@@ -8,7 +8,7 @@ use kobako_runtime::policy::Policy;
 
 use crate::catalog::Catalog;
 use crate::dispatch::Resolutions;
-use crate::error::Error;
+use crate::error::{ArgumentKind, Error};
 use crate::grants::shares_key;
 use crate::receiver::Receiver;
 
@@ -103,7 +103,7 @@ impl Context<'_> {
     /// refuse with `refusal` when the Sandbox holds none there.
     fn replace(&mut self, grant: Grant, refusal: String) -> Result<(), Error> {
         if !self.catalog.grants.holds(&grant) {
-            return Err(Error::Argument(refusal));
+            return Err(Error::argument(ArgumentKind::Undeclared, refusal));
         }
         self.grants.retain(|replaced| !shares_key(replaced, &grant));
         self.grants.push(grant);
@@ -116,9 +116,10 @@ impl Context<'_> {
     /// a second override of the same `path` wins over the first.
     pub fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
         if self.catalog.lookup(path).is_none() {
-            return Err(Error::Argument(format!(
-                "cannot override undeclared path {path:?}"
-            )));
+            return Err(Error::argument(
+                ArgumentKind::Undeclared,
+                format!("cannot override undeclared path {path:?}"),
+            ));
         }
         self.overrides.retain(|(bound, _)| bound != path);
         self.overrides.push((path.to_string(), object));

@@ -15,7 +15,7 @@ use std::sync::Arc;
 
 use crate::catalog::Catalog;
 use crate::dispatch::Resolutions;
-use crate::error::Error;
+use crate::error::{ArgumentKind, Error};
 use crate::handles::Handles;
 use crate::receiver::{Fault, FaultKind, Receiver};
 use crate::yielder::Yielder;
@@ -155,11 +155,14 @@ impl Extensions {
         for extension in &self.entries {
             for dependency in extension.depends_on() {
                 if !names.contains(dependency) {
-                    return Err(Error::Argument(format!(
-                        "extension {:?} depends on {:?}, which was not installed",
-                        extension.name(),
-                        dependency
-                    )));
+                    return Err(Error::argument(
+                        ArgumentKind::Dependency,
+                        format!(
+                            "extension {:?} depends on {:?}, which was not installed",
+                            extension.name(),
+                            dependency
+                        ),
+                    ));
                 }
             }
         }

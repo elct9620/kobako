@@ -93,17 +93,54 @@ pub enum Error {
     /// A registration verb arrived after the first invocation sealed
     /// the Sandbox's tables.
     Sealed(&'static str),
-    /// A host-side pre-flight refusal — malformed snippet or entrypoint
-    /// name, duplicate snippet name, or unencodable arguments (Ruby:
-    /// `ArgumentError`).
-    Argument(String),
+    /// A host-side refusal of what the embedder passed, before any run;
+    /// `kind` names which mistake it was (Ruby: `ArgumentError`).
+    Argument { kind: ArgumentKind, message: String },
+}
+
+/// Which mistake an `Error::Argument` refused, so an embedder can match it
+/// without reading the message.
+///
+/// Non-exhaustive because each check a later kobako adds brings its kind.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ArgumentKind {
+    /// A snippet, Service path, or entrypoint that is not a Ruby constant name.
+    Name,
+    /// A Service path under the namespace the Guest Binary keeps.
+    Reserved,
+    /// A snippet, Service path, flag, mount point, or network name already taken.
+    Taken,
+    /// An Extension depending on one that was not installed.
+    Dependency,
+    /// A cap that is not a positive quantity.
+    Cap,
+    /// An override of a path, mount, or network the Sandbox never gave.
+    Undeclared,
+    /// Run arguments with no wire form.
+    Unencodable,
+    /// A run argument carrying a Handle, which only the invocation issues.
+    Handle,
+    /// A mount point that is not a path the guest can name.
+    Path,
+    /// A network entry, endpoint, or rule the network refuses.
+    Entry,
+}
+
+impl Error {
+    pub(crate) fn argument(kind: ArgumentKind, message: impl Into<String>) -> Self {
+        Error::Argument {
+            kind,
+            message: message.into(),
+        }
+    }
 }
 
 impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::Timeout(msg) | Error::MemoryLimit(msg) | Error::Trap(msg) => f.write_str(msg),
-            Error::Argument(msg) => f.write_str(msg),
+            Error::Argument { message, .. } => f.write_str(message),
             Error::Sandbox(failure)
             | Error::Bytecode(failure)
             | Error::UnsupportedFlag(failure)
@@ -135,13 +172,13 @@ impl From<kobako_runtime::error::InvokeError> for Error {
 
 impl From<kobako_runtime::mount::MountPathError> for Error {
     fn from(err: kobako_runtime::mount::MountPathError) -> Self {
-        Error::Argument(err.to_string())
+        Error::argument(ArgumentKind::Path, err.to_string())
     }
 }
 
 impl From<kobako_runtime::network::EntryError> for Error {
     fn from(err: kobako_runtime::network::EntryError) -> Self {
-        Error::Argument(err.to_string())
+        Error::argument(ArgumentKind::Entry, err.to_string())
     }
 }
 

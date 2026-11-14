@@ -5,7 +5,7 @@ use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::Mount;
 use kobako_runtime::network::Network;
 
-use crate::error::Error;
+use crate::error::{ArgumentKind, Error};
 
 /// Whether `grant` and `other` are the same kind of Grant at one key, so
 /// one stands in for the other: a Mount at the same path, or a network entry
@@ -30,7 +30,10 @@ impl Grants {
         let at = mount.at().to_string();
         let grant = Grant::Mount(mount);
         if self.holds(&grant) {
-            return Err(Error::Argument(format!("path {at:?} is already mounted")));
+            return Err(Error::argument(
+                ArgumentKind::Taken,
+                format!("path {at:?} is already mounted"),
+            ));
         }
         self.entries.push(grant);
         Ok(())
@@ -41,9 +44,10 @@ impl Grants {
         let name = network.name().to_string();
         let grant = Grant::Network(network);
         if self.holds(&grant) {
-            return Err(Error::Argument(format!(
-                "network entry {name:?} is already given"
-            )));
+            return Err(Error::argument(
+                ArgumentKind::Taken,
+                format!("network entry {name:?} is already given"),
+            ));
         }
         self.entries.push(grant);
         Ok(())

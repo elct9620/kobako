@@ -5,7 +5,7 @@ use std::sync::Arc;
 use kobako_codec::msgpack::codec::{Encode as _, Value};
 use kobako_codec::msgpack::payload::Arguments;
 
-use crate::error::{Error, Failure};
+use crate::error::{ArgumentKind, Error, Failure};
 use crate::handles::Handles;
 use crate::payload::RunPayload;
 use crate::receiver::Receiver;
@@ -47,9 +47,12 @@ fn encode_values(
         .into_iter()
         .map(|(key, arg)| Ok((key, wrap(handles, arg)?)))
         .collect::<Result<_, Error>>()?;
-    Arguments::new(args, kwargs)
-        .encode()
-        .map_err(|err| Error::Argument(format!("arguments are not wire-encodable: {err}")))
+    Arguments::new(args, kwargs).encode().map_err(|err| {
+        Error::argument(
+            ArgumentKind::Unencodable,
+            format!("arguments are not wire-encodable: {err}"),
+        )
+    })
 }
 
 /// Table exhaustion surfaces as an outer `Err`, since the guest never ran.
@@ -57,9 +60,9 @@ fn encode_values(
 /// since only this invocation's table issues the id a Handle carries.
 fn wrap(handles: &Handles<'_>, arg: RunArg) -> Result<Value, Error> {
     match arg {
-        RunArg::Value(value) if carries_handle(&value) => Err(Error::Argument(
-            "a run argument cannot carry a Handle; pass the host object as RunArg::Object"
-                .to_string(),
+        RunArg::Value(value) if carries_handle(&value) => Err(Error::argument(
+            ArgumentKind::Handle,
+            "a run argument cannot carry a Handle; pass the host object as RunArg::Object",
         )),
         RunArg::Value(value) => Ok(value),
         RunArg::Object(object) => handles.alloc(object).map(Value::Handle).map_err(|fault| {

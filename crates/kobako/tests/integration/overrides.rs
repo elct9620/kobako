@@ -9,7 +9,7 @@
 
 use crate::common::real_sandbox;
 use kobako::msgpack::{Value, ValueReceiver};
-use kobako::{Error, Fault, Handles, RunPayload, Yielder};
+use kobako::{ArgumentKind, Error, Fault, Handles, RunPayload, Yielder};
 
 /// A host store the guest reaches as the bound constant; `get` returns its
 /// fixed value so a test can witness which object backed the path.
@@ -130,7 +130,13 @@ fn eval_with_rejects_an_undeclared_override_before_the_guest_runs() {
         .expect_err("overriding an undeclared path must fail before the guest runs");
 
     assert!(
-        matches!(err, Error::Argument(_)),
+        matches!(
+            err,
+            Error::Argument {
+                kind: ArgumentKind::Undeclared,
+                ..
+            }
+        ),
         "an undeclared override must surface as Error::Argument, keeping the key set fixed, got {err:?}"
     );
 }
@@ -221,7 +227,13 @@ fn run_with_rejects_an_undeclared_override_before_the_guest_runs() {
         .expect_err("overriding an undeclared path must fail before the guest runs");
 
     assert!(
-        matches!(err, Error::Argument(_)),
+        matches!(
+            err,
+            Error::Argument {
+                kind: ArgumentKind::Undeclared,
+                ..
+            }
+        ),
         "an undeclared override must surface as Error::Argument on the run path too, got {err:?}"
     );
 }

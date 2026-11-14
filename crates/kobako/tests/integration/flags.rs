@@ -9,7 +9,7 @@
 #![cfg(feature = "wasmtime")]
 
 use crate::common::real_sandbox;
-use kobako::Error;
+use kobako::{ArgumentKind, Error};
 
 // @behavior S-183
 #[test]
@@ -60,7 +60,10 @@ fn a_flag_name_set_twice_is_refused() {
     assert!(
         matches!(
             sandbox.flag_advisory("strict", "on"),
-            Err(Error::Argument(_))
+            Err(Error::Argument {
+                kind: ArgumentKind::Taken,
+                ..
+            })
         ),
         "a flag name set twice through Sandbox::flag must be refused as Error::Argument"
     );

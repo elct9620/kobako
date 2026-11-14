@@ -93,6 +93,15 @@ path resolves to, for that invocation alone.
 pub struct Context<'a> {}
 ```
 
+## `ArgumentKind`
+
+Which mistake an embedder made when a call refuses what it was given before
+any run. An embedder matches it to tell one mistake from another.
+
+```rust
+pub enum ArgumentKind {}
+```
+
 ## `YieldError`
 
 How a yield into the guest block ended short of a value. A Receiver matches it

@@ -12,7 +12,7 @@ use kobako::filesystem::{
     Kiocb, Kstat, Lookup, OpenHow, Tmpfs,
 };
 use kobako::msgpack::Value;
-use kobako::{Access, Errno, Error, Filesystem, MountRequest, Profile, Sandbox};
+use kobako::{Access, ArgumentKind, Errno, Error, Filesystem, MountRequest, Profile, Sandbox};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::InvokeError;
 use kobako_runtime::grant::Grant;
@@ -107,7 +107,10 @@ fn a_mount_path_that_is_not_absolute_is_refused() {
         assert!(
             matches!(
                 sandbox.mount(at, tmpfs(""), Access::Read),
-                Err(Error::Argument(_))
+                Err(Error::Argument {
+                    kind: ArgumentKind::Path,
+                    ..
+                })
             ),
             "Sandbox::mount at {at:?} must be refused as no absolute guest path"
         );
@@ -123,7 +126,10 @@ fn a_path_mounted_twice_is_refused() {
     assert!(
         matches!(
             sandbox.mount("/data", tmpfs(""), Access::Read),
-            Err(Error::Argument(_))
+            Err(Error::Argument {
+                kind: ArgumentKind::Taken,
+                ..
+            })
         ),
         "Sandbox::mount at a path already mounted must be refused"
     );
@@ -328,7 +334,13 @@ fn a_context_cannot_mount_a_path_the_sandbox_never_mounted() {
     let result = sandbox.eval_with("nil", |ctx| ctx.mount("/other", tmpfs(""), Access::Read));
 
     assert!(
-        matches!(result, Err(Error::Argument(_))),
+        matches!(
+            result,
+            Err(Error::Argument {
+                kind: ArgumentKind::Undeclared,
+                ..
+            })
+        ),
         "Context::mount at a path the Sandbox never mounted must be refused before the guest runs"
     );
 }

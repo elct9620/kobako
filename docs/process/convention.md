@@ -67,7 +67,7 @@ The Ruby gem raises a Host App's mistake as CRuby's core methods raise it, so `r
 | a spent Context, or a name already taken | `ArgumentError` | no more specific class |
 | a run or a setup that fails | `Kobako::*` | — |
 
-The Rust SDK keeps a mistake in its `Error::Argument`, and the seal in `Error::Sealed`.
+The Rust SDK keeps a mistake in its `Error::Argument`, whose `ArgumentKind` names which, and the seal in `Error::Sealed`.
 
 ## Contract Registration
 

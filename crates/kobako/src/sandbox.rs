@@ -24,7 +24,7 @@ use kobako_wasmtime::{Config, Driver};
 
 use crate::catalog::Catalog;
 use crate::dispatch::CatalogHandler;
-use crate::error::{Error, SetupError};
+use crate::error::{ArgumentKind, Error, SetupError};
 use crate::execution::{classify, Execution};
 use crate::extension::{unresolved, Extension, Extensions};
 use crate::handles::HandleTable;
@@ -128,7 +128,7 @@ impl Sandbox {
         } = options;
         limits
             .check()
-            .map_err(|zero| Error::Argument(zero.to_string()))?;
+            .map_err(|zero| Error::argument(ArgumentKind::Cap, zero.to_string()))?;
         let mut config = Config::default();
         config.limits = limits;
         config.profile = profile;
@@ -343,9 +343,10 @@ impl Sandbox {
         F: FnOnce(&mut Context<'_>) -> Result<(), Error>,
     {
         if !is_constant_name(target) {
-            return Err(Error::Argument(format!(
-                "entrypoint must be a Ruby constant name (got {target:?})"
-            )));
+            return Err(Error::argument(
+                ArgumentKind::Name,
+                format!("entrypoint must be a Ruby constant name (got {target:?})"),
+            ));
         }
         let (catalog, handles) = self.begin_invocation()?;
         let overrides = collect_overrides(&catalog, overrides)?;
@@ -529,7 +530,7 @@ mod tests {
         assert!(
             matches!(
                 Sandbox::new("no-guest.wasm", options),
-                Err(Error::Argument(message)) if message.starts_with("memory_limit must be > 0")
+                Err(Error::Argument { kind: ArgumentKind::Cap, message }) if message.starts_with("memory_limit must be > 0")
             ),
             "a memory_limit of zero through Sandbox::new must be refused as an argument error naming it"
         );

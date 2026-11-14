@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use crate::common::real_sandbox;
 use kobako::msgpack::{RunArg, Value, ValueReceiver};
-use kobako::{Error, Fault, Handles, RunPayload, Sandbox, Yielder};
+use kobako::{ArgumentKind, Error, Fault, Handles, RunPayload, Sandbox, Yielder};
 
 /// A host object that answers `"reached"` and records that the guest
 /// called it.
@@ -69,7 +69,13 @@ fn a_run_argument_carrying_a_written_handle_fails_before_the_guest_runs() {
             .expect_err("a run argument carrying a Handle the Host App wrote must fail");
 
         assert!(
-            matches!(err, Error::Argument(_)),
+            matches!(
+                err,
+                Error::Argument {
+                    kind: ArgumentKind::Handle,
+                    ..
+                }
+            ),
             "a Handle written into run's arguments as {value:?} must be the Host App's \
              argument error, got {err:?}"
         );

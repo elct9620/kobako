@@ -53,7 +53,7 @@ pub mod yielder;
 // The root carries what every build has. The `msgpack` overlay's own
 // names stay in `msgpack`, since a name that vanishes from the root when a
 // feature goes off was never a root name.
-pub use error::{Error, Failure};
+pub use error::{ArgumentKind, Error, Failure};
 pub use execution::{Execution, Usage};
 pub use extension::{Backend, Extension, Provider};
 pub use handles::Handles;

@@ -17,7 +17,7 @@ use kobako_transport::envelope::name::{
 };
 use kobako_transport::envelope::{Bindings, Flag, Preamble};
 
-use crate::error::Error;
+use crate::error::{ArgumentKind, Error};
 use crate::grants::Grants;
 use crate::receiver::Receiver;
 use crate::snippet::Snippets;
@@ -38,19 +38,22 @@ impl Catalog {
     /// so a name meaning two things is one it cannot resolve.
     pub(crate) fn bind(&mut self, path: &str, object: Arc<dyn Receiver>) -> Result<(), Error> {
         if !is_constant_path(path) {
-            return Err(Error::Argument(format!(
-                "bind path must be constant-form segments joined by '::' (got {path:?})"
-            )));
+            return Err(Error::argument(
+                ArgumentKind::Name,
+                format!("bind path must be constant-form segments joined by '::' (got {path:?})"),
+            ));
         }
         if is_reserved(path) {
-            return Err(Error::Argument(format!(
-                "Service path {path} is in the reserved {RESERVED_NAMESPACE} namespace"
-            )));
+            return Err(Error::argument(
+                ArgumentKind::Reserved,
+                format!("Service path {path} is in the reserved {RESERVED_NAMESPACE} namespace"),
+            ));
         }
         if self.bindings.iter().any(|(bound, _)| collides(path, bound)) {
-            return Err(Error::Argument(format!(
-                "Service path {path} conflicts with an existing binding"
-            )));
+            return Err(Error::argument(
+                ArgumentKind::Taken,
+                format!("Service path {path} conflicts with an existing binding"),
+            ));
         }
         self.bindings.push((path.to_string(), object));
         Ok(())
@@ -66,7 +69,10 @@ impl Catalog {
     /// A name set twice is refused, so one flag never carries two values.
     pub(crate) fn flag(&mut self, name: &str, value: &str, critical: bool) -> Result<(), Error> {
         if self.flags.iter().any(|flag| flag.name == name) {
-            return Err(Error::Argument(format!("flag {name:?} already set")));
+            return Err(Error::argument(
+                ArgumentKind::Taken,
+                format!("flag {name:?} already set"),
+            ));
         }
         self.flags.push(Flag {
             name: name.to_string(),

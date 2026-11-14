@@ -13,7 +13,7 @@
 use std::sync::Arc;
 
 use crate::common::real_sandbox;
-use kobako::{Error, Extension};
+use kobako::{ArgumentKind, Error, Extension};
 
 /// A guest idiom declaring a dependency the test never installs.
 struct FileExt;
@@ -47,7 +47,10 @@ fn unmet_dependency_raises_at_first_invocation_naming_the_missing_dependency() {
         .expect_err("an unmet dependency must fail the first invocation before the guest runs");
 
     match err {
-        Error::Argument(message) => assert!(
+        Error::Argument {
+            kind: ArgumentKind::Dependency,
+            message,
+        } => assert!(
             message.contains("File") && message.contains("Errno"),
             "an unmet depends_on must name the Extension and its missing dependency, got: {message}"
         ),

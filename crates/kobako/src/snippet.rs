@@ -13,7 +13,7 @@ use kobako_runtime::runtime::Runtime;
 use kobako_transport::envelope::name::is_constant_name;
 use kobako_transport::envelope::{self, Preamble, Snippet};
 
-use crate::error::Error;
+use crate::error::{ArgumentKind, Error};
 
 /// Insertion-ordered snippet table for one Sandbox.
 #[derive(Default)]
@@ -26,9 +26,10 @@ impl Snippets {
     /// unambiguous.
     pub(crate) fn register_source(&mut self, name: &str, body: &str) -> Result<(), Error> {
         if !is_constant_name(name) {
-            return Err(Error::Argument(format!(
-                "snippet name must be a Ruby constant name (got {name:?})"
-            )));
+            return Err(Error::argument(
+                ArgumentKind::Name,
+                format!("snippet name must be a Ruby constant name (got {name:?})"),
+            ));
         }
         let duplicate = self
             .table
@@ -36,9 +37,10 @@ impl Snippets {
             .iter()
             .any(|entry| matches!(entry, Snippet::Source { name: taken, .. } if taken == name));
         if duplicate {
-            return Err(Error::Argument(format!(
-                "snippet {name:?} already preloaded"
-            )));
+            return Err(Error::argument(
+                ArgumentKind::Taken,
+                format!("snippet {name:?} already preloaded"),
+            ));
         }
         self.table.entries.push(Snippet::Source {
             name: name.to_string(),
@@ -118,7 +120,10 @@ mod tests {
             assert!(
                 matches!(
                     snippets.register_source(name, "X = 1"),
-                    Err(Error::Argument(_))
+                    Err(Error::Argument {
+                        kind: ArgumentKind::Name,
+                        ..
+                    })
                 ),
                 "{name:?} must be rejected"
             );
@@ -131,7 +136,7 @@ mod tests {
         let name = format!("A{}", "b".repeat(65_534));
         let refused = Snippets::default().register_source(&name, "X = 1");
         assert!(
-            matches!(&refused, Err(Error::Argument(message)) if message.contains("constant name")),
+            matches!(&refused, Err(Error::Argument { kind: ArgumentKind::Name, message }) if message.contains("constant name")),
             "a snippet name one byte past the symbol limit through register_source must be refused, \
              naming the constraint"
         );
@@ -144,7 +149,10 @@ mod tests {
         snippets.register_source("Helper", "X = 1").unwrap();
         assert!(matches!(
             snippets.register_source("Helper", "Y = 2"),
-            Err(Error::Argument(_))
+            Err(Error::Argument {
+                kind: ArgumentKind::Taken,
+                ..
+            })
         ));
     }
 
