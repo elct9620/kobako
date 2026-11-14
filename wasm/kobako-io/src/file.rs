@@ -92,13 +92,20 @@ pub(crate) fn require_mount(mrb: &Mrb, call: &str) -> Result<(), Error> {
     ))
 }
 
-/// A path a call hands the host, as `path_text` reads it. An empty one
-/// raises `Errno::ENOENT`, as Linux's `getname` refuses one, since
-/// wasi-libc would take it for the working directory.
+/// A path a call hands the host, as `path_text` reads it, raising what
+/// `reachable` refuses.
 pub(crate) fn path_arg(mrb: &Mrb, value: Value) -> Result<String, Error> {
     let path = path_text(mrb, value)?;
+    reachable(&path).map_err(|err| errno::from_io(mrb, &err, &path))?;
+    Ok(path)
+}
+
+/// `path` as the host may be asked about it. An empty one names no entry,
+/// as Linux's `getname` refuses one, since wasi-libc would take it for the
+/// working directory.
+pub(crate) fn reachable(path: &str) -> io::Result<&str> {
     match path.is_empty() {
-        true => Err(errno::error_by_name(mrb, c"ENOENT", &path)),
+        true => Err(io::ErrorKind::NotFound.into()),
         false => Ok(path),
     }
 }
@@ -257,7 +264,7 @@ fn file_s_write(mrb: &Mrb, _self: Value, path: Value, data: Value) -> Result<Val
 pub(crate) fn stat_or_none(mrb: &Mrb, call: &str, path: Value) -> Result<Option<Stat>, Error> {
     require_mount(mrb, call)?;
     let path = path_text(mrb, path)?;
-    Ok(stat::stat_of(&path).ok().filter(|_| !path.is_empty()))
+    Ok(reachable(&path).and_then(stat::stat_of).ok())
 }
 
 fn file_s_exist_p(mrb: &Mrb, _self: Value, path: Value) -> Result<bool, Error> {
