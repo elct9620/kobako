@@ -3454,10 +3454,8 @@ mod tests {
     // @behavior RT-394
     #[test]
     fn each_handle_takes_its_room_from_the_memory_limit() {
-        let mut config = Config::for_profile(Profile::Hermetic);
-        config.limits.memory_limit = Some(64 << 10);
-        let (mut store, _instance) = guest_of(config);
-        let guest = store.data_mut();
+        let mut guest =
+            Invocation::hermetic(None, |config| config.limits.memory_limit = Some(64 << 10));
         let held = (0..crate::wasi::MAX_TABLE_ENTRIES)
             .map_while(|_| guest.monotonic_clock_subscribe_duration(0).ok())
             .collect::<Vec<_>>();

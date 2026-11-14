@@ -62,7 +62,7 @@ fn answer(rb_self: &MockNet, args: &[Value]) -> Result<(), MagnusError> {
     rb_self
         .0
         .answer(&name, to_ips(args.splat)?)
-        .map_err(|_| not_a_name(&name))
+        .map_err(|_| to_name_error(&name))
 }
 
 /// `route(address, port, to: [address, port])`.
@@ -103,12 +103,12 @@ fn hold(ruby: &Ruby, rb_self: &MockNet, name: String) -> Result<Value, MagnusErr
             "hold needs a block, which the hold lasts for",
         ));
     }
-    let _hold = rb_self.0.hold(&name).map_err(|_| not_a_name(&name))?;
+    let _hold = rb_self.0.hold(&name).map_err(|_| to_name_error(&name))?;
     ruby.yield_values(())
 }
 
 /// The `ArgumentError` for `name`, which no guest's lookup asks.
-fn not_a_name(name: &str) -> MagnusError {
+fn to_name_error(name: &str) -> MagnusError {
     let ruby = Ruby::get().expect("Ruby thread");
     MagnusError::new(
         ruby.exception_arg_error(),
