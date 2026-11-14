@@ -277,3 +277,48 @@ fn a_wildcard_endpoint_leading_to_private_addresses_is_an_argument_error() {
          Error::Argument, never a trap, got {err:?}"
     );
 }
+
+// @behavior NW-212
+#[cfg(feature = "wasmtime")]
+#[test]
+fn a_mock_handed_through_options_answers_the_guests_names() {
+    use kobako::network::{Builder, Protocol};
+    use kobako::Options;
+    use kobako_runtime::net::{Backends, Mock};
+    use std::net::{IpAddr, SocketAddr, TcpListener};
+
+    let public = IpAddr::from([93, 184, 216, 34]);
+    let server = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
+    let mock = Arc::new(Mock::default());
+    mock.answer("app.test", vec![public]);
+    mock.route(
+        SocketAddr::new(public, 80),
+        server.local_addr().expect("the server's address"),
+    );
+    let mut options = Options::default();
+    options.network = Backends::new(mock.clone(), mock.clone());
+    let Some(mut sandbox) = crate::common::real_sandbox_with(options) else {
+        return;
+    };
+    let mut entry = Builder::default();
+    entry.endpoint(
+        Endpoint::new("app.test", 80)
+            .expect("a host and a port stand")
+            .with_protocol(Protocol::Tcp),
+    );
+    sandbox
+        .network("web", Arc::new(entry))
+        .expect("the entry registers");
+
+    let execution = sandbox
+        .eval(r#"TCPSocket.new("app.test", 80).close; print :connected"#)
+        .expect("the invocation runs");
+
+    assert_eq!(
+        (execution.stdout(), mock.dials()),
+        (&b"connected"[..], vec![SocketAddr::new(public, 80)]),
+        "a Sandbox built with Options::network as a Mock must answer the guest's name from \
+         the Mock and dial its route, got stdout {:?}",
+        String::from_utf8_lossy(execution.stdout())
+    );
+}

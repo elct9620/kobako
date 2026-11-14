@@ -121,13 +121,18 @@ impl Sandbox {
     pub fn new(wasm_path: impl AsRef<Path>, options: Options) -> Result<Self, Error> {
         // Taken apart whole, so an option added later fails to build here
         // until it reaches the engine.
-        let Options { limits, profile } = options;
+        let Options {
+            limits,
+            profile,
+            network,
+        } = options;
         limits
             .check()
             .map_err(|zero| Error::Argument(zero.to_string()))?;
         let mut config = Config::default();
         config.limits = limits;
         config.profile = profile;
+        config.network = network;
         let driver = Driver::new(wasm_path.as_ref(), config).map_err(Error::Setup)?;
         let mut sandbox = Sandbox::with_runtime(driver, profile)?;
         sandbox.value_budget = limits.value_budget();
