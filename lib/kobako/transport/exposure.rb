@@ -33,7 +33,7 @@ module Kobako
       def exposes?(name)
         return names.include?(name) if names
 
-        object.__send__(PREDICATE, name) ? true : false
+        Reflection::SEND.bind_call(object, PREDICATE, name) ? true : false
       end
 
       class << self

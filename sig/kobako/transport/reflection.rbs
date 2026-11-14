@@ -10,6 +10,7 @@ module Kobako
       PRIVATE_METHODS: UnboundMethod
       RESPOND_TO: UnboundMethod
       PUBLIC_SEND: UnboundMethod
+      SEND: UnboundMethod
 
       def self.refusal: (Kobako::Transport::Exposure exposure, Symbol name) -> String?
 

@@ -28,6 +28,7 @@ module Kobako
       PRIVATE_METHODS = Kernel.instance_method(:private_methods)
       RESPOND_TO = Kernel.instance_method(:respond_to?)
       PUBLIC_SEND = Kernel.instance_method(:public_send)
+      SEND = BasicObject.instance_method(:__send__)
 
       # The reason +name+ is unreachable through +exposure+, or +nil+ when
       # the dispatch may proceed. Composes the ambient-surface floor with the
