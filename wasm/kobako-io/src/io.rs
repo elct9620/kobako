@@ -8,16 +8,14 @@
 //! signature (`IO.new(fd, mode = nil)`), and CRuby's write-path surface
 //! (`#write`, `#fileno`, `#print`, `#puts`, `#printf`, `#putc`, `#<<`,
 //! `#tty?` / `#isatty`, `#sync` / `#sync=`, `#flush`, `#to_i`).
-//! The whole surface is registered as `beni` bridge methods
-//! — the predecessor's `mrblib/io.rb` half is rewritten in Rust so
-//! the gem ships no Ruby boot source and needs no mrbc pipeline.
+//! The whole surface is registered as `beni` bridge methods, so the gem
+//! ships no Ruby boot source and needs no mrbc pipeline.
 //! Composite methods route their output through `self.write(...)`
-//! funcalls, preserving the mrblib dispatch shape (a subclass
-//! overriding `#write` redirects them all). Per-argument loops
-//! bracket each iteration in `Mrb::arena_scope`: the mrblib
-//! predecessors ran under the VM, which restores the GC arena every
-//! instruction, so without the scope a long argument list would
-//! accumulate arena slots in the C frame until overflow.
+//! funcalls, so a subclass overriding `#write` redirects them all.
+//! Per-argument loops bracket each iteration in `Mrb::arena_scope`: a C
+//! frame does not restore the GC arena as the VM does each instruction,
+//! so without the scope a long argument list would accumulate arena slots
+//! until overflow.
 //!
 //! ## Scope restriction
 //!
@@ -392,8 +390,7 @@ fn puts_one(
     emit: &mut dyn FnMut(Value) -> Result<(), Error>,
 ) -> Result<(), Error> {
     // Downcast on the value's type tag, not its classname: the tag
-    // covers Array subclasses too, matching the `is_a?(Array)` check
-    // the mrblib predecessor made.
+    // covers Array subclasses too, as an `is_a?(Array)` check does.
     if let Some(ary) = RArray::from_value(val) {
         let id = val.object_id();
         if within.contains(&id) {
