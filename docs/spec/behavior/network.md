@@ -59,6 +59,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_udp.rb`
 - `test/e2e/test_network_mock.rb`
 - `test/e2e/test_network_mock_names.rb`
+- `test/e2e/test_network_mock_rebinding.rb`
 - `test/e2e/test_network_mock_failures.rb`
 - `test/e2e/test_network_udp_cruby.rb`
 - `test/e2e/test_network_udp_flags.rb`
@@ -363,7 +364,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a name its lookup handed one virtual address for each real address, from the bottom of `198.18.0.0/15` |
 | When | the guest connects to one of those virtual addresses |
-| Then | the one real address it stands for is dialed, as cgroup `connect4` rewrites one destination. The endpoint's `addresses` must lead to it, so an endpoint leading only to public addresses refuses a local one |
+| Then | the one real address it stands for is dialed, as cgroup `connect4` rewrites one destination. A real IPv6 address stands behind a virtual one alike, so the guest reaches it without IPv6. The endpoint's `addresses` must lead to it, so an endpoint leading only to public addresses refuses a local one |
 
 ## `NW-026` A virtual address no lookup handed out is refused
 

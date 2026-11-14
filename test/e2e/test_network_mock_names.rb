@@ -9,7 +9,6 @@ class TestE2ENetworkMockNames < Minitest::Test
   include NetworkLoopback
 
   PUBLIC = "93.184.216.34"
-  OTHER_PUBLIC = "93.184.216.35"
 
   LOOKUP_EACH = <<~RUBY
     %<names>p.map do |name|
@@ -71,6 +70,21 @@ class TestE2ENetworkMockNames < Minitest::Test
     end
   end
 
+  PUBLIC_V6 = "2606:2800:220:1:248:1893:25c8:1946"
+
+  # @behavior NW-025
+  def test_a_name_whose_real_address_is_ipv6_connects_through_a_virtual_ipv4_one
+    with_upcase_server do |port|
+      mock = mock_answering({ "v6.test" => PUBLIC_V6 })
+      mock.route(PUBLIC_V6, 80, to: ["127.0.0.1", port])
+      sandbox = mock_sandbox(mock) { |net| add_tcp_hosts(net, "v6.test") }
+
+      assert_equal [[%w[PING 198.18.0.0]], [[PUBLIC_V6, 80]]], [connect_each(sandbox, "v6.test"), mock.dials],
+                   "a connect to a name whose only real address is IPv6 must reach it through a virtual IPv4 " \
+                   "address, as the guest has no IPv6, and dial that IPv6 address"
+    end
+  end
+
   # @behavior NW-026
   def test_a_virtual_address_no_lookup_handed_out_is_refused
     mock = mock_answering({ "app.test" => PUBLIC })
@@ -78,51 +92,6 @@ class TestE2ENetworkMockNames < Minitest::Test
 
     assert_equal [["Errno::EACCES"], []], [connect_each(sandbox, "198.18.0.7"), mock.dials],
                  "TCPSocket to a virtual address no lookup handed out must raise Errno::EACCES and dial nothing"
-  end
-
-  REBOUND = <<~RUBY
-    first = Addrinfo.getaddrinfo("app.test", 80).map(&:ip_address).uniq
-    Rebind.call
-    again = Addrinfo.getaddrinfo("APP.test.", 80).map(&:ip_address).uniq
-    dialed = begin
-      TCPSocket.new(first[0], 80)
-    rescue => e
-      e.class.to_s
-    end
-    [first, again, dialed]
-  RUBY
-
-  # A Sandbox whose Mock answers `app.test` with PUBLIC until the guest
-  # calls the Rebind Service, then with OTHER_PUBLIC, recording each name
-  # its resolve policy is asked into +asked+.
-  def rebinding_sandbox(mock, asked)
-    sandbox = mock_sandbox(mock) do |net|
-      add_tcp_hosts(net, "app.test")
-      net.policy(:resolve) { |name| asked << name }
-    end
-    sandbox.bind("Rebind", -> { mock.answer("app.test", OTHER_PUBLIC) })
-  end
-
-  # @behavior NW-027
-  def test_a_connect_dials_what_the_lookup_answered
-    mock = mock_answering({ "app.test" => PUBLIC })
-    _, _, dialed = rebinding_sandbox(mock, []).eval(REBOUND).value
-
-    assert_equal ["Errno::ECONNREFUSED", [[PUBLIC, 80]]], [dialed, mock.dials],
-                 "a connect to a name's virtual address must dial what its lookup answered, even after the " \
-                 "resolver answers otherwise"
-  end
-
-  # @behavior NW-175
-  def test_a_name_keeps_its_virtual_address_for_the_invocation
-    mock = mock_answering({ "app.test" => PUBLIC })
-    asked = []
-    first, again, = rebinding_sandbox(mock, asked).eval(REBOUND).value
-
-    assert_equal [["198.18.0.0"], ["198.18.0.0"], ["app.test"], %w[app.test app.test]],
-                 [first, again, mock.lookups, asked],
-                 "a name looked up again in another spelling, after the resolver answers otherwise, must answer " \
-                 "the same virtual address without asking the resolver, its resolve policy asked each time"
   end
 
   # @behavior NW-028
