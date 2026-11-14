@@ -10,22 +10,18 @@ use std::sync::Arc;
 use crate::cred::Cred;
 use crate::grant::Grant;
 use crate::memcg::MemoryBudget;
-use crate::mount::{Access, Mount, MountRequest};
-use crate::network::Connection;
-use crate::policy::Policy;
-use crate::vfs::{
-    d_revalidate, Dentry, FMode, FileType, MntNamespace, OpenHow, Path, VfsMount, PATH_MAX,
-};
+use crate::mount::Mount;
+use crate::vfs::{d_revalidate, Dentry, FMode, FileType, MntNamespace, OpenHow, Path, VfsMount};
 use crate::Errno;
 
+mod entry_policy;
 mod hooks;
+mod mount_policy;
 
+use entry_policy::EntryPolicy;
 pub(crate) use hooks::on_path;
 pub use hooks::{FileSecurity, SecurityOperations, SecurityPath};
-
-/// What a Mount's Policy allowed a file as it opened, kept on the open file, as
-/// Landlock's file blob keeps `allowed_access`.
-struct AllowedAccess(Access);
+use mount_policy::MountPolicy;
 
 /// Whether each name from the root down to `path` still names what the runtime
 /// recorded, as gVisor's `revalidatePath` walks one. Linux asks only names a walk
@@ -82,140 +78,6 @@ impl SecurityOperations for KobakoSecurity {
         match address.ip().is_unspecified() && address.port() == 0 {
             true => Ok(()),
             false => Err(Errno::PermissionDenied),
-        }
-    }
-}
-
-/// A Mount's Policy, answering only for that Mount.
-struct MountPolicy {
-    mnt: Arc<VfsMount>,
-    at: String,
-    policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>,
-}
-
-impl MountPolicy {
-    fn guards(&self, mnt: &Arc<VfsMount>) -> bool {
-        Arc::ptr_eq(&self.mnt, mnt)
-    }
-
-    /// The absolute guest path `path`, from the Mount's root, stands for.
-    fn guest_path(&self, path: &str) -> String {
-        match (self.at.as_str(), path) {
-            (at, "/") => at.to_string(),
-            ("/", path) => path.to_string(),
-            (at, path) => format!("{at}{path}"),
-        }
-    }
-
-    /// Judge `path` as AppArmor's `aa_path_perm` judges a whole path once, each
-    /// hook below reaching it as AppArmor's do. The Policy judges the path as the
-    /// Filesystem stores its names, so a host folding case or Unicode form cannot
-    /// hand it one spelling of an entry it refuses by another. One a Policy could
-    /// not be handed within `PATH_MAX` is refused as too long, as AppArmor's
-    /// `aa_path_name` refuses one past its buffer.
-    fn path_perm(&self, path: SecurityPath<'_>, access: Access) -> Result<(), Errno> {
-        if !self.guards(path.mnt) {
-            return Ok(());
-        }
-        let path = self.guest_path(&(path.name)());
-        if path.len() >= PATH_MAX {
-            return Err(Errno::InvalidFilename);
-        }
-        match self.policy.allows(&MountRequest {
-            path: &path,
-            access,
-        }) {
-            true => Ok(()),
-            false => Err(Errno::PermissionDenied),
-        }
-    }
-}
-
-impl SecurityOperations for MountPolicy {
-    fn path_mknod(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
-        self.path_perm(path, Access::ReadWrite)
-    }
-
-    fn path_mkdir(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
-        self.path_perm(path, Access::ReadWrite)
-    }
-
-    fn path_rmdir(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
-        self.path_perm(path, Access::ReadWrite)
-    }
-
-    fn path_unlink(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
-        self.path_perm(path, Access::ReadWrite)
-    }
-
-    fn path_symlink(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
-        self.path_perm(path, Access::ReadWrite)
-    }
-
-    fn path_link(&self, old: SecurityPath<'_>, new: SecurityPath<'_>) -> Result<(), Errno> {
-        self.path_perm(old, Access::ReadWrite)?;
-        self.path_perm(new, Access::ReadWrite)
-    }
-
-    /// Asked once for each open, for what the open may change, and kept on the
-    /// file, as Landlock keeps the rights it allowed. A file the open made was
-    /// judged as a change already, through `path_mknod`.
-    fn file_open(
-        &self,
-        path: SecurityPath<'_>,
-        _kind: FileType,
-        mode: FMode,
-        how: &OpenHow,
-    ) -> Result<FileSecurity, Errno> {
-        if !self.guards(path.mnt) {
-            return Ok(None);
-        }
-        let created = mode.contains(FMode::CREATED);
-        let access = match created || mode.contains(FMode::WRITE) || how.truncate {
-            true => Access::ReadWrite,
-            false => Access::Read,
-        };
-        if !created {
-            self.path_perm(path, access)?;
-        }
-        Ok(Some(Arc::new(AllowedAccess(access))))
-    }
-
-    /// A truncate follows what the Policy allowed as the file opened, wherever
-    /// the file stands now, as Landlock's `hook_file_truncate` reads the file's
-    /// rights.
-    fn file_truncate(&self, kept: &FileSecurity) -> Result<(), Errno> {
-        match kept
-            .as_deref()
-            .and_then(|kept| kept.downcast_ref::<AllowedAccess>())
-        {
-            Some(AllowedAccess(Access::Read)) => Err(Errno::PermissionDenied),
-            _ => Ok(()),
-        }
-    }
-
-    fn path_utimes(&self, path: SecurityPath<'_>) -> Result<(), Errno> {
-        self.path_perm(path, Access::ReadWrite)
-    }
-
-    /// Both paths are judged. Everything beneath a directory would take paths the
-    /// Policy never judged, and a Policy answers for one path, not a tree, so its
-    /// move is refused as one across devices and the guest copies entry by entry
-    /// instead, as Landlock answers a move it cannot show keeps each right beneath.
-    /// A move onto its own name takes no new path.
-    fn path_rename(
-        &self,
-        old: SecurityPath<'_>,
-        new: SecurityPath<'_>,
-        (old_dentry, new_dentry): (&Arc<Dentry>, &Arc<Dentry>),
-    ) -> Result<(), Errno> {
-        self.path_perm(old, Access::ReadWrite)?;
-        self.path_perm(new, Access::ReadWrite)?;
-        let moves_dir =
-            old_dentry.kind() == Ok(FileType::Dir) && !Arc::ptr_eq(old_dentry, new_dentry);
-        match moves_dir && self.guards(old.mnt) {
-            true => Err(Errno::CrossesDevices),
-            false => Ok(()),
         }
     }
 }
@@ -281,19 +143,6 @@ pub fn prepare_creds_within(
     Cred::within(security, MemoryBudget::new(memory_limit))
 }
 
-/// An entry's connect policy, judging what the guest named, as one more LSM
-/// answers `security_socket_connect`.
-struct EntryPolicy(Arc<dyn for<'a> Policy<Connection<'a>>>);
-
-impl SecurityOperations for EntryPolicy {
-    fn socket_connect(&self, connection: &Connection<'_>) -> Result<(), Errno> {
-        match self.0.allows(connection) {
-            true => Ok(()),
-            false => Err(Errno::PermissionDenied),
-        }
-    }
-}
-
 /// `cred` with each Mount's Policy and each network entry's connect policy
 /// added, the modules it held and the memory held on its behalf shared, so
 /// what either Cred charges counts against one limit, as
@@ -317,12 +166,7 @@ fn policies_of<'a>(
         .into_iter()
         .filter_map(|grant| match grant {
             Grant::Mount(mount) => {
-                let policy = mount.policy()?;
-                Some(Arc::new(MountPolicy {
-                    mnt: mount.mnt().clone(),
-                    at: mount.at().to_string(),
-                    policy: policy.clone(),
-                }) as Arc<dyn SecurityOperations>)
+                Some(Arc::new(MountPolicy::of(mount)?) as Arc<dyn SecurityOperations>)
             }
             Grant::Network(network) => {
                 let policy = network.policies().connect?;
@@ -337,6 +181,8 @@ mod tests {
     use super::*;
     use crate::filesystem::wrap::{Hook, Wrap};
     use crate::filesystem::{DentryOperations, Filesystem, InodeOperations, Tmpfs};
+    use crate::mount::{Access, MountRequest};
+    use crate::policy::Policy;
 
     /// A Policy allowing everything, counting how often it is asked.
     #[derive(Default)]
