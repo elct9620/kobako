@@ -296,3 +296,15 @@ the encoding: keyword     -> ArgumentError
 | Given | an invocation handed a Bind whose directory holds a link to a directory |
 | When | the script calls `Dir.chdir` through the link and asks `Dir.pwd` |
 | Then | it answers the link's path, where CRuby on Linux names the directory it reaches |
+
+## `FL-102` A pattern takes a name's characters and its own spelling as CRuby's does
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-092` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount over files, one named with a character of several bytes |
+| When | the script asks `Dir.glob` with `?` and a bracket, with an unclosed brace, and with a trailing backslash |
+| Then | each answers the paths CRuby answers |
