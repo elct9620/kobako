@@ -60,7 +60,7 @@ wall-clock and memory caps remain the ultimate bound.
 
 ```toml
 [dependencies]
-kobako-regexp = { version = "0.20.0", features = ["unicode"] } # x-release-please-version
+kobako-regexp = { version = "0.21.0", features = ["unicode"] } # x-release-please-version
 ```
 
 ```rust

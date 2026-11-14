@@ -30,7 +30,7 @@ Add the crate, then encode and decode a payload through its schema.
 
 ```toml
 [dependencies]
-kobako-codec = "0.20.0" # x-release-please-version
+kobako-codec = "0.21.0" # x-release-please-version
 ```
 
 ```rust

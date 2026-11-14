@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.20.0...kobako-mruby-v0.21.0) (2026-11-14)
+
+
+### Features
+
+* **transport:** spell once the Service and entrypoint names a Panic carries ([fd09028](https://github.com/elct9620/kobako/commit/fd09028dee973397c66eb2029f7fd75bf6e7ee26))
+
 ## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.19.0...kobako-mruby-v0.20.0) (2026-11-07)
 
 

@@ -946,7 +946,7 @@ dependencies = [
 
 [[package]]
 name = "kobako"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "kobako-codec",
  "kobako-runtime",
@@ -956,7 +956,7 @@ dependencies = [
 
 [[package]]
 name = "kobako-codec"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "kobako-transport",
  "rmp",
@@ -974,7 +974,7 @@ dependencies = [
 
 [[package]]
 name = "kobako-runtime"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "bytes",
  "cap-fs-ext",
@@ -999,11 +999,11 @@ dependencies = [
 
 [[package]]
 name = "kobako-transport"
-version = "0.20.0"
+version = "0.21.0"
 
 [[package]]
 name = "kobako-wasmtime"
-version = "0.20.0"
+version = "0.21.0"
 dependencies = [
  "anyhow",
  "kobako-runtime",
