@@ -15,10 +15,10 @@ use std::io::{self, Write};
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Mrb, Object, RArray, RClass, RString, Symbol, Value};
+use beni::{Error, IntoValue, Mrb, Object, RArray, RClass, RString, Value};
 
+use crate::convert::{check_funcall, string_value_of};
 use crate::io::{argument_error, close_after, required_block, Stream};
-use crate::socket::string_value_of;
 use crate::stream::FileLines;
 use crate::{descriptors, errno, lines};
 
@@ -312,13 +312,12 @@ fn file_s_rename(mrb: &Mrb, _self: Value, from: Value, to: Value) -> Result<Valu
 /// CRuby's `check_path_encoding` refuses only an encoding with no ASCII, so a
 /// helper that touches nothing reads any path.
 fn path_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
-    let to_path = Symbol::new(mrb, "to_path")?.as_value();
     let path = match RString::from_value(value) {
         Some(path) => path,
-        None if value.funcall::<_, _, bool>(mrb, c"respond_to?", [to_path])? => {
-            string_value_of(mrb, value.funcall::<_, _, Value>(mrb, c"to_path", ())?)?
-        }
-        None => string_value_of(mrb, value)?,
+        None => match check_funcall(mrb, value, c"to_path")? {
+            Some(path) => string_value_of(mrb, path)?,
+            None => string_value_of(mrb, value)?,
+        },
     };
     // SAFETY: the bytes are copied before the next mruby call.
     let bytes = unsafe { path.as_slice(mrb) }.to_vec();

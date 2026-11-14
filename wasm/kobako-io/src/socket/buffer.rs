@@ -10,8 +10,10 @@ use beni::{Error, Integer, IntoValue, Mrb, RClass, TryConvert, Value};
 
 use super::basic::{
     exception_option_of, open_socket_of, outbuf_of, read_length_of, reader_of, ready_of, source_of,
-    strbuf_length_of, string_bytes_of, SocketIo, Wait,
+    strbuf_length_of, SocketIo, Wait,
 };
+use crate::convert::string_bytes_of;
+use crate::errno::eof_error;
 use crate::io::{required_block, would_wait, Direction};
 use crate::lines::{self, line_args_of, LineArgs, LineSource};
 use crate::wasi::MAX_READ;
@@ -218,14 +220,6 @@ fn socket_gets(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> 
     lines::gets(mrb, args, || Ok(SocketLines(reader_of(mrb, self_)?)))
 }
 
-/// The `EOFError` a `read` form raises at the end, as CRuby's.
-pub(super) fn eof_error(mrb: &Mrb) -> Error {
-    match mrb.exc_get(c"EOFError") {
-        Ok(class) => Error::new(mrb, class, "end of file reached"),
-        Err(err) => err,
-    }
-}
-
 /// `readline(sep = $/, limit = nil, chomp: false)` answers as `gets` does,
 /// raising `EOFError` at the end.
 fn socket_readline(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
@@ -329,9 +323,12 @@ fn socket_ungetc(mrb: &Mrb, self_: Value, pushed: Value) -> Result<Value, Error>
     let bytes = match Integer::from_value(pushed) {
         Some(_) => {
             let code = i64::try_convert(pushed, mrb)?;
-            let byte = u8::try_from(code).map_err(|_| match mrb.exception_range_error() {
-                Ok(class) => Error::new(mrb, class, &format!("{code} out of char range")),
-                Err(err) => err,
+            let byte = u8::try_from(code).map_err(|_| {
+                crate::errno::to_error(
+                    mrb,
+                    mrb.exception_range_error(),
+                    &format!("{code} out of char range"),
+                )
             })?;
             vec![byte]
         }

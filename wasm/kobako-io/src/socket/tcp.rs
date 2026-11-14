@@ -16,8 +16,9 @@ use super::addrinfo::{IPPROTO_TCP, SOCK_STREAM};
 use super::basic::{IoState, Readiness, SocketIo, Wait};
 use super::ip::local_end_of;
 use super::option::{set_tcp_option, tcp_option, Refusal};
-use super::{bind, stream_error, to_error};
+use super::{bind, to_error};
 use crate::errno;
+use crate::errno::from_stream;
 use crate::io::{current_block, split_options, time_interval_of, yield_and_close, Direction};
 use crate::wasi::wasi::io::streams::{InputStream, OutputStream, StreamError};
 use crate::wasi::wasi::sockets::instance_network::instance_network;
@@ -80,7 +81,7 @@ impl SocketIo for Connection {
         call: Option<&str>,
     ) -> Result<Poll<usize>, Error> {
         self.with(mrb, |open| {
-            let failed = |err| stream_error(mrb, err, call);
+            let failed = |err| from_stream(mrb, err, call);
             if wait == Wait::Blocking {
                 for chunk in bytes.chunks(MAX_BLOCKING_WRITE) {
                     open.output
@@ -199,7 +200,7 @@ impl Connection {
                 Ok(Some(bytes)) => Ok(Poll::Ready(Some(bytes))),
                 Ok(None) => Ok(Poll::Pending),
                 Err(StreamError::Closed) => Ok(Poll::Ready(None)),
-                Err(err) => Err(stream_error(mrb, err, None)),
+                Err(err) => Err(from_stream(mrb, err, None)),
             }
         })
     }
@@ -294,10 +295,9 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
             // CRuby's `rsock_syserr_fail_host_port` raises ETIMEDOUT as
             // `IO::TimeoutError`, while `Socket.tcp` raises it as itself.
             let failed = |code| match (code, caller) {
-                (ErrorCode::Timeout, Caller::TcpSocketNew) => match io_timeout_error(mrb) {
-                    Ok(class) => Error::new(mrb, class, &call),
-                    Err(err) => err,
-                },
+                (ErrorCode::Timeout, Caller::TcpSocketNew) => {
+                    errno::to_error(mrb, io_timeout_error(mrb), &call)
+                }
                 (code, _) => to_error(mrb, code, &call),
             };
             let socket = match create_tcp_socket(IpAddressFamily::Ipv4) {

@@ -71,11 +71,7 @@ impl UnreadBody {
                 self.finish();
                 Ok(None)
             }
-            Err(StreamError::LastOperationFailed(_)) => Err(Error::new(
-                mrb,
-                mrb.exc_get(c"EOFError")?,
-                "end of file reached",
-            )),
+            Err(StreamError::LastOperationFailed(_)) => Err(errno::eof_error(mrb)),
         }
     }
 
@@ -944,7 +940,7 @@ fn send(mrb: &Mrb, parts: &RequestParts<'_>) -> Result<Answer, Error> {
     if let Some(body) = &parts.body {
         let stream = out.write().map_err(|()| failed("request body taken"))?;
         let written = write_within(&stream, body, parts.timeouts.write)
-            .map_err(|err| socket::stream_error(mrb, err, None))?;
+            .map_err(|err| errno::from_stream(mrb, err, None))?;
         if !written {
             return Err(net_error(mrb, c"WriteTimeout", "Net::WriteTimeout"));
         }
@@ -1030,12 +1026,9 @@ fn to_error(mrb: &Mrb, parts: &RequestParts<'_>, code: ErrorCode) -> Error {
             net_error(mrb, c"OpenTimeout", &opening("execution expired"))
         }
         ErrorCode::ConnectionReadTimeout => net_error(mrb, c"ReadTimeout", "Net::ReadTimeout"),
-        ErrorCode::ConnectionTerminated | ErrorCode::HttpResponseIncomplete => Error::new(
-            mrb,
-            mrb.exc_get(c"EOFError")
-                .unwrap_or_else(|_| mrb.exception_standard_error()),
-            "end of file reached",
-        ),
+        ErrorCode::ConnectionTerminated | ErrorCode::HttpResponseIncomplete => {
+            errno::eof_error(mrb)
+        }
         ErrorCode::HttpProtocolError => net_error(mrb, c"HTTPBadResponse", "wrong status line"),
         ErrorCode::TlsCertificateError => ssl_error(mrb, "certificate verify failed"),
         ErrorCode::TlsProtocolError | ErrorCode::TlsAlertReceived(_) => {
@@ -1048,24 +1041,18 @@ fn to_error(mrb: &Mrb, parts: &RequestParts<'_>, code: ErrorCode) -> Error {
 /// The `OpenSSL::SSL::SSLError` CRuby raises for TLS that failed, here ended on
 /// the host.
 fn ssl_error(mrb: &Mrb, message: &str) -> Error {
-    match mrb
+    let class = mrb
         .module_get(c"OpenSSL")
         .and_then(|openssl| openssl.const_get::<_, RModule>(mrb, c"SSL"))
-        .and_then(|ssl| ssl.const_get::<_, ExceptionClass>(mrb, c"SSLError"))
-    {
-        Ok(class) => Error::new(mrb, class, message),
-        Err(err) => err,
-    }
+        .and_then(|ssl| ssl.const_get::<_, ExceptionClass>(mrb, c"SSLError"));
+    errno::to_error(mrb, class, message)
 }
 
 fn net_error(mrb: &Mrb, name: &core::ffi::CStr, message: &str) -> Error {
-    match mrb
+    let class = mrb
         .module_get(c"Net")
-        .and_then(|net| net.const_get::<_, ExceptionClass>(mrb, name))
-    {
-        Ok(class) => Error::new(mrb, class, message),
-        Err(err) => err,
-    }
+        .and_then(|net| net.const_get::<_, ExceptionClass>(mrb, name));
+    errno::to_error(mrb, class, message)
 }
 
 /// The reason phrase HTTP/1.1 gives `status`, as CRuby reads it from the
@@ -1747,11 +1734,9 @@ fn to_ary(mrb: &Mrb, value: Value) -> Result<Option<RArray>, Error> {
     if let Some(array) = RArray::from_value(value) {
         return Ok(Some(array));
     }
-    let to_ary = Symbol::new(mrb, "to_ary")?.as_value();
-    if !value.funcall::<_, _, bool>(mrb, c"respond_to?", [to_ary])? {
-        return Ok(None);
-    }
-    value.funcall(mrb, c"to_ary", ()).map(Some)
+    crate::convert::check_funcall(mrb, value, c"to_ary")?
+        .map(|array| RArray::try_convert(array, mrb))
+        .transpose()
 }
 
 /// `value.to_s` as `URI.encode_to_www_form_component` writes it.

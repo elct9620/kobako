@@ -134,7 +134,12 @@ pub(crate) fn current_block(mrb: &Mrb) -> Result<Option<Proc>, Error> {
 /// The block the current method `name` was given, raising `ArgumentError`
 /// without one.
 pub(crate) fn required_block(mrb: &Mrb, name: &str) -> Result<Proc, Error> {
-    current_block(mrb)?.ok_or_else(|| argument_error(mrb, &format!("{name} needs a block")))
+    current_block(mrb)?.ok_or_else(|| missing_block(mrb, name))
+}
+
+/// The `ArgumentError` the method `name` raises when given no block.
+pub(crate) fn missing_block(mrb: &Mrb, name: &str) -> Error {
+    argument_error(mrb, &format!("{name} needs a block"))
 }
 
 /// The gem-init step named after mruby's own `mrb_init_io`; the body order
@@ -474,10 +479,10 @@ pub(crate) fn to_int(mrb: &Mrb, obj: Value) -> Result<Integer, Error> {
     if Float::from_value(obj).is_some() {
         return obj.funcall(mrb, c"to_i", ());
     }
-    let to_int = Symbol::new(mrb, "to_int")?.as_value();
-    if !obj.is_nil() && obj.funcall::<_, _, bool>(mrb, c"respond_to?", [to_int])? {
-        let converted: Value = obj.funcall(mrb, c"to_int", ())?;
-        if let Some(int) = Integer::from_value(converted) {
+    if !obj.is_nil() {
+        if let Some(int) =
+            crate::convert::check_funcall(mrb, obj, c"to_int")?.and_then(Integer::from_value)
+        {
             return Ok(int);
         }
     }
@@ -578,17 +583,12 @@ fn would_block(mrb: &Mrb, direction: Direction, call: &str) -> Error {
         Direction::Read => c"EAGAINWaitReadable",
         Direction::Write => c"EAGAINWaitWritable",
     };
-    match mrb
-        .class_get(c"IO")
-        .and_then(|io| io.const_get::<_, ExceptionClass>(mrb, name))
-    {
-        Ok(class) => Error::new(
-            mrb,
-            class,
-            &format!("Resource temporarily unavailable - {call}"),
-        ),
-        Err(err) => err,
-    }
+    crate::errno::to_error(
+        mrb,
+        mrb.class_get(c"IO")
+            .and_then(|io| io.const_get::<_, ExceptionClass>(mrb, name)),
+        &format!("Resource temporarily unavailable - {call}"),
+    )
 }
 
 /// What a call that would wait answers: the `IO::EAGAINWait*` it raises, or,
@@ -624,10 +624,7 @@ pub(crate) fn split_options(args: &[Value]) -> (&[Value], Option<RHash>) {
 /// Returned as `Err`, so the bridge frame raises it only after the Rust
 /// frame has unwound — unlike a direct `mrb_raise` long-jump.
 pub(crate) fn argument_error(mrb: &Mrb, msg: &str) -> Error {
-    match mrb.exception_arg_error() {
-        Ok(cls) => Error::new(mrb, cls, msg),
-        Err(err) => err,
-    }
+    crate::errno::to_error(mrb, mrb.exception_arg_error(), msg)
 }
 
 /// The wait `sec` names, `None` for `nil`, as CRuby's `rb_time_interval`
@@ -648,9 +645,12 @@ pub(crate) fn time_interval_of(mrb: &Mrb, sec: Value) -> Result<Option<Duration>
         };
     }
     let seconds = f64::try_convert(sec, mrb)?;
-    let out_of_range = |shown: &str| match mrb.exception_range_error() {
-        Ok(cls) => Error::new(mrb, cls, &format!("{shown} out of Time range")),
-        Err(err) => err,
+    let out_of_range = |shown: &str| {
+        crate::errno::to_error(
+            mrb,
+            mrb.exception_range_error(),
+            &format!("{shown} out of Time range"),
+        )
     };
     if seconds.is_nan() {
         return Err(out_of_range("NaN"));

@@ -8,8 +8,9 @@ use beni::{
     Error, IntoValue, Mrb, Qfalse, Qtrue, RClass, RTypedData, TryConvert, TypedData, Value,
 };
 
-use super::basic::{open_socket_of, string_bytes_of};
+use super::basic::open_socket_of;
 use super::{family_of, name_of, socket_error, to_error, Family, AF_INET, AF_INET6};
+use crate::convert::string_bytes_of;
 use crate::errno;
 use crate::io::to_int;
 use crate::wasi::wasi::sockets::network::ErrorCode;
@@ -127,14 +128,11 @@ impl SockOption {
 
 /// The `TypeError` CRuby raises for a value that is not one `int`.
 fn size_error(mrb: &Mrb, len: usize) -> Error {
-    match mrb.exception_type_error() {
-        Ok(class) => Error::new(
-            mrb,
-            class,
-            &format!("size differ.  expected as sizeof(int)=4 but {len}"),
-        ),
-        Err(err) => err,
-    }
+    errno::to_error(
+        mrb,
+        mrb.exception_type_error(),
+        &format!("size differ.  expected as sizeof(int)=4 but {len}"),
+    )
 }
 
 /// Define the level and option constants on `Socket`, `Socket::Option`, and

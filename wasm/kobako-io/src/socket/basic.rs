@@ -9,14 +9,15 @@ use std::task::Poll;
 use beni::prelude::*;
 use beni::scan_args::get_kwargs;
 use beni::value::qnil;
-use beni::{Error, Integer, IntoValue, Mrb, Qfalse, RClass, RString, Symbol, TryConvert, Value};
+use beni::{Error, Integer, IntoValue, Mrb, Qfalse, RClass, Symbol, TryConvert, Value};
 
 use super::address::to_sockaddr;
-use super::buffer::{eof_error, fill};
+use super::buffer::fill;
 use super::ip::to_addr_array;
 use super::option::Refusal;
 use super::tcp::Connection;
-use crate::errno;
+use crate::convert::{string_bytes_of, string_value_of};
+use crate::errno::{self, eof_error};
 use crate::io::{argument_error, split_options, to_int, would_wait, Direction};
 use crate::wasi::wasi::io::poll::Pollable;
 
@@ -371,37 +372,6 @@ fn socket_syswrite(mrb: &Mrb, self_: Value, string: Value) -> Result<Value, Erro
     Ok((sent as i64).into_value(mrb))
 }
 
-/// `value` as CRuby's `StringValue` takes it: a String, or what its `to_str`
-/// answers; anything else raises `TypeError`.
-pub(crate) fn string_value_of(mrb: &Mrb, value: Value) -> Result<RString, Error> {
-    check_string_type(mrb, value)?.ok_or_else(|| errno::type_error(mrb, value))
-}
-
-/// `value` as CRuby's `rb_check_string_type` takes it: a String, or what its
-/// `to_str` answers, `None` for a value with no `to_str`; a `to_str` answering
-/// no String raises `TypeError`.
-pub(super) fn check_string_type(mrb: &Mrb, value: Value) -> Result<Option<RString>, Error> {
-    if let Some(string) = RString::from_value(value) {
-        return Ok(Some(string));
-    }
-    let to_str = Symbol::new(mrb, "to_str")?.as_value();
-    if !value.funcall::<_, _, bool>(mrb, c"respond_to?", [to_str])? {
-        return Ok(None);
-    }
-    let string = value.funcall::<_, _, Value>(mrb, c"to_str", ())?;
-    RString::from_value(string)
-        .map(Some)
-        .ok_or_else(|| errno::type_error(mrb, value))
-}
-
-/// The bytes of `value` as CRuby's `StringValue` takes it.
-pub(super) fn string_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
-    let string = string_value_of(mrb, value)?;
-    // SAFETY: the bytes are copied out before any later mruby call.
-    Ok(unsafe { string.as_slice(mrb) }.to_vec())
-}
-
-/// The bytes of `mesg`, as CRuby's `send` takes them through `StringValue`.
 /// The buffer a read is given, `nil` naming none, read as CRuby's
 /// `io_setstrbuf` reads it with `StringValue` before any byte is taken, so a
 /// buffer that is no String raises `TypeError` and leaves what came in place.
@@ -410,12 +380,6 @@ pub(super) fn outbuf_of(mrb: &Mrb, outbuf: Option<Value>) -> Result<Option<Value
         .filter(|buf| !buf.is_nil())
         .map(|buf| string_value_of(mrb, buf).map(|buf| buf.as_value()))
         .transpose()
-}
-
-pub(super) fn mesg_bytes_of(mrb: &Mrb, mesg: Value) -> Result<Vec<u8>, Error> {
-    let mesg = string_value_of(mrb, mesg)?;
-    // SAFETY: the bytes are copied before the next mruby call.
-    Ok(unsafe { mesg.as_slice(mrb) }.to_vec())
 }
 
 /// The `sockaddr` a send's `dest` names, as CRuby's `SockAddrStringValue`
@@ -489,7 +453,7 @@ pub(super) fn send_args_of<'a>(
     dest: Option<Value>,
     addressed: bool,
 ) -> Result<SendArgs<'a>, Error> {
-    let bytes = mesg_bytes_of(mrb, mesg)?;
+    let bytes = string_bytes_of(mrb, mesg)?;
     let dest = dest.map(|dest| dest_sockaddr_of(mrb, dest)).transpose()?;
     let call = match addressed || dest.is_some() {
         true => "sendto(2)",

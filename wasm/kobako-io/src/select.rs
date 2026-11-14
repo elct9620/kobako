@@ -7,7 +7,7 @@
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, Integer, IntoValue, Mrb, RArray, RClass, Symbol, TryConvert, Value};
+use beni::{Error, Integer, IntoValue, Mrb, RArray, RClass, TryConvert, Value};
 use core::ffi::{c_int, c_short};
 
 use crate::io::{time_interval_of, Direction};
@@ -206,15 +206,13 @@ fn to_io(mrb: &Mrb, object: Value) -> Result<Value, Error> {
     if is_io(object)? {
         return Ok(object);
     }
-    let to_io = Symbol::new(mrb, "to_io")?.as_value();
-    if !object.funcall::<_, _, bool>(mrb, c"respond_to?", [to_io])? {
+    let Some(io) = crate::convert::check_funcall(mrb, object, c"to_io")? else {
         let message = format!(
             "no implicit conversion of {} into IO",
             object.classname(mrb)
         );
         return Err(Error::new(mrb, mrb.exception_type_error()?, &message));
-    }
-    let io = object.funcall::<_, _, Value>(mrb, c"to_io", ())?;
+    };
     if !is_io(io)? {
         let class = object.classname(mrb);
         let message = format!(

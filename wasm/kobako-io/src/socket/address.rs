@@ -7,8 +7,8 @@ use std::time::Duration;
 use beni::prelude::*;
 use beni::{Error, Integer, IntoValue, Mrb, RClass, TryConvert, Value};
 
-use super::basic::{string_bytes_of, string_value_of};
 use super::{resolution_error, to_error, EAI_AGAIN, EAI_FAIL, EAI_NONAME, EAI_SERVICE};
+use crate::convert::{string_bytes_of, string_value_of};
 use crate::errno;
 use crate::io::argument_error;
 use crate::wasi::wait_within;

@@ -25,20 +25,15 @@ mod option;
 mod tcp;
 mod udp;
 
-use std::ffi::CString;
-
 use beni::prelude::*;
 use beni::value::qnil;
 use beni::{Error, Exception, ExceptionClass, Module, Mrb, RClass, Symbol, Value};
 
 pub(crate) use address::port_of;
-pub(crate) use basic::{
-    is_open_socket, readiness_of, select_readiness_of, string_value_of, Readiness,
-};
+pub(crate) use basic::{is_open_socket, readiness_of, select_readiness_of, Readiness};
 pub(crate) use buffer::holds_buffered;
 
 use crate::errno;
-use crate::wasi::wasi::io::streams::StreamError;
 use crate::wasi::wasi::sockets::network::ErrorCode;
 
 /// Define `Socket`, `BasicSocket`, `IPSocket`, `TCPSocket`, and `UDPSocket`.
@@ -151,7 +146,7 @@ fn name_of(mrb: &Mrb, value: Value) -> Result<Option<String>, Error> {
     if let Some(symbol) = Symbol::from_value(value) {
         return symbol.name(mrb).map(Some);
     }
-    match basic::check_string_type(mrb, value)? {
+    match crate::convert::check_string_type(mrb, value)? {
         Some(text) => text.to_string(mrb).map(Some),
         None => Ok(None),
     }
@@ -245,26 +240,6 @@ pub(crate) fn to_resolution_error(mrb: &Mrb, code: i32, message: &str) -> Error 
         return err;
     }
     Error::Exception(exception.as_value())
-}
-
-/// The `Errno` a stream's failure raises, by the POSIX name the host gives
-/// it, as CRuby raises `Errno::ECONNRESET` from a reset socket's read; it
-/// names `call` when there is one, as CRuby's `send` names `send(2)`.
-pub(crate) fn stream_error(mrb: &Mrb, err: StreamError, call: Option<&str>) -> Error {
-    let raise = |name: &core::ffi::CStr| match call {
-        Some(call) => errno::error_by_name(mrb, name, call),
-        None => errno::error_alone(mrb, name),
-    };
-    match err {
-        StreamError::Closed => raise(c"EPIPE"),
-        StreamError::LastOperationFailed(err) => {
-            let name = err.to_debug_string();
-            match CString::new(name.as_str()) {
-                Ok(name) if errno::is_known(&name) => raise(&name),
-                _ => errno::io_error(mrb, &name),
-            }
-        }
-    }
 }
 
 /// A socket WASI binds in two steps, `start-bind` then `finish-bind`, as its

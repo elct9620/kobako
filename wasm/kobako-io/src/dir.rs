@@ -24,7 +24,7 @@ use beni::{
 
 use crate::errno;
 use crate::file::{path_arg, path_text, require_mount, stat_or_none};
-use crate::io::{argument_error, to_int};
+use crate::io::{argument_error, missing_block, to_int};
 
 mod glob;
 
@@ -351,7 +351,7 @@ fn dir_s_each_child(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, E
     let args = scan_args::<(Value,), (), (), (), (), Option<Proc>>(mrb)?;
     let block = args
         .block
-        .ok_or_else(|| argument_error(mrb, "Dir.each_child needs a block"))?;
+        .ok_or_else(|| missing_block(mrb, "Dir.each_child"))?;
     let names = list_path(mrb, "Dir.each_child", args.required.0, children)?;
     yield_each(mrb, block, &names)?;
     Ok(qnil().as_value())
@@ -436,7 +436,7 @@ fn dir_read(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 fn dir_each(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let block = scan_args::<(), (), (), (), (), Option<Proc>>(mrb)?
         .block
-        .ok_or_else(|| argument_error(mrb, "Dir#each needs a block"))?;
+        .ok_or_else(|| missing_block(mrb, "Dir#each"))?;
     let names = relist(mrb, self_)?;
     yield_each(mrb, block, &names)?;
     Ok(self_)
@@ -450,7 +450,7 @@ fn dir_children(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 fn dir_each_child(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     let block = scan_args::<(), (), (), (), (), Option<Proc>>(mrb)?
         .block
-        .ok_or_else(|| argument_error(mrb, "Dir#each_child needs a block"))?;
+        .ok_or_else(|| missing_block(mrb, "Dir#each_child"))?;
     let names = relist(mrb, self_)?;
     yield_each(mrb, block, &names[DOTS.len()..])?;
     Ok(self_)

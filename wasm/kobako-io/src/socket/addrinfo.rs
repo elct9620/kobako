@@ -11,11 +11,12 @@ use beni::value::qnil;
 use beni::{Error, Integer, IntoValue, Module, Mrb, RArray, RClass, TryConvert, TypedData, Value};
 
 use super::address::{end_of, hosts_of, port_of, to_sockaddr};
-use super::basic::{open_socket_of, string_value_of};
+use super::basic::open_socket_of;
 use super::ip::ensure_reverse_lookup_flag;
 use super::{
     family_of, name_of, resolution_error, socket_error, Family, AF_INET, AF_INET6, EAI_NONAME,
 };
+use crate::convert::string_value_of;
 use crate::io::{argument_error, split_options, to_int};
 
 /// Linux's socket kinds, and the protocols each IP kind carries.

@@ -2,11 +2,14 @@
 //! file operation raises, mirroring CRuby's hierarchy with mruby-errno's
 //! wording: `Errno::ENOENT` reads "No such file or directory - path".
 
+use std::ffi::CString;
 use std::io;
 
 use beni::prelude::*;
 use beni::value::qnil;
 use beni::{Error, Exception, ExceptionClass, Integer, IntoValue, Mrb, Qfalse, Qtrue, Value};
+
+use crate::wasi::wasi::io::streams::StreamError;
 
 /// One `Errno` class: its name, the WASI errno it answers, the number
 /// CRuby on Linux gives it as `Errno`, and its message.
@@ -247,6 +250,11 @@ pub(crate) fn to_error(mrb: &Mrb, class: Result<ExceptionClass, Error>, message:
     }
 }
 
+/// The `EOFError` a read raises at the end, as CRuby's.
+pub(crate) fn eof_error(mrb: &Mrb) -> Error {
+    to_error(mrb, mrb.exc_get(c"EOFError"), "end of file reached")
+}
+
 pub(crate) fn io_error(mrb: &Mrb, message: &str) -> Error {
     to_error(mrb, mrb.exc_get(c"IOError"), message)
 }
@@ -292,6 +300,26 @@ fn code_of(err: &io::Error) -> Option<&'static Code> {
 
 /// The error for `err` from an operation on `path`, as the `Errno` class
 /// the failure names, or an `IOError` for one no class names.
+/// The `Errno` a `wasi:io` stream's failure raises, by the POSIX name the
+/// host gives it, as CRuby raises `Errno::ECONNRESET` from a reset socket's
+/// read; it names `call` when there is one, as CRuby's `send` names `send(2)`.
+pub(crate) fn from_stream(mrb: &Mrb, err: StreamError, call: Option<&str>) -> Error {
+    let raise = |name: &core::ffi::CStr| match call {
+        Some(call) => error_by_name(mrb, name, call),
+        None => error_alone(mrb, name),
+    };
+    match err {
+        StreamError::Closed => raise(c"EPIPE"),
+        StreamError::LastOperationFailed(err) => {
+            let name = err.to_debug_string();
+            match CString::new(name.as_str()) {
+                Ok(name) if is_known(&name) => raise(&name),
+                _ => io_error(mrb, &name),
+            }
+        }
+    }
+}
+
 pub(crate) fn from_io(mrb: &Mrb, err: &io::Error, path: &str) -> Error {
     match code_of(err) {
         Some(code) => error_by_name(mrb, code.name, path),

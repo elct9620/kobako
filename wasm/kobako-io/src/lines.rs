@@ -7,8 +7,8 @@ use beni::prelude::*;
 use beni::value::qnil;
 use beni::{Error, Mrb, RHash, RString, Symbol, TryConvert, Value};
 
+use crate::convert::{responds_to, string_value_of};
 use crate::io::{argument_error, required_block, to_int};
-use crate::socket::string_value_of;
 
 /// What a stream reads lines from: the next bytes it has, `None` at the end,
 /// and a way to hand back bytes read past a line for the next read.
@@ -64,8 +64,7 @@ fn separator_and_limit_of(
         if value.is_nil() || RString::from_value(value).is_some() {
             return Ok(false);
         }
-        let to_str = Symbol::new(mrb, "to_str")?.as_value();
-        Ok(!value.funcall::<_, _, bool>(mrb, c"respond_to?", [to_str])?)
+        Ok(!responds_to(mrb, value, "to_str")?)
     };
     match args {
         [] => Ok((Some(b"\n".to_vec()), None)),

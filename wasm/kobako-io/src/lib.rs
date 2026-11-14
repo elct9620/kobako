@@ -13,6 +13,7 @@
 //! through wasi-libc and the sockets through WASI 0.2, so any guest shell
 //! exporting `cabi_realloc` can compose it.
 
+mod convert;
 mod descriptors;
 mod dir;
 mod errno;

@@ -353,8 +353,7 @@ fn io_pread(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
         bytes.extend_from_slice(&chunk[..read as usize]);
     }
     if bytes.is_empty() && length > 0 {
-        let eof = mrb.exc_get(c"EOFError")?;
-        return Err(Error::new(mrb, eof, "end of file reached"));
+        return Err(crate::errno::eof_error(mrb));
     }
     let Some(outbuf) = outbuf else {
         return Ok(mrb.str_new(&bytes).as_value());
@@ -408,11 +407,7 @@ fn io_fdatasync(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// `NotImplementedError`.
 pub(crate) fn advice_of(mrb: &Mrb, advice: Value) -> Result<usize, Error> {
     let symbol = Symbol::from_value(advice).ok_or_else(|| {
-        let type_error = mrb.exception_type_error();
-        match type_error {
-            Ok(class) => Error::new(mrb, class, "advice must be a Symbol"),
-            Err(err) => err,
-        }
+        crate::errno::to_error(mrb, mrb.exception_type_error(), "advice must be a Symbol")
     })?;
     let name = symbol.name(mrb)?;
     ADVICES
