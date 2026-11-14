@@ -160,7 +160,7 @@ impl Wasi {
         // keeps only what the remaining imports read. preview2's resource
         // table numbers its own and counts against the same open files.
         let open_files = OpenFiles::new(open_file_limit);
-        let table = preview2::Table::new(open_files.clone());
+        let table = preview2::Table::new(open_files.clone(), opener.memory_budget().clone());
         let mounts = grants
             .iter()
             .filter_map(|grant| match grant {

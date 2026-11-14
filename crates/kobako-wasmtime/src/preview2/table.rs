@@ -1,7 +1,8 @@
 //! The resource table preview2 hands the guest its handles from, as
 //! wasmtime's `ResourceTable` is: it numbers its own, apart from preview1's
-//! descriptors, and counts each host-side producer against the open files
-//! both share.
+//! descriptors, counts each host-side producer against the open files both
+//! share, and charges every entry to the Invocation's memory, as Linux's
+//! `filp` cache is accounted to the memory cgroup.
 
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -9,6 +10,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
+use kobako_runtime::memcg::{MemoryBudget, MemoryCharge};
 use kobako_runtime::net::{Exchange, NameLookup, TcpSock, UdpSock};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{File, OpenFiles, PollMask};
@@ -414,17 +416,9 @@ struct Entry {
     /// Whether it counts against the open files, as a host-side producer
     /// does and a view does not.
     counted: bool,
-}
-
-impl Entry {
-    fn new(resource: Box<dyn Any + Send>, parent: Option<u32>, counted: bool) -> Self {
-        Self {
-            resource,
-            parent,
-            children: 0,
-            counted,
-        }
-    }
+    /// What the entry and its resource hold, against the Invocation's
+    /// memory, as each `struct file` is charged through `SLAB_ACCOUNT`.
+    _memory: MemoryCharge,
 }
 
 pub(crate) struct Table {
@@ -435,17 +429,20 @@ pub(crate) struct Table {
     /// The number past every one handed out so far.
     next: u32,
     open_files: OpenFiles,
+    memory: Arc<MemoryBudget>,
 }
 
 impl Table {
-    /// A table holding nothing, counting its files against `open_files`.
-    /// Numbers start at 1, as the Canonical ABI keeps 0 for no handle.
-    pub(crate) fn new(open_files: OpenFiles) -> Self {
+    /// A table holding nothing, counting its files against `open_files` and
+    /// its entries against `memory`. Numbers start at 1, as the Canonical ABI
+    /// keeps 0 for no handle.
+    pub(crate) fn new(open_files: OpenFiles, memory: Arc<MemoryBudget>) -> Self {
         Self {
             entries: BTreeMap::new(),
             free: Vec::new(),
             next: 1,
             open_files,
+            memory,
         }
     }
 
@@ -464,7 +461,7 @@ impl Table {
                 "the guest holds as many files as its limit allows",
             ));
         }
-        self.insert(Box::new(resource), None, true)
+        self.insert::<H>(resource, None, true)
             .inspect_err(|_| self.open_files.close())
             .map(H::new)
     }
@@ -472,7 +469,7 @@ impl Table {
     /// Hand out a handle for `resource`, a view that holds no file of its
     /// own; refused past `MAX_TABLE_ENTRIES`.
     pub(crate) fn push<H: Handle>(&mut self, resource: H::Host) -> wasmtime::Result<H> {
-        self.insert(Box::new(resource), None, false).map(H::new)
+        self.insert::<H>(resource, None, false).map(H::new)
     }
 
     /// Hand out a handle for `resource` as a child of `parent`, which cannot
@@ -484,7 +481,7 @@ impl Table {
     ) -> wasmtime::Result<H> {
         let parent = parent.index();
         self.entry(parent)?;
-        let handle = self.insert(Box::new(resource), Some(parent), false)?;
+        let handle = self.insert::<H>(resource, Some(parent), false)?;
         self.entries
             .get_mut(&parent)
             .expect("the parent was just found")
@@ -493,10 +490,11 @@ impl Table {
     }
 
     /// Number `resource` from the free list, else past every number handed
-    /// out; refused past `MAX_TABLE_ENTRIES`.
-    fn insert(
+    /// out; refused past `MAX_TABLE_ENTRIES`, and past the Invocation's
+    /// memory as a trap, since no WIT constructor has an error for it.
+    fn insert<H: Handle>(
         &mut self,
-        resource: Box<dyn Any + Send>,
+        resource: H::Host,
         parent: Option<u32>,
         counted: bool,
     ) -> wasmtime::Result<u32> {
@@ -505,12 +503,20 @@ impl Table {
                 "the guest holds as many resources as a table may",
             ));
         }
+        let memory = MemoryCharge::new(&self.memory, size_of::<Entry>() + size_of::<H::Host>())
+            .map_err(|_| wasmtime::Error::msg("the guest's resources outgrow its memory"))?;
         let handle = self.free.pop().unwrap_or_else(|| {
             self.next += 1;
             self.next - 1
         });
-        self.entries
-            .insert(handle, Entry::new(resource, parent, counted));
+        let entry = Entry {
+            resource: Box::new(resource),
+            parent,
+            children: 0,
+            counted,
+            _memory: memory,
+        };
+        self.entries.insert(handle, entry);
         Ok(handle)
     }
 

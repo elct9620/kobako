@@ -1065,40 +1065,40 @@ mod tests {
     // @behavior NW-156
     #[test]
     fn the_paths_requests_hold_count_against_the_guests_memory() {
-        // How many requests holding a 1 KiB path a guest builds before the
-        // trap, and the trap; every request it built is dropped after.
-        let fill = |guest: &mut Invocation| {
-            let path = format!("/{}", "p".repeat(1023));
+        // How many requests holding a `path_len` path a guest builds before a
+        // call traps; every request it built is dropped after.
+        let fill = |guest: &mut Invocation, path_len: usize| {
+            let path = format!("/{}", "p".repeat(path_len - 1));
             let mut held = Vec::new();
-            let trap = loop {
-                if held.len() > 1000 {
-                    break "no trap".to_string();
-                }
-                let headers = guest.types_fields_new().unwrap();
-                let headers = guest.take_handle(headers).unwrap();
-                let request = guest.types_outgoing_request_new(headers).unwrap();
+            let mut build = |guest: &mut Invocation| -> wasmtime::Result<()> {
+                let headers = guest.types_fields_new()?;
+                let headers = guest.take_handle(headers)?;
+                let request = guest.types_outgoing_request_new(headers)?;
                 held.push(request);
-                let set =
-                    guest.types_outgoing_request_set_path_with_query(request, Some(path.clone()));
-                if let Err(trap) = set {
-                    break trap.to_string();
-                }
+                guest
+                    .types_outgoing_request_set_path_with_query(request, Some(path.clone()))?
+                    .map_err(|()| wasmtime::Error::msg("the path was refused"))
             };
-            let taken = held.len() - 1;
+            let mut taken = 0;
+            while taken <= 1000 && build(guest).is_ok() {
+                taken += 1;
+            }
             for request in held {
                 guest.types_outgoing_request_drop(request).unwrap();
             }
-            (taken, trap)
+            taken
         };
         let mut tight = limited_guest(None, Some(16 * 1024));
-        let (first, trap) = fill(&mut tight);
-        let (again, _) = fill(&mut tight);
+        let short = fill(&mut tight, 1);
+        let first = fill(&mut tight, 1024);
+        let again = fill(&mut tight, 1024);
         assert_eq!(
-            (trap.as_str(), first > 0 && again == first),
-            ("the guest's request outgrows its memory", true),
+            (first > 0 && first < 16 && first < short, again == first),
+            (true, true),
             "outgoing-request.set-path-with-query of 1 KiB paths must trap once the requests \
-             holding them pass a 16 KiB memory_limit, and dropped requests must give their room \
-             back, so as many are taken again; took {first} then {again}"
+             holding them pass a 16 KiB memory_limit, short of as many requests as hold a 1-byte \
+             path, and dropped requests must give their room back, so as many are taken again; \
+             took {first} then {again}, {short} with a 1-byte path"
         );
     }
 

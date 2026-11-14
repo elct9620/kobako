@@ -43,7 +43,7 @@ global budget.
 | `memory_limit` | the run's `memory.grow` and what the host holds for it |
 | `open_file_limit` | every descriptor one run holds: the standard three, Mounts, sockets, lookups, HTTP requests |
 
-What the host holds for a run, its socket buffers, listings, and lookups, takes
+The socket buffers, listings, lookups, and handles the host holds for a run take
 from the same `memory_limit` as the guest's growth.
 
 `setup_timeout` applies the first time a path is loaded, and later Sandboxes on

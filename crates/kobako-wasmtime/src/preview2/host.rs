@@ -1282,6 +1282,11 @@ mod tests {
     fn guest(profile: Profile, open_file_limit: Option<usize>) -> (Store<Invocation>, Instance) {
         let mut config = Config::for_profile(profile);
         config.limits.open_file_limit = open_file_limit;
+        guest_of(config)
+    }
+
+    /// The guest module, instantiated over an Invocation `config` builds.
+    fn guest_of(config: Config) -> (Store<Invocation>, Instance) {
         let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
             .expect("WASI context must build");
         instantiate(Invocation::new(wasi))
@@ -3437,7 +3442,10 @@ mod tests {
     // @behavior RT-341
     #[test]
     fn a_view_takes_no_file_of_the_open_file_limit() {
-        let (mut store, instance) = guest(Profile::Hermetic, Some(3));
+        let mut config = Config::for_profile(Profile::Hermetic);
+        config.limits.open_file_limit = Some(3);
+        config.limits.memory_limit = None;
+        let (mut store, instance) = guest_of(config);
         let first = call::<i64, i32>(&mut store, &instance, "subscribe", 0);
         let guest = store.data_mut();
         let held = (1..crate::wasi::MAX_TABLE_ENTRIES)
@@ -3448,8 +3456,30 @@ mod tests {
         assert_eq!(
             (first.is_ok(), held, past.is_err()),
             (true, crate::wasi::MAX_TABLE_ENTRIES - 1, true),
-            "subscribe-duration with the open file limit filled by the standard streams must \
-             hand out pollables up to a million handles, then trap"
+            "subscribe-duration with no memory limit and the open file limit filled by the \
+             standard streams must hand out pollables up to a million handles, then trap"
+        );
+    }
+
+    // @behavior RT-394
+    #[test]
+    fn each_handle_takes_its_room_from_the_memory_limit() {
+        let mut config = Config::for_profile(Profile::Hermetic);
+        config.limits.memory_limit = Some(64 << 10);
+        let (mut store, _instance) = guest_of(config);
+        let guest = store.data_mut();
+        let held = (0..crate::wasi::MAX_TABLE_ENTRIES)
+            .map_while(|_| guest.monotonic_clock_subscribe_duration(0).ok())
+            .collect::<Vec<_>>();
+        let filled = held.len();
+        let last = *held.last().expect("a 64 KiB limit must hold a handle");
+        let dropped = guest.poll_pollable_drop(last).is_ok();
+        let again = guest.monotonic_clock_subscribe_duration(0).is_ok();
+        assert_eq!(
+            (filled > 0 && filled < 64 << 10, dropped, again),
+            (true, true, true),
+            "subscribe-duration under a 64 KiB memory limit must trap once its handles fill the \
+             limit, short of the table's capacity, and hand one out again once a handle drops"
         );
     }
 
