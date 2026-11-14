@@ -4388,3 +4388,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an Invocation with a Preamble |
 | When | the guest asks the host's `preamble` import for it more than once |
 | Then | each answer holds the same bytes, as `wasi:cli/environment` answers its values |
+
+## `RT-397` The Guest Binary hands room without calling into the host
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-375` |
+
+| Step | Statement |
+| --- | --- |
+| Given | the bundled Guest Binary |
+| When | the calls its `cabi_realloc` can make are followed through its code |
+| Then | none reaches a host import, directly or through the function table. The Canonical ABI forbids any while a list is lowered |
