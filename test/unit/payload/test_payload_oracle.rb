@@ -85,6 +85,15 @@ class TestPayloadOracle < Minitest::Test
                  "a Handle in an argument position must cross to the guest codec unchanged"
   end
 
+  # A peer refusing what the other sent must say so, or a disagreement would
+  # read as an answer.
+  def test_a_payload_the_guest_codec_refuses_comes_back_as_an_error
+    @channel.send_frame(+"A\xc1".b)
+    body, error = @channel.read_frame
+    assert error, "payload_oracle must answer bytes its codec refuses with an error frame, not as a payload " \
+                  "(got #{body.inspect})"
+  end
+
   # The empty-args/kwargs payload shape is byte-pinned cross-language by
   # the Rust golden vectors, so no oracle case here.
 end
