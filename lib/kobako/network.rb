@@ -25,7 +25,9 @@ module Kobako
   #   host that cannot say them, so every connect to a name is refused.
   # [<tt>answer(name, *addresses)</tt>]
   #   What a lookup of +name+ answers from now on; a name with no answer
-  #   resolves to nothing.
+  #   resolves to nothing. The name reads as a guest's lookup reads it, so
+  #   case, the root's dot, and an IDN's spelling do not matter. Raises
+  #   ArgumentError for a host no lookup asks, such as an address.
   # [<tt>route(address, port, to: [address, port])</tt>]
   #   Where a dial goes instead. A dial with no route is refused, so nothing
   #   reaches the host network unasked.
@@ -35,7 +37,8 @@ module Kobako
   #   fails alike on every host. Raises ArgumentError for an errno kobako
   #   never answers.
   # [<tt>hold(name) { ... }</tt>]
-  #   Keeps each lookup of +name+ waiting until the block returns or raises.
+  #   Keeps each lookup of +name+ waiting until the block returns or raises,
+  #   +name+ read as +answer+ reads it.
   # [+lookups+, +dials+]
   #   Each name asked, and each <tt>[address, port]</tt> dialed, in order.
   module Network

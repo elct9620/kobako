@@ -290,7 +290,7 @@ fn a_mock_handed_through_options_answers_the_guests_names() {
     let public = IpAddr::from([93, 184, 216, 34]);
     let server = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
     let mock = Arc::new(Mock::default());
-    mock.answer("app.test", vec![public]);
+    mock.answer("app.test", vec![public]).expect("a name");
     mock.route(
         SocketAddr::new(public, 80),
         server.local_addr().expect("the server's address"),

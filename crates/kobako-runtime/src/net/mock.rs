@@ -11,8 +11,9 @@ use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 
 use super::family::{HostInet, ProtocolFamily};
-use super::lookup::Resolver;
+use super::lookup::{LookupError, Resolver};
 use super::socket::Carried;
+use crate::network::Host;
 use crate::Errno;
 
 /// A table of names, routes, and refusals, answering the guest's network in
@@ -71,9 +72,12 @@ impl Mock {
         }
     }
 
-    /// Answer `name` with `addresses` from now on.
-    pub fn answer(&self, name: &str, addresses: Vec<IpAddr>) {
-        self.state().answers.insert(to_key(name), addresses);
+    /// Answer `name` with `addresses` from now on; `InvalidName` for a host
+    /// that is no name a guest's lookup asks.
+    pub fn answer(&self, name: &str, addresses: Vec<IpAddr>) -> Result<(), LookupError> {
+        let name = to_key(name)?;
+        self.state().answers.insert(name, addresses);
+        Ok(())
     }
 
     /// Dial `to` whenever `from` is dialed.
@@ -88,11 +92,12 @@ impl Mock {
     }
 
     /// Keep each lookup of `name` waiting until the hold drops, as a
-    /// resolver that has not answered.
-    pub fn hold(&self, name: &str) -> Hold<'_> {
-        let name = to_key(name);
+    /// resolver that has not answered; `InvalidName` for a host that is no
+    /// name a guest's lookup asks.
+    pub fn hold(&self, name: &str) -> Result<Hold<'_>, LookupError> {
+        let name = to_key(name)?;
         *self.state().held.entry(name.clone()).or_default() += 1;
-        Hold { mock: self, name }
+        Ok(Hold { mock: self, name })
     }
 
     /// Each name the guest's lookups asked, in order.
@@ -157,9 +162,11 @@ impl Resolver for Mock {
     /// The table's answer for `name` once no hold keeps it; a name the table
     /// does not hold resolves to nothing.
     fn resolve(&self, name: &str) -> io::Result<Vec<IpAddr>> {
-        let key = to_key(name);
         let mut state = self.state();
         state.lookups.push(name.to_string());
+        let Ok(key) = to_key(name) else {
+            return Ok(Vec::new());
+        };
         while state.held.contains_key(&key) {
             state = self
                 .released
@@ -170,9 +177,13 @@ impl Resolver for Mock {
     }
 }
 
-/// A name as the table keys it, in any case and with or without its root.
-fn to_key(name: &str) -> String {
-    name.trim_end_matches('.').to_ascii_lowercase()
+/// A name as the table keys it, read as a guest's lookup reads one: in any
+/// case, with or without its root, and an IDN as its A-label.
+fn to_key(name: &str) -> Result<String, LookupError> {
+    match Host::parse(name) {
+        Some(Host::Name(name)) => Ok(name),
+        _ => Err(LookupError::InvalidName),
+    }
 }
 
 #[cfg(test)]
@@ -187,9 +198,10 @@ mod tests {
     #[test]
     fn a_name_held_twice_waits_until_both_holds_drop() {
         let mock = Arc::new(Mock::default());
-        mock.answer("held.test", vec![IpAddr::from([93, 184, 216, 34])]);
-        let outer = mock.hold("held.test");
-        let inner = mock.hold("held.test");
+        mock.answer("held.test", vec![IpAddr::from([93, 184, 216, 34])])
+            .unwrap();
+        let outer = mock.hold("held.test").unwrap();
+        let inner = mock.hold("held.test").unwrap();
         let (done, answered) = mpsc::channel();
         let resolving = mock.clone();
         thread::spawn(move || {

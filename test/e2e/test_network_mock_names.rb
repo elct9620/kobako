@@ -103,4 +103,34 @@ class TestE2ENetworkMockNames < Minitest::Test
                  "a name resolving to one of the host's own addresses must be refused by an endpoint leading only " \
                  "to public addresses, whatever registry classes the address, and dial nothing"
   end
+
+  # @behavior NW-215
+  def test_a_mock_reads_a_name_as_a_guests_lookup_reads_it
+    mock = mock_answering({ "Bücher.Example." => PUBLIC, "CAPS.test" => PUBLIC })
+    sandbox = mock_sandbox(mock) { |net| add_tcp_hosts(net, "bücher.example", "caps.test") }
+    script = "%w[bücher.example caps.test.].map { |name| Addrinfo.getaddrinfo(name, 80)[0].ip_address }"
+    value = sandbox.eval(script).value
+
+    assert_equal [%w[198.18.0.0 198.18.0.1], %w[xn--bcher-kva.example caps.test]], [value, mock.lookups],
+                 "Mock#answer of an IDN with its root's dot, or of a name in capitals, must answer the guest's " \
+                 "lookup of the same name in any spelling"
+  end
+
+  # @behavior NW-215
+  def test_a_mock_refuses_a_host_no_lookup_asks
+    mock = Kobako::Network::Mock.new
+    refused = ["93.184.216.34", "empty.test..", ""].map do |host|
+      assert_raises(ArgumentError) { mock.answer(host, PUBLIC) }.class
+    end
+
+    assert_equal [ArgumentError] * 3, refused,
+                 "Mock#answer of an address, a name ending in an empty label, or an empty host must raise ArgumentError"
+  end
+
+  # @behavior NW-215
+  def test_a_mock_refuses_to_hold_a_host_no_lookup_asks
+    assert_raises(ArgumentError, "Mock#hold of an address must raise ArgumentError before its block runs") do
+      Kobako::Network::Mock.new.hold("93.184.216.34") { flunk "a hold of an address must not run its block" }
+    end
+  end
 end

@@ -58,8 +58,10 @@ fn mock_new(args: &[Value]) -> Result<MockNet, MagnusError> {
 fn answer(rb_self: &MockNet, args: &[Value]) -> Result<(), MagnusError> {
     let args = scan_args::<(String,), (), RArray, (), (), ()>(args)?;
     let (name,) = args.required;
-    rb_self.0.answer(&name, to_ips(args.splat)?);
-    Ok(())
+    rb_self
+        .0
+        .answer(&name, to_ips(args.splat)?)
+        .map_err(|_| not_a_name(&name))
 }
 
 /// `route(address, port, to: [address, port])`.
@@ -104,8 +106,17 @@ fn hold(ruby: &Ruby, rb_self: &MockNet, name: String) -> Result<Value, MagnusErr
             "hold needs a block, which the hold lasts for",
         ));
     }
-    let _hold = rb_self.0.hold(&name);
+    let _hold = rb_self.0.hold(&name).map_err(|_| not_a_name(&name))?;
     ruby.yield_values(())
+}
+
+/// The `ArgumentError` for `name`, which no guest's lookup asks.
+fn not_a_name(name: &str) -> MagnusError {
+    let ruby = Ruby::get().expect("Ruby thread");
+    MagnusError::new(
+        ruby.exception_arg_error(),
+        format!("not a name a lookup asks: {name:?}"),
+    )
 }
 
 /// Each name the guest's lookups asked, in order.
