@@ -38,7 +38,7 @@ pub mod run;
 pub(crate) mod tag;
 pub mod unsupported;
 
-pub use call::{Call, Target};
+pub use call::{Call, Target, MAX_HANDLE_ID};
 pub use compile_reply::CompileReply;
 pub use error_record::{
     ErrorRecord, BOOT_ERROR, BYTECODE_ERROR, NO_SERVICE_ERROR, SANDBOX_ERROR,

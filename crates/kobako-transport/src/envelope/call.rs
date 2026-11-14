@@ -13,9 +13,9 @@ use super::DecodeError;
 const KIND_PATH: u8 = 0;
 const KIND_HANDLE: u8 = 1;
 
-/// The most a Handle id may be: the wire pins ids to the positive i32 range,
-/// so no table issues one past it.
-const MAX_HANDLE_ID: u32 = 0x7fff_ffff;
+/// The most a Capability Handle id may be: the wire pins ids to the positive
+/// i32 range, so no table issues one past it and no side takes one.
+pub const MAX_HANDLE_ID: u32 = 0x7fff_ffff;
 
 /// The object a Call is addressed to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
