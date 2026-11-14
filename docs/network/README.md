@@ -60,7 +60,7 @@ The L7 proxy has no kernel counterpart. It is the userspace proxy an egress-cont
 
 ### Replaceable Parts
 
-A Host App replaces a part only where the rules above it still hold, whatever the part does. The engine's `Config` takes the backends, one pair for each Sandbox, as gVisor takes one network stack.
+A Host App replaces a part only where the rules above it still hold, whatever the part does. The engine's `Config` takes the backends, one pair for each Sandbox, as gVisor takes one network stack. The Rust SDK's `Options` and the gem's `Sandbox.new(network:)` hand them on.
 
 | Part | Its rules sit | Host App |
 |---|---|---|
@@ -68,6 +68,13 @@ A Host App replaces a part only where the rules above it still hold, whatever th
 | Protocol Family | above it: it dials only an admitted address | hands its own |
 | Resolver | above it: connect judges each answer again | hands its own |
 | L7 proxy's sender | inside it: they hold only while it dials through the socket layer | keeps kobako's |
+
+For a test, kobako's own Mock stands as both backends. It answers names from a table and dials only its routes, so a script naming a real host reaches a server the test runs. A lookup and an HTTP dial run off the guest thread, so the Mock never calls back into the Host App. A Ruby test writes it as data.
+
+```
+guest names api.example.com
+  -> rules -> Mock table: 93.184.216.34 -> rules -> Mock route -> 127.0.0.1:port
+```
 
 ### Socket Path
 
