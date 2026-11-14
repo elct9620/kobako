@@ -11,6 +11,11 @@ module Kobako
   #     net.endpoint "cache.internal", port: 6379, protocol: :tcp, addresses: [:private]
   #   end
   module Network
+    # What a keyword nobody wrote reads as, so the runtime's contract alone
+    # gives its default.
+    UNWRITTEN = Object.new.freeze # :nodoc:
+    private_constant :UNWRITTEN
+
     # What the guest may reach: a +host+ and a +port+, the +protocol+ it
     # speaks, and the +addresses+ the host's name may lead to. Unless written
     # otherwise it speaks +:http+ and leads only to +:public+ addresses. Each
@@ -24,9 +29,6 @@ module Kobako
     # protocol other than +:http+, +:tcp+, or +:udp+, or another address, by
     # the rules an invocation reads the endpoint with.
     class Endpoint < Data.define(:host, :port, :protocol, :addresses, :rules)
-      UNWRITTEN = Object.new.freeze # :nodoc:
-      private_constant :UNWRITTEN
-
       def initialize(host:, port:, protocol: UNWRITTEN, addresses: UNWRITTEN, rules: UNWRITTEN)
         written = { protocol:, addresses:, rules: }.reject { |_, value| value.equal?(UNWRITTEN) }
         %i[addresses rules].each { |field| written[field] = Array(written[field]).freeze if written.key?(field) }
@@ -137,16 +139,11 @@ module Kobako
       # Returns +self+.
       # A given block yields a Rules adding the methods and paths an +:http+
       # endpoint allows and denies.
-      def endpoint(host, port:, **written)
-        unknown = written.keys - %i[protocol addresses]
-        if unknown.any?
-          raise ArgumentError,
-                "unknown keyword#{"s" if unknown.size > 1}: #{unknown.map(&:inspect).join(", ")}"
-        end
-
+      def endpoint(host, port:, protocol: UNWRITTEN, addresses: UNWRITTEN)
         rules = Rules.new
         yield rules if block_given?
-        @endpoints << Endpoint.new(host: host, port: port, **written, rules: rules.to_a)
+        @endpoints << Endpoint.new(host: host, port: port, protocol: protocol, addresses: addresses,
+                                   rules: rules.to_a)
         self
       end
 

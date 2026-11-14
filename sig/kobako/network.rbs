@@ -2,6 +2,8 @@ module Kobako
   module Network
     type protocol = :http | :tcp | :udp
 
+    UNWRITTEN: Object
+
     def self.normalize_endpoint: (untyped host, untyped port, Hash[Symbol, untyped] written) ->
       [String, Integer, protocol, Array[Symbol | String | IPAddr], Array[HttpRule]]
 
@@ -19,8 +21,6 @@ module Kobako
       attr_reader rules: Array[HttpRule]
 
       def self.new: (host: untyped, port: untyped, ?protocol: untyped, ?addresses: untyped, ?rules: untyped) -> Endpoint
-
-      UNWRITTEN: Object
 
       def initialize: (host: untyped, port: untyped, ?protocol: untyped, ?addresses: untyped, ?rules: untyped) -> void
     end
