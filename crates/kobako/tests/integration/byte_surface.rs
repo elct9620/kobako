@@ -178,6 +178,47 @@ impl Receiver for ByteYielder {
     }
 }
 
+/// A Receiver that propagates an unsupported yield, standing in for a
+/// yield a guest did not serve: the bundled guest serves every block.
+struct UnsupportedYield;
+
+impl Receiver for UnsupportedYield {
+    fn call(
+        &self,
+        _method: &str,
+        _payload: &[u8],
+        _block: Option<&mut Yielder<'_>>,
+        _handles: &Handles<'_>,
+    ) -> Result<Vec<u8>, Fault> {
+        Err(kobako::YieldError::Unsupported(
+            "the Sandbox runtime does not support yielding to a block".to_string(),
+        )
+        .into())
+    }
+}
+
+// @behavior T-280
+#[test]
+fn an_unrescued_unsupported_yield_answers_in_kobakos_own_wording() {
+    let Some(mut sandbox) = real_sandbox() else {
+        return;
+    };
+    sandbox
+        .bind("Probe::U", Arc::new(UnsupportedYield))
+        .expect("bind the Receiver");
+
+    let execution = sandbox
+        .eval("Probe::U.call { |x| x }")
+        .expect("the invocation runs");
+
+    assert!(
+        matches!(execution.payload(), Err(kobako::Error::Service(failure)) if !failure.message.contains("Kobako::")),
+        "an unsupported yield a Receiver propagates through eval must fail the run as a \
+         Service failure in kobako's own wording, not in the <class>: <message> shape a \
+         Service's exception crosses in"
+    );
+}
+
 // @behavior T-170
 #[test]
 fn call_payload_yields_with_host_encoded_bytes_and_returns_the_block_s_own() {

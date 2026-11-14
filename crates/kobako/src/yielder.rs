@@ -63,15 +63,15 @@ impl From<YieldError> for Fault {
     /// A propagated `Failure` is the guest's own block failing, so it
     /// answers on the `block` category — the guest continues the
     /// exception it raised rather than hearing that a Service failed.
-    /// A propagated `Refused` is the receiver's own argument failing, so
-    /// it answers on `runtime`, as an answer the receiver cannot write
-    /// does. The rest are the exchange itself going wrong: a propagated
-    /// `Break` never reaches the guest at all, since the dispatch answers
-    /// with a break first.
+    /// A propagated `Refused` or `Unsupported` is a yield that never ran,
+    /// which the receiver chose to answer with, so it answers on `runtime`,
+    /// as an answer the receiver cannot write does. The rest are the
+    /// exchange itself going wrong: a propagated `Break` never reaches the
+    /// guest at all, since the dispatch answers with a break first.
     fn from(err: YieldError) -> Self {
         let kind = match err {
             YieldError::Failure { .. } => FaultKind::Block,
-            YieldError::Refused(_) => FaultKind::Runtime,
+            YieldError::Refused(_) | YieldError::Unsupported(_) => FaultKind::Runtime,
             _ => FaultKind::Internal,
         };
         Fault::new(kind, err.to_string())
