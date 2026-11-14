@@ -2102,3 +2102,15 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp Guest Binary built with Unicode support |
 | When | guest code matches a word boundary between a letter and a superscript digit |
 | Then | it matches there |
+
+## `RX-325` A backreference name is read whole, whatever its first character
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RX-311` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code compiles a named backreference whose name is empty or starts with a multibyte character |
+| Then | an empty name raises `RegexpError`, and a multibyte one reads its group, with or without a level, as CRuby's does |
