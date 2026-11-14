@@ -487,6 +487,14 @@ pub trait Receiver {
 }
 ```
 
+## `Yielder`
+
+The block that rode along with a Call, which a Receiver calls back into.
+
+```rust
+pub struct Yielder<'y> {}
+```
+
 ## `Yielder::call_payload`
 
 Call the block that rode along with a Call once and return its value, in the

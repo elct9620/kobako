@@ -14,7 +14,6 @@ them for its own documents.
 
 - `crates/kobako-codec/src/msgpack/codec/decoder.rs`
 - `crates/kobako-codec/src/msgpack/codec/encoder.rs`
-- `lib/kobako/payload/arguments.rb`
 
 ## `Encode`
 

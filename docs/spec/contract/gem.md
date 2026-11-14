@@ -23,6 +23,7 @@ plainly the code works.
 - `lib/kobako/sandbox.rb`
 - `lib/kobako/transport/error.rb`
 - `lib/kobako/unresolved.rb`
+- `lib/kobako/usage.rb`
 
 ## `Kobako::Sandbox`
 
@@ -31,6 +32,20 @@ One guest artifact, its Catalog, and the invocations run against it.
 ```ruby
 module Kobako
   class Sandbox
+  end
+end
+```
+
+## `Kobako::Sandbox#initialize`
+
+A Sandbox on a Guest Binary, the bundled one unless a path names another. The
+other keywords give its options.
+
+```ruby
+module Kobako
+  class Sandbox
+    def initialize(wasm_path: nil, **)
+    end
   end
 end
 ```
@@ -276,7 +291,7 @@ A Filesystem over a host directory, reaching nothing outside it.
 module Kobako
   module Filesystem
     class Bind
-      def self.new(path)
+      def self.new(path, exclusive: false)
       end
     end
   end
@@ -399,6 +414,18 @@ The frozen record one invocation leaves, returned on success and carried on a fa
 ```ruby
 module Kobako
   class Execution
+  end
+end
+```
+
+## `Kobako::Usage`
+
+What one invocation spent against its caps: its wall time and its memory peak.
+
+```ruby
+module Kobako
+  class Usage
+    attr_reader :wall_time, :memory_peak
   end
 end
 ```
@@ -551,6 +578,20 @@ module Kobako
 end
 ```
 
+## `Kobako::Extension#initialize`
+
+An Extension by its name and guest source, with no Backend and no other
+Extension it depends on unless given.
+
+```ruby
+module Kobako
+  class Extension
+    def initialize(name:, source:, backend: nil, depends_on: [])
+    end
+  end
+end
+```
+
 ## `Kobako::Extension::Backend`
 
 The host side of an Extension, declared by the keyword that names its kind.
@@ -559,6 +600,22 @@ The host side of an Extension, declared by the keyword that names its kind.
 module Kobako
   class Extension
     class Backend
+    end
+  end
+end
+```
+
+## `Kobako::Extension::Backend#initialize`
+
+A Backend at a path, holding an object or a provider, or neither for one each
+invocation fills.
+
+```ruby
+module Kobako
+  class Extension
+    class Backend
+      def initialize(path:, object: nil, provider: nil)
+      end
     end
   end
 end

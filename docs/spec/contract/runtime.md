@@ -12,7 +12,6 @@ experimental, so the runtime promises it nothing here.
 - `crates/kobako-runtime/src/filesystem/overlay.rs`
 - `crates/kobako-runtime/src/filesystem/rdir.rs`
 - `crates/kobako-runtime/src/filesystem/tmpfs.rs`
-- `crates/kobako-runtime/src/grant.rs`
 - `crates/kobako-runtime/src/limits.rs`
 - `crates/kobako-runtime/src/policy.rs`
 - `crates/kobako-runtime/src/mount.rs`

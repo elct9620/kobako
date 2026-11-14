@@ -13,7 +13,6 @@ them.
 - `crates/kobako-transport/src/envelope/compile_reply.rs`
 - `crates/kobako-transport/src/envelope/error_record.rs`
 - `crates/kobako-transport/src/envelope/fault.rs`
-- `crates/kobako-transport/src/envelope/name.rs`
 - `crates/kobako-transport/src/envelope/outcome.rs`
 - `crates/kobako-transport/src/envelope/preamble.rs`
 - `crates/kobako-transport/src/envelope/reply.rs`
@@ -498,6 +497,39 @@ Frontend may retry without that flag.
 
 ```rust
 pub const UNSUPPORTED_FLAG_ERROR: &str;
+```
+
+## `UNDEFINED_ENTRYPOINT_ERROR`
+
+The name a Panic carries when the Guest cannot resolve the Entrypoint a Run
+names.
+
+```rust
+pub const UNDEFINED_ENTRYPOINT_ERROR: &str;
+```
+
+## `SERVICE_ERROR`
+
+The name a Panic carries for a failure a Service raised.
+
+```rust
+pub const SERVICE_ERROR: &str;
+```
+
+## `NO_SERVICE_ERROR`
+
+The name a Panic carries for a Call to a Service the host does not hold.
+
+```rust
+pub const NO_SERVICE_ERROR: &str;
+```
+
+## `SERVICE_ARGUMENT_ERROR`
+
+The name a Panic carries when a Service refuses the arguments a Call hands it.
+
+```rust
+pub const SERVICE_ARGUMENT_ERROR: &str;
 ```
 
 ## `Run`
