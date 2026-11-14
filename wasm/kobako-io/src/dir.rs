@@ -1,24 +1,31 @@
 //! `::Dir`: the directories beneath the paths a Host App mounted, listed,
-//! made, and removed as CRuby's `Dir` does on Linux.
+//! made, removed, matched by pattern, and changed into as CRuby's `Dir` does
+//! on Linux.
 //!
-//! A path resolves as `File`'s does, and with no Mount every call raises
-//! `NotImplementedError`. An opened `Dir` lists its entries when it opens
-//! and again on each walk and `rewind`, as POSIX leaves a change made since
-//! then unspecified. The guest has no `Enumerator`, so a call CRuby answers with
-//! one without a block raises instead.
+//! A path resolves as `File`'s does, against the working directory wasi-libc
+//! keeps, which starts at `/` in every invocation. With no Mount every call
+//! that reaches a path raises `NotImplementedError`. An opened `Dir` lists its
+//! entries when it opens and again on each walk and `rewind`, as POSIX leaves
+//! a change made since then unspecified. The guest has no `Enumerator`, so a
+//! call CRuby answers with one without a block raises instead.
 
 use std::cell::RefCell;
 use std::fs;
 use std::io;
 
 use beni::prelude::*;
-use beni::scan_args::scan_args;
+use beni::scan_args::{get_kwargs, scan_args};
 use beni::value::qnil;
-use beni::{Error, IntoValue, Module, Mrb, Proc, RClass, TryConvert, TypedData, Value};
+use beni::{
+    Error, IntoValue, Module, Mrb, Proc, Qfalse, Qtrue, RArray, RClass, RHash, TryConvert,
+    TypedData, Value,
+};
 
 use crate::errno;
 use crate::file::{path_arg, require_mount, stat_or_none};
-use crate::io::argument_error;
+use crate::io::{argument_error, to_int};
+
+mod glob;
 
 /// What an opened `Dir` stands for, kept in its payload so a script's
 /// instance variables cannot rewrite it. Its path outlives the close, as
@@ -58,6 +65,15 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), Error> {
     dir.define_singleton_method(mrb, c"rmdir", beni::method!(dir_s_rmdir, 1))?;
     dir.define_singleton_method(mrb, c"delete", beni::method!(dir_s_rmdir, 1))?;
     dir.define_singleton_method(mrb, c"unlink", beni::method!(dir_s_rmdir, 1))?;
+    dir.define_singleton_method(mrb, c"glob", beni::method!(dir_s_glob, -1))?;
+    dir.define_singleton_method(mrb, c"[]", beni::method!(dir_s_aref, -1))?;
+    dir.define_singleton_method(mrb, c"pwd", beni::method!(dir_s_pwd, 0))?;
+    dir.define_singleton_method(mrb, c"getwd", beni::method!(dir_s_pwd, 0))?;
+    dir.define_singleton_method(mrb, c"chdir", beni::method!(dir_s_chdir, -1))?;
+    let constants = mrb.class_get(c"File")?.define_module(mrb, c"Constants")?;
+    for (name, value) in glob::FNM {
+        constants.const_set(mrb, name, value)?;
+    }
     dir.define_method(mrb, c"path", beni::method!(dir_path, 0))?;
     dir.define_method(mrb, c"to_path", beni::method!(dir_path, 0))?;
     dir.define_method(mrb, c"inspect", beni::method!(dir_inspect, 0))?;
@@ -143,6 +159,171 @@ fn dir_s_open(mrb: &Mrb, class: RClass, _args: &[Value]) -> Result<Value, Error>
     let answer = block.call(mrb, [dir]);
     dir_close(mrb, dir)?;
     answer
+}
+
+/// `glob(pattern, flags = 0, base: nil, sort: true) { |path| }`: the paths
+/// `pattern`, or each pattern an Array holds, names.
+fn dir_s_glob(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
+    let args = scan_args::<(Value,), (Option<Value>,), (), (), RHash, Option<Proc>>(mrb)?;
+    let (patterns,) = args.required;
+    let (flags,) = args.optional;
+    let flags = match flags {
+        Some(flags) => to_int(mrb, flags)?.to_i64(mrb)?,
+        None => 0,
+    };
+    let patterns = match RArray::from_value(patterns) {
+        Some(each) => each.entries(mrb).collect(),
+        None => vec![patterns],
+    };
+    globbed(mrb, "Dir.glob", &patterns, args.keywords, flags, args.block)
+}
+
+/// `Dir[*patterns, base: nil, sort: true]`: the paths each pattern names.
+fn dir_s_aref(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
+    let args = scan_args::<(), (), RArray, (), RHash, ()>(mrb)?;
+    let patterns: Vec<Value> = args.splat.entries(mrb).collect();
+    globbed(mrb, "Dir[]", &patterns, args.keywords, 0, None)
+}
+
+/// The paths each of `patterns` names in turn, each yielded to `block` with
+/// `nil` answered, or all of them answered without one.
+fn globbed(
+    mrb: &Mrb,
+    call: &str,
+    patterns: &[Value],
+    keywords: RHash,
+    flags: i64,
+    block: Option<Proc>,
+) -> Result<Value, Error> {
+    require_mount(mrb, call)?;
+    let kw = get_kwargs::<_, (), (Option<Value>, Option<Value>), ()>(
+        mrb,
+        keywords,
+        &[],
+        &["base", "sort"],
+    )?;
+    let (base, sort) = kw.optional;
+    let base = match base.filter(|base| !base.is_nil()) {
+        Some(base) => Some(path_arg(mrb, base)?).filter(|base| !base.is_empty()),
+        None => None,
+    };
+    let sort = match sort {
+        None => true,
+        Some(sort) if Qtrue::from_value(sort).is_some() => true,
+        Some(sort) if Qfalse::from_value(sort).is_some() => false,
+        Some(_) => return Err(argument_error(mrb, "expected true or false as sort:")),
+    };
+    let options = glob::Options::new(flags, sort);
+    let mut found = Vec::new();
+    for pattern in patterns {
+        let pattern = path_arg(mrb, *pattern)?;
+        found.extend(glob::glob(
+            pattern.as_bytes(),
+            base.as_deref().map(str::as_bytes),
+            options,
+        ));
+    }
+    match block {
+        Some(block) => {
+            yield_each(mrb, block, &found)?;
+            Ok(qnil().as_value())
+        }
+        None => names_value(mrb, &found),
+    }
+}
+
+/// The working directory, `/` until a script changes it.
+fn dir_s_pwd(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
+    let cwd = std::env::current_dir().map_err(|err| errno::from_io(mrb, &err, "."))?;
+    Ok(mrb.str_new(cwd.as_os_str().as_encoded_bytes()).as_value())
+}
+
+/// `chdir(path) { |path| }`: make `path` the working directory, `0`
+/// answered; with a block, only while it runs, the block's value answered
+/// and the earlier directory restored however it ends. The guest has no
+/// `HOME`, so a call naming no path raises, as CRuby's does without one.
+fn dir_s_chdir(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
+    let args = scan_args::<(), (Option<Value>,), (), (), (), Option<Proc>>(mrb)?;
+    let (target,) = args.optional;
+    let Some(target) = target else {
+        return Err(argument_error(mrb, "HOME/LOGDIR not set"));
+    };
+    let path = dir_path_arg(mrb, "Dir.chdir", target)?;
+    let Some(block) = args.block else {
+        change_dir(mrb, &path)?;
+        return Ok(0.into_value(mrb));
+    };
+    let previous = std::env::current_dir().map_err(|err| errno::from_io(mrb, &err, "."))?;
+    change_dir(mrb, &path)?;
+    let answer = block.call(mrb, [mrb.str_new(path.as_bytes()).as_value()]);
+    name_cwd(previous.as_os_str().as_encoded_bytes());
+    answer
+}
+
+/// Change into `path`, the host judging it as Linux's `chdir(2)` does, then
+/// name the result with no `.` or `..` and one separator between names, as
+/// Linux's `getcwd(3)` answers. wasi-libc keeps the path as joined, and the
+/// guest reads no link's target, so a `..` steps back by name.
+fn change_dir(mrb: &Mrb, path: &str) -> Result<(), Error> {
+    std::env::set_current_dir(path).map_err(|err| errno::from_io(mrb, &err, path))?;
+    let joined = std::env::current_dir().map_err(|err| errno::from_io(mrb, &err, path))?;
+    let mut names: Vec<&[u8]> = Vec::new();
+    for name in joined
+        .as_os_str()
+        .as_encoded_bytes()
+        .split(|&byte| byte == b'/')
+    {
+        match name {
+            b"" | b"." => {}
+            b".." => {
+                names.pop();
+            }
+            name => names.push(name),
+        }
+    }
+    name_cwd(&[b"/".as_slice(), &names.join(&b'/')].concat());
+    Ok(())
+}
+
+/// Name the working directory `name` without asking the host again: it
+/// names a directory a change already reached, and the starting `/` is one
+/// no preopen covers, so a `chdir` could not return to it.
+#[cfg(target_os = "wasi")]
+fn name_cwd(name: &[u8]) {
+    use core::ffi::{c_char, c_void};
+
+    unsafe extern "C" {
+        /// wasi-libc's working directory, which `getcwd` answers and every
+        /// relative path joins onto; `chdir` frees the one it replaces once
+        /// it has set one with `malloc`.
+        static mut __wasilibc_cwd: *mut c_char;
+        fn strdup(name: *const c_char) -> *mut c_char;
+        fn free(name: *mut c_void);
+    }
+    let Ok(name) = std::ffi::CString::new(name) else {
+        return;
+    };
+    // SAFETY: the guest runs one thread, so nothing reads the global while it
+    // changes. Only a change reaches here, so the name it replaces is one
+    // `chdir` allocated, and `strdup` allocates the next with the same
+    // `malloc`, which the next `chdir` frees.
+    unsafe {
+        let copied = strdup(name.as_ptr());
+        if copied.is_null() {
+            return;
+        }
+        let replaced = __wasilibc_cwd;
+        __wasilibc_cwd = copied;
+        free(replaced.cast());
+    }
+}
+
+#[cfg(not(target_os = "wasi"))]
+fn name_cwd(name: &[u8]) {
+    // SAFETY: `name` is spliced from the bytes `current_dir` answered at
+    // separators, which keeps each name's encoding whole.
+    let name = unsafe { std::ffi::OsStr::from_encoded_bytes_unchecked(name) };
+    let _ = std::env::set_current_dir(name);
 }
 
 fn dir_s_children(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {

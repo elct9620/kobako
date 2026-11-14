@@ -560,7 +560,7 @@ fn a_path_holding_a_nul_byte_raises_argument_error() {
 // there opens the same way.
 // @behavior FL-030
 #[test]
-fn file_constants_names_the_flags_an_open_honors() {
+fn file_constants_names_the_flags_an_open_and_a_glob_honor() {
     let script = r##"
         names = File::Constants.constants.sort
         print names.map { |name| "#{name}=#{File::Constants.const_get(name)}" }.join(","),
@@ -571,9 +571,14 @@ fn file_constants_names_the_flags_an_open_honors() {
     };
     assert_eq!(
         answer,
-        Ok("APPEND=1024,CREAT=64,EXCL=128,RDONLY=0,RDWR=2,TRUNC=512,WRONLY=1 true".to_string()),
-        "File::Constants in the bundled guest must name the seven flags an open honors at \
-         CRuby's Linux values, and IO must include it"
+        Ok(
+            "APPEND=1024,CREAT=64,EXCL=128,FNM_CASEFOLD=8,FNM_DOTMATCH=4,FNM_EXTGLOB=16,\
+            FNM_NOESCAPE=1,FNM_PATHNAME=2,FNM_SHORTNAME=0,FNM_SYSCASE=0,RDONLY=0,RDWR=2,TRUNC=512,\
+            WRONLY=1 true"
+                .to_string()
+        ),
+        "File::Constants in the bundled guest must name the seven flags an open honors and the \
+         FNM_ flags a glob takes at CRuby's Linux values, and IO must include it"
     );
 }
 

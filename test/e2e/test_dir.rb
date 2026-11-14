@@ -40,7 +40,8 @@ class TestE2EDir < Minitest::Test
   UNMOUNTED = <<~RUBY
     [-> { Dir.children("/m") }, -> { Dir.entries("/m") }, -> { Dir.each_child("/m") {} },
      -> { Dir.open("/m") }, -> { Dir.mkdir("/m") }, -> { Dir.rmdir("/m") },
-     -> { Dir.exist?("/m") }, -> { Dir.empty?("/m") }].map(&attempt)
+     -> { Dir.exist?("/m") }, -> { Dir.empty?("/m") }, -> { Dir.glob("/m/*") }, -> { Dir["/m/*"] },
+     -> { Dir.chdir("/m") }].map(&attempt)
   RUBY
 
   BAD_PERMISSION = <<~RUBY
@@ -92,7 +93,9 @@ class TestE2EDir < Minitest::Test
 
   # @behavior FL-057
   def test_a_directory_call_with_nothing_mounted_is_unimplemented
-    assert_equal ["NotImplementedError"] * 8, Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(ATTEMPT + UNMOUNTED).value,
+    unmounted = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+
+    assert_equal ["NotImplementedError"] * 11, unmounted.eval(ATTEMPT + UNMOUNTED).value,
                  "every Dir call with nothing mounted through the bundled guest must raise NotImplementedError"
   end
 
