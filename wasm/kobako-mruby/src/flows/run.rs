@@ -13,17 +13,16 @@
 //!    with the snippet's backtrace attribution.
 //! 2. Decode the Run's payload through the codec. A failure answers a
 //!    Panic Outcome.
-//! 3. Resolve the entrypoint Symbol against top-level `Object` via
-//!    `sys::mrb_const_defined` and confirm the constant
-//!    responds to `:call` via `sys::mrb_respond_to`. Each failure answers
+//! 3. Resolve the entrypoint name against top-level `Object`, without
+//!    interning a name no constant holds, and confirm the constant
+//!    responds to `:call`. Each failure answers
 //!    a Panic Outcome directly, naming the host class the host raises:
 //!    `Kobako::UndefinedEntrypointError` for an unresolved name, which
 //!    also carries the names it could have been, and
 //!    `Kobako::SandboxError` for a constant that answers no `:call`.
-//! 4. Invoke `target.call(*args, **kwargs)` through `mrb_funcall_argv`
-//!    by concatenating the decoded args Array and (when non-empty)
-//!    appending the kwargs Hash as the trailing element — the same
-//!    layout `Method#call` uses internally. Serialize the return
+//! 4. Invoke `target.call(*args, **kwargs)`, the kwargs Hash (when
+//!    non-empty) trailing the decoded args as `Method#call` lays them
+//!    out. Serialize the return
 //!    value as an ok Outcome or convert the raised exception into a
 //!    Panic Outcome.
 

@@ -4,9 +4,9 @@
 //! The flows reach their codec as `G::Codec`, but the bridge cannot:
 //! mruby invokes it through `mrb_func_t`, a bare function pointer with
 //! nowhere to carry a type parameter. The shell's choice is recorded here
-//! instead, once, when `Kobako::init` runs — the same constraint and the
-//! same shape as `flows::mrb_slot`, whose cross-invocation isolation
-//! argument applies here unchanged.
+//! instead, once, when `Kobako::init` runs. Set once and never changed, it
+//! needs no `UnsafeCell`, unlike `flows::mrb_slot`; the cross-invocation
+//! isolation argument there applies here unchanged.
 
 use std::sync::OnceLock;
 

@@ -17,8 +17,8 @@ use core::cell::UnsafeCell;
 /// Single-threaded interior-mutability slot for the active `Mrb` — an
 /// `UnsafeCell<Option<Mrb>>` that the single-threaded wasm execution
 /// model permits us to mutate from `&self`. `install` / `clear` /
-/// `as_ref` are the only entry points; aliasing rules live in the
-/// lifecycle section above.
+/// `as_ref` are the only entry points, and the module doc says why the
+/// `UnsafeCell` holds.
 pub(super) struct MrbSlot(UnsafeCell<Option<Mrb>>);
 
 impl MrbSlot {

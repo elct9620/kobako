@@ -22,9 +22,9 @@
 //!
 //! ## Cross-Sandbox isolation
 //!
-//! Same argument as `crate::runtime::block_stack`: each `Kobako::Sandbox`
-//! owns its own `wasmtime::Instance` and therefore its own copy of these
-//! module-level statics.
+//! Same argument as `crate::runtime::block_stack`: each invocation runs on
+//! a fresh instance and therefore its own copy of these module-level
+//! statics.
 
 use beni::sys::AsRawValue;
 use beni::Value;
