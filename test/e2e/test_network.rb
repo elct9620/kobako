@@ -17,7 +17,7 @@ class TestE2ENetwork < Minitest::Test
     sandbox = api_sandbox
     sandbox.eval("nil")
 
-    assert_raises(ArgumentError, "Sandbox#network after the first invocation must be refused") do
+    assert_raises(FrozenError, "Sandbox#network after the first invocation must be refused") do
       sandbox.network(:other) { |net| net.endpoint "other.example.com", port: 443 }
     end
   end

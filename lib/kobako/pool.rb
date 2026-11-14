@@ -17,8 +17,9 @@ module Kobako
     # given, sets up each Sandbox once, as with Sandbox#bind and
     # Sandbox#preload.
     #
-    # Raises ArgumentError when +slots+ is not a positive Integer or
-    # +checkout_timeout+ is not a positive finite number.
+    # Raises TypeError when +slots+ is not an Integer or +checkout_timeout+
+    # is not Numeric, and ArgumentError when either is not positive or
+    # +checkout_timeout+ is not finite.
     def initialize(slots:, checkout_timeout: DEFAULT_CHECKOUT_TIMEOUT_SECONDS, **sandbox_options, &setup)
       validate_slots(slots)
       @slots = slots
@@ -118,7 +119,8 @@ module Kobako
     end
 
     def validate_slots(slots)
-      return if slots.is_a?(Integer) && slots.positive?
+      raise TypeError, "slots must be an Integer, got #{slots.class}" unless slots.is_a?(Integer)
+      return if slots.positive?
 
       raise ArgumentError, "slots must be a positive Integer, got #{slots.inspect}"
     end
@@ -126,7 +128,7 @@ module Kobako
     def normalize_checkout_timeout(checkout_timeout)
       return nil if checkout_timeout.nil?
       unless checkout_timeout.is_a?(Numeric)
-        raise ArgumentError, "checkout_timeout must be Numeric or nil, got #{checkout_timeout.inspect}"
+        raise TypeError, "checkout_timeout must be Numeric or nil, got #{checkout_timeout.inspect}"
       end
 
       seconds = checkout_timeout.to_f

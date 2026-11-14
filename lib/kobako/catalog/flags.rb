@@ -14,9 +14,9 @@ module Kobako
 
       def register(name, value, advisory:)
         unless name.is_a?(Symbol) || name.is_a?(String)
-          raise ArgumentError, "flag name must be a Symbol or String, got #{name.class}"
+          raise TypeError, "flag name must be a Symbol or String, got #{name.class}"
         end
-        raise ArgumentError, "flag value must be a String, got #{value.class}" unless value.is_a?(String)
+        raise TypeError, "flag value must be a String, got #{value.class}" unless value.is_a?(String)
 
         key = Catalog.to_utf8(name.to_s, "flag name")
         raise ArgumentError, "flag #{key.inspect} already set" if @entries.key?(key)

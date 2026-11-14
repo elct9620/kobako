@@ -31,9 +31,10 @@ module Kobako
     # with the gem by default. The other keywords are the options
     # SandboxOptions describes.
     #
-    # Raises ArgumentError for an invalid option, and SetupError when the
-    # runtime cannot be built or provides less isolation than +profile+ asks
-    # for.
+    # Raises TypeError for an option of another class, RangeError for a cap
+    # past what the host counts, ArgumentError for any other invalid option,
+    # and SetupError when the runtime cannot be built or provides less
+    # isolation than +profile+ asks for.
     def initialize(wasm_path: nil, **)
       @wasm_path = wasm_path || Kobako::Runtime.default_path
       @options = SandboxOptions.new(**Kobako::Runtime.default_options, **)
@@ -59,8 +60,8 @@ module Kobako
     # A call to one left unfilled fails as a ServiceError.
     #
     # Raises ArgumentError for a malformed path, a path under the reserved
-    # +Kobako+ namespace, a path that collides with an existing binding, or a
-    # call after the first invocation.
+    # +Kobako+ namespace, or a path that collides with an existing binding,
+    # and FrozenError for a call after the first invocation.
     def bind(path, object = Unresolved)
       refuse_once_invoked("bind")
       @services.bind(path, object)
@@ -71,8 +72,9 @@ module Kobako
     # backend. Any object answering +name+, +source+, +backend+ and
     # +depends_on+ works; Extension is the bundled one. Returns +self+.
     #
-    # Raises ArgumentError for a malformed Extension, a call after the first
-    # invocation, or, at the first invocation, a missing dependency.
+    # Raises TypeError for an Extension of another shape, FrozenError for a
+    # call after the first invocation, and, at the first invocation,
+    # ArgumentError for a missing dependency.
     def install(*extensions)
       refuse_once_invoked("install")
 
@@ -114,8 +116,8 @@ module Kobako
     # Kobako::Network::Request; any entry refusing refuses. Returns +self+.
     #
     # Raises ArgumentError for an empty or duplicate name, an endpoint with an
-    # empty host, a port outside 1 to 65535, or an unknown protocol, or a call
-    # after the first invocation. An
+    # empty host, a port outside 1 to 65535, or an unknown protocol, and
+    # FrozenError for a call after the first invocation. An
     # endpoint the ruleset refuses, such as a wildcard leading to +:private+,
     # raises ArgumentError from the invocation that compiles it.
     def network(name, entry = nil, &builder)
@@ -133,8 +135,9 @@ module Kobako
     #   Precompiled RITE bytecode, trusted as host code: the unmodified
     #   compiler output of the mruby release the Guest Binary is built on.
     #
-    # Raises ArgumentError for a malformed or duplicate snippet, or a call
-    # after the first invocation. A snippet that fails to load fails every
+    # Raises TypeError for a snippet part of another class, ArgumentError for
+    # a malformed or duplicate snippet, and FrozenError for a call after the
+    # first invocation. A snippet that fails to load fails every
     # invocation with SandboxError, or BytecodeError for bytecode.
     def preload(code: nil, name: nil, binary: nil)
       refuse_once_invoked("preload")
@@ -150,8 +153,8 @@ module Kobako
     # Mark a flag advisory only when a script cannot tell it was skipped.
     # Returns +self+.
     #
-    # Raises ArgumentError for a malformed or duplicate flag, or a call after
-    # the first invocation.
+    # Raises TypeError for a name or value of another class, ArgumentError for
+    # a duplicate flag, and FrozenError for a call after the first invocation.
     def flag(name, value = "", advisory: false)
       refuse_once_invoked("flag")
 
@@ -163,9 +166,10 @@ module Kobako
     # and +kwargs+, and return the Execution. A given block receives the
     # invocation's Context before the guest runs.
     #
-    # Raises TypeError when +target+ is not a Symbol or String, and
-    # ArgumentError when it is not a constant name or the arguments carry a
-    # Handle or a non-Symbol keyword. A failed run raises as #eval does.
+    # Raises TypeError when +target+ is not a Symbol or String or a keyword
+    # is not a Symbol, and ArgumentError when +target+ is not a constant
+    # name or the arguments carry a Handle. A failed run raises as #eval
+    # does.
     def run(target, *args, **kwargs, &block)
       request = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
       Codec.within_value_budget(@options.value_budget) { begin_invocation.run(request, &block) }
@@ -175,16 +179,17 @@ module Kobako
     # whose +value+ is the last expression. A given block receives the
     # invocation's Context before the guest runs.
     #
-    # Raises TrapError when the engine stopped the guest, a deadline or
-    # memory budget included; SandboxError when the guest failed, +code+ not
-    # being UTF-8 text or the Guest Binary not starting the run included; and
-    # ServiceError when a Service call failed and the guest left it
+    # Raises TypeError when +code+ is no String, and ArgumentError when it is
+    # not UTF-8 text, before the guest runs; TrapError when the engine
+    # stopped the guest, a deadline or memory budget included; SandboxError
+    # when the guest failed, the Guest Binary not starting the run included;
+    # and ServiceError when a Service call failed and the guest left it
     # unrescued.
     def eval(code, &block)
-      raise SandboxError, "code must be a String, got #{code.class}" unless code.is_a?(String)
+      raise TypeError, "code must be a String, got #{code.class}" unless code.is_a?(String)
 
       source = code.dup.force_encoding(Encoding::UTF_8)
-      raise SandboxError, "code must be UTF-8 text" unless source.valid_encoding?
+      raise ArgumentError, "code must be UTF-8 text" unless source.valid_encoding?
 
       Codec.within_value_budget(@options.value_budget) { begin_invocation.eval(source, &block) }
     end
@@ -204,7 +209,7 @@ module Kobako
     # Registration closes at the first invocation, so every invocation ships
     # the same Services, snippets, flags, Extensions and mounts.
     def refuse_once_invoked(verb)
-      raise ArgumentError, "cannot #{verb} after first Sandbox invocation" if @sealed
+      raise FrozenError, "cannot #{verb} after first Sandbox invocation" if @sealed
     end
 
     # Sealing before the dependency check keeps a Sandbox whose check failed

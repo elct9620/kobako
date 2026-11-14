@@ -66,13 +66,13 @@ module Kobako
 
       def validate(extension)
         source = extension.source
-        raise ArgumentError, "Extension #source must be a String, got #{source.class}" unless source.is_a?(String)
+        raise TypeError, "Extension #source must be a String, got #{source.class}" unless source.is_a?(String)
 
         backend = extension.backend
         return if backend.nil?
         return if backend.respond_to?(:path) && backend.respond_to?(:object) && backend.respond_to?(:provider)
 
-        raise ArgumentError, "Extension #backend must expose #path, #object, and #provider"
+        raise TypeError, "Extension #backend must expose #path, #object, and #provider"
       end
 
       def unmet_dependency

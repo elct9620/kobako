@@ -134,14 +134,14 @@ class TestSandbox < Minitest::Test
   # @behavior S-130
   def test_eval_rejects_non_string_code
     sandbox = Kobako::Sandbox.new(wasm_path: FIXTURE_PATH)
-    err = assert_raises(Kobako::SandboxError) { sandbox.eval(nil) }
+    err = assert_raises(TypeError, "Sandbox#eval given nil must raise TypeError") { sandbox.eval(nil) }
     assert_match(/must be a String/, err.message)
   end
 
   # @behavior S-210
   def test_eval_refuses_source_whose_bytes_are_not_utf8
     sandbox = Kobako::Sandbox.new(wasm_path: TestPaths.data("kobako.wasm"))
-    err = assert_raises(Kobako::SandboxError, "Sandbox#eval given bytes that are not UTF-8 must refuse them") do
+    err = assert_raises(ArgumentError, "Sandbox#eval given bytes that are not UTF-8 must refuse them") do
       sandbox.eval("1 + \xFF".b)
     end
     assert_match(/must be UTF-8 text/, err.message)

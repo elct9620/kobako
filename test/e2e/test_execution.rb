@@ -42,9 +42,12 @@ class TestE2EExecution < Minitest::Test
   def test_a_preflight_failure_carries_no_execution
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-    error = assert_raises(Kobako::SandboxError) { sandbox.eval(123) }
+    cyclic = []
+    cyclic << cyclic
+    error = assert_raises(Kobako::SandboxError) { sandbox.run(:Entry, cyclic) }
 
     assert_nil error.execution,
-               "a non-String code is rejected before any invocation, so #execution is nil"
+               "a #run argument that cannot cross the boundary is refused before the guest runs, " \
+               "so the SandboxError carries no Execution"
   end
 end

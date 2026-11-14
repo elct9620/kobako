@@ -46,18 +46,18 @@ module Kobako
       end
 
       def validate_args(args)
-        raise ArgumentError, "arguments must be an Array" unless args.is_a?(Array)
+        raise TypeError, "arguments must be an Array" unless args.is_a?(Array)
         raise ArgumentError, forged_handle_message("arguments") if args.any?(Kobako::Handle)
       end
 
       # Checked here so the Host App sees the host-side message before any
       # encode boundary.
       def validate_kwargs(kwargs)
-        raise ArgumentError, "keyword arguments must be a Hash" unless kwargs.is_a?(Hash)
+        raise TypeError, "keyword arguments must be a Hash" unless kwargs.is_a?(Hash)
 
         bad_keys = kwargs.each_key.grep_v(Symbol)
         unless bad_keys.empty?
-          raise ArgumentError,
+          raise TypeError,
                 "keyword argument keys must be Symbols (got #{bad_keys.inspect})"
         end
         raise ArgumentError, forged_handle_message("keyword argument values") if kwargs.each_value.any?(Kobako::Handle)

@@ -69,7 +69,7 @@ class TestSandboxRunPreflight < Minitest::Test
 
   # @behavior S-097
   def test_kwargs_keys_must_be_symbols
-    err = assert_raises(ArgumentError) { @fixture_sandbox.run(:Worker, **{ "bad" => 1 }) }
+    err = assert_raises(TypeError) { @fixture_sandbox.run(:Worker, **{ "bad" => 1 }) }
     assert_match(/keyword argument keys must be Symbols/, err.message)
   end
 end

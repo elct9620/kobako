@@ -30,7 +30,7 @@ class TestE2EMount < Minitest::Test
     sandbox = sandbox_with_note
     sandbox.eval("nil")
 
-    assert_raises(ArgumentError, "Sandbox#mount after the first invocation must be refused") do
+    assert_raises(FrozenError, "Sandbox#mount after the first invocation must be refused") do
       sandbox.mount("/more", Kobako::Filesystem::Tmpfs.new)
     end
   end

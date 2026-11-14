@@ -88,7 +88,7 @@ class TestE2EBindPaths < Minitest::Test
     sandbox.bind("Early::A", -> { :a })
     sandbox.eval("1")
 
-    err = assert_raises(ArgumentError) { sandbox.bind("Late::B", -> { :b }) }
+    err = assert_raises(FrozenError) { sandbox.bind("Late::B", -> { :b }) }
     assert_match(/after first Sandbox invocation/, err.message,
                  "a bind through Sandbox#bind after the first #eval must be refused naming that invocation")
   end

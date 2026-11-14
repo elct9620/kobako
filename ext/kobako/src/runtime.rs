@@ -193,7 +193,7 @@ fn to_deadline(ruby: &Ruby, name: &str, value: Value) -> Result<Option<Duration>
     }
     if !value.is_kind_of(ruby.class_numeric()) {
         return Err(MagnusError::new(
-            ruby.exception_arg_error(),
+            ruby.exception_type_error(),
             format!(
                 "{name} must be Numeric or nil, got {}",
                 value.class().inspect()
@@ -201,10 +201,15 @@ fn to_deadline(ruby: &Ruby, name: &str, value: Value) -> Result<Option<Duration>
         ));
     }
     let seconds: f64 = value.funcall("to_f", ())?;
+    let refusal = if seconds > 0.0 && seconds.is_finite() {
+        ruby.exception_range_error()
+    } else {
+        ruby.exception_arg_error()
+    };
     match Duration::try_from_secs_f64(seconds) {
         Ok(deadline) if seconds.is_finite() => Ok(Some(deadline)),
         _ => Err(MagnusError::new(
-            ruby.exception_arg_error(),
+            refusal,
             format!(
                 "{name} must be > 0 and at most {} seconds (got {})",
                 Duration::MAX.as_secs(),
@@ -220,13 +225,24 @@ fn to_count(ruby: &Ruby, name: &str, value: Value) -> Result<Option<usize>, Magn
     if value.is_nil() {
         return Ok(None);
     }
-    let count = magnus::Integer::from_value(value)
-        .and_then(|integer| integer.to_u64().ok())
-        .and_then(|count| usize::try_from(count).ok());
-    match count {
+    let Some(integer) = magnus::Integer::from_value(value) else {
+        return Err(MagnusError::new(
+            ruby.exception_type_error(),
+            format!(
+                "{name} must be an Integer or nil, got {}",
+                value.class().inspect()
+            ),
+        ));
+    };
+    let refusal = if value.funcall::<_, _, bool>("negative?", ())? {
+        ruby.exception_arg_error()
+    } else {
+        ruby.exception_range_error()
+    };
+    match integer.to_usize().ok() {
         Some(count) => Ok(Some(count)),
         None => Err(MagnusError::new(
-            ruby.exception_arg_error(),
+            refusal,
             format!(
                 "{name} must be a positive Integer or nil, got {}",
                 value.inspect()

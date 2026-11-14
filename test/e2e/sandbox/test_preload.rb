@@ -41,7 +41,7 @@ class TestSandboxPreload < Minitest::Test
 
     assert_raises(Kobako::TrapError) { @sandbox.eval("nil") }
 
-    err = assert_raises(ArgumentError) { @sandbox.preload(code: "Y = 2", name: :Late) }
+    err = assert_raises(FrozenError) { @sandbox.preload(code: "Y = 2", name: :Late) }
     assert_match(/after first Sandbox invocation/, err.message)
   end
 end

@@ -160,7 +160,7 @@ module Kobako
     # The source is what becomes a guest snippet, so anything that is not
     # source has nothing to become.
     def test_install_rejects_a_non_string_source
-      err = assert_raises(ArgumentError) { install(extension(name: :File, source: 123)) }
+      err = assert_raises(TypeError) { install(extension(name: :File, source: 123)) }
       assert_match(/source/, err.message, "a non-String source is a malformed Extension")
     end
 
@@ -168,7 +168,7 @@ module Kobako
     # A backend declares its kind by keyword rather than by inference, so
     # one exposing none of the three says nothing install can act on.
     def test_install_rejects_a_backend_missing_path_object_or_provider
-      err = assert_raises(ArgumentError) { install(extension(name: :File, source: "1", backend: Object.new)) }
+      err = assert_raises(TypeError) { install(extension(name: :File, source: "1", backend: Object.new)) }
       assert_match(/backend/, err.message,
                    "a backend that does not expose #path, #object, and #provider is malformed")
     end

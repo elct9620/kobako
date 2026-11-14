@@ -86,7 +86,7 @@ class TestE2EInstall < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.eval("1")
 
-    err = assert_raises(ArgumentError) { sandbox.install(file_extension(object: InMemoryFileSystem.new)) }
+    err = assert_raises(FrozenError) { sandbox.install(file_extension(object: InMemoryFileSystem.new)) }
     assert_match(/after first Sandbox invocation/, err.message)
   end
 

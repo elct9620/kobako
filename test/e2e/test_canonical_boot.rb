@@ -113,7 +113,7 @@ class TestE2ECanonicalBoot < Minitest::Test
   def test_a_path_refused_after_the_seal_stays_out_of_the_declared_set
     @sandbox.bind("MyService::KV", -> { "kv" })
     @sandbox.eval("1")
-    assert_raises(ArgumentError) { @sandbox.bind("MyService::Late", -> { "late" }) }
+    assert_raises(FrozenError) { @sandbox.bind("MyService::Late", -> { "late" }) }
 
     result = @sandbox.eval("[MyService::KV.call, MyService.const_defined?(:Late)]").value
 

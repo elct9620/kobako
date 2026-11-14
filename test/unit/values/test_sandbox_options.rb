@@ -42,22 +42,25 @@ class TestSandboxOptions < Minitest::Test
   # positive Integer — the matrix keeps the caps' reject rules pinned side
   # by side so an asymmetry cannot creep in unnoticed. A deadline that
   # never arrives is refused too: the way to ask for none is nil.
+  COUNT_REFUSALS = { ArgumentError => [0, -1], TypeError => [1.5, "100"], RangeError => [2**64] }.freeze
   INVALID_CAP_VALUES = {
-    timeout: [0, -1.0, "60", Float::INFINITY, Float::NAN, 1e300],
-    memory_limit: [0, -1, 1.5, "100"],
-    stdout_limit: [0, -1, 1.5, "100"],
-    stderr_limit: [0, -1, 1.5, "100"],
-    open_file_limit: [0, -1, 1.5, "100"],
-    open_connection_limit: [0, -1, 1.5, "100"],
-    connection_limit: [0, -1, 1.5, "100"]
+    timeout: { ArgumentError => [0, -1.0, Float::INFINITY, Float::NAN], TypeError => ["60"], RangeError => [1e300] },
+    memory_limit: COUNT_REFUSALS,
+    stdout_limit: COUNT_REFUSALS,
+    stderr_limit: COUNT_REFUSALS,
+    open_file_limit: COUNT_REFUSALS,
+    open_connection_limit: COUNT_REFUSALS,
+    connection_limit: COUNT_REFUSALS
   }.freeze
 
   # @behavior RT-058 RT-061
   def test_rejects_invalid_cap_values
-    INVALID_CAP_VALUES.each do |cap, values|
-      values.each do |bad|
-        assert_raises(ArgumentError, "#{cap} #{bad.inspect} through SandboxOptions.new must be rejected") do
-          options(cap => bad)
+    INVALID_CAP_VALUES.each do |cap, refusals|
+      refusals.each do |error, values|
+        values.each do |bad|
+          assert_raises(error, "#{cap} #{bad.inspect} through SandboxOptions.new must raise #{error}") do
+            options(cap => bad)
+          end
         end
       end
     end

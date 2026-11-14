@@ -80,7 +80,7 @@ class TestE2ERunAsEval < Minitest::Test
     sandbox.preload(code: "Worker = ->(*_) { 1 }", name: :Worker)
     sandbox.run(:Worker)
 
-    assert_raises(ArgumentError, "a bind after a first invocation made through #run must be refused") do
+    assert_raises(FrozenError, "a bind after a first invocation made through #run must be refused") do
       sandbox.bind("Late", -> { 1 })
     end
   end

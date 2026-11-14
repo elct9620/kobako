@@ -64,7 +64,7 @@ module Kobako
       # as a type error rather than a missing keyword.
       def ensure_source_args(code, name)
         raise ArgumentError, "missing keyword: code: + name:, or binary:" if code.nil? && name.nil?
-        raise ArgumentError, "code must be a String, got #{code.class}" unless code.is_a?(String)
+        raise TypeError, "code must be a String, got #{code.class}" unless code.is_a?(String)
         raise ArgumentError, "missing keyword: name:" if name.nil?
 
         [code, name]
@@ -73,7 +73,7 @@ module Kobako
       # Kept as bytes whatever encoding the caller tagged them with, since
       # the guest reads them as bytecode rather than text.
       def register_binary(bytes)
-        raise ArgumentError, "binary must be a String, got #{bytes.class}" unless bytes.is_a?(String)
+        raise TypeError, "binary must be a String, got #{bytes.class}" unless bytes.is_a?(String)
 
         @entries << Snippet::Bytecode.new(body: bytes.dup.force_encoding(Encoding::ASCII_8BIT))
         nil
@@ -93,7 +93,7 @@ module Kobako
 
       def normalize_name(name)
         unless name.is_a?(Symbol) || name.is_a?(String)
-          raise ArgumentError, "snippet name must be a Symbol or String, got #{name.class}"
+          raise TypeError, "snippet name must be a Symbol or String, got #{name.class}"
         end
 
         name_str = name.to_s

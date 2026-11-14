@@ -10,8 +10,9 @@ class TestPoolConstruction < Minitest::Test
   # count with is refused at construction rather than at the first
   # checkout, where the caller would already be waiting on it.
   def test_slots_must_be_positive_integer
-    [0, -1, 1.5, "3", nil].each do |bad|
-      err = assert_raises(ArgumentError, "slots: #{bad.inspect} through Pool.new must raise ArgumentError") do
+    { 0 => ArgumentError, -1 => ArgumentError, 1.5 => TypeError, "3" => TypeError,
+      nil => TypeError }.each do |bad, error|
+      err = assert_raises(error, "slots: #{bad.inspect} through Pool.new must raise #{error}") do
         Kobako::Pool.new(slots: bad)
       end
       assert_match(/slots/, err.message)
@@ -23,9 +24,9 @@ class TestPoolConstruction < Minitest::Test
   # by accident rather than by request — the deliberate unbounded wait
   # has its own spelling, pinned in the next test.
   def test_checkout_timeout_must_be_positive_finite_or_nil
-    [0, -1, Float::INFINITY, Float::NAN, "5"].each do |bad|
-      err = assert_raises(ArgumentError,
-                          "checkout_timeout: #{bad.inspect} through Pool.new must raise ArgumentError") do
+    { 0 => ArgumentError, -1 => ArgumentError, Float::INFINITY => ArgumentError, Float::NAN => ArgumentError,
+      "5" => TypeError }.each do |bad, error|
+      err = assert_raises(error, "checkout_timeout: #{bad.inspect} through Pool.new must raise #{error}") do
         Kobako::Pool.new(slots: 1, checkout_timeout: bad)
       end
       assert_match(/checkout_timeout/, err.message)

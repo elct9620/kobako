@@ -99,11 +99,11 @@ module Parity
     end
 
     # A registration refused after the first invocation surfaces the
-    # seal; the Ruby surface spells the refusal ArgumentError.
+    # seal; the Ruby surface spells the refusal FrozenError.
     def late_bind(sandbox, invocation)
       sandbox.bind(invocation.fetch(:name), Object.new)
       { "status" => "ok", "value" => ValueTags.tag(nil) }
-    rescue ArgumentError
+    rescue FrozenError
       { "status" => "sealed" }
     end
 

@@ -21,10 +21,10 @@ module Kobako
 
     # @behavior S-185
     def test_a_name_or_value_of_the_wrong_kind_is_refused
-      assert_raises(ArgumentError, "a flag name that is neither Symbol nor String must be refused") do
+      assert_raises(TypeError, "a flag name that is neither Symbol nor String must be refused") do
         @table.register(1, "", advisory: false)
       end
-      assert_raises(ArgumentError, "a flag value that is not a String must be refused") do
+      assert_raises(TypeError, "a flag value that is not a String must be refused") do
         @table.register(:limit, 8, advisory: false)
       end
     end

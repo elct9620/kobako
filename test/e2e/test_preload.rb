@@ -58,7 +58,7 @@ class TestE2EPreload < Minitest::Test
     sandbox.preload(code: "ANSWER = 42", name: :Answers)
     sandbox.eval("nil")
 
-    assert_raises(ArgumentError) { sandbox.preload(code: "ANSWER = 0", name: :Late) }
+    assert_raises(FrozenError) { sandbox.preload(code: "ANSWER = 0", name: :Late) }
     assert_equal 42, sandbox.eval("ANSWER").value,
                  "a #preload refused after the seal must leave the snippets already preloaded replaying unchanged"
   end

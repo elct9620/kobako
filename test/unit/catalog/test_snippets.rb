@@ -54,13 +54,13 @@ module Kobako
 
     # @behavior S-141
     def test_register_rejects_name_of_wrong_type
-      err = assert_raises(ArgumentError) { @table.register(code: "X", name: 42) }
+      err = assert_raises(TypeError) { @table.register(code: "X", name: 42) }
       assert_match(/must be a Symbol or String/, err.message)
     end
 
     # @behavior S-142
     def test_register_rejects_non_string_code
-      err = assert_raises(ArgumentError) { @table.register(code: nil, name: :Helper) }
+      err = assert_raises(TypeError) { @table.register(code: nil, name: :Helper) }
       assert_match(/code must be a String/, err.message)
     end
 
@@ -73,7 +73,7 @@ module Kobako
 
     # @behavior S-143
     def test_register_rejects_non_string_binary
-      err = assert_raises(ArgumentError) { @table.register(binary: 42) }
+      err = assert_raises(TypeError) { @table.register(binary: 42) }
       assert_match(/binary must be a String/, err.message)
     end
 

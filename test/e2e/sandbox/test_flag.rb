@@ -25,7 +25,7 @@ class TestSandboxFlag < Minitest::Test
   def test_flag_rejects_calls_after_first_invocation
     @sandbox.eval("nil")
 
-    err = assert_raises(ArgumentError) { @sandbox.flag(:late) }
+    err = assert_raises(FrozenError) { @sandbox.flag(:late) }
     assert_match(/after first Sandbox invocation/, err.message,
                  "a flag through Sandbox#flag after the first invocation must be refused naming it")
   end
