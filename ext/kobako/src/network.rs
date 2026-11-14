@@ -7,7 +7,6 @@
 //! `Kobako::Network::Builder` only collects what its block declares; the
 //! runtime's `Builder` composes it with the object given beside it.
 
-use std::net::IpAddr;
 use std::sync::Arc;
 
 use magnus::value::{Lazy, Opaque, ReprValue};
@@ -548,8 +547,8 @@ fn to_rule(rule: Value) -> Result<HttpRule, MagnusError> {
 }
 
 /// An address set's symbol, a CIDR as `address/prefix`, or an `IPAddr`, which
-/// carries its prefix apart from its address; the ruleset judges whether the
-/// prefix fits its address.
+/// carries its prefix apart from its address; the runtime reads the CIDR as
+/// it reads an endpoint's host.
 fn to_addresses(value: Value) -> Option<Addresses> {
     if let Some(name) = symbol_name_of(value).ok()? {
         return named(&ADDRESS_SET_NAMES, &name);
@@ -563,8 +562,5 @@ fn to_addresses(value: Value) -> Option<Addresses> {
         }
         Err(_) => return None,
     };
-    let (address, prefix) = cidr.split_once('/')?;
-    let address: IpAddr = address.parse().ok()?;
-    let prefix: u8 = prefix.parse().ok()?;
-    Some(Addresses::Cidr(address, prefix))
+    Addresses::from_cidr(&cidr)
 }

@@ -206,17 +206,40 @@ enum Pattern {
     Cidr(IpAddr, u8),
 }
 
-fn parse_host(host: &str) -> Result<Pattern, EntryError> {
-    if let Some((ip, prefix)) = host.split_once('/') {
-        let ip = ip
-            .parse::<IpAddr>()
-            .map_err(|_| EntryError(format!("an endpoint's prefix is no address: {host}")))?;
-        let prefix = prefix
+/// Why `address/prefix` text names no CIDR.
+pub(crate) enum CidrFault {
+    NoAddress,
+    OutOfRange,
+}
+
+/// The address and prefix `address/prefix` spells, the prefix within its
+/// address's width; `None` for text holding no `/`.
+pub(crate) fn parse_cidr(text: &str) -> Option<Result<(IpAddr, u8), CidrFault>> {
+    let (ip, prefix) = text.split_once('/')?;
+    let Ok(ip) = ip.parse::<IpAddr>() else {
+        return Some(Err(CidrFault::NoAddress));
+    };
+    Some(
+        prefix
             .parse::<u8>()
             .ok()
             .filter(|p| *p <= full_prefix_of(ip))
-            .ok_or_else(|| EntryError(format!("an endpoint's prefix is out of range: {host}")))?;
-        return Ok(Pattern::Cidr(ip, prefix));
+            .map(|prefix| (ip, prefix))
+            .ok_or(CidrFault::OutOfRange),
+    )
+}
+
+fn parse_host(host: &str) -> Result<Pattern, EntryError> {
+    if let Some(cidr) = parse_cidr(host) {
+        return match cidr {
+            Ok((ip, prefix)) => Ok(Pattern::Cidr(ip, prefix)),
+            Err(CidrFault::NoAddress) => Err(EntryError(format!(
+                "an endpoint's prefix is no address: {host}"
+            ))),
+            Err(CidrFault::OutOfRange) => Err(EntryError(format!(
+                "an endpoint's prefix is out of range: {host}"
+            ))),
+        };
     }
     // A host is read as the guest's is, so an address in any spelling, and
     // an IDN as its A-label, matches what the guest names.

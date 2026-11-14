@@ -445,6 +445,15 @@ pub enum Addresses {
     Cidr(IpAddr, u8),
 }
 
+impl Addresses {
+    /// The CIDR `address/prefix` text spells, as an endpoint's host reads
+    /// one; `None` for text that spells none, or a prefix past its address.
+    pub fn from_cidr(text: &str) -> Option<Self> {
+        let (ip, prefix) = ruleset::parse_cidr(text)?.ok()?;
+        Some(Self::Cidr(ip, prefix))
+    }
+}
+
 /// An entry or an endpoint no connection could follow.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct EntryError(String);
@@ -469,6 +478,34 @@ mod tests {
             (endpoint.protocol, endpoint.addresses),
             (Protocol::Http, vec![Addresses::Public]),
             "Endpoint::new with only a host and a port must speak HTTP and lead to the public set"
+        );
+    }
+
+    // @behavior NW-008
+    #[test]
+    fn a_cidr_reads_as_an_endpoints_host_reads_one() {
+        let v4: IpAddr = "10.0.0.0".parse().expect("a literal address");
+        let v6: IpAddr = "fd00::".parse().expect("a literal address");
+        assert_eq!(
+            [
+                "10.0.0.0/8",
+                "fd00::/128",
+                "10.0.0.0/33",
+                "net/8",
+                "10.0.0.0",
+                "10.0.0.0/x"
+            ]
+            .map(Addresses::from_cidr),
+            [
+                Some(Addresses::Cidr(v4, 8)),
+                Some(Addresses::Cidr(v6, 128)),
+                None,
+                None,
+                None,
+                None
+            ],
+            "an endpoint's addresses must take a CIDR whose prefix fits its address, and no \
+             other text"
         );
     }
 
