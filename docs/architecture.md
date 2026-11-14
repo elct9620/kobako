@@ -318,6 +318,7 @@ Each row names the one reference a layer's spec and code are judged against.
 | WASI host layer | WIT; where it leaves room, wasmtime-wasi | WASI Host Layer, below |
 | guest Ruby | CRuby 3.4 on Linux in behavior; mruby in wording | [`spec/behavior/network.md`](spec/behavior/network.md), [`spec/behavior/regexp.md`](spec/behavior/regexp.md) |
 | the two Frontends | each other | [`process/parity.md`](process/parity.md) |
+| the Ruby gem's errors to a Host App | CRuby's core classes for a mistake in a call | [`process/convention.md`](process/convention.md) |
 | names and wording | the convention | [`process/convention.md`](process/convention.md) |
 
 Guest Ruby covers `kobako-io` and every capability gem. Linux means its latest stable release, never a release candidate, so a reference holds still while kobako is judged against it.

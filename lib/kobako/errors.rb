@@ -1,11 +1,13 @@
 # frozen_string_literal: true
 
 module Kobako
-  # Every Sandbox#eval or Sandbox#run returns, or raises exactly one of
-  # TrapError, SandboxError, or ServiceError. SetupError and PoolTimeoutError
-  # arise outside any invocation.
+  # Every Sandbox#eval or Sandbox#run that reaches the guest returns, or
+  # raises exactly one of TrapError, SandboxError, or ServiceError. SetupError
+  # and PoolTimeoutError arise outside any invocation. A mistake in a call
+  # raises the TypeError, ArgumentError, RangeError, or FrozenError a CRuby
+  # core method raises for it.
 
-  # The base of every error kobako raises.
+  # The base of every failure a run or a setup meets.
   class Error < StandardError; end
 
   module Recorded # :nodoc:

@@ -18,7 +18,7 @@ serves many of them.
 
 The first `#eval` or `#run` seals the Sandbox. Services, mounts, network
 entries, snippets, and flags then stay fixed, and a later registration raises
-`ArgumentError`.
+`FrozenError`.
 
 Each Invocation then takes these steps:
 
@@ -63,8 +63,10 @@ a run that produced none.
 
 ## Error Handling
 
-A run either returns an Execution or raises one of three classes. You route
-faults by class, never by message.
+A run that reaches the guest either returns an Execution or raises one of
+three classes. You route faults by class, never by message. A mistake in the
+call itself raises before the run, as a Ruby core method raises it:
+`TypeError`, `ArgumentError`, or `RangeError`.
 
 ```ruby
 begin
@@ -140,7 +142,8 @@ let _ = (execution.stdout(), execution.usage());
 | `TimeoutError`, `MemoryLimitError`, `TrapError` | `Timeout`, `MemoryLimit`, `Trap` |
 | `SandboxError`, `BytecodeError`, `UnsupportedFlagError` | `Sandbox`, `Bytecode`, `UnsupportedFlag` |
 | `ServiceError` | `Service` |
-| `ArgumentError` before the run | `Argument`, or `Sealed` after the seal |
+| `TypeError`, `ArgumentError`, `RangeError` before the run | `Argument` |
+| `FrozenError` after the seal | `Sealed` |
 | `SetupError` | `Setup` |
 
 A `Failure` carries `name`, `message`, and `backtrace`. `Error` is

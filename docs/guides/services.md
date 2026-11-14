@@ -43,7 +43,7 @@ Symbol keyword arguments reach the host method's keywords unchanged.
 |---|---|
 | has a segment not matching `/\A[A-Z]\w{0,65533}\z/` | `ArgumentError` |
 | sits under `Kobako`, kept by the Guest Binary | `ArgumentError` |
-| arrives after the first invocation | `ArgumentError` |
+| arrives after the first invocation | `FrozenError` |
 
 ## Per-Invocation Bindings
 

@@ -54,6 +54,21 @@ WASI boundary    WIT maps it to an error code; preview1's must pass wasi-testsui
 guest Ruby       the Errno CRuby raises for it, worded as mruby words it
 ```
 
+#### Host App Errors
+
+The Ruby gem raises a Host App's mistake as CRuby's core methods raise it, so `rescue` reads as it does around any Ruby call. What a run or a setup meets is kobako's own and raises under `Kobako::Error`.
+
+| The call meets | Raises | As in CRuby |
+|---|---|---|
+| an argument of another class | `TypeError` | `Array.new("a")` |
+| a value its class allows but the call refuses | `ArgumentError` | `Array.new(-1)` |
+| a number past what the host counts | `RangeError` | `Array.new(2**64)` |
+| a registration after the seal | `FrozenError` | a change to a frozen object |
+| a spent Context, or a name already taken | `ArgumentError` | no more specific class |
+| a run or a setup that fails | `Kobako::*` | — |
+
+The Rust SDK keeps a mistake in its `Error::Argument`, and the seal in `Error::Sealed`.
+
 ## Contract Registration
 
 A contract is a promise to someone outside kobako: changing it breaks them. It registers only what is promised.
