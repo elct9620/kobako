@@ -280,18 +280,18 @@ impl Runtime {
         let gvl: Value = options.fetch(ruby.to_symbol("gvl"))?;
         // A value kobako does not name a profile has no profile to stand
         // for, so it is refused rather than read as a weaker one.
-        let profile = match symbol_name_of(profile)?.as_deref() {
-            Some("hermetic") => Profile::Hermetic,
-            Some("permissive") => Profile::Permissive,
-            _ => {
-                return Err(MagnusError::new(
-                    ruby.exception_arg_error(),
-                    format!(
-                        "profile must be :permissive or :hermetic, got {}",
-                        profile.inspect()
-                    ),
-                ));
-            }
+        let name = symbol_name_of(profile)?;
+        let Some(&(profile, _)) = PROFILE_NAMES
+            .iter()
+            .find(|(_, named)| name.as_deref() == Some(*named))
+        else {
+            return Err(MagnusError::new(
+                ruby.exception_arg_error(),
+                format!(
+                    "profile must be :permissive or :hermetic, got {}",
+                    profile.inspect()
+                ),
+            ));
         };
         // A mode kobako does not name is refused as a profile is.
         let release_gvl = match symbol_name_of(gvl)?.as_deref() {
@@ -422,12 +422,19 @@ impl Runtime {
     }
 }
 
+/// Each profile beside the name the `profile:` option takes it by.
+const PROFILE_NAMES: [(Profile, &str); 2] = [
+    (Profile::Hermetic, "hermetic"),
+    (Profile::Permissive, "permissive"),
+];
+
 /// `profile` as the Symbol the `profile:` option names it by.
 fn to_profile_name(ruby: &Ruby, profile: Profile) -> Symbol {
-    ruby.to_symbol(match profile {
-        Profile::Hermetic => "hermetic",
-        Profile::Permissive => "permissive",
-    })
+    let (_, name) = PROFILE_NAMES
+        .iter()
+        .find(|(each, _)| *each == profile)
+        .expect("every profile has a name");
+    ruby.to_symbol(name)
 }
 
 /// The Proc stays GC-rooted for the synchronous `#eval` / `#run` call as a

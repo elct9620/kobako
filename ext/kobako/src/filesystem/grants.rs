@@ -5,7 +5,7 @@
 use std::sync::Arc;
 
 use magnus::value::{Opaque, ReprValue};
-use magnus::{prelude::*, Error as MagnusError, RArray, RString, Ruby, Value};
+use magnus::{prelude::*, Error as MagnusError, RArray, RString, Ruby, Symbol, Value};
 
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, MountRequest};
@@ -35,18 +35,34 @@ fn to_mount(at: Value, access: Value, filesystem: Value) -> Result<Mount, Magnus
         .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))
 }
 
+/// Each access beside the name the `access:` option takes it by.
+const ACCESS_NAMES: [(Access, &str); 2] =
+    [(Access::Read, "read"), (Access::ReadWrite, "read_write")];
+
 fn to_access(access: Value) -> Result<Access, MagnusError> {
-    match crate::symbol_name_of(access)?.as_deref() {
-        Some("read") => Ok(Access::Read),
-        Some("read_write") => Ok(Access::ReadWrite),
-        _ => Err(MagnusError::new(
-            Ruby::get().expect("Ruby thread").exception_arg_error(),
-            format!(
-                "access must be :read or :read_write, got {}",
-                access.inspect()
-            ),
-        )),
-    }
+    let name = crate::symbol_name_of(access)?;
+    ACCESS_NAMES
+        .iter()
+        .find(|(_, named)| name.as_deref() == Some(*named))
+        .map(|&(access, _)| access)
+        .ok_or_else(|| {
+            MagnusError::new(
+                Ruby::get().expect("Ruby thread").exception_arg_error(),
+                format!(
+                    "access must be :read or :read_write, got {}",
+                    access.inspect()
+                ),
+            )
+        })
+}
+
+/// `access` as the Symbol the `access:` option names it by.
+fn to_access_name(ruby: &Ruby, access: Access) -> Symbol {
+    let (_, name) = ACCESS_NAMES
+        .iter()
+        .find(|(each, _)| *each == access)
+        .expect("every access has a name");
+    ruby.to_symbol(name)
 }
 
 /// A mount's block, asked what its access allows. A block raising a
@@ -61,10 +77,7 @@ impl Policy<MountRequest<'_>> for RubyPolicy {
         gvl::reenter(|| {
             let ruby = Ruby::get().expect("Ruby handle unavailable in a mount's block");
             let block: Value = ruby.get_inner(self.block);
-            let access = ruby.to_symbol(match request.access {
-                Access::Read => "read",
-                Access::ReadWrite => "read_write",
-            });
+            let access = to_access_name(&ruby, request.access);
             block
                 .funcall::<_, _, Value>("call", (ruby.str_new(request.path), access))
                 .map(|answer| answer.to_bool())

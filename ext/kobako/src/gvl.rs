@@ -43,6 +43,9 @@ where
     // run to end.
     let task = Task::current();
     let task_ptr = ptr::addr_of!(task).cast_mut().cast::<c_void>();
+    // SAFETY: `func` and `data` come from `call_via`, which keeps the
+    // closure alive across the call; `task` outlives it on this frame, and
+    // Ruby calls `interrupt_task` with it only while the region runs.
     call_via(f, |func, data| unsafe {
         rb_sys::rb_thread_call_without_gvl2(Some(func), data, Some(interrupt_task), task_ptr)
     })
@@ -51,6 +54,8 @@ where
 /// Have the thread's run stop waiting for locks, called by Ruby without the GVL
 /// as the region's unblocking function.
 unsafe extern "C" fn interrupt_task(task: *mut c_void) {
+    // SAFETY: `region` passes its own `Task`, alive for the whole region
+    // Ruby calls this from.
     let task = unsafe { &*task.cast::<Task>() };
     task.interrupt();
 }
@@ -78,10 +83,13 @@ pub(crate) fn reenter<F, R>(f: F) -> R
 where
     F: FnOnce() -> R,
 {
-    if !GVL_RELEASED.with(|g| g.get()) {
+    if holds() {
         return f();
     }
     let _guard = ReleasedGuard::set(false);
+    // SAFETY: `func` and `data` come from `call_via`, which keeps the
+    // closure alive across the call, and this thread is a Ruby thread
+    // inside a region that released the GVL, as the call requires.
     call_via(f, |func, data| unsafe {
         rb_sys::rb_thread_call_with_gvl(Some(func), data)
     })
@@ -118,6 +126,8 @@ unsafe extern "C" fn trampoline<F, R>(data: *mut c_void) -> *mut c_void
 where
     F: FnOnce() -> R,
 {
+    // SAFETY: `call_via` passes its own `GvlCtx<F, R>`, borrowed by nothing
+    // else for the length of the call.
     let ctx = unsafe { &mut *data.cast::<GvlCtx<F, R>>() };
     let f = ctx.f.take().expect("gvl trampoline runs its closure once");
     ctx.result = Some(catch_unwind(AssertUnwindSafe(f)));
