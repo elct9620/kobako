@@ -29,14 +29,14 @@
 //!
 //! No deps beyond the codec under test and `std`.
 
-use std::io::{self, Read, Write};
+#[path = "../frame.rs"]
+mod frame;
+
+use std::io;
 
 use kobako_codec::msgpack::codec;
 use kobako_codec::msgpack::codec::{Decode, Encode};
 use kobako_codec::msgpack::payload::Arguments;
-use kobako_transport::abi::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
-
-const ERROR_FLAG: u32 = 0x8000_0000;
 
 const LIST_KINDS: u8 = b'?';
 
@@ -60,38 +60,19 @@ fn run() -> io::Result<()> {
     let mut input = stdin.lock();
     let mut output = stdout.lock();
 
-    loop {
-        let mut hdr = [0u8; FRAME_LEN_SIZE];
-        match input.read_exact(&mut hdr) {
-            Ok(()) => {}
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
-            Err(e) => return Err(e),
-        }
-        let len = u32::from_be_bytes(hdr) as usize;
-        if len == 0 || len > MAX_FRAME_LEN {
+    while let Some(payload) = frame::read(&mut input)? {
+        // Every request leads with the kind it asks about.
+        let Some((&kind, body)) = payload.split_first() else {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("frame length {len} out of range"),
+                "a request frame names no kind",
             ));
-        }
-        let mut payload = vec![0u8; len];
-        input.read_exact(&mut payload)?;
-
-        let kind = payload[0];
-        let body = &payload[1..];
+        };
         match answer(kind, body) {
-            Ok(out) => write_frame(&mut output, &out, false)?,
-            Err(msg) => write_frame(&mut output, msg.as_bytes(), true)?,
+            Ok(out) => frame::write(&mut output, &out, false)?,
+            Err(msg) => frame::write(&mut output, msg.as_bytes(), true)?,
         }
-        output.flush()?;
     }
-}
-
-fn write_frame<W: Write>(out: &mut W, payload: &[u8], is_error: bool) -> io::Result<()> {
-    let len = payload.len() as u32;
-    let header = if is_error { len | ERROR_FLAG } else { len };
-    out.write_all(&header.to_be_bytes())?;
-    out.write_all(payload)?;
     Ok(())
 }
 

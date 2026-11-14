@@ -27,12 +27,12 @@
 //!
 //! No deps beyond the codec under test and `std`.
 
-use std::io::{self, Read, Write};
+#[path = "../frame.rs"]
+mod frame;
+
+use std::io;
 
 use kobako_codec::msgpack::codec::{self, Decoder, Encoder};
-use kobako_transport::abi::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
-
-const ERROR_FLAG: u32 = 0x8000_0000;
 
 fn main() {
     if let Err(e) = run() {
@@ -47,41 +47,17 @@ fn run() -> io::Result<()> {
     let mut input = stdin.lock();
     let mut output = stdout.lock();
 
-    loop {
-        let mut hdr = [0u8; FRAME_LEN_SIZE];
-        match input.read_exact(&mut hdr) {
-            Ok(()) => {}
-            Err(e) if e.kind() == io::ErrorKind::UnexpectedEof => return Ok(()),
-            Err(e) => return Err(e),
-        }
-        let len = u32::from_be_bytes(hdr) as usize;
-        if len > MAX_FRAME_LEN {
-            return Err(io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("frame length {len} exceeds {MAX_FRAME_LEN}"),
-            ));
-        }
-        let mut payload = vec![0u8; len];
-        input.read_exact(&mut payload)?;
-
+    while let Some(payload) = frame::read(&mut input)? {
         match roundtrip_once(&payload) {
-            Ok(re_encoded) => write_frame(&mut output, &re_encoded, false)?,
+            Ok(re_encoded) => frame::write(&mut output, &re_encoded, false)?,
             Err((tag, msg)) => {
                 let mut buf = Vec::with_capacity(1 + msg.len());
                 buf.push(tag);
                 buf.extend_from_slice(msg.as_bytes());
-                write_frame(&mut output, &buf, true)?;
+                frame::write(&mut output, &buf, true)?;
             }
         }
-        output.flush()?;
     }
-}
-
-fn write_frame<W: Write>(out: &mut W, payload: &[u8], is_error: bool) -> io::Result<()> {
-    let len = payload.len() as u32;
-    let header_word = if is_error { len | ERROR_FLAG } else { len };
-    out.write_all(&header_word.to_be_bytes())?;
-    out.write_all(payload)?;
     Ok(())
 }
 

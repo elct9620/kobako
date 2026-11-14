@@ -9,8 +9,9 @@
 //! diagnostic-only) lives on the Ruby side, so the two frontends'
 //! outputs stay directly diffable.
 
+mod frame;
+
 use std::collections::HashMap;
-use std::io::{Read, Write};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -32,40 +33,19 @@ use kobako::{
 /// observable tagger (identity lookup via `Arc::ptr_eq`).
 type Opaques = Vec<(String, Arc<dyn Receiver>)>;
 
-/// High bit of the frame length word: the payload is a harness-level
-/// error message, not an observables object.
-const ERROR_FLAG: u32 = 0x8000_0000;
-
 fn main() {
     let stdin = std::io::stdin();
     let stdout = std::io::stdout();
     let mut input = stdin.lock();
     let mut output = stdout.lock();
-    while let Some(frame) = read_frame(&mut input) {
-        let (payload, flag) = match run_scenario(&frame) {
-            Ok(observables) => (observables.to_string().into_bytes(), 0),
-            Err(message) => (message.into_bytes(), ERROR_FLAG),
+    while let Some(scenario) = frame::read(&mut input).expect("the harness must send whole frames")
+    {
+        let written = match run_scenario(&scenario) {
+            Ok(observables) => frame::write(&mut output, observables.to_string().as_bytes(), false),
+            Err(message) => frame::write(&mut output, message.as_bytes(), true),
         };
-        write_frame(&mut output, &payload, flag);
+        written.expect("harness closed the pipe mid-frame");
     }
-}
-
-fn read_frame(input: &mut impl Read) -> Option<Vec<u8>> {
-    let mut header = [0u8; 4];
-    input.read_exact(&mut header).ok()?;
-    let len = u32::from_be_bytes(header) & !ERROR_FLAG;
-    let mut body = vec![0u8; len as usize];
-    input.read_exact(&mut body).ok()?;
-    Some(body)
-}
-
-fn write_frame(output: &mut impl Write, payload: &[u8], flag: u32) {
-    let word = (payload.len() as u32) | flag;
-    output
-        .write_all(&word.to_be_bytes())
-        .and_then(|()| output.write_all(payload))
-        .and_then(|()| output.flush())
-        .expect("harness closed the pipe mid-frame");
 }
 
 fn run_scenario(frame: &[u8]) -> Result<Json, String> {
