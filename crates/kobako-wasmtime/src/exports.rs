@@ -138,4 +138,94 @@ mod tests {
              asked for more room than the Guest Binary has must trap rather than answer 0"
         );
     }
+
+    /// Where a function's calls can lead: the imports it reaches, and whether
+    /// it reaches a call through the function table, which could be any.
+    #[derive(Debug, Default, PartialEq)]
+    struct Reach {
+        imports: Vec<String>,
+        indirect: bool,
+    }
+
+    /// What the export `name` of the module in `bytes` can reach through its
+    /// direct calls.
+    fn reach_of(bytes: &[u8], name: &str) -> Reach {
+        use wasmparser::{ExternalKind, Operator, Parser, Payload, TypeRef};
+
+        let (mut imports, mut start) = (Vec::new(), None);
+        let mut bodies: Vec<(Vec<u32>, bool)> = Vec::new();
+        for payload in Parser::new(0).parse_all(bytes) {
+            match payload.expect("the Guest Binary parses") {
+                Payload::ImportSection(section) => {
+                    for import in section.into_imports() {
+                        let import = import.expect("an import parses");
+                        if matches!(import.ty, TypeRef::Func(_)) {
+                            imports.push(format!("{}.{}", import.module, import.name));
+                        }
+                    }
+                }
+                Payload::ExportSection(section) => {
+                    for export in section {
+                        let export = export.expect("an export parses");
+                        if export.name == name && export.kind == ExternalKind::Func {
+                            start = Some(export.index);
+                        }
+                    }
+                }
+                Payload::CodeSectionEntry(body) => {
+                    let (mut calls, mut indirect) = (Vec::new(), false);
+                    let mut reader = body.get_operators_reader().expect("a body parses");
+                    while !reader.eof() {
+                        match reader.read().expect("an operator parses") {
+                            Operator::Call { function_index }
+                            | Operator::ReturnCall { function_index } => calls.push(function_index),
+                            Operator::CallIndirect { .. }
+                            | Operator::ReturnCallIndirect { .. }
+                            | Operator::CallRef { .. }
+                            | Operator::ReturnCallRef { .. } => indirect = true,
+                            _ => {}
+                        }
+                    }
+                    bodies.push((calls, indirect));
+                }
+                _ => {}
+            }
+        }
+
+        let mut reach = Reach::default();
+        let mut seen = std::collections::HashSet::new();
+        let mut pending = vec![start.unwrap_or_else(|| panic!("the module exports {name}"))];
+        while let Some(index) = pending.pop() {
+            if !seen.insert(index) {
+                continue;
+            }
+            match imports.get(index as usize) {
+                Some(import) => reach.imports.push(import.clone()),
+                None => {
+                    let (calls, indirect) = &bodies[index as usize - imports.len()];
+                    reach.indirect |= indirect;
+                    pending.extend(calls);
+                }
+            }
+        }
+        reach.imports.sort_unstable();
+        reach
+    }
+
+    // @behavior RT-397
+    #[test]
+    fn the_guest_binarys_allocator_calls_into_no_host_import() {
+        let path = Path::new(WASM);
+        if !guest_binary::built(path.exists(), "data/kobako.wasm") {
+            return;
+        }
+        let bytes = std::fs::read(path).expect("the Guest Binary must read");
+
+        assert_eq!(
+            reach_of(&bytes, "cabi_realloc"),
+            Reach::default(),
+            "cabi_realloc in data/kobako.wasm, followed through its calls, must reach no host \
+             import and no call through the function table"
+        );
+    }
 }

@@ -70,6 +70,11 @@ wiggle = { version = "50.0.1", default-features = false, features = ["wasmtime"]
 # hash must be cryptographic.
 sha2 = "0.11"
 
+[dev-dependencies]
+# wasmparser walks the bundled Guest Binary's code to witness what each ABI
+# export can call; the version is the one wasmtime-environ already links.
+wasmparser = "0.261.0"
+
 [build-dependencies]
 # build.rs generates the WASI 0.2 imports a Guest Binary links as a core
 # module from `wit/`, as wiggle generates preview1's from `witx/`.
