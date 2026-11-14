@@ -726,7 +726,7 @@ mod tests {
     /// A namespace whose ruleset admits 127.0.0.1 on `ports`, its sockets
     /// counting against `open`.
     fn loopback(ports: &[u16], open: Arc<OpenConnections>) -> Namespace {
-        use crate::net::HyperOutbound;
+        use crate::net::Backends;
         use crate::network::{Builder, Endpoint, Network};
         let mut entry = Builder::default();
         for port in ports {
@@ -737,15 +737,7 @@ mod tests {
             );
         }
         let network = Network::new("loopback", Arc::new(entry)).unwrap();
-        Namespace::new(
-            [&network],
-            Arc::new(HostInet),
-            Arc::new(HostInet),
-            Arc::new(HyperOutbound::new()),
-            open,
-            None,
-        )
-        .expect("the endpoints compile")
+        Namespace::new([&network], &Backends::default(), open, None).expect("the endpoints compile")
     }
 
     /// A socket file connecting to a loopback listener, and the peer the

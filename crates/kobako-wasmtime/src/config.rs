@@ -10,11 +10,13 @@
 //! `kobako::Options` holds as well; this struct alone may name a wasmtime
 //! type, as an engine-free host must still be able to build the SDK.
 //! The security modules are the Driver's own, as Linux's LSMs are the
-//! kernel's: whoever builds the Driver hands them here.
+//! kernel's: whoever builds the Driver hands them here, and the network's
+//! backends with them, as gVisor takes one network stack for each sandbox.
 
 use std::sync::Arc;
 
 use kobako_runtime::limits::Limits;
+use kobako_runtime::net::Backends;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::SecurityOperations;
 
@@ -33,16 +35,20 @@ pub struct Config {
     /// after kobako's own rules and before any Mount's Policy, as Linux
     /// stacks the LSMs it was booted with.
     pub security: Vec<Arc<dyn SecurityOperations>>,
+    /// What every network entry of an invocation dials and looks names up
+    /// through, beneath the rules its entries make.
+    pub network: Backends,
 }
 
 impl Default for Config {
-    /// A Sandbox's default caps and floor, and no security module beyond
-    /// kobako's own.
+    /// A Sandbox's default caps and floor, no security module beyond
+    /// kobako's own, and the host's own network.
     fn default() -> Self {
         Config {
             limits: Limits::default(),
             profile: Profile::default(),
             security: Vec::new(),
+            network: Backends::default(),
         }
     }
 }
@@ -65,6 +71,7 @@ impl Config {
             limits,
             profile,
             security: Vec::new(),
+            network: Backends::default(),
         }
     }
 }

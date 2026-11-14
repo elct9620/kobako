@@ -1230,9 +1230,7 @@ mod tests {
         let family = Arc::new(family);
         let namespace = Namespace::new(
             [&network],
-            family.clone(),
-            family,
-            Arc::new(HyperOutbound::new()),
+            &crate::net::Backends::new(family.clone(), family),
             OpenConnections::new(Some(1)),
             None,
         )

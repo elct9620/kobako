@@ -14,6 +14,11 @@ const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm"
 /// A driver over the bundled Guest Binary, or `None` when it has not
 /// been built outside CI, where a missing build is a failure instead.
 pub fn bundled_driver() -> Option<Driver> {
+    bundled_driver_with(|_| {})
+}
+
+/// As `bundled_driver`, under the config `adjust` moves.
+pub fn bundled_driver_with(adjust: impl FnOnce(&mut Config)) -> Option<Driver> {
     if !guest_binary::built(Path::new(WASM).exists(), "data/kobako.wasm") {
         return None;
     }
@@ -25,5 +30,6 @@ pub fn bundled_driver() -> Option<Driver> {
     config.limits.stderr_limit = None;
     config.limits.open_file_limit = None;
     config.profile = Profile::Hermetic;
+    adjust(&mut config);
     Some(Driver::new(Path::new(WASM), config).expect("the Guest Binary must load"))
 }

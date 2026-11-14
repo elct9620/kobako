@@ -5,6 +5,7 @@ mod support;
 
 mod compile_profile;
 mod guest_file;
+mod network_backends;
 mod preamble_flags;
 mod snippet_compile;
 mod unanswered_call;

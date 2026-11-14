@@ -18,7 +18,7 @@ use std::sync::Arc;
 use kobako_runtime::cred::Cred;
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
-use kobako_runtime::net::{HostInet, HyperOutbound, Namespace, OpenConnections};
+use kobako_runtime::net::{Backends, Namespace, OpenConnections};
 use kobako_runtime::network::EntryError;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::{prepare_creds_within, restrict_self, WalkGuard};
@@ -78,7 +78,12 @@ impl Wasi {
             config.profile,
             grants,
         )?;
-        wasi.network = to_network(grants, open_connections, config.limits.connection_limit)?;
+        wasi.network = to_network(
+            grants,
+            &config.network,
+            open_connections,
+            config.limits.connection_limit,
+        )?;
         Ok(wasi)
     }
 
@@ -275,12 +280,12 @@ pub(crate) fn sandbox_connections() -> Arc<OpenConnections> {
 }
 
 /// The network an invocation's Grants make, one namespace for every entry,
-/// dialed through the host's own TCP and looked up through the host's
-/// resolver, each connection counted against the
-/// Sandbox's `open_connections` while open and the run's `connection_limit`
-/// in all. No network Grant makes none.
+/// dialed and looked up through `backends`, each connection counted against
+/// the Sandbox's `open_connections` while open and the run's
+/// `connection_limit` in all. No network Grant makes none.
 fn to_network(
     grants: &[Grant],
+    backends: &Backends,
     open_connections: &Arc<OpenConnections>,
     connection_limit: Option<usize>,
 ) -> Result<Option<Namespace>, EntryError> {
@@ -296,9 +301,7 @@ fn to_network(
     }
     Namespace::new(
         entries,
-        Arc::new(HostInet),
-        Arc::new(HostInet),
-        Arc::new(HyperOutbound::new()),
+        backends,
         open_connections.clone(),
         connection_limit,
     )

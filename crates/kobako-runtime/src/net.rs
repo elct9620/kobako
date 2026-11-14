@@ -2,6 +2,7 @@
 //! Protocol Family backend dials the host, and the guest waits on the
 //! socket's wait queue. What may be reached is the Network Grant's to say.
 
+mod backends;
 mod connections;
 mod credential;
 mod egress;
@@ -16,13 +17,16 @@ mod tls;
 mod transport;
 mod udp;
 
+pub use backends::Backends;
 pub use connections::{process_connections, OpenConnections};
 pub use egress::send;
 pub use family::{HostInet, ProtocolFamily};
+#[cfg(test)]
+pub(crate) use http::HyperOutbound;
 pub use http::{
     is_authority, is_scheme, is_token, to_field_name, to_field_value, to_origin_form, Exchange,
-    FieldError, Fields, HttpError, HyperOutbound, Outbound, OutgoingRequest, RequestBody, Response,
-    ResponseBody, ResponseFuture, ResponseHead, Scheme, Timeouts, MAX_FIELD_SIZE,
+    FieldError, Fields, HttpError, Outbound, OutgoingRequest, RequestBody, Response, ResponseBody,
+    ResponseFuture, ResponseHead, Scheme, Timeouts, MAX_FIELD_SIZE,
 };
 pub use lookup::{resolve, LookupError, NameLookup, Resolver};
 pub use namespace::Namespace;

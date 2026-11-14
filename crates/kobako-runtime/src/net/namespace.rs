@@ -9,10 +9,10 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use super::egress::EgressProxy;
-use super::http::Outbound;
+use super::http::{HyperOutbound, Outbound};
 use super::lookup::{LookupError, NameLookup, Resolver};
 use super::socket::BindHash;
-use super::{OpenConnections, ProtocolFamily, TcpSock};
+use super::{Backends, OpenConnections, ProtocolFamily, TcpSock};
 use crate::cred::Cred;
 use crate::memcg::MemoryCharge;
 use crate::network::{EntryError, Name, Network, Protocol, Ruleset};
@@ -108,17 +108,15 @@ impl Drop for Namespace {
 }
 
 impl Namespace {
-    /// The namespace every entry of `networks` makes together, dialing through
-    /// `family`, looking names up through `resolver`, and sending HTTP
-    /// through `outbound`, refused for an endpoint the ruleset cannot
-    /// compile. Each socket, request, and lookup counts against
-    /// `open_connections` while open, and the Invocation makes at most
-    /// `connection_limit` connections in all.
+    /// The namespace every entry of `networks` makes together, dialing and
+    /// looking names up through `backends` and sending HTTP through kobako's
+    /// own L7 proxy, refused for an endpoint the ruleset cannot compile. Each
+    /// socket, request, and lookup counts against `open_connections` while
+    /// open, and the Invocation makes at most `connection_limit` connections
+    /// in all.
     pub fn new<'a>(
         networks: impl IntoIterator<Item = &'a Network>,
-        family: Arc<dyn ProtocolFamily>,
-        resolver: Arc<dyn Resolver>,
-        outbound: Arc<dyn Outbound>,
+        backends: &Backends,
         open_connections: Arc<OpenConnections>,
         connection_limit: Option<usize>,
     ) -> Result<Self, EntryError> {
@@ -148,9 +146,9 @@ impl Namespace {
                 request: policies.iter().filter_map(|p| p.request.clone()).collect(),
                 bindings,
             },
-            family,
-            resolver,
-            outbound,
+            family: backends.family().clone(),
+            resolver: backends.resolver().clone(),
+            outbound: Arc::new(HyperOutbound::new()),
             open_connections,
             connection_budget: Mutex::new(connection_limit),
             translations: Mutex::default(),
@@ -337,13 +335,19 @@ impl Namespace {
     ) -> Self {
         Self::new(
             [network],
-            family.clone(),
-            family,
-            outbound,
+            &Backends::new(family.clone(), family),
             OpenConnections::new(None),
             None,
         )
         .expect("the endpoints compile")
+        .with_outbound(outbound)
+    }
+
+    /// This namespace sending HTTP through `outbound` in place of kobako's
+    /// own sender, so a test sees what the L7 proxy hands it.
+    pub(crate) fn with_outbound(mut self, outbound: Arc<dyn Outbound>) -> Self {
+        self.outbound = outbound;
+        self
     }
 }
 
@@ -427,9 +431,7 @@ mod tests {
         let family = Arc::new(CountsDials::default());
         let namespace = Namespace::new(
             &networks,
-            family.clone(),
-            family.clone(),
-            Arc::new(crate::net::HyperOutbound::new()),
+            &Backends::new(family.clone(), family.clone()),
             OpenConnections::new(open),
             total,
         )
@@ -544,9 +546,7 @@ mod tests {
         let network = Network::new("db", Arc::new(entry)).unwrap();
         let namespace = Namespace::new(
             [&network],
-            Arc::new(crate::net::HostInet),
-            Arc::new(crate::net::HostInet),
-            Arc::new(crate::net::HyperOutbound::new()),
+            &Backends::default(),
             OpenConnections::new(None),
             Some(2),
         )
@@ -576,9 +576,7 @@ mod tests {
         let network = Network::new("db", Arc::new(entry)).unwrap();
         let namespace = Namespace::new(
             [&network],
-            Arc::new(crate::net::HostInet),
-            Arc::new(crate::net::HostInet),
-            Arc::new(crate::net::HyperOutbound::new()),
+            &Backends::default(),
             OpenConnections::new(None),
             None,
         )
@@ -811,9 +809,7 @@ mod tests {
         let network = Network::new("names", Arc::new(entry)).unwrap();
         let namespace = Namespace::new(
             [&network],
-            Arc::new(CountsDials::default()),
-            resolver.clone(),
-            Arc::new(crate::net::HyperOutbound::new()),
+            &Backends::new(Arc::new(CountsDials::default()), resolver.clone()),
             OpenConnections::new(None),
             None,
         )

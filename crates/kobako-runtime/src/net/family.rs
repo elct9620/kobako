@@ -1,8 +1,9 @@
 //! The backend that reaches the host network, as Linux's `net_proto_family`
-//! makes a socket of one family. The Wasm Driver hands each Invocation one,
-//! since every entry dials into one namespace; a Wasm Driver of its own may
-//! hand another, as gVisor's `hostinet` is one choice of backend. Each socket it hands out is
-//! non-blocking, so the reactor waits on it and no call blocks a thread.
+//! makes a socket of one family. Every entry of an Invocation dials into one
+//! namespace through one family, which `Backends` names, as gVisor's
+//! `hostinet` is one choice of backend for a sandbox. Each socket it hands
+//! out is non-blocking, so the reactor waits on it and no call blocks a
+//! thread.
 
 use std::io;
 use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
