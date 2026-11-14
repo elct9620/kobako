@@ -48,7 +48,7 @@ pub(crate) fn match_spans(
     Ok(spans)
 }
 
-/// Mirrors the curated regexp engine: an out-of-range group number inserts
+/// As MRI expands a replacement: an out-of-range group number inserts
 /// nothing, an undefined `\k<name>` raises `IndexError`, and an unknown
 /// `\x` or a trailing backslash stays literal.
 pub(crate) fn expand_replacement(

@@ -4,8 +4,8 @@
 //! Backs guest `Regexp` and `MatchData` with the pure-Rust `fancy-regex`
 //! engine through the `beni` typed wrapper — no mrblib, no C mrbgem. A
 //! guest shell composes it the same way it composes `kobako-io`.
-//! Coverage tracks the curated regexp engine's
-//! surface, not the full CRuby API; match offsets are byte-based.
+//! The surface is the part of CRuby's API fancy-regex carries, not all of
+//! it; match offsets are byte-based.
 
 mod args;
 mod errors;

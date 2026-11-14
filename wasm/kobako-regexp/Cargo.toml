@@ -4,8 +4,8 @@
 # engine, defined entirely through the `beni` typed wrapper — no mrblib,
 # no C mrbgem. A Guest Binary shell composes it as an optional capability
 # gem the same way it composes `kobako-io`. The
-# Ruby-visible surface tracks the curated regexp engine's coverage, not
-# the full CRuby API; match offsets are byte-based.
+# Ruby-visible surface is the part of CRuby's API fancy-regex carries,
+# not all of it; match offsets are byte-based.
 
 [package]
 name = "kobako-regexp"

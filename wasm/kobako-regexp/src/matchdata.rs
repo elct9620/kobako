@@ -4,7 +4,7 @@
 //! The snapshot keeps the subject string plus each group's byte range, so
 //! every accessor answers from owned Rust data without borrowing the
 //! engine's `Captures` (which borrows the subject). Offsets and slices are
-//! byte-based, mirroring the curated regexp engine. The originating
+//! byte-based, as fancy-regex reports them. The originating
 //! `Regexp` is held as the `@regexp` ivar so the mruby GC keeps it alive.
 
 use crate::errors::{index_error, no_method_error};
@@ -144,7 +144,7 @@ fn md_aref(mrb: &Mrb, state: &MatchState, args: &[Value]) -> Result<Value, Error
 }
 
 /// An index past the group count, a negative index, or an undefined capture
-/// name raises IndexError, mirroring the curated engine's bounds check; any
+/// name raises IndexError, as MRI's bounds check does; any
 /// other value converts to an Integer as MRI converts it, or raises.
 fn group_at(mrb: &Mrb, state: &MatchState, arg: Value) -> Result<Option<(usize, usize)>, Error> {
     let index = match numeric_index(mrb, state, arg)? {

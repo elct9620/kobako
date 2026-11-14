@@ -6,8 +6,7 @@
 //! through a bounded per-invocation cache that lets an identical
 //! pattern reuse its compiled engine instead of rebuilding it every time the
 //! literal is evaluated. Each successful match refreshes the `$~` / `$1..$9` /
-//! `$&` / `` $` `` / `$'` globals, mirroring the curated regexp engine's
-//! always-on behaviour.
+//! `$&` / `` $` `` / `$'` globals, always, as MRI does.
 //!
 //! This file owns the class surface; the helpers fan out per responsibility:
 //! `globals` (match-global refresh), `render` (inspect / to_s / escape
@@ -148,8 +147,7 @@ pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
 /// Fancy-mode backtracking ceiling. A pattern that exceeds it fails with
 /// `RegexpError` instead of burning the invocation's wall-clock budget;
 /// non-fancy patterns delegate to the linear engine and never backtrack.
-/// The host fuel / epoch / memory caps remain the
-/// ultimate compute bound.
+/// The Sandbox's timeout and memory limit still bound every pattern.
 const BACKTRACK_LIMIT: usize = 1_000_000;
 
 fn rx_compile(

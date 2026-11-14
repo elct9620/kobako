@@ -13,8 +13,8 @@ It backs guest `Regexp` and `MatchData` with a pure-Rust engine.
 
 ## Guest Surface
 
-The surface tracks the curated regexp engine's coverage, not the full
-CRuby `Regexp` / `MatchData` API. There are no `Encoding` objects, and
+The surface is the part of CRuby's `Regexp` / `MatchData` API that
+fancy-regex carries, not all of it. There are no `Encoding` objects, and
 match offsets and substring slices are byte-based.
 
 | Class | Area | What the guest gets |
