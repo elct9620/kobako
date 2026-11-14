@@ -225,7 +225,7 @@ impl Namespace {
     /// range and never reused; a name already handed them keeps them, as a
     /// fake-IP pool answers a known host; a lookup of an address keeps it as
     /// itself. `None` while the lookup is under way, its failure once it
-    /// failed, and `TemporaryFailure` once the range cannot hold them all or
+    /// failed, and `Again` once the range cannot hold them all or
     /// `cred`'s memory cannot hold the entries, which the table keeps until
     /// the Invocation ends.
     pub fn alloc_virtual_addresses(
@@ -255,7 +255,7 @@ impl Namespace {
             .ok()
             .filter(|end| *end <= MAX_NAMED_ADDRESSES)
         else {
-            return Some(Err(LookupError::TemporaryFailure));
+            return Some(Err(LookupError::Again));
         };
         let entries = real
             .into_iter()
@@ -272,7 +272,7 @@ impl Namespace {
             }),
         };
         if charged.is_err() {
-            return Some(Err(LookupError::TemporaryFailure));
+            return Some(Err(LookupError::Again));
         }
         translations.entries.extend(entries);
         let first = u32::try_from(first).expect("below the end of the range");
@@ -859,7 +859,7 @@ mod tests {
         assert!(
             answers
                 .iter()
-                .all(|answer| *answer == Err(LookupError::NameUnresolvable))
+                .all(|answer| *answer == Err(LookupError::NoName))
                 && family.lookups.load(Ordering::SeqCst) == 0,
             "a guest's lookup of a name no endpoint names, one a resolve policy refuses, or a \
              wildcard's own apex must answer name-unresolvable without asking the resolver, got \
@@ -982,7 +982,7 @@ mod tests {
         assert_eq!(
             (full, roomy),
             (
-                Some(Err(LookupError::TemporaryFailure)),
+                Some(Err(LookupError::Again)),
                 Some(Ok(vec!["198.18.0.0".parse().unwrap()]))
             ),
             "a lookup must answer temporary-failure when the Invocation's memory cannot hold \
@@ -1046,7 +1046,7 @@ mod tests {
                     "127.0.0.1".parse().unwrap(),
                     "127.0.0.2".parse().unwrap()
                 ]),
-                Err(LookupError::NameUnresolvable),
+                Err(LookupError::NoName),
                 1,
                 2,
                 vec!["127.0.0.2:6379".parse().unwrap()]

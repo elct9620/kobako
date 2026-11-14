@@ -122,12 +122,13 @@ pub(crate) fn from_socket_addr(addr: SocketAddr) -> IpSocketAddress {
     }
 }
 
-/// The error code a lookup's failure answers.
+/// The error code a lookup's failure answers, as `ip-name-lookup` names
+/// each `EAI_` code.
 pub(crate) fn to_lookup_error_code(err: LookupError) -> ErrorCode {
     match err {
         LookupError::InvalidName => ErrorCode::InvalidArgument,
-        LookupError::NameUnresolvable => ErrorCode::NameUnresolvable,
-        LookupError::TemporaryFailure => ErrorCode::TemporaryResolverFailure,
+        LookupError::NoName => ErrorCode::NameUnresolvable,
+        LookupError::Again => ErrorCode::TemporaryResolverFailure,
         _ => ErrorCode::PermanentResolverFailure,
     }
 }

@@ -26,20 +26,21 @@ pub trait Resolver: Send + Sync {
     fn resolve(&self, name: &str) -> std::io::Result<Vec<IpAddr>>;
 }
 
-/// Why a lookup has no address, as WASI's `ip-name-lookup` names each.
+/// Why a lookup has no address, as `getaddrinfo` names each by its `EAI_`
+/// code; a Wasm Driver turns each into its ABI's code.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum LookupError {
     /// No URL host spells the name, so it is no domain name or address at
     /// all.
     InvalidName,
-    /// The name resolves to nothing, or no entry lets the guest look it up;
-    /// the two answer alike, so a refusal reads as NXDOMAIN.
-    NameUnresolvable,
-    /// The resolver cannot answer this name at all.
-    PermanentFailure,
-    /// The lookup cannot start now, as a full cap leaves it.
-    TemporaryFailure,
+    /// `EAI_NONAME`: the name resolves to nothing, or no entry lets the guest
+    /// look it up; the two answer alike, so a refusal reads as NXDOMAIN.
+    NoName,
+    /// `EAI_FAIL`: the resolver cannot answer this name at all.
+    Fail,
+    /// `EAI_AGAIN`: the lookup cannot start now, as a full cap leaves it.
+    Again,
 }
 
 /// One lookup in flight, then its answer.
@@ -60,7 +61,7 @@ impl NameLookup {
         name: String,
         open_connections: &Arc<OpenConnections>,
     ) -> Result<Arc<Self>, LookupError> {
-        let place = open(open_connections).ok_or(LookupError::TemporaryFailure)?;
+        let place = open(open_connections).ok_or(LookupError::Again)?;
         Self::start_holding(resolver, name, Arc::new(place))
     }
 
@@ -87,12 +88,12 @@ impl NameLookup {
             .spawn(move || {
                 let _place = place;
                 let answer = match resolver.resolve(&resolving.name) {
-                    Ok(addresses) if addresses.is_empty() => Err(LookupError::NameUnresolvable),
+                    Ok(addresses) if addresses.is_empty() => Err(LookupError::NoName),
                     Ok(addresses) => Ok(addresses),
                     Err(err) if err.kind() == std::io::ErrorKind::Unsupported => {
-                        Err(LookupError::PermanentFailure)
+                        Err(LookupError::Fail)
                     }
-                    Err(_) => Err(LookupError::NameUnresolvable),
+                    Err(_) => Err(LookupError::NoName),
                 };
                 *resolving
                     .answer
@@ -100,7 +101,7 @@ impl NameLookup {
                     .unwrap_or_else(PoisonError::into_inner) = Some(answer);
                 resolving.wait.wake_up();
             });
-        spawned.map_err(|_| LookupError::TemporaryFailure)?;
+        spawned.map_err(|_| LookupError::Again)?;
         Ok(lookup)
     }
 
@@ -203,10 +204,7 @@ pub fn resolve(net: &Namespace, name: &str) -> Result<Arc<NameLookup>, LookupErr
         Host::Name(name) => name,
     };
     if !allows_lookup(net, &name) || !net.ruleset().admits_name(&name) {
-        return Ok(NameLookup::with_answer(
-            name,
-            Err(LookupError::NameUnresolvable),
-        ));
+        return Ok(NameLookup::with_answer(name, Err(LookupError::NoName)));
     }
     let translated = net.real_addresses_of(&name);
     match translated.is_empty() {
