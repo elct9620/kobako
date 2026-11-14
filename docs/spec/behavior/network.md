@@ -2658,7 +2658,7 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a Mock told to refuse an address with an errno by its POSIX name |
+| Given | a Mock told to refuse an address with an `Errno` class or its subclass, read by its POSIX name |
 | When | the guest connects to that address |
 | Then | the connect fails as a host socket failing with that errno does, alike on every host |
 
