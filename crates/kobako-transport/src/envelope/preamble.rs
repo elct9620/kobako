@@ -66,16 +66,11 @@ impl Preamble {
     /// appear at most once; an absent one reads as empty.
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
-        let count = reader.read_u32()? as usize;
-        // Each record costs at least six bytes, its two leading bytes and a
-        // body length, so a count past what the bytes left can hold can never
-        // be satisfied; refusing it bounds the work.
-        const MIN_RECORD_LEN: usize = 2 + size_of::<u32>();
-        if count > reader.remaining().len() / MIN_RECORD_LEN {
-            return Err(DecodeError::new(
-                "Preamble declares more records than it holds",
-            ));
-        }
+        // Each record costs at least its two leading bytes and a body length.
+        let count = reader.read_count(
+            2 + size_of::<u32>(),
+            DecodeError::new("Preamble declares more records than it holds"),
+        )?;
         let mut bindings = None;
         let mut snippets = None;
         let mut flags = Vec::new();
@@ -161,15 +156,11 @@ fn encode_bindings(bindings: &Bindings) -> Vec<u8> {
 
 fn decode_snippets(bytes: &[u8]) -> Result<Snippets, DecodeError> {
     let mut reader = Reader::new(bytes);
-    let count = reader.read_u32()? as usize;
-    // Each entry costs at least a kind byte and a `u32` length, so a count
-    // past what the bytes left can hold is refused before it sizes the
-    // allocation.
-    if count > reader.remaining().len() / (1 + size_of::<u32>()) {
-        return Err(DecodeError::new(
-            "Preamble snippets declare more entries than they hold",
-        ));
-    }
+    // Each entry costs at least a kind byte and a `u32` length.
+    let count = reader.read_count(
+        1 + size_of::<u32>(),
+        DecodeError::new("Preamble snippets declare more entries than they hold"),
+    )?;
     let mut entries = Vec::with_capacity(count);
     for _ in 0..count {
         entries.push(match reader.read_u8()? {
@@ -389,10 +380,21 @@ mod tests {
     fn a_count_the_preamble_cannot_satisfy_is_refused() {
         let records = [0xff, 0xff, 0xff, 0xff];
         let snippets = preamble_with(&[record(1, 0x06, &[0xff, 0xff, 0xff, 0xff])]);
-        assert!(
-            Preamble::decode(&records).is_err() && Preamble::decode(&snippets).is_err(),
+        // The count's own refusal, not a later read running out of bytes,
+        // is what shows nothing was taken for it.
+        let refusal = |bytes: &[u8]| {
+            Preamble::decode(bytes)
+                .err()
+                .map(|err| err.message().to_owned())
+        };
+        assert_eq!(
+            (refusal(&records), refusal(&snippets)),
+            (
+                Some("Preamble declares more records than it holds".to_owned()),
+                Some("Preamble snippets declare more entries than they hold".to_owned())
+            ),
             "a record or snippet count larger than what follows through Preamble::decode must \
-             be refused before anything is allocated for it"
+             be refused for its count, before anything is allocated for it"
         );
     }
 

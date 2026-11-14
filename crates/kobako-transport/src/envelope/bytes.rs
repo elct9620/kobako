@@ -68,16 +68,27 @@ impl<'a> Reader<'a> {
         self.read_list(|reader| Ok(reader.read_bytes()?.to_vec()))
     }
 
+    /// A `u32` count of items each at least `min_len` bytes long. A count
+    /// past what the bytes left can hold can never be satisfied, so it is
+    /// refused with `too_many` before it sizes an allocation or bounds work.
+    pub(crate) fn read_count(
+        &mut self,
+        min_len: usize,
+        too_many: DecodeError,
+    ) -> Result<usize, DecodeError> {
+        let count = self.read_u32()? as usize;
+        if count > self.remaining().len() / min_len {
+            return Err(too_many);
+        }
+        Ok(count)
+    }
+
     fn read_list<T>(
         &mut self,
         mut element: impl FnMut(&mut Self) -> Result<T, DecodeError>,
     ) -> Result<Vec<T>, DecodeError> {
-        let count = self.read_u32()? as usize;
-        // Every element opens with a `u32` length, so a count past what the
-        // bytes left can hold is refused before it sizes the allocation.
-        if count > self.remaining().len() / size_of::<u32>() {
-            return Err(MALFORMED);
-        }
+        // Every element opens with a `u32` length.
+        let count = self.read_count(size_of::<u32>(), MALFORMED)?;
         let mut out = Vec::with_capacity(count);
         for _ in 0..count {
             out.push(element(self)?);
