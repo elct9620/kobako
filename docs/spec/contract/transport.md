@@ -448,6 +448,15 @@ A script error as the wire carries it: its class name, message, and backtrace.
 pub struct ErrorRecord {}
 ```
 
+## `MAX_HANDLE_ID`
+
+The most a Capability Handle id may be. Every side that issues or takes an
+id reads this bound.
+
+```rust
+pub const MAX_HANDLE_ID: u32;
+```
+
 ## `TRANSPORT_ERROR`
 
 The name a Panic carries for a wire violation, an exchange that did not
