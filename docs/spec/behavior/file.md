@@ -36,6 +36,7 @@ disable_file flag -> no File constant
 - `test/e2e/test_file_truncate.rb`
 - `test/e2e/test_io_positioned.rb`
 - `test/e2e/test_file_position.rb`
+- `test/e2e/test_file_lines_by_name.rb`
 
 ## `FL-001` A script reads a file beneath a mounted path
 
@@ -957,3 +958,39 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount holding a file |
 | When | the script reads a line limited by an object answering `to_int` 2, then by `true` |
 | Then | the line holds two bytes, and `true` raises `TypeError`, as CRuby's `NUM2LONG` |
+
+## `FL-089` A script reads every line of a file by its name
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-003` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount over a file of several lines |
+| When | the script asks `File.readlines` of its path, alone and with `chomp: true`, a separator, an empty separator, and a limit |
+| Then | each answers the lines CRuby's `IO.readlines` answers for that file |
+
+## `FL-090` A script walks a file's lines by its name
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-003` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount over a file of several lines |
+| When | the script calls `File.foreach` of its path with a block, then without one |
+| Then | the block receives each line in order, and the call answers `nil`. Without a block it raises `ArgumentError`, where CRuby answers an Enumerator |
+
+## `FL-091` A line read by name of a path holding no file raises CRuby's Errno
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-089`, `FL-090` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount |
+| When | the script asks `File.readlines` and `File.foreach` of a missing path and of a directory |
+| Then | each raises `Errno::ENOENT` for the missing path and `Errno::EISDIR` for the directory |
