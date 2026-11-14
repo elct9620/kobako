@@ -61,8 +61,6 @@ module Kobako
       # rescuable fault.
       rescue StandardError => e
         [:fault, *fault_of(e, failure)] # : [Symbol, String, String?]
-      ensure
-        yielder&.invalidate
       end
 
       class << self

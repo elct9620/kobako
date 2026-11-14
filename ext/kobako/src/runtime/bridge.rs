@@ -89,10 +89,9 @@ impl OpenFrames {
 /// one Call carried. The bridge builds one per `upcall` frame,
 /// hands it to the `Proc` as the last argument, and `invalidate`s it the
 /// instant the `Proc` returns. A guest block stashed and called after that
-/// frame normally raises `LocalJumpError` at the Ruby
-/// `Transport::Yielder` net — invalidated in the dispatcher's `ensure`,
-/// which fires before this handle is reached. This inner invalidation is
-/// the backstop behind that outer net, so neither net is redundant.
+/// frame raises `LocalJumpError`, as a Ruby block called past the frame it
+/// belongs to does, before `call` reaches a frame pointer no longer on the
+/// stack.
 ///
 /// The guest's Store is entered from the fiber that drives the
 /// invocation, and only from it: another fiber runs on its own native
@@ -111,9 +110,10 @@ struct GuestYielder {
     fiber: rb_sys::VALUE,
 }
 
-// SAFETY: magnus requires `Send + Sync` on wrapped types. `call` refuses
-// every fiber but the one driving the invocation, so the frames it reaches
-// are only ever read on that fiber's thread.
+// SAFETY: magnus requires `Send + Sync` on wrapped types. `call` runs only
+// on a thread holding Ruby's GVL, as `OpenFrames` reads require, and refuses
+// every fiber but the one driving the invocation before it re-enters the
+// guest.
 unsafe impl Send for GuestYielder {}
 unsafe impl Sync for GuestYielder {}
 
@@ -139,9 +139,9 @@ impl GuestYielder {
         let ruby = Ruby::get().expect("Ruby handle unavailable in the block bridge");
         let innermost = self.open.innermost().filter(|_| self.live.get());
         let Some(mut ptr) = innermost else {
-            return Err(crate::errors::trap_err(
-                &ruby,
-                "guest block invoked after the host dispatch frame returned",
+            return Err(MagnusError::new(
+                ruby.exception_local_jump_error(),
+                "guest block invoked after host dispatch frame returned",
             ));
         };
         if ruby.fiber_current().as_raw() != self.fiber {

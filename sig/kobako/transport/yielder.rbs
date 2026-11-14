@@ -5,15 +5,12 @@ module Kobako
       @break_tag: Symbol
       @handles: Kobako::Codec::_HandleTable
       @failure: Kobako::Transport::BlockFailure
-      @active: bool
 
       def initialize: (Kobako::Transport::_GuestYielder guest_yielder, Symbol break_tag, Kobako::Codec::_HandleTable handles, Kobako::Transport::BlockFailure failure) -> void
 
       def yield: (*untyped args) -> untyped
 
       def to_proc: () -> Proc
-
-      def invalidate: () -> void
 
       private
 

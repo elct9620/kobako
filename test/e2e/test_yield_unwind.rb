@@ -87,22 +87,28 @@ class TestE2EYieldUnwind < Minitest::Test
   ESCAPE_SCRIPT = "Probe::Stash.stash { :payload }; Probe::Stash.replay"
 
   # @behavior T-136 T-205
-  # The Dispatcher's ensure block invalidates the Yielder as its frame
-  # returns, so a Service that stored the block finds it switched off
-  # rather than reaching into a frame that is no longer there.
+  # The block's handle is switched off as its dispatch frame returns, so a
+  # Service that stored the block finds it refused rather than reaching
+  # into a frame that is no longer there.
   def test_escaped_yielder_invocation_raises_local_jump_error
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-    stash_service = Class.new do
-      def stash(&block) = (@blk = block)
-      def replay = @blk.call
-    end.new
-    sandbox.bind("Probe::Stash", stash_service)
-
-    err = assert_raises(Kobako::ServiceError) { sandbox.eval(ESCAPE_SCRIPT) }
+    err = assert_raises(Kobako::ServiceError) { stash_sandbox.eval(ESCAPE_SCRIPT) }
 
     assert_match(/LocalJumpError/, err.message,
                  "invoking the Yielder after its dispatch frame " \
                  "returned must raise LocalJumpError host-side")
+  end
+
+  # @behavior T-136
+  # The later Call carries a block of its own at the same depth the stored
+  # one was given at, so a handle that outlived its frame would run that
+  # block in its place.
+  def test_escaped_yielder_invoked_inside_a_later_call_never_runs_its_block
+    script = "$ran = false; Probe::Stash.stash { :payload }; " \
+             "begin; Probe::Stash.replay { $ran = true }; rescue => e; end; [$ran, e.class.to_s]"
+
+    assert_equal [false, "Kobako::ServiceError"], stash_sandbox.eval(script).value,
+                 "a stored block called from inside a later Call carrying its own block must be " \
+                 "refused without running the later Call's block"
   end
 
   # A nested dispatch refused before reaching the host still carries a block,
@@ -133,5 +139,18 @@ class TestE2EYieldUnwind < Minitest::Test
                  "a nested call refused before it reached the host must leave " \
                  "the outer Service yielding into its own block, so every outer " \
                  "iteration still runs the block the outer call site supplied"
+  end
+
+  private
+
+  # A Sandbox whose Probe::Stash keeps the block `stash` is given and calls
+  # it from `replay`.
+  def stash_sandbox
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.bind("Probe::Stash", Class.new do
+      def stash(&block) = (@blk = block)
+      def replay = @blk.call
+    end.new)
+    sandbox
   end
 end
