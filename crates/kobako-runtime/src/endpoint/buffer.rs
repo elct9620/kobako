@@ -62,17 +62,22 @@ pub(super) fn alloc_and_write<G: GuestInstance>(
 }
 
 /// Write `bytes` into the guest and name them in the return area at `ret`.
+/// A return area the guest cannot hold is refused before the guest gives
+/// room for the answer; memory only grows, so it still holds after.
 pub(super) fn lower_list<G: GuestInstance>(
     guest: &mut G,
     bytes: &[u8],
     ret: u32,
 ) -> Result<(), WriteError<G::Fault>> {
+    let mem_size = guest
+        .memory()
+        .ok_or(WriteError::Incompatible(SANDBOX_RUNTIME_NOT_KOBAKO))?
+        .len();
+    let area = return_area_range(ret as usize, mem_size).map_err(|_| WriteError::OutOfBounds)?;
     let ptr = alloc_and_write(guest, bytes)?;
     let memory = guest
         .memory()
         .ok_or(WriteError::Incompatible(SANDBOX_RUNTIME_NOT_KOBAKO))?;
-    let area =
-        return_area_range(ret as usize, memory.len()).map_err(|_| WriteError::OutOfBounds)?;
     // The write has already held the length to the payload cap.
     memory[area.start..area.start + 4].copy_from_slice(&ptr.to_le_bytes());
     memory[area.start + 4..area.end].copy_from_slice(&(bytes.len() as u32).to_le_bytes());
@@ -133,7 +138,42 @@ fn return_area_range(ret: usize, mem_size: usize) -> Result<core::ops::Range<usi
 
 #[cfg(test)]
 mod tests {
-    use super::{checked_payload_len, guest_buffer_range, lift_list, MAX_MESSAGE_LEN};
+    use super::{checked_payload_len, guest_buffer_range, lift_list, lower_list, MAX_MESSAGE_LEN};
+    use crate::endpoint::{Calls, GuestInstance};
+    use crate::error::Trap;
+
+    /// 64 bytes of guest memory whose allocator counts the room it gave.
+    #[derive(Default)]
+    struct Counted {
+        memory: Vec<u8>,
+        given: u32,
+        calls: Calls<String>,
+    }
+
+    impl GuestInstance for Counted {
+        type Fault = String;
+
+        fn calls(&mut self) -> &mut Calls<String> {
+            &mut self.calls
+        }
+
+        fn memory(&mut self) -> Option<&mut [u8]> {
+            Some(&mut self.memory)
+        }
+
+        fn realloc(&mut self, _len: u32) -> Option<Result<u32, String>> {
+            self.given += 1;
+            Some(Ok(32))
+        }
+
+        fn downcall(&mut self, _ptr: i32, _len: i32) -> Option<Result<u32, String>> {
+            None
+        }
+
+        fn cap_trap_of(_fault: &String) -> Option<Trap> {
+            None
+        }
+    }
 
     // @behavior WE-059
     #[test]
@@ -232,6 +272,30 @@ mod tests {
                 .all(|&ret| lift_list(&memory, ret).is_err()),
             "a return area at 1 (unaligned, naming a list inside memory), 60 (past 64 bytes), or \
              u32::MAX - 3 through lift_list must be refused"
+        );
+    }
+
+    // @behavior WE-093
+    #[test]
+    fn an_answer_for_a_return_area_the_guest_cannot_hold_is_never_copied() {
+        let mut guest = Counted {
+            memory: vec![0; 64],
+            ..Counted::default()
+        };
+        let refused = [1, 60, u32::MAX - 3]
+            .iter()
+            .all(|&ret| lower_list(&mut guest, b"answer", ret).is_err());
+
+        assert_eq!(
+            (
+                refused,
+                guest.given,
+                guest.memory.iter().all(|&byte| byte == 0)
+            ),
+            (true, 0, true),
+            "an answer written for a return area at 1 (unaligned), 60 (past 64 bytes), or \
+             u32::MAX - 3 must be refused before the guest's allocator gives it room or any byte \
+             lands in guest memory"
         );
     }
 }

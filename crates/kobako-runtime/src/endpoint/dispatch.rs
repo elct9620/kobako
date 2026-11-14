@@ -103,14 +103,7 @@ pub fn handle<G: GuestInstance>(
 ) -> Result<(), ImportEnd<G::Fault>> {
     let reply = reply_to(guest, req_ptr, req_len)
         .unwrap_or_else(|reason| Reply::Fault(Fault::new(FaultKind::Internal, reason)));
-    let written = lower_from_callback(guest, &fit_in_message(reply).encode(), ret as u32);
-    if let Some(trap) = guest.calls().reentry_trap.take() {
-        return Err(ImportEnd::Fault(trap));
-    }
-    if guest.calls().abandoned() {
-        return Err(ImportEnd::Abandoned);
-    }
-    written.map_err(ImportEnd::Unwritable)
+    answer_import(guest, &fit_in_message(reply).encode(), ret)
 }
 
 /// Answer one `preamble` call with `preamble`, the Invocation's Preamble
@@ -121,9 +114,23 @@ pub fn hand_preamble<G: GuestInstance>(
     preamble: &[u8],
     ret: i32,
 ) -> Result<(), ImportEnd<G::Fault>> {
-    let written = lower_from_callback(guest, preamble, ret as u32);
+    answer_import(guest, preamble, ret)
+}
+
+/// Name `answer` in the return area at `ret`, or end the invocation: a trap
+/// a callback raised comes first, then a host that gave the invocation up,
+/// then an answer that could not be written.
+fn answer_import<G: GuestInstance>(
+    guest: &mut G,
+    answer: &[u8],
+    ret: i32,
+) -> Result<(), ImportEnd<G::Fault>> {
+    let written = lower_from_callback(guest, answer, ret as u32);
     if let Some(trap) = guest.calls().reentry_trap.take() {
         return Err(ImportEnd::Fault(trap));
+    }
+    if guest.calls().abandoned() {
+        return Err(ImportEnd::Abandoned);
     }
     written.map_err(ImportEnd::Unwritable)
 }
@@ -220,7 +227,7 @@ fn keep_trap<G: GuestInstance>(
 /// guest that has already trapped is not called again.
 fn write_from_callback<G: GuestInstance>(guest: &mut G, bytes: &[u8]) -> Result<u32, &'static str> {
     refuse_after_trap(guest)?;
-    alloc_and_write(guest, bytes).map_err(|err| callback_reason(guest, err))
+    alloc_and_write(guest, bytes).map_err(|err| keep_write_failure(guest, err))
 }
 
 /// Write `bytes` into the guest from inside a callback and name them in the
@@ -231,7 +238,7 @@ fn lower_from_callback<G: GuestInstance>(
     ret: u32,
 ) -> Result<(), &'static str> {
     refuse_after_trap(guest)?;
-    lower_list(guest, bytes, ret).map_err(|err| callback_reason(guest, err))
+    lower_list(guest, bytes, ret).map_err(|err| keep_write_failure(guest, err))
 }
 
 fn refuse_after_trap<G: GuestInstance>(guest: &mut G) -> Result<(), &'static str> {
@@ -241,7 +248,9 @@ fn refuse_after_trap<G: GuestInstance>(guest: &mut G) -> Result<(), &'static str
     }
 }
 
-fn callback_reason<G: GuestInstance>(guest: &mut G, err: WriteError<G::Fault>) -> &'static str {
+/// Keep a trap a failed write raised, as `keep_trap` does, and answer why
+/// the write failed.
+fn keep_write_failure<G: GuestInstance>(guest: &mut G, err: WriteError<G::Fault>) -> &'static str {
     match err {
         WriteError::TooLarge => "payload exceeds the 16 MiB limit",
         WriteError::Incompatible(message) => message,

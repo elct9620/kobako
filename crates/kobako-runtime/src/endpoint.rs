@@ -196,6 +196,38 @@ mod tests {
         );
     }
 
+    /// A host that gave the invocation up and answers no Call.
+    struct GaveUp;
+
+    impl crate::dispatch::DispatchHandler for GaveUp {
+        fn dispatch(
+            &self,
+            _call: kobako_transport::envelope::Call<'_>,
+            _yielder: &mut dyn crate::yielder::Yielder,
+        ) -> Option<Reply> {
+            None
+        }
+
+        fn abandoned(&self) -> bool {
+            true
+        }
+    }
+
+    // @behavior RT-398
+    #[test]
+    fn the_preamble_asked_for_after_the_host_gave_up_ends_the_invocation() {
+        let mut guest = instance();
+        guest.calls.bind(std::sync::Arc::new(GaveUp));
+        assert!(
+            matches!(
+                hand_preamble(&mut guest, b"setup", 8),
+                Err(ImportEnd::Abandoned)
+            ),
+            "endpoint::hand_preamble for an invocation its host gave up must end the invocation \
+             rather than answer"
+        );
+    }
+
     // @behavior RT-006
     #[test]
     fn a_guest_exporting_no_versioned_downcall_is_refused() {
