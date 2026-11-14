@@ -10,7 +10,7 @@
 //! payload reaches its reader as a view rather than a copy. Every other
 //! message copies what it holds at decode.
 //!
-//! Every answer is exhaustive. Each arm is a tag byte the layout document
+//! Every answer is exhaustive. Each arm is a tag byte the wire layout
 //! fixes, so an answer's set grows only with an ABI version — and when it
 //! does, a peer that has not been taught the new arm should fail to
 //! compile rather than fall into a wildcard and answer a message it
@@ -20,8 +20,8 @@
 //! Preamble skips an advisory record of a kind it does not know.
 //!
 //! This layer has one implementation, so its `golden_layout_*` tests are
-//! what hold it to the layout document. They spell each tag as the literal
-//! byte that document fixes, never as the constant beside it: a golden
+//! what hold it to the wire layout. They spell each tag as the literal
+//! byte the layout fixes, never as the constant beside it: a golden
 //! written from the constant compares the implementation to itself.
 
 pub(crate) mod bytes;
