@@ -37,6 +37,7 @@ disable_file flag -> no File constant
 - `test/e2e/test_io_positioned.rb`
 - `test/e2e/test_file_position.rb`
 - `test/e2e/test_file_lines_by_name.rb`
+- `test/e2e/test_file_path_conversion.rb`
 
 ## `FL-001` A script reads a file beneath a mounted path
 
@@ -994,3 +995,15 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount |
 | When | the script asks `File.readlines` and `File.foreach` of a missing path and of a directory |
 | Then | each raises `Errno::ENOENT` for the missing path and `Errno::EISDIR` for the directory |
+
+## `FL-101` A path call takes what answers to_path or to_str
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-001` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount over a file |
+| When | the script names it by an object answering `to_path`, by one answering only `to_str`, and by one answering both |
+| Then | each reads the file, `to_path` taken before `to_str`, as CRuby's `rb_get_path` reads a path |
