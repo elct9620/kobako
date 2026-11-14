@@ -95,7 +95,7 @@ fn dir_path_arg(mrb: &Mrb, call: &str, value: Value) -> Result<String, Error> {
 
 /// The names in `path` but `.` and `..`, as the host lists them, each beside
 /// whether it is a directory and not a link to one.
-fn listed(path: impl AsRef<Path>) -> io::Result<Vec<(Vec<u8>, bool)>> {
+fn read_entries(path: impl AsRef<Path>) -> io::Result<Vec<(Vec<u8>, bool)>> {
     fs::read_dir(path)?
         .map(|entry| {
             entry.map(|entry| {
@@ -108,7 +108,10 @@ fn listed(path: impl AsRef<Path>) -> io::Result<Vec<(Vec<u8>, bool)>> {
 
 /// The names in `path` but `.` and `..`, as the host lists them.
 fn children(path: &str) -> io::Result<Vec<Vec<u8>>> {
-    Ok(listed(path)?.into_iter().map(|(name, _)| name).collect())
+    Ok(read_entries(path)?
+        .into_iter()
+        .map(|(name, _)| name)
+        .collect())
 }
 
 /// The names in `path` behind `.` and `..`, as `readdir(3)` answers them.
@@ -187,19 +190,19 @@ fn dir_s_glob(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> 
         Some(each) => each.entries(mrb).collect(),
         None => vec![patterns],
     };
-    globbed(mrb, "Dir.glob", &patterns, args.keywords, flags, args.block)
+    dir_globs(mrb, "Dir.glob", &patterns, args.keywords, flags, args.block)
 }
 
 /// `Dir[*patterns, base: nil, sort: true]`: the paths each pattern names.
 fn dir_s_aref(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
     let args = scan_args::<(), (), RArray, (), RHash, ()>(mrb)?;
     let patterns: Vec<Value> = args.splat.entries(mrb).collect();
-    globbed(mrb, "Dir[]", &patterns, args.keywords, 0, None)
+    dir_globs(mrb, "Dir[]", &patterns, args.keywords, 0, None)
 }
 
 /// The paths each of `patterns` names in turn, each yielded to `block` with
 /// `nil` answered, or all of them answered without one.
-fn globbed(
+fn dir_globs(
     mrb: &Mrb,
     call: &str,
     patterns: &[Value],

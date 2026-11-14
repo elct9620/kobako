@@ -346,7 +346,7 @@ impl Walk<'_> {
     /// pending or `FNM_DOTMATCH` is given, as `glob_helper`'s `skipdot` keeps
     /// a walk from answering each directory again as its own `.`.
     fn entries(&mut self, path: &[u8], recursive: bool) -> Vec<(Vec<u8>, bool)> {
-        let Ok(listing) = super::listed(OsStr::from_bytes(&self.host_path(path))) else {
+        let Ok(listing) = super::read_entries(OsStr::from_bytes(&self.host_path(path))) else {
             return Vec::new();
         };
         let mut entries = Vec::new();

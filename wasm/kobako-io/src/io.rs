@@ -225,9 +225,7 @@ fn io_initialize(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<(), Error> 
     } else {
         let label = format!("fd {fd}");
         let flags = crate::file::mode::open_flags(mrb, Some(mode), &label)?;
-        // SAFETY: `fd` is a file this guest opened; F_GETFL only reads it.
-        let held = unsafe { fcntl(fd, F_GETFL) };
-        if held < 0 || crate::file::mode::exceeds(flags, held) {
+        if access_of(fd).is_none_or(|held| crate::file::mode::exceeds(flags, held)) {
             return Err(errno::error_by_name(mrb, c"EINVAL", &label));
         }
     }
@@ -315,20 +313,24 @@ unsafe extern "C" {
 /// wasi-libc's `F_GETFL`.
 const F_GETFL: core::ffi::c_int = 3;
 
+/// The access `fd` was opened with, as `F_GETFL` answers it, `None` for a
+/// descriptor that answers none.
+fn access_of(fd: i32) -> Option<core::ffi::c_int> {
+    // SAFETY: F_GETFL only reads the descriptor, and a bad one only fails.
+    let held = unsafe { fcntl(fd, F_GETFL) };
+    (held >= 0).then_some(held)
+}
+
 /// Whether `fd` was opened to write, which CRuby asks before a call that
 /// changes a file.
 pub(crate) fn is_opened_to_write(fd: i32) -> bool {
-    // SAFETY: F_GETFL only reads the descriptor, and a bad one only fails.
-    let held = unsafe { fcntl(fd, F_GETFL) };
-    held >= 0 && crate::file::mode::writes(held)
+    access_of(fd).is_some_and(crate::file::mode::writes)
 }
 
 /// Whether `fd` was opened to read, which CRuby asks before a call that
 /// waits to read.
 pub(crate) fn is_opened_to_read(fd: i32) -> bool {
-    // SAFETY: F_GETFL only reads the descriptor, and a bad one only fails.
-    let held = unsafe { fcntl(fd, F_GETFL) };
-    held >= 0 && crate::file::mode::reads(held)
+    access_of(fd).is_some_and(crate::file::mode::reads)
 }
 
 /// A closed stream reports nothing of its descriptor, as CRuby's

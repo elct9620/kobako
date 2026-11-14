@@ -48,7 +48,7 @@ const ADVICES: [&str; 6] = [
 ];
 
 /// The most bytes one read asks the host for.
-const CHUNK: usize = 4096;
+const MAX_FILE_READ: usize = 4096;
 
 pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     io.const_set(mrb, c"SEEK_SET", 0)?;
@@ -147,7 +147,7 @@ fn io_read(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
         Some(len) => {
             // Room for the first chunk up front, so one read can answer a
             // length the file holds instead of a small probe and regrowth.
-            let mut some = Vec::with_capacity(len.min(CHUNK));
+            let mut some = Vec::with_capacity(len.min(MAX_FILE_READ));
             file.take(len as u64).read_to_end(&mut some)?;
             Ok(some)
         }
@@ -169,7 +169,7 @@ pub(crate) struct FileLines {
 impl LineSource for FileLines {
     fn fill(&mut self, mrb: &Mrb) -> Result<Option<Vec<u8>>, Error> {
         with_file(self.fd, |file| {
-            let mut buf = vec![0u8; CHUNK];
+            let mut buf = vec![0u8; MAX_FILE_READ];
             let read = file.read(&mut buf)?;
             buf.truncate(read);
             Ok((read > 0).then_some(buf))
@@ -330,10 +330,10 @@ fn io_pread(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
     };
     let fd = readable_fd(mrb, self_)?;
     let length = strbuf_length_of(mrb, length)?;
-    let mut bytes = Vec::with_capacity(length.min(CHUNK));
-    let mut chunk = [0u8; CHUNK];
+    let mut bytes = Vec::with_capacity(length.min(MAX_FILE_READ));
+    let mut chunk = [0u8; MAX_FILE_READ];
     while bytes.len() < length {
-        let want = (length - bytes.len()).min(CHUNK);
+        let want = (length - bytes.len()).min(MAX_FILE_READ);
         let at = offset + bytes.len() as i64;
         // SAFETY: `chunk` holds `want` writable bytes for the call.
         let read = unsafe { raw::pread(fd, chunk.as_mut_ptr().cast(), want, at) };

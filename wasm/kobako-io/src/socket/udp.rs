@@ -10,7 +10,7 @@ use std::task::Poll;
 use beni::prelude::*;
 use beni::{Error, IntoValue, Mrb, RClass, TryConvert, TypedData, Value};
 
-use super::address::{end_of, local_of, no_timeout, peers_of, to_ip_socket_address};
+use super::address::{end_of, ipv4_end_of, local_of, no_timeout, peers_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
     exception_option_of, ready_of, receive_past_buffer, send_args_of, IoState, PastBuffer,
@@ -22,9 +22,7 @@ use super::{bind, family_of, to_error, Family, AF_INET};
 use crate::errno;
 use crate::io::Direction;
 use crate::wasi::wait_within;
-use crate::wasi::wasi::sockets::network::{
-    ErrorCode, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress,
-};
+use crate::wasi::wasi::sockets::network::{ErrorCode, IpAddressFamily};
 use crate::wasi::wasi::sockets::udp::{
     IncomingDatagramStream, OutgoingDatagram, OutgoingDatagramStream, UdpSocket,
 };
@@ -421,13 +419,7 @@ fn receive_from(
                 let datagram = received.swap_remove(0);
                 let mut data = datagram.data;
                 data.truncate(maxlen);
-                let from = match datagram.remote_address {
-                    IpSocketAddress::Ipv4(Ipv4SocketAddress {
-                        port,
-                        address: (a, b, c, d),
-                    }) => (Ipv4Addr::new(a, b, c, d), port),
-                    IpSocketAddress::Ipv6(_) => streams.peer,
-                };
+                let from = ipv4_end_of(&datagram.remote_address).unwrap_or(streams.peer);
                 return Ok(Poll::Ready((data, from)));
             }
             Ok(_) if !wait_within(&pollable, wait.timeout()) => return Ok(Poll::Pending),

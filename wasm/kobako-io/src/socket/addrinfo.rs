@@ -632,17 +632,7 @@ fn socket_s_getaddrinfo(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value
     let answer = mrb.ary_new();
     for info in lookup(mrb, node, service, &hints)? {
         let family = afamily_of(info.ip);
-        let ip = mrb.str_new(info.ip.to_string().as_bytes()).as_value();
-        let entry = mrb.ary_new();
-        let name: &[u8] = if family == AF_INET {
-            b"AF_INET"
-        } else {
-            b"AF_INET6"
-        };
-        entry.push(mrb, mrb.str_new(name).as_value())?;
-        entry.push(mrb, i64::from(info.port).into_value(mrb))?;
-        entry.push(mrb, ip)?;
-        entry.push(mrb, ip)?;
+        let entry = super::ip::to_addr_array(mrb, (info.ip, info.port))?;
         for number in [family, info.socktype, info.protocol] {
             entry.push(mrb, number.into_value(mrb))?;
         }

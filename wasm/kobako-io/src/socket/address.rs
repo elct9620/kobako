@@ -201,8 +201,8 @@ pub(super) fn hosts_of(mrb: &Mrb, host: Value, passive: bool) -> Result<Vec<IpAd
 }
 
 /// Linux's address families as a `sockaddr` begins with them.
-const AF_INET: u16 = 2;
-const AF_INET6: u16 = 10;
+const AF_INET: u16 = super::AF_INET as u16;
+const AF_INET6: u16 = super::AF_INET6 as u16;
 
 /// `(ip, port)` as Linux lays out a `sockaddr_in`, or a `sockaddr_in6` for an
 /// IPv6 address: the family in host order, the port in network order.
@@ -263,6 +263,17 @@ fn socket_s_unpack_sockaddr_in(mrb: &Mrb, _self: Value, sockaddr: Value) -> Resu
     answer.push(mrb, i64::from(port).into_value(mrb))?;
     answer.push(mrb, mrb.str_new(ip.to_string().as_bytes()).as_value())?;
     Ok(answer.as_value())
+}
+
+/// The `(ip, port)` an IPv4 socket address names, `None` for an IPv6 one.
+pub(super) fn ipv4_end_of(address: &IpSocketAddress) -> Option<(Ipv4Addr, u16)> {
+    match *address {
+        IpSocketAddress::Ipv4(Ipv4SocketAddress {
+            port,
+            address: (a, b, c, d),
+        }) => Some((Ipv4Addr::new(a, b, c, d), port)),
+        IpSocketAddress::Ipv6(_) => None,
+    }
 }
 
 /// `(ip, port)` as WASI names a socket address.

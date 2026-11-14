@@ -666,7 +666,7 @@ pub(super) fn receive_past_buffer(
         return Ok(mesg);
     }
     let sender = match sender {
-        Some(sender) => to_addr_array(mrb, sender)?,
+        Some(sender) => to_addr_array(mrb, sender)?.as_value(),
         None => qnil().as_value(),
     };
     Ok(mrb.ary_new_from_values(&[mesg, sender]).as_value())

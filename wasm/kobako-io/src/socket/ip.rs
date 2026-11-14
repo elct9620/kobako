@@ -1,15 +1,16 @@
 //! What `IPSocket` answers for an end, as CRuby's `ext/socket/ipsocket.c`
 //! spells one as `["AF_INET", port, host, host]`.
 
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr};
 
 use beni::prelude::*;
-use beni::{Error, IntoValue, Mrb, Qtrue, RClass, Symbol, Value};
+use beni::{Error, IntoValue, Mrb, Qtrue, RArray, RClass, Symbol, Value};
 
+use super::address::ipv4_end_of;
 use super::basic::{open_socket_of, receive_past_buffer, PastBuffer, Wait};
 use super::to_error;
 use crate::io::argument_error;
-use crate::wasi::wasi::sockets::network::{ErrorCode, IpSocketAddress, Ipv4SocketAddress};
+use crate::wasi::wasi::sockets::network::{ErrorCode, IpSocketAddress};
 
 /// Define `IPSocket#addr`, `IPSocket#peeraddr`, and `IPSocket#recvfrom`.
 pub(super) fn init(mrb: &Mrb, ip: RClass) -> Result<(), Error> {
@@ -31,7 +32,7 @@ fn ip_socket_recvfrom(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, 
 /// address and port the host hands the guest for it.
 fn ip_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     ensure_reverse_lookup_args(mrb, args)?;
-    to_addr_array(mrb, open_socket_of(mrb, self_)?.local_end(mrb)?)
+    Ok(to_addr_array(mrb, open_socket_of(mrb, self_)?.local_end(mrb)?)?.as_value())
 }
 
 /// `peeraddr(reverse_lookup = nil)` answers the peer, as the guest named it.
@@ -39,7 +40,7 @@ fn ip_socket_addr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Erro
 /// address.
 fn ip_socket_peeraddr(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     ensure_reverse_lookup_args(mrb, args)?;
-    to_addr_array(mrb, open_socket_of(mrb, self_)?.peer_end(mrb)?)
+    Ok(to_addr_array(mrb, open_socket_of(mrb, self_)?.peer_end(mrb)?)?.as_value())
 }
 
 /// `addr` and `peeraddr` take at most a `reverse_lookup` flag.
@@ -59,13 +60,8 @@ pub(super) fn local_end_of(
     local: Result<IpSocketAddress, ErrorCode>,
 ) -> Result<(Ipv4Addr, u16), Error> {
     match local {
-        Ok(IpSocketAddress::Ipv4(Ipv4SocketAddress {
-            port,
-            address: (a, b, c, d),
-        })) => Ok((Ipv4Addr::new(a, b, c, d), port)),
-        Ok(IpSocketAddress::Ipv6(_)) | Err(ErrorCode::InvalidState) => {
-            Ok((Ipv4Addr::UNSPECIFIED, 0))
-        }
+        Ok(local) => Ok(ipv4_end_of(&local).unwrap_or((Ipv4Addr::UNSPECIFIED, 0))),
+        Err(ErrorCode::InvalidState) => Ok((Ipv4Addr::UNSPECIFIED, 0)),
         Err(code) => Err(to_error(mrb, code, "getsockname(2)")),
     }
 }
@@ -92,13 +88,23 @@ pub(super) fn ensure_reverse_lookup_flag(mrb: &Mrb, flag: Value) -> Result<(), E
     }
 }
 
-/// An address as CRuby's `["AF_INET", port, host, host]`.
-pub(super) fn to_addr_array(mrb: &Mrb, (ip, port): (Ipv4Addr, u16)) -> Result<Value, Error> {
+/// An address as CRuby's `["AF_INET", port, host, host]`, or `"AF_INET6"`
+/// for an IPv6 one.
+pub(super) fn to_addr_array(
+    mrb: &Mrb,
+    (ip, port): (impl Into<IpAddr>, u16),
+) -> Result<RArray, Error> {
+    let ip = ip.into();
+    let family: &[u8] = if ip.is_ipv4() {
+        b"AF_INET"
+    } else {
+        b"AF_INET6"
+    };
     let host = mrb.str_new(ip.to_string().as_bytes()).as_value();
     let addr = mrb.ary_new();
-    addr.push(mrb, mrb.str_new(b"AF_INET").as_value())?;
+    addr.push(mrb, mrb.str_new(family).as_value())?;
     addr.push(mrb, i64::from(port).into_value(mrb))?;
     addr.push(mrb, host)?;
     addr.push(mrb, host)?;
-    Ok(addr.as_value())
+    Ok(addr)
 }
