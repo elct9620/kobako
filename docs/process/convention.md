@@ -193,7 +193,7 @@ A question answers true or false, and each language marks it its own way.
 
 | Language | Its name | As in |
 |---|---|---|
-| Ruby | ends in `?` | `failed?`, `reserved?` |
+| Ruby | ends in `?` | `failed?`, `reserved_path?` |
 | Rust | `is_` or `has_` | `is_mounted`, `is_at_end` |
 | Rust | a verb in the third person | `allows`, `matches_exactly` |
 | Rust | a recorded state | `stdout_truncated`, `abandoned` |

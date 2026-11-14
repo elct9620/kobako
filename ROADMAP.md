@@ -28,5 +28,5 @@ row below links a feature to its scenarios and to where its code starts.
 | ✅ [Guest Dir](docs/spec/behavior/dir.md) | [wasm/kobako-io/src/dir.rs](wasm/kobako-io/src/dir.rs) |
 | ✅ [Filesystem](docs/spec/behavior/filesystem.md) | [crates/kobako-runtime/src/filesystem.rs](crates/kobako-runtime/src/filesystem.rs) |
 | ✅ [Mount](docs/spec/behavior/mount.md) | [lib/kobako/catalog/mount.rb](lib/kobako/catalog/mount.rb) |
-| ✅ [Ruby Filesystem](docs/spec/behavior/ruby-filesystem.md) | [ext/kobako/src/runtime/filesystem/ruby.rs](ext/kobako/src/runtime/filesystem/ruby.rs) |
+| ✅ [Ruby Filesystem](docs/spec/behavior/ruby-filesystem.md) | [ext/kobako/src/filesystem/ruby.rs](ext/kobako/src/filesystem/ruby.rs) |
 | ✅ [Journeys](docs/spec/behavior/journeys.md) | [test/e2e/test_journeys.rb](test/e2e/test_journeys.rb) |
