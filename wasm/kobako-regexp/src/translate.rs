@@ -814,7 +814,8 @@ fn push_each_group(numbers: &[usize], out: &mut String) {
 
 /// `name+level` or `name-level` split apart, for a name that is not empty.
 fn split_level(reference: &str) -> Option<(&str, i64)> {
-    let sign = reference[1..].rfind(['+', '-'])? + 1;
+    let first = reference.chars().next()?.len_utf8();
+    let sign = reference[first..].rfind(['+', '-'])? + first;
     let (name, level) = reference.split_at(sign);
     let digits = &level[1..];
     if digits.is_empty() || !digits.bytes().all(|byte| byte.is_ascii_digit()) {

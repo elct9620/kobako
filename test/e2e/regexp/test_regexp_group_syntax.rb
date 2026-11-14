@@ -78,6 +78,17 @@ class TestRegexpGroupSyntax < Minitest::Test
                  "a backreference at level zero through a match must read its group, any other level nothing"
   end
 
+  # @behavior RX-325
+  def test_a_backreference_name_is_read_whole_whatever_its_first_character
+    assert_equal [%w[xx x], %w[xx x]],
+                 eval_regexp('[Regexp.new("(?<é>x)\\\\k<é>").match("xx").to_a, ' \
+                             'Regexp.new("(?<é>x)\\\\k<é+0>").match("xx").to_a]'),
+                 "a backreference to a name starting with é, with or without a level, through a match " \
+                 "must read its group"
+    assert_equal "RegexpError", guard_error('Regexp.new("a\\\\k<>")', "RegexpError"),
+                 "an empty backreference name through Regexp.new must raise RegexpError"
+  end
+
   # @behavior RX-312
   def test_a_backreference_level_beside_a_call_or_a_shared_name_is_refused
     ['(?<n>a)\\\\k<n+0>\\\\g<n>', '(?<n>a)(?<n>b)\\\\k<n+0>'].each do |source|
