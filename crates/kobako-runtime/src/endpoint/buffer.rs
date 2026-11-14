@@ -48,8 +48,9 @@ pub(super) fn alloc_and_write<G: GuestInstance>(
     if guest.memory().is_none() {
         return Err(WriteError::Incompatible(SANDBOX_RUNTIME_NOT_KOBAKO));
     }
+    // Fresh room for a `list<u8>`, which the Canonical ABI aligns to 1.
     let ptr = guest
-        .realloc(len as u32)
+        .realloc(0, 0, 1, len as u32)
         .ok_or(WriteError::Incompatible(RUNTIME_INCOMPATIBLE))?
         .map_err(WriteError::Trapped)?;
     let memory = guest
@@ -161,7 +162,7 @@ mod tests {
             Some(&mut self.memory)
         }
 
-        fn realloc(&mut self, _len: u32) -> Option<Result<u32, String>> {
+        fn realloc(&mut self, _: u32, _: u32, _: u32, _: u32) -> Option<Result<u32, String>> {
             self.given += 1;
             Some(Ok(32))
         }

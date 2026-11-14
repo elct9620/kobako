@@ -77,9 +77,16 @@ pub trait GuestInstance {
     /// The guest's linear memory.
     fn memory(&mut self) -> Option<&mut [u8]>;
 
-    /// Room for `len` bytes from `cabi_realloc`, answering its address. A
-    /// guest with no room left traps.
-    fn realloc(&mut self, len: u32) -> Option<Result<u32, Self::Fault>>;
+    /// Call the guest's `cabi_realloc` with `old_ptr`, `old_len`, `align`,
+    /// and `new_len`, as the Canonical ABI calls it, answering the room's
+    /// address. A guest with no room left traps.
+    fn realloc(
+        &mut self,
+        old_ptr: u32,
+        old_len: u32,
+        align: u32,
+        new_len: u32,
+    ) -> Option<Result<u32, Self::Fault>>;
 
     /// Call the downcall with a request at `ptr`, answering the return area
     /// that names its answer.
@@ -116,7 +123,7 @@ mod tests {
             Some(&mut self.memory)
         }
 
-        fn realloc(&mut self, len: u32) -> Option<Result<u32, String>> {
+        fn realloc(&mut self, _: u32, _: u32, _: u32, len: u32) -> Option<Result<u32, String>> {
             let ptr = self.next;
             self.next += len;
             Some(Ok(ptr))
