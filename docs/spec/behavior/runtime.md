@@ -3839,7 +3839,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest whose open file limit its standard streams already fill |
+| Given | a guest with no `memory_limit`, whose open file limit its standard streams already fill |
 | When | it subscribes to a clock through `wasi:clocks`, and keeps subscribing past a million handles |
 | Then | each subscription hands out a pollable, since a view holds no file. Past a million handles the call traps, as wasmtime's resource table traps past its capacity |
 
@@ -4350,3 +4350,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Filesystem answering each lookup of a directory with a new inode reporting one identity |
 | When | a walk reaches the directory again after its held dentry left the name table |
 | Then | the walk finds the dentry it held, as `iget5_locked` finds the directory's live inode by its number |
+
+## `RT-394` Each preview2 handle takes its room from the memory limit
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-209` |
+| relates | `RT-341` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest under a `memory_limit` |
+| When | it keeps subscribing to a clock through `wasi:clocks` |
+| Then | each handle holds its room against the limit, as Linux's `filp` cache is accounted to the memory cgroup. Past the limit the call traps, since a constructor has no error for it. A dropped handle gives its room back |
