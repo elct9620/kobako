@@ -220,14 +220,41 @@ fn validate_name(ruby: &Ruby, name: RString) -> Result<(), MagnusError> {
         .map_err(|err| MagnusError::new(ruby.exception_arg_error(), err.to_string()))
 }
 
+/// Each protocol an endpoint speaks beside the Symbol Ruby names it by.
+const PROTOCOL_NAMES: [(Protocol, &str); 3] = [
+    (Protocol::Http, "http"),
+    (Protocol::Tcp, "tcp"),
+    (Protocol::Udp, "udp"),
+];
+
+/// Each address set beside the Symbol Ruby names it by.
+const ADDRESS_SET_NAMES: [(Addresses, &str); 3] = [
+    (Addresses::Public, "public"),
+    (Addresses::Private, "private"),
+    (Addresses::Local, "local"),
+];
+
+/// The value `table` names `name`.
+fn named<T: Copy>(table: &[(T, &str)], name: &str) -> Option<T> {
+    table
+        .iter()
+        .find(|(_, spelled)| *spelled == name)
+        .map(|(value, _)| *value)
+}
+
+/// The name `table` gives `value`.
+fn name_of<T: PartialEq>(table: &[(T, &'static str)], value: &T) -> Option<&'static str> {
+    table
+        .iter()
+        .find(|(held, _)| held == value)
+        .map(|(_, name)| *name)
+}
+
 /// `protocol` as the Symbol Ruby names it by.
 fn to_protocol_name(ruby: &Ruby, protocol: Protocol) -> Result<Symbol, MagnusError> {
-    Ok(ruby.to_symbol(match protocol {
-        Protocol::Http => "http",
-        Protocol::Tcp => "tcp",
-        Protocol::Udp => "udp",
-        other => return Err(to_unnamed_error(ruby, other)),
-    }))
+    name_of(&PROTOCOL_NAMES, &protocol)
+        .map(|name| ruby.to_symbol(name))
+        .ok_or_else(|| to_unnamed_error(ruby, protocol))
 }
 
 /// A contract value the ext gives no Ruby name.
@@ -241,13 +268,15 @@ fn to_unnamed_error(ruby: &Ruby, value: impl std::fmt::Debug) -> MagnusError {
 /// `addresses` as an endpoint's `addresses` names it: a Symbol for a set,
 /// or a CIDR String.
 fn to_addresses_name(ruby: &Ruby, addresses: &Addresses) -> Result<Value, MagnusError> {
-    Ok(match addresses {
-        Addresses::Public => ruby.to_symbol("public").as_value(),
-        Addresses::Private => ruby.to_symbol("private").as_value(),
-        Addresses::Local => ruby.to_symbol("local").as_value(),
-        Addresses::Cidr(address, prefix) => ruby.str_new(&format!("{address}/{prefix}")).as_value(),
-        other => return Err(to_unnamed_error(ruby, other)),
-    })
+    if let Some(name) = name_of(&ADDRESS_SET_NAMES, addresses) {
+        return Ok(ruby.to_symbol(name).as_value());
+    }
+    match addresses {
+        Addresses::Cidr(address, prefix) => {
+            Ok(ruby.str_new(&format!("{address}/{prefix}")).as_value())
+        }
+        other => Err(to_unnamed_error(ruby, other)),
+    }
 }
 
 /// The placement a credential's `placement` names: `:bearer`, `:basic`, or
@@ -484,16 +513,10 @@ fn build_endpoint(
     })?;
     let mut endpoint = Endpoint::new(host, port).map_err(|err| to_arg_error(err.to_string()))?;
     if let Some(protocol) = protocol {
-        endpoint = endpoint.with_protocol(match symbol_name_of(protocol)?.as_deref() {
-            Some("http") => Protocol::Http,
-            Some("tcp") => Protocol::Tcp,
-            Some("udp") => Protocol::Udp,
-            _ => {
-                return Err(to_arg_error(
-                    "protocol must be :http, :tcp, or :udp".to_string(),
-                ))
-            }
-        });
+        let protocol = symbol_name_of(protocol)?
+            .and_then(|name| named(&PROTOCOL_NAMES, &name))
+            .ok_or_else(|| to_arg_error("protocol must be :http, :tcp, or :udp".to_string()))?;
+        endpoint = endpoint.with_protocol(protocol);
     }
     if let Some(addresses) = addresses {
         let addresses = each_of(addresses, |address| {
@@ -528,12 +551,8 @@ fn to_rule(rule: Value) -> Result<HttpRule, MagnusError> {
 /// carries its prefix apart from its address; the ruleset judges whether the
 /// prefix fits its address.
 fn to_addresses(value: Value) -> Option<Addresses> {
-    match symbol_name_of(value).ok()?.as_deref() {
-        Some("public") => return Some(Addresses::Public),
-        Some("private") => return Some(Addresses::Private),
-        Some("local") => return Some(Addresses::Local),
-        Some(_) => return None,
-        None => {}
+    if let Some(name) = symbol_name_of(value).ok()? {
+        return named(&ADDRESS_SET_NAMES, &name);
     }
     let cidr = match RString::try_convert(value) {
         Ok(text) => text.to_string().ok()?,
