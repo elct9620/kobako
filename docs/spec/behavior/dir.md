@@ -136,7 +136,7 @@ the encoding: keyword     -> ArgumentError
 | Step | Statement |
 | --- | --- |
 | Given | an invocation handed no Mount |
-| When | the script lists, opens, makes, removes, or asks about a directory |
+| When | the script lists, opens, makes, removes, matches, changes into, or asks about a directory |
 | Then | each call raises `NotImplementedError` |
 
 ## `FL-058` The disable_file flag removes Dir
