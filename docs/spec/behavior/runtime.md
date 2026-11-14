@@ -4400,3 +4400,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | the bundled Guest Binary |
 | When | the calls its `cabi_realloc` can make are followed through its code |
 | Then | none reaches a host import, directly or through the function table. The Canonical ABI forbids any while a list is lowered |
+
+## `RT-398` The Preamble asked for after the host gave up traps
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-354`, `RT-396` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation whose host gave it up while a callback ran |
+| When | the guest asks the host's `preamble` import for it |
+| Then | the call traps once it answered, as the upcall does, so the guest cannot go on as if answered |
