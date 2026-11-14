@@ -163,7 +163,7 @@ The addresses a name answers from now on.
 
 ```rust
 impl Mock {
-    pub fn answer(&self, name: &str, addresses: Vec<IpAddr>) {}
+    pub fn answer(&self, name: &str, addresses: Vec<IpAddr>) -> Result<(), LookupError> {}
 }
 ```
 
@@ -193,7 +193,7 @@ Keep a name unanswered for as long as the returned guard lives.
 
 ```rust
 impl Mock {
-    pub fn hold(&self, name: &str) -> Hold<'_> {}
+    pub fn hold(&self, name: &str) -> Result<Hold<'_>, LookupError> {}
 }
 ```
 

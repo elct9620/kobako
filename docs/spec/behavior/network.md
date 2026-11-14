@@ -2674,3 +2674,16 @@ endpoint "api.example.com", port: 443
 | Given | a Mock holding a name |
 | When | the guest looks the name up while the hold lasts |
 | Then | the lookup waits, as a resolver that has not answered does. It answers once the hold ends. A hold ends at the latest with the block or guard that took it |
+
+## `NW-215` A Mock reads a name as a guest's lookup reads it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-212` |
+| relates | `NW-197` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mock answering a name spelled in capitals, with its root's dot, or as an IDN |
+| When | the guest looks up the name in another spelling |
+| Then | the Mock answers it, as the URL host parser reads both as one A-label. A Mock told an address, or a name ending in an empty label, raises `ArgumentError` |
