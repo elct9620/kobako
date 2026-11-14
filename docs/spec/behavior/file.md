@@ -1019,3 +1019,15 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount, its working directory beneath it |
 | When | the script hands an empty path to calls that open, list, change into, and ask about an entry |
 | Then | each that raises raises `Errno::ENOENT`, and each predicate answers false, as CRuby on Linux does |
+
+## `FL-104` A chomped line drops its carriage return as CRuby's does
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-084` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file whose lines end in a carriage return and a newline |
+| When | the script reads its lines with `chomp: true` by the default separator, by `"\n"`, by another separator, and by paragraph |
+| Then | the newline separators take the carriage return before them, and the others keep it, as CRuby's `chomp_cr` does |
