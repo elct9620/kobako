@@ -16,7 +16,8 @@ class KobakoReleaseWiringTest < Minitest::Test
   def test_the_repository_leaves_no_seat_unfilled
     assert_empty Reader.unfilled_seats(TestPaths::ROOT),
                  "the repository's release config through .unfilled_seats must leave no seat empty; each line " \
-                 "listed names the manifest entry, version annotation, or dev-dependency version to fix"
+                 "listed names the manifest entry, version annotation, dev-dependency version, or dependency " \
+                 "rewrite to fix"
   end
 
   CONFIG = {
@@ -175,5 +176,43 @@ class KobakoReleaseWiringDevDependencyTest < Minitest::Test
     assert_empty Reader.pinned_dev_dependencies("crates/kobako/Cargo.toml", manifest),
                  "a normal dependency must be left alone: the release tooling does rewrite that " \
                  "table, and cargo requires the version there"
+  end
+end
+
+# The fourth seat: release-please rewrites a +[dependencies]+ version only
+# where the depending package names it as a +toml+ extra-file, so a new path
+# dependency left out of that list keeps the old version, and the lockfile
+# step on the release branch fails against the sibling that moved on.
+class KobakoReleaseWiringDependencyBumpTest < Minitest::Test
+  Reader = KobakoReleaseWiring
+
+  MANIFEST = <<~TOML
+    [dependencies]
+    kobako-transport = { path = "../kobako-transport", version = "0.12.0", optional = true }
+    rmp = { version = "0.8", optional = true }
+
+    [dev-dependencies]
+    kobako-runtime = { path = "../kobako-runtime" }
+  TOML
+
+  BUMPED = {
+    "extra-files" => [
+      { "type" => "toml", "path" => "/crates/kobako-codec/Cargo.toml",
+        "jsonpath" => "$.dependencies['kobako-transport'].version" }
+    ]
+  }.freeze
+
+  def test_a_path_dependency_no_extra_file_rewrites_is_reported
+    assert_equal ["crates/kobako-codec/Cargo.toml: dependency kobako-transport names a version no " \
+                  "extra-file rewrites"],
+                 Reader.missing_bumps("crates/kobako-codec/Cargo.toml", MANIFEST, {}),
+                 "a path dependency naming a version must be reported when its package rewrites it in " \
+                 "no toml extra-file, since the release keeps the old version beside a sibling that moved on"
+  end
+
+  def test_a_rewritten_path_dependency_and_a_registry_one_yield_no_violation
+    assert_empty Reader.missing_bumps("crates/kobako-codec/Cargo.toml", MANIFEST, BUMPED),
+                 "a path dependency its package rewrites must pass, as must a registry dependency no " \
+                 "release of ours moves"
   end
 end

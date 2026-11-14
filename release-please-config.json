@@ -161,6 +161,11 @@
           "jsonpath": "$.package[?(@.name=='kobako-codec')].version"
         },
         {
+          "type": "toml",
+          "path": "/crates/kobako-codec/Cargo.toml",
+          "jsonpath": "$.dependencies['kobako-transport'].version"
+        },
+        {
           "type": "generic",
           "path": "/crates/kobako-codec/README.md"
         }

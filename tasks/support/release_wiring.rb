@@ -29,7 +29,43 @@ module KobakoReleaseWiring
 
     unrecorded_packages(config: config, manifest: manifest)
       .map { |package| "#{package}: no .release-please-manifest.json entry" } +
-      manifest_pins(root, manifest.keys) + annotation_violations(files: files, manifest: manifest)
+      manifest_pins(root, manifest.keys) + annotation_violations(files: files, manifest: manifest) +
+      unbumped_dependencies(root, config)
+  end
+
+  # Path dependencies naming a version that no +toml+ extra-file of their
+  # package rewrites, across each Cargo manifest a package of +config+
+  # holds under +root+. Such a version stays put while its sibling moves
+  # on, and the lockfile step fails against it.
+  def unbumped_dependencies(root, config)
+    packages(config).flat_map do |package, settings|
+      path = File.join(package, "Cargo.toml")
+      content = read_at(root, path)
+      content ? missing_bumps(path, content, settings) : []
+    end
+  end
+
+  # The path dependencies in +content+ naming a version that +settings+
+  # leaves to no +jsonpath+ rewrite of +path+, as violation strings.
+  def missing_bumps(path, content, settings)
+    bumped = toml_targets(settings, path)
+    versioned_path_dependencies(content, "[dependencies]")
+      .reject { |name| bumped.include?("$.dependencies['#{name}'].version") }
+      .map { |name| "#{path}: dependency #{name} names a version no extra-file rewrites" }
+  end
+
+  # The +jsonpath+ each +toml+ extra-file of +settings+ rewrites in +path+.
+  def toml_targets(settings, path)
+    (settings["extra-files"] || []).filter_map do |entry|
+      entry["jsonpath"] if entry.is_a?(Hash) && entry["type"] == "toml" && entry["path"] == "/#{path}"
+    end
+  end
+
+  # The names of +content+'s +header+ table entries carrying both a path
+  # and a version.
+  def versioned_path_dependencies(content, header)
+    table_lines(content, header)
+      .filter_map { |line| line[/\A\s*([\w-]+)\s*=/, 1] if line.include?("path") && line.include?("version") }
   end
 
   # +pinned_dev_dependencies+ across each of +packages+' Cargo manifests
@@ -52,16 +88,15 @@ module KobakoReleaseWiring
   # when packaging, so naming one buys nothing and costs a silent pin.
   # A registry dev-dependency carries no path and is nobody's to rewrite.
   def pinned_dev_dependencies(path, content)
-    dev_dependency_lines(content)
-      .filter_map { |line| line[/\A\s*([\w-]+)\s*=/, 1] if line.include?("path") && line.include?("version") }
+    versioned_path_dependencies(content, "[dev-dependencies]")
       .map { |name| "#{path}: dev-dependency #{name} names a version" }
   end
 
-  # The entry lines of +content+'s +[dev-dependencies]+ table, which runs
-  # to the next table header.
-  def dev_dependency_lines(content)
+  # The entry lines of +content+'s +header+ table, which runs to the next
+  # table header.
+  def table_lines(content, header)
     content.each_line
-           .drop_while { |line| !line.start_with?("[dev-dependencies]") }
+           .drop_while { |line| !line.start_with?(header) }
            .drop(1)
            .take_while { |line| !line.start_with?("[") }
   end
