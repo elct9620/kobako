@@ -23,14 +23,24 @@ pub(crate) const IGNORECASE: i64 = 1;
 pub(crate) const EXTENDED: i64 = 2;
 pub(crate) const MULTILINE: i64 = 4;
 
+/// Each option bit beside its letter, in the `m`, `i`, `x` order MRI's
+/// `Regexp#inspect` appends them.
+pub(crate) const FLAG_LETTERS: [(i64, char); 3] =
+    [(MULTILINE, 'm'), (IGNORECASE, 'i'), (EXTENDED, 'x')];
+
+/// The option bit `letter` names, or `None` when MRI names no option by it.
+pub(crate) fn flag_of(letter: char) -> Option<i64> {
+    FLAG_LETTERS
+        .iter()
+        .find(|&&(_, named)| named == letter)
+        .map(|&(bit, _)| bit)
+}
+
 /// The option bits a flag string names, or `None` when it carries a letter
 /// MRI does not name.
 pub(crate) fn parse_flag_string(flags: &str) -> Option<i64> {
-    flags.chars().try_fold(0, |options, letter| match letter {
-        'i' => Some(options | IGNORECASE),
-        'm' => Some(options | MULTILINE),
-        'x' => Some(options | EXTENDED),
-        _ => None,
+    flags.chars().try_fold(0, |options, letter| {
+        flag_of(letter).map(|bit| options | bit)
     })
 }
 
