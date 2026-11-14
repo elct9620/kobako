@@ -4,7 +4,7 @@
 //! consuming guest crate (for the bundled guest: the `method_missing`
 //! shims in `kobako-mruby`'s bridge module, whose shared
 //! `forward_to_dispatch` body calls `dispatch` here) and the wasm-level
-//! `__kobako_upcall` host import declared in `crate::abi`. The Envelope's
+//! `upcall` host import declared in `crate::abi`. The Envelope's
 //! Call and Reply layouts are the contract this module implements.
 //!
 //! `dispatch` builds a `Call` around a payload it never reads, sends it
@@ -13,13 +13,11 @@
 //! payload codec's business, which is what lets a guest with its own
 //! schema drive this layer with no MessagePack in its dependency graph.
 //! On the host target a thread-local loopback hook stands in for
-//! `__kobako_upcall` so the demux logic tests without a real wasm
+//! the `upcall` import so the demux logic tests without a real wasm
 //! runtime.
 
 #[cfg(target_arch = "wasm32")]
-use crate::abi::__kobako_upcall;
-#[cfg(target_arch = "wasm32")]
-use crate::abi::unpack_ptr_len;
+use crate::abi::{take_list, upcall};
 use kobako_transport::envelope::{self, Call, Reply, Target, Upcall};
 
 /// Why a dispatch came back without a value.
@@ -79,7 +77,7 @@ impl std::error::Error for DispatchError {}
 /// Function signature for the host-target loopback. Receives the
 /// *upcall bytes* the caller would have written into wasm linear
 /// memory and returns the Reply bytes the host would have written
-/// back via `__kobako_alloc`. Pure in/out; no shared state.
+/// back through `cabi_realloc`. Pure in/out; no shared state.
 #[cfg(not(target_arch = "wasm32"))]
 type LoopbackFn = Box<dyn Fn(&[u8]) -> Vec<u8> + Send + 'static>;
 
@@ -91,8 +89,7 @@ thread_local! {
 
 /// Install a loopback hook for the current thread. Returns the previous
 /// hook so test scaffolding can stack and restore. Test-only — the
-/// loopback is the host-target stand-in for the wasm `__kobako_upcall`
-/// import, exercised by this module's unit tests.
+/// loopback is the host-target stand-in for the wasm `upcall` import, exercised by this module's unit tests.
 #[cfg(all(test, not(target_arch = "wasm32")))]
 fn set_loopback(hook: Option<LoopbackFn>) -> Option<LoopbackFn> {
     LOOPBACK.with(|cell| std::mem::replace(&mut *cell.borrow_mut(), hook))
@@ -132,30 +129,30 @@ pub fn dispatch(
 fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     // On wasm32, pass the request by its current linear-memory address
     // and call the host import. The host reads `[req_ptr, req_ptr+len)`
-    // out of our memory, writes the Reply into a buffer it allocated
-    // via `__kobako_alloc`, and returns the packed (ptr, len) tuple.
+    // out of our memory, writes the Reply into room it took from
+    // `cabi_realloc`, and names it in the return area.
     //
-    // The request bytes stay live for the synchronous `__kobako_upcall`
-    // call because `req_bytes` is borrowed by this frame, which is parked
-    // on the wasm stack until the host returns — no copy into a guest
-    // buffer is needed on the request side.
+    // The request bytes stay live for the synchronous upcall because
+    // `req_bytes` is borrowed by this frame, which is parked on the wasm
+    // stack until the host returns — no copy into a guest buffer is needed
+    // on the request side.
     let req_ptr = req_bytes.as_ptr() as u32;
     let req_len = req_bytes.len() as u32;
+    let mut area = [0u32; 2];
     // SAFETY: the import reads `[req_ptr, req_ptr + req_len)`, which
-    // `req_bytes` keeps live and unmoved for the whole call.
-    let packed = unsafe { __kobako_upcall(req_ptr, req_len) };
-    let (ptr, len) = unpack_ptr_len(packed);
-    if len == 0 {
-        // A zero length is the ABI's failure signal: the host produced
-        // no answer, so it is refused rather than decoded as empty.
+    // `req_bytes` keeps live and unmoved for the whole call, and writes
+    // the two u32 of `area`, which this frame owns.
+    unsafe { upcall(req_ptr, req_len, area.as_mut_ptr() as u32) };
+    // SAFETY: the host named the Reply it wrote into this instance.
+    let reply = unsafe { take_list(area) };
+    if reply.is_empty() {
+        // An empty Reply frames no message, so it is refused rather than
+        // decoded.
         return Err(DispatchError::Envelope(envelope::DecodeError::new(
             "the host returned an empty Reply",
         )));
     }
-    // SAFETY: the host promises [ptr, ptr+len) is a valid Reply
-    // buffer in our linear memory for the duration of this call frame.
-    let slice = unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) };
-    Ok(slice.to_vec())
+    Ok(reply)
 }
 
 #[cfg(not(target_arch = "wasm32"))]

@@ -86,7 +86,7 @@ impl OpenFrames {
 }
 
 /// Frame-scoped Ruby handle that lets the dispatch `Proc` run the block
-/// one Call carried. The bridge builds one per `__kobako_upcall` frame,
+/// one Call carried. The bridge builds one per `upcall` frame,
 /// hands it to the `Proc` as the last argument, and `invalidate`s it the
 /// instant the `Proc` returns. A guest block stashed and called after that
 /// frame normally raises `LocalJumpError` at the Ruby
@@ -214,7 +214,7 @@ impl DispatchHandler for RubyDispatchHandler {
             // is available here once the GVL is held.
             // Panicking with `expect` localises the violation rather than
             // letting a nonsense error propagate.
-            let ruby = Ruby::get().expect("Ruby handle unavailable in __kobako_upcall");
+            let ruby = Ruby::get().expect("Ruby handle unavailable in the upcall");
             let proc_value: Value = ruby.get_inner(self.on_dispatch);
             // The target crosses in one slot, already discriminated: a
             // String for a bound constant's path, an Integer for a Handle

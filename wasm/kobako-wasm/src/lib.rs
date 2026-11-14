@@ -17,5 +17,6 @@ mod guest;
 /// consumed there — it is never called at Sandbox runtime.
 #[export_name = "wizer.initialize"]
 pub extern "C" fn wizer_initialize() {
+    kobako_core::abi::run_ctors_once();
     <guest::KobakoGuest as kobako_mruby::MrbGuest>::bake_boot();
 }

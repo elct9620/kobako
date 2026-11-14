@@ -3,5 +3,4 @@
 ;; complete, so the link step is the one that refuses it.
 (module
   (import "env" "kobako_absent" (func))
-  (func (export "__kobako_downcall") (param i32 i32) (result i64) (i64.const 0))
-  (func (export "__kobako_abi_version") (result i32) (i32.const 6)))
+  (func (export "kobako:abi/guest@0.6.0#downcall") (param i32 i32) (result i32) (i32.const 0)))

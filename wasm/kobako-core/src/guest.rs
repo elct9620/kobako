@@ -44,40 +44,30 @@ pub trait Guest {
 }
 
 /// Emit every wasm export of the Guest ABI in the invoking crate: the
-/// downcall, answered through `crate::abi::serve`, the pre-message shims
-/// (`__kobako_alloc` / `__kobako_abi_version`), and the Canonical ABI's
-/// `cabi_realloc` the host lowers a WASI 0.2 answer's list through.
+/// downcall under the guest interface's name, answered through
+/// `crate::abi::serve` and a return area, and the Canonical ABI's
+/// `cabi_realloc` every list the host writes lands through.
 ///
-/// No `_initialize` is emitted — rustc links a wasm32-wasip1 `cdylib`
-/// with `--no-entry`, and wasm-ld runs any static constructors
-/// through its own export wrappers. A hand-written no-op would
-/// suppress that machinery and silently skip ctors instead.
+/// The downcall enters through `run_ctors_once`, so static constructors run
+/// once whether or not the Guest Binary was baked. No `_initialize` is
+/// emitted: a bake would run and drop it.
 ///
-/// The invoking crate must be the final `cdylib` shell: `#[no_mangle]`
-/// symbols are only reliable in the linked root crate, and guests
-/// build with `panic = "abort"` so a panic becomes a wasm trap, never
-/// an unwind across the `extern "C"` boundary.
+/// The invoking crate must be the final `cdylib` shell: exported symbols
+/// are only reliable in the linked root crate, and guests build with
+/// `panic = "abort"` so a panic becomes a wasm trap, never an unwind
+/// across the `extern "C"` boundary.
 #[macro_export]
 macro_rules! export_guest {
     ($guest:ty) => {
-        #[no_mangle]
-        pub extern "C" fn __kobako_downcall(ptr: u32, len: u32) -> u64 {
+        #[export_name = concat!($crate::__abi_name!(guest), "#", $crate::__abi_name!(downcall))]
+        pub extern "C" fn __kobako_downcall(ptr: u32, len: u32) -> u32 {
+            $crate::abi::run_ctors_once();
             // SAFETY: the host wrote the request at `[ptr, ptr + len)` in
             // guest linear memory before calling this export; u8 has
             // alignment 1.
             let request =
                 unsafe { ::core::slice::from_raw_parts(ptr as usize as *const u8, len as usize) };
             $crate::abi::answer(&$crate::abi::serve::<$guest>(request))
-        }
-
-        #[no_mangle]
-        pub extern "C" fn __kobako_alloc(size: u32) -> u32 {
-            $crate::abi::alloc(size)
-        }
-
-        #[no_mangle]
-        pub extern "C" fn __kobako_abi_version() -> u32 {
-            $crate::abi::ABI_VERSION
         }
 
         #[no_mangle]

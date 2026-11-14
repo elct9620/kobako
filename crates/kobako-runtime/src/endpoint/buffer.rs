@@ -1,18 +1,26 @@
-//! Guest linear-memory I/O for the ABI's buffer handoffs, whether the
+//! Guest linear-memory I/O for the ABI's list handoffs, whether the
 //! invocation body or an upcall drives one.
 //!
-//! The two shared steps answer an error kind, and each caller words it,
-//! because depth decides what the same problem means: before the export
-//! call it is a `Trap` or an intact runtime, inside a callback it is a
-//! wire failure the guest receives.
+//! Every list the ABI carries is named by a return area: two little-endian
+//! u32, its place then its length, 4-byte aligned, as the Canonical ABI lays
+//! a `list<u8>` out. The shared steps answer an error kind, and each caller
+//! words it, because depth decides what the same problem means: before the
+//! export call it is a `Trap`, inside a callback it is a wire failure the
+//! guest receives.
 
-use kobako_transport::abi::{unpack_ptr_len, MAX_MESSAGE_LEN};
+use kobako_transport::abi::MAX_MESSAGE_LEN;
 
 use super::{GuestInstance, RUNTIME_INCOMPATIBLE, SANDBOX_RUNTIME_NOT_KOBAKO};
 
 // The size-limit messages here and in the endpoint name the cap as 16 MiB, so
 // moving the cap fails the build until they are reworded with it.
 const _: () = assert!(MAX_MESSAGE_LEN == 16 << 20);
+
+/// The bytes of a return area: a u32 place, then a u32 length.
+const RETURN_AREA_SIZE: usize = 8;
+
+/// The alignment a return area keeps, its u32's own.
+const RETURN_AREA_ALIGN: usize = 4;
 
 /// Why a host write into guest memory failed.
 pub(super) enum WriteError<F> {
@@ -21,8 +29,6 @@ pub(super) enum WriteError<F> {
     /// message for it.
     Incompatible(&'static str),
     Trapped(F),
-    /// The allocator ran and answered 0.
-    OutOfMemory,
     OutOfBounds,
 }
 
@@ -32,8 +38,8 @@ pub(super) enum ReadError {
     OutOfBounds,
 }
 
-/// Allocate a guest buffer and copy `bytes` into it, answering the buffer's
-/// address.
+/// Take room from the guest's `cabi_realloc` and copy `bytes` into it,
+/// answering the room's address.
 pub(super) fn alloc_and_write<G: GuestInstance>(
     guest: &mut G,
     bytes: &[u8],
@@ -43,12 +49,9 @@ pub(super) fn alloc_and_write<G: GuestInstance>(
         return Err(WriteError::Incompatible(SANDBOX_RUNTIME_NOT_KOBAKO));
     }
     let ptr = guest
-        .alloc(len as u32)
+        .realloc(len as u32)
         .ok_or(WriteError::Incompatible(RUNTIME_INCOMPATIBLE))?
         .map_err(WriteError::Trapped)?;
-    if ptr == 0 {
-        return Err(WriteError::OutOfMemory);
-    }
     let memory = guest
         .memory()
         .ok_or(WriteError::Incompatible(SANDBOX_RUNTIME_NOT_KOBAKO))?;
@@ -56,6 +59,34 @@ pub(super) fn alloc_and_write<G: GuestInstance>(
         .map_err(|_| WriteError::OutOfBounds)?;
     memory[range].copy_from_slice(bytes);
     Ok(ptr)
+}
+
+/// Write `bytes` into the guest and name them in the return area at `ret`.
+pub(super) fn lower_list<G: GuestInstance>(
+    guest: &mut G,
+    bytes: &[u8],
+    ret: u32,
+) -> Result<(), WriteError<G::Fault>> {
+    let ptr = alloc_and_write(guest, bytes)?;
+    let memory = guest
+        .memory()
+        .ok_or(WriteError::Incompatible(SANDBOX_RUNTIME_NOT_KOBAKO))?;
+    let area =
+        return_area_range(ret as usize, memory.len()).map_err(|_| WriteError::OutOfBounds)?;
+    // The write has already held the length to the payload cap.
+    memory[area.start..area.start + 4].copy_from_slice(&ptr.to_le_bytes());
+    memory[area.start + 4..area.end].copy_from_slice(&(bytes.len() as u32).to_le_bytes());
+    Ok(())
+}
+
+/// Copy out the list the return area at `ret` names; a length past the
+/// 16 MiB cap is refused before the list is touched.
+pub(super) fn lift_list(memory: &[u8], ret: u32) -> Result<Vec<u8>, ReadError> {
+    let area = return_area_range(ret as usize, memory.len()).map_err(|_| ReadError::OutOfBounds)?;
+    let word =
+        |at: usize| u32::from_le_bytes(memory[at..at + 4].try_into().expect("a u32's width"));
+    let (ptr, len) = (word(area.start), word(area.start + 4));
+    read_buffer(memory, ptr as usize, len as usize)
 }
 
 /// Copy out the buffer the guest names; a length past the 16 MiB cap is
@@ -91,16 +122,18 @@ fn guest_buffer_range(
     Ok(ptr..end)
 }
 
-/// The `(ptr, len)` the guest packs for any answer it hands back, the
-/// outcome and a block's result alike.
-pub(super) fn unpack_guest_buffer(packed: u64) -> (usize, usize) {
-    let (ptr, len) = unpack_ptr_len(packed);
-    (ptr as usize, len as usize)
+/// The bytes of guest memory the return area at `ret` covers, refused off
+/// its alignment or reaching past memory.
+fn return_area_range(ret: usize, mem_size: usize) -> Result<core::ops::Range<usize>, &'static str> {
+    if !ret.is_multiple_of(RETURN_AREA_ALIGN) {
+        return Err("the return area is not aligned");
+    }
+    guest_buffer_range(ret, RETURN_AREA_SIZE, mem_size)
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{checked_payload_len, guest_buffer_range, unpack_guest_buffer, MAX_MESSAGE_LEN};
+    use super::{checked_payload_len, guest_buffer_range, lift_list, MAX_MESSAGE_LEN};
 
     // @behavior WE-059
     #[test]
@@ -164,24 +197,41 @@ mod tests {
         );
     }
 
-    // @behavior WE-001
+    /// 64 bytes of memory holding `answer` at 32, named by a return area at 8.
+    fn memory_naming(answer: &[u8]) -> Vec<u8> {
+        let mut memory = vec![0; 64];
+        memory[8..12].copy_from_slice(&32u32.to_le_bytes());
+        memory[12..16].copy_from_slice(&(answer.len() as u32).to_le_bytes());
+        memory[32..32 + answer.len()].copy_from_slice(answer);
+        memory
+    }
+
+    // @behavior WE-092
     #[test]
-    fn a_packed_answer_carries_the_pointer_high_and_the_length_low() {
+    fn a_return_area_names_its_answers_place_then_its_length() {
+        let memory = memory_naming(b"answer");
+
         assert_eq!(
-            unpack_guest_buffer(0xAABB_CCDD_1122_3344),
-            (0xAABB_CCDD, 0x1122_3344),
-            "0xAABB_CCDD_1122_3344 through unpack_guest_buffer must answer pointer 0xAABB_CCDD and \
-             length 0x1122_3344"
+            lift_list(&memory, 8).ok(),
+            Some(b"answer".to_vec()),
+            "a return area holding 32 then 6, read through lift_list, must answer the 6 bytes \
+             at 32"
         );
     }
 
-    // @behavior WE-065
+    // @behavior WE-093
     #[test]
-    fn a_packed_answer_of_nothing_is_a_zero_pair() {
-        assert_eq!(
-            unpack_guest_buffer(0),
-            (0, 0),
-            "0 through unpack_guest_buffer must answer pointer 0 and length 0"
+    fn a_return_area_off_its_alignment_or_past_memory_is_refused() {
+        let mut memory = memory_naming(b"answer");
+        // At 1, off alignment, the same place and length the area at 8 holds.
+        memory.copy_within(8..16, 1);
+
+        assert!(
+            [1, 60, u32::MAX - 3]
+                .iter()
+                .all(|&ret| lift_list(&memory, ret).is_err()),
+            "a return area at 1 (unaligned, naming a list inside memory), 60 (past 64 bytes), or \
+             u32::MAX - 3 through lift_list must be refused"
         );
     }
 }

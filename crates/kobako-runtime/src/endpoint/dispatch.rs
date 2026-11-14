@@ -1,7 +1,8 @@
-//! Host side of the `__kobako_upcall` import: hand the guest's Call to
-//! the bound `DispatchHandler` and write its Reply back into guest memory.
-//! A request under a tag the host does not serve is answered as
-//! unsupported, so a guest asking for a later operation can fall back.
+//! Host side of the `upcall` and `preamble` imports: hand the guest's Call
+//! to the bound `DispatchHandler` and write its Reply back into guest
+//! memory, or write the Invocation's Preamble there. A request under a tag
+//! the host does not serve is answered as unsupported, so a guest asking
+//! for a later operation can fall back.
 //!
 //! A failure lands on whoever is answerable for it, and always says why.
 //! A trap the guest raises during a callback into it ends the invocation
@@ -12,13 +13,12 @@
 
 use std::sync::Arc;
 
-use kobako_transport::abi::pack_ptr_len;
 use kobako_transport::envelope::{
     Downcall, Fault, FaultKind, Reply, Unsupported, Upcall, YieldReply,
 };
 
 use super::buffer::{
-    alloc_and_write, checked_payload_len, read_buffer, unpack_guest_buffer, ReadError, WriteError,
+    alloc_and_write, checked_payload_len, lift_list, lower_list, read_buffer, ReadError, WriteError,
 };
 use super::{GuestInstance, RUNTIME_INCOMPATIBLE, SANDBOX_RUNTIME_NOT_KOBAKO};
 use crate::dispatch::DispatchHandler;
@@ -92,21 +92,37 @@ impl<G: GuestInstance> Yielder for FrameYielder<'_, G> {
     }
 }
 
-/// Answer one `__kobako_upcall` call with the packed `(ptr<<32)|len` of
-/// the Reply, or what ends the invocation instead.
+/// Answer one `upcall` with the Reply, named in the return area at `ret`,
+/// or what ends the invocation instead.
 pub fn handle<G: GuestInstance>(
     guest: &mut G,
     req_ptr: i32,
     req_len: i32,
-) -> Result<i64, UpcallEnd<G::Fault>> {
+    ret: i32,
+) -> Result<(), UpcallEnd<G::Fault>> {
     let reply = reply_to(guest, req_ptr, req_len)
         .unwrap_or_else(|reason| Reply::Fault(Fault::new(FaultKind::Internal, reason)));
-    let written = write_reply(guest, &fit_in_message(reply).encode());
+    let written = lower_from_callback(guest, &fit_in_message(reply).encode(), ret as u32);
     if let Some(trap) = guest.calls().reentry_trap.take() {
         return Err(UpcallEnd::Fault(trap));
     }
     if guest.calls().abandoned() {
         return Err(UpcallEnd::Abandoned);
+    }
+    written.map_err(UpcallEnd::Unwritable)
+}
+
+/// Answer one `preamble` call with `preamble`, the Invocation's Preamble
+/// bytes, named in the return area at `ret`. Each call writes the same
+/// bytes afresh, so the guest may ask as often as it likes.
+pub fn hand_preamble<G: GuestInstance>(
+    guest: &mut G,
+    preamble: &[u8],
+    ret: i32,
+) -> Result<(), UpcallEnd<G::Fault>> {
+    let written = lower_from_callback(guest, preamble, ret as u32);
+    if let Some(trap) = guest.calls().reentry_trap.take() {
+        return Err(UpcallEnd::Fault(trap));
     }
     written.map_err(UpcallEnd::Unwritable)
 }
@@ -174,12 +190,6 @@ fn reply_to<G: GuestInstance>(
     )
 }
 
-fn write_reply<G: GuestInstance>(guest: &mut G, bytes: &[u8]) -> Result<i64, &'static str> {
-    let ptr = write_from_callback(guest, bytes)?;
-    // The write has already held the length to the payload cap.
-    Ok(pack_ptr_len(ptr, bytes.len() as u32) as i64)
-}
-
 /// The request the guest hands the upcall import. Its `(ptr, len)` are
 /// guest addresses, so they are read unsigned.
 fn read_request<G: GuestInstance>(
@@ -205,13 +215,33 @@ fn keep_trap<G: GuestInstance>(
     reason
 }
 
-/// Write `bytes` into the guest from inside a callback. A guest that has
-/// already trapped is not called again.
+/// Write `bytes` into the guest from inside a callback, answering where. A
+/// guest that has already trapped is not called again.
 fn write_from_callback<G: GuestInstance>(guest: &mut G, bytes: &[u8]) -> Result<u32, &'static str> {
-    if guest.calls().reentry_trap.is_some() {
-        return Err("the Sandbox already trapped during this invocation");
+    refuse_after_trap(guest)?;
+    alloc_and_write(guest, bytes).map_err(|err| callback_reason(guest, err))
+}
+
+/// Write `bytes` into the guest from inside a callback and name them in the
+/// return area at `ret`, as a host import answers a list.
+fn lower_from_callback<G: GuestInstance>(
+    guest: &mut G,
+    bytes: &[u8],
+    ret: u32,
+) -> Result<(), &'static str> {
+    refuse_after_trap(guest)?;
+    lower_list(guest, bytes, ret).map_err(|err| callback_reason(guest, err))
+}
+
+fn refuse_after_trap<G: GuestInstance>(guest: &mut G) -> Result<(), &'static str> {
+    match guest.calls().reentry_trap {
+        Some(_) => Err("the Sandbox already trapped during this invocation"),
+        None => Ok(()),
     }
-    alloc_and_write(guest, bytes).map_err(|err| match err {
+}
+
+fn callback_reason<G: GuestInstance>(guest: &mut G, err: WriteError<G::Fault>) -> &'static str {
+    match err {
         WriteError::TooLarge => "payload exceeds the 16 MiB limit",
         WriteError::Incompatible(message) => message,
         WriteError::Trapped(trap) => keep_trap(
@@ -219,9 +249,8 @@ fn write_from_callback<G: GuestInstance>(guest: &mut G, bytes: &[u8]) -> Result<
             trap,
             "the Sandbox trapped while allocating memory for the request",
         ),
-        WriteError::OutOfMemory => "the Sandbox ran out of memory while preparing the request",
         WriteError::OutOfBounds => "could not write the request into the Sandbox's memory",
-    })
+    }
 }
 
 fn drive_yield<G: GuestInstance>(
@@ -237,17 +266,17 @@ fn drive_yield<G: GuestInstance>(
     let len_i32 = checked_payload_len(request.len())?;
     let req_ptr = write_from_callback(guest, &request)? as i32;
 
-    let packed = guest
+    let ret = guest
         .downcall(req_ptr, len_i32)
         .ok_or(RUNTIME_INCOMPATIBLE)?
         .map_err(|trap| keep_trap(guest, trap, "the Sandbox trapped while invoking a block"))?;
-    let (reply_ptr, reply_len) = unpack_guest_buffer(packed);
-    if reply_len == 0 {
-        return Err("the Sandbox returned an empty block result");
-    }
     let memory = guest.memory().ok_or(SANDBOX_RUNTIME_NOT_KOBAKO)?;
-    read_buffer(memory, reply_ptr, reply_len).map_err(|err| match err {
+    let reply = lift_list(memory, ret).map_err(|err| match err {
         ReadError::TooLarge => "block result payload exceeds the 16 MiB limit",
         ReadError::OutOfBounds => "the Sandbox returned an out-of-bounds block result",
-    })
+    })?;
+    if reply.is_empty() {
+        return Err("the Sandbox returned an empty block result");
+    }
+    Ok(reply)
 }

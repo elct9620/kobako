@@ -1,33 +1,8 @@
 //! Guest memory the host writes into, and the answers it reads back.
 //!
-//! Every buffer comes from wasi-libc `malloc` and lives until the instance
-//! is dropped at the end of the invocation, so nothing is freed one by one.
-
-/// Guest allocator behind the `__kobako_alloc` export: a `size`-byte
-/// buffer the host writes into, or 0 when `malloc` cannot reserve one,
-/// which the host attributes to the guest rather than the engine.
-pub fn alloc(size: u32) -> u32 {
-    #[cfg(target_arch = "wasm32")]
-    {
-        extern "C" {
-            fn malloc(size: usize) -> *mut u8;
-        }
-        // SAFETY: wasi-libc `malloc` is a standard C-ABI allocator with
-        // a well-defined interface (size in / pointer out). NULL on
-        // failure is the only contractually invalid pointer we surface
-        // (folded into the 0 return below).
-        let ptr = unsafe { malloc(size as usize) };
-        if ptr.is_null() {
-            return 0;
-        }
-        ptr as u32
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let _ = size;
-        0
-    }
-}
+//! Every buffer comes from wasi-libc's allocator and lives until the
+//! instance is dropped at the end of the invocation, so nothing is freed one
+//! by one.
 
 /// The Canonical ABI's `cabi_realloc` behind the export of that name: room
 /// for `new_len` bytes at `align`, holding what stood at `old_ptr` when the
@@ -72,22 +47,51 @@ pub fn realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {
     }
 }
 
-/// Copy an encoded answer into a buffer the host can read, returning its
-/// packed `(ptr << 32) | len`, or 0 when no buffer could hold it — which
-/// the host refuses as an unframed answer.
-pub fn answer(bytes: &[u8]) -> u64 {
-    let Ok(len) = u32::try_from(bytes.len()) else {
-        return 0;
-    };
-    let ptr = alloc(len);
-    if ptr == 0 || len == 0 {
-        return 0;
+/// The return area every downcall answer is named in. A downcall nested in
+/// an upcall writes it too, but the host copies that answer out before the
+/// outer one is written.
+#[cfg(target_arch = "wasm32")]
+static mut RETURN_AREA: [u32; 2] = [0; 2];
+
+/// Keep an encoded answer in guest memory and answer the return area that
+/// names its `(ptr, len)`, for the downcall export to return.
+pub fn answer(bytes: &[u8]) -> u32 {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let kept: &'static [u8] = Vec::leak(bytes.to_vec());
+        // SAFETY: the guest runs on one thread, and the host reads the area
+        // only after the export that wrote it returns.
+        unsafe {
+            let area = core::ptr::addr_of_mut!(RETURN_AREA);
+            *area = [kept.as_ptr() as u32, kept.len() as u32];
+            area as u32
+        }
     }
-    // SAFETY: `alloc` returned a `len`-byte buffer in the current
-    // instance's linear memory; copying `bytes.len()` bytes into it is
-    // in-bounds.
-    unsafe {
-        core::ptr::copy_nonoverlapping(bytes.as_ptr(), ptr as *mut u8, bytes.len());
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let _ = bytes;
+        0
     }
-    super::pack_ptr_len(ptr, len)
+}
+
+/// Run the static constructors the first time any export is entered, as
+/// wit-bindgen's runtime does. Calling `__wasm_call_ctors` here also keeps
+/// wasm-ld from wrapping each export to run them, and their destructors,
+/// on every call.
+pub fn run_ctors_once() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        static mut RAN: bool = false;
+        extern "C" {
+            fn __wasm_call_ctors();
+        }
+        // SAFETY: the guest runs on one thread, and wasm-ld defines
+        // `__wasm_call_ctors` for every module it links.
+        unsafe {
+            if !RAN {
+                __wasm_call_ctors();
+                RAN = true;
+            }
+        }
+    }
 }

@@ -530,22 +530,6 @@ These rules let every other undefined value be a refusal. The extension point is
 | When | the range is taken |
 | Then | it is refused |
 
-## `WE-065` A packed answer of nothing is the failure signal
-
-| Step | Statement |
-| --- | --- |
-| Given | a packed answer of nothing |
-| When | it is read back |
-| Then | both halves are nothing |
-
-## `WE-066` A length-prefixed frame round-trips
-
-| Step | Statement |
-| --- | --- |
-| Given | a payload written behind its length |
-| When | the frame is read |
-| Then | the payload arrives as it was given |
-
 ## `WE-068` Every answer's ok arm carries the same tag
 
 | Step | Statement |

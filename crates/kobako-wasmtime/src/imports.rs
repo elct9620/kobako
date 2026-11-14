@@ -1,6 +1,6 @@
 //! The host imports a Guest Binary resolves: the WASI preview1 set, the
-//! WASI 0.2 functions a core module links, and the wire ABI's
-//! `__kobako_upcall`.
+//! WASI 0.2 functions a core module links, and the kobako ABI's `upcall`
+//! and `preamble`.
 //!
 //! Every import reads its state from the `Invocation` inside the calling
 //! Store, never from a Runtime, so the wiring is the same for every Sandbox
@@ -16,6 +16,7 @@ use crate::preview1;
 use crate::preview2;
 use kobako_runtime::endpoint::{self, UpcallEnd, ABANDONED};
 use kobako_runtime::error::SetupError;
+use kobako_transport::abi::{HOST_INTERFACE, PREAMBLE, UPCALL};
 
 pub(crate) fn linker() -> Result<Linker<Invocation>, SetupError> {
     let mut linker: Linker<Invocation> = Linker::new(load_engine()?);
@@ -31,25 +32,45 @@ pub(crate) fn linker() -> Result<Linker<Invocation>, SetupError> {
     .and_then(|_| preview2::add_to_linker(&mut linker))
     .map_err(|e| SetupError::Dead(format!("failed to set up the WASI runtime: {e}")))?;
 
-    // `__kobako_upcall`, `(ptr: i32, len: i32) -> i64` in the ABI;
-    // `endpoint::handle` owns what it answers.
+    // `upcall`, `(ptr: i32, len: i32, ret: i32)` in the ABI, and `preamble`,
+    // `(ret: i32)`; the endpoint owns what each answers.
+    let bridge = |e: wasmtime::Error| {
+        SetupError::Dead(format!("failed to set up the host callback bridge: {e}"))
+    };
     linker
         .func_wrap(
-            "env",
-            "__kobako_upcall",
+            HOST_INTERFACE,
+            UPCALL,
             |mut caller: Caller<'_, Invocation>,
              req_ptr: i32,
-             req_len: i32|
-             -> wasmtime::Result<i64> {
+             req_len: i32,
+             ret: i32|
+             -> wasmtime::Result<()> {
                 let mut guest = Guest(caller.as_context_mut());
-                endpoint::handle(&mut guest, req_ptr, req_len).map_err(|end| match end {
-                    UpcallEnd::Fault(trap) => trap,
-                    UpcallEnd::Abandoned => wasmtime::Error::msg(ABANDONED),
-                    UpcallEnd::Unwritable(reason) => wasmtime::Error::msg(reason),
-                })
+                endpoint::handle(&mut guest, req_ptr, req_len, ret).map_err(ended)
             },
         )
-        .map_err(|e| SetupError::Dead(format!("failed to set up the host callback bridge: {e}")))?;
+        .map_err(bridge)?;
+    linker
+        .func_wrap(
+            HOST_INTERFACE,
+            PREAMBLE,
+            |mut caller: Caller<'_, Invocation>, ret: i32| -> wasmtime::Result<()> {
+                let preamble = caller.data().preamble();
+                let mut guest = Guest(caller.as_context_mut());
+                endpoint::hand_preamble(&mut guest, &preamble, ret).map_err(ended)
+            },
+        )
+        .map_err(bridge)?;
 
     Ok(linker)
+}
+
+/// The trap a host import ends the invocation with instead of answering.
+fn ended(end: UpcallEnd<wasmtime::Error>) -> wasmtime::Error {
+    match end {
+        UpcallEnd::Fault(trap) => trap,
+        UpcallEnd::Abandoned => wasmtime::Error::msg(ABANDONED),
+        UpcallEnd::Unwritable(reason) => wasmtime::Error::msg(reason),
+    }
 }

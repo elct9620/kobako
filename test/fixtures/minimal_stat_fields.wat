@@ -5,8 +5,8 @@
 ;; gives `f`. The real Guest Binary reads no time and no inode number from a
 ;; listing, so no script can.
 ;;
-;; Update the `i32.const` ABI version by hand on a bump, same as
-;; `minimal_abi_ok.wat`.
+;; The version is the one in the export name; update it by hand on a bump,
+;; same as `minimal_abi_ok.wat`.
 (module
   (import "wasi_snapshot_preview1" "path_filestat_get"
     (func $path_stat (param i32 i32 i32 i32 i32) (result i32)))
@@ -18,7 +18,9 @@
     (func $readdir (param i32 i32 i32 i64 i32) (result i32)))
   (memory (export "memory") 1)
   (data (i32.const 700) "f")
-  (func (export "__kobako_alloc") (param i32) (result i32) (i32.const 8192))
+  ;; The return area at 992 naming the 105-byte answer at 8.
+  (data (i32.const 992) "\08\00\00\00\69\00\00\00")
+  (func (export "cabi_realloc") (param i32 i32 i32 i32) (result i32) (i32.const 8192))
 
   ;; A msgpack uint64 at $at: its tag, then $value big-endian.
   (func $put (param $at i32) (param $value i64)
@@ -64,7 +66,7 @@
     (local.get $found))
 
   ;; The answer at 8: the ok tag 0x10, an array of fifteen, then its members.
-  (func (export "__kobako_downcall") (param i32 i32) (result i64)
+  (func (export "kobako:abi/guest@0.6.0#downcall") (param i32 i32) (result i32)
     (i32.store8 (i32.const 10)
       (call $path_stat (i32.const 3) (i32.const 0) (i32.const 700) (i32.const 1) (i32.const 256)))
     ;; No oflags, fd_read and fd_filestat_get.
@@ -79,5 +81,4 @@
     (call $put_stat (i32.const 14) (i32.const 256))
     (call $put_stat (i32.const 59) (i32.const 320))
     (call $put (i32.const 104) (call $listed))
-    (i64.or (i64.shl (i64.const 8) (i64.const 32)) (i64.const 105)))
-  (func (export "__kobako_abi_version") (result i32) (i32.const 6)))
+    (i32.const 992)))

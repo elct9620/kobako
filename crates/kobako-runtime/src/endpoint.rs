@@ -1,7 +1,7 @@
 //! The host ABI endpoint: everything the kobako ABI asks of a host that no
 //! Engine decides, so a Wasm Driver for any Engine implements `GuestInstance`
-//! over its own memory and exports, and links `__kobako_upcall` to
-//! `dispatch::handle`.
+//! over its own memory and exports, and links the `upcall` and `preamble`
+//! imports to `handle` and `hand_preamble`.
 //!
 //! Only this endpoint and its guest counterpart read or write an envelope's
 //! bytes.
@@ -12,14 +12,14 @@ mod invoke;
 
 use std::fmt::Display;
 
-use kobako_transport::abi::ABI_VERSION;
+use kobako_transport::abi::{ABI_VERSION, DOWNCALL, GUEST_INTERFACE};
 
 use crate::error::{SetupError, Trap};
 
-pub use dispatch::{handle, Calls, UpcallEnd, ABANDONED};
+pub use dispatch::{hand_preamble, handle, Calls, UpcallEnd, ABANDONED};
 pub use invoke::{
-    compile_request, compiled_bytecodes, read_compile_reply, read_outcome, request_of,
-    stdin_content, write_request,
+    compile_request, compiled_bytecodes, preamble_bytes, read_compile_reply, read_outcome,
+    request_of, write_request,
 };
 
 /// For a required guest export that is absent or mistyped, wherever it is
@@ -28,13 +28,29 @@ pub use invoke::{
 pub const RUNTIME_INCOMPATIBLE: &str =
     "the Sandbox runtime is incompatible; rebuild it against the kobako version in use";
 
-/// Accept a Guest Binary only when the ABI version it reports is the host's;
-/// `None` means it exports none. Only rebuilding the artifact fixes either
-/// refusal, so both are `Dead` and say so.
-pub fn verify_abi_version(reported: Option<u32>) -> Result<(), SetupError> {
+/// The export a Guest Binary answers downcalls through, as a Wasm Driver
+/// resolves it.
+pub fn downcall_export() -> String {
+    format!("{GUEST_INTERFACE}#{DOWNCALL}")
+}
+
+/// Accept a Guest Binary only when, among the names of its `exports`, its
+/// downcall stands under the host's ABI version. Only rebuilding the artifact
+/// fixes either refusal, so both are `Dead` and say so.
+pub fn verify_abi_version<'a>(
+    exports: impl IntoIterator<Item = &'a str>,
+) -> Result<(), SetupError> {
+    let interface = GUEST_INTERFACE
+        .strip_suffix(ABI_VERSION)
+        .expect("the guest interface carries the ABI version");
+    let downcall = format!("#{DOWNCALL}");
+    let reported = exports.into_iter().find_map(|name| {
+        name.strip_prefix(interface)
+            .and_then(|rest| rest.strip_suffix(downcall.as_str()))
+    });
     match reported {
         None => Err(SetupError::Dead(format!(
-            "the Guest Binary does not export __kobako_abi_version; \
+            "the Guest Binary exports no {interface}{ABI_VERSION}{downcall}; \
              rebuild it against ABI version {ABI_VERSION}"
         ))),
         Some(version) if version != ABI_VERSION => Err(SetupError::Dead(format!(
@@ -51,8 +67,8 @@ pub fn verify_abi_version(reported: Option<u32>) -> Result<(), SetupError> {
 const SANDBOX_RUNTIME_NOT_KOBAKO: &str =
     "the loaded Wasm module is not a Kobako-compatible runtime";
 
-/// One guest instance as the endpoint drives it: what a Wasm Driver gives it of an
-/// Engine, from the invocation body and from inside `__kobako_upcall` alike.
+/// One guest instance as the endpoint drives it: what a Wasm Driver gives it
+/// of an Engine, from the invocation body and from inside a host import alike.
 /// A method answering `None` names an export the module does not have.
 pub trait GuestInstance {
     /// What a call into the guest raises, kept as it is so an invocation ends
@@ -65,13 +81,13 @@ pub trait GuestInstance {
     /// The guest's linear memory.
     fn memory(&mut self) -> Option<&mut [u8]>;
 
-    /// Allocate `len` bytes through `__kobako_alloc`, answering the address,
-    /// or 0 where the guest has none to give.
-    fn alloc(&mut self, len: u32) -> Option<Result<u32, Self::Fault>>;
+    /// Room for `len` bytes from `cabi_realloc`, answering its address. A
+    /// guest with no room left traps.
+    fn realloc(&mut self, len: u32) -> Option<Result<u32, Self::Fault>>;
 
-    /// Call `__kobako_downcall` with a request at `ptr`, answering the packed
-    /// `(ptr, len)` of its answer.
-    fn downcall(&mut self, ptr: i32, len: i32) -> Option<Result<u64, Self::Fault>>;
+    /// Call the downcall with a request at `ptr`, answering the return area
+    /// that names its answer.
+    fn downcall(&mut self, ptr: i32, len: i32) -> Option<Result<u32, Self::Fault>>;
 
     /// The cap `fault` carries, if one of the invocation's caps fired, which
     /// names itself rather than the step it fired during.
@@ -82,7 +98,6 @@ pub trait GuestInstance {
 mod tests {
     //! Witness that the endpoint needs nothing of an Engine: an instance made
     //! of a plain buffer drives a whole request and upcall through it.
-    use kobako_transport::abi::unpack_ptr_len;
     use kobako_transport::envelope::Reply;
 
     use super::*;
@@ -105,13 +120,13 @@ mod tests {
             Some(&mut self.memory)
         }
 
-        fn alloc(&mut self, len: u32) -> Option<Result<u32, String>> {
+        fn realloc(&mut self, len: u32) -> Option<Result<u32, String>> {
             let ptr = self.next;
             self.next += len;
             Some(Ok(ptr))
         }
 
-        fn downcall(&mut self, _ptr: i32, _len: i32) -> Option<Result<u64, String>> {
+        fn downcall(&mut self, _ptr: i32, _len: i32) -> Option<Result<u32, String>> {
             None
         }
 
@@ -126,6 +141,13 @@ mod tests {
             next: 16,
             calls: Calls::default(),
         }
+    }
+
+    /// The list the return area at `ret` names in `guest`.
+    fn named_by(guest: &InMemory, ret: usize) -> &[u8] {
+        let word = |at: usize| u32::from_le_bytes(guest.memory[at..at + 4].try_into().unwrap());
+        let (ptr, len) = (word(ret) as usize, word(ret + 4) as usize);
+        &guest.memory[ptr..ptr + len]
     }
 
     // @behavior RT-191
@@ -147,16 +169,64 @@ mod tests {
     fn an_upcall_answers_through_any_instance() {
         let mut guest = instance();
         let request = b"not a call";
-        guest.memory[..request.len()].copy_from_slice(request);
-        let packed = handle(&mut guest, 0, request.len() as i32)
-            .ok()
-            .expect("the upcall must answer");
-        let (ptr, len) = unpack_ptr_len(packed as u64);
-        let reply = Reply::decode(&guest.memory[ptr as usize..(ptr + len) as usize]);
+        guest.memory[512..512 + request.len()].copy_from_slice(request);
+        assert!(
+            handle(&mut guest, 512, request.len() as i32, 8).is_ok(),
+            "the upcall must answer"
+        );
+        let reply = Reply::decode(named_by(&guest, 8));
         assert!(
             matches!(reply, Ok(Reply::Unsupported(_))),
             "endpoint::handle through an instance of a plain buffer must write the answer to a \
              request under an unserved tag back into guest memory"
+        );
+    }
+
+    // @behavior RT-396
+    #[test]
+    fn the_preamble_is_the_same_however_often_the_guest_asks() {
+        let mut guest = instance();
+        let answers: Vec<Vec<u8>> = (0..2)
+            .map(|_| {
+                assert!(hand_preamble(&mut guest, b"setup", 8).is_ok());
+                named_by(&guest, 8).to_vec()
+            })
+            .collect();
+        assert_eq!(
+            answers,
+            [b"setup".to_vec(), b"setup".to_vec()],
+            "endpoint::hand_preamble asked twice within one Invocation must name the same \
+             Preamble bytes each time"
+        );
+    }
+
+    // @behavior RT-006
+    #[test]
+    fn a_guest_exporting_no_versioned_downcall_is_refused() {
+        assert!(
+            matches!(
+                verify_abi_version(["__kobako_downcall", "memory"]),
+                Err(SetupError::Dead(message)) if message.contains("exports no kobako:abi/guest@")
+            ),
+            "a Guest Binary whose exports hold no kobako:abi/guest downcall must be refused, \
+             saying none is exported"
+        );
+    }
+
+    // @behavior RT-007
+    #[test]
+    fn a_guest_exporting_another_version_is_refused() {
+        assert!(
+            matches!(
+                verify_abi_version(["kobako:abi/guest@0.5.0#downcall"]),
+                Err(SetupError::Dead(message)) if message.contains("reports ABI version 0.5.0")
+            ),
+            "a Guest Binary exporting its downcall under 0.5.0 must be refused, naming the \
+             version it reports"
+        );
+        assert!(
+            verify_abi_version([downcall_export().as_str()]).is_ok(),
+            "a Guest Binary exporting its downcall under the host's version must be accepted"
         );
     }
 }

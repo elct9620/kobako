@@ -4,14 +4,20 @@
 
 use std::io::{self, Read, Write};
 
-use kobako_transport::abi::{FRAME_LEN_SIZE, MAX_FRAME_LEN};
+/// Width in bytes of the length word in front of every frame.
+const FRAME_LEN_SIZE: usize = 4;
+
+/// The longest frame a reader allocates for: a declared length is read
+/// before anything else, so this bounds what it may make the reader
+/// allocate.
+const MAX_FRAME_LEN: usize = 64 * 1024 * 1024;
 
 /// High bit of the length word: the payload is an error message, not an
 /// answer.
 const ERROR_FLAG: u32 = 0x8000_0000;
 
 /// The next frame's bytes, or `None` once the peer closed the pipe between
-/// frames. A frame longer than the ABI's `MAX_FRAME_LEN` is refused.
+/// frames. A frame longer than `MAX_FRAME_LEN` is refused.
 pub fn read(input: &mut impl Read) -> io::Result<Option<Vec<u8>>> {
     let mut header = [0u8; FRAME_LEN_SIZE];
     match input.read_exact(&mut header) {

@@ -10,11 +10,11 @@ Static binaries the test suite reads via `File.binread` / `Kobako::Sandbox.new(w
 
 If a fixture genuinely needs to track upstream (rare), update it by hand using the recipes below and note the bump in the commit message.
 
-The hand-written `.wat` fixtures carry the ABI version as an `i32.const`. Update it by hand on a version bump, unless the fixture says otherwise.
+The hand-written `.wat` fixtures carry the ABI version in their export and import names, such as `kobako:abi/guest@0.6.0#downcall`. Update it by hand on a version bump, unless the fixture says otherwise.
 
 ## `minimal.wasm`
 
-Minimal `wasm32-wasip1` Reactor module that exports only a `ping` function, so it lacks `__kobako_abi_version`. It is the frozen stand-in for a guest missing the ABI version export.
+Minimal `wasm32-wasip1` Reactor module that exports only a `ping` function, so it has no versioned downcall. It is the frozen stand-in for a guest stating no ABI version.
 
 | Fact | Detail |
 |---|---|
@@ -31,21 +31,19 @@ Hand-written text-format modules around the construction-time ABI version check.
 | Fixture | Reports | Stands in for |
 |---|---|---|
 | `minimal_abi_ok.wat` | the current ABI version, plus a no-op downcall | tests that never invoke end-to-end |
-| `minimal_abi_mismatch.wat` | `9999` | the mismatch branch |
+| `minimal_abi_mismatch.wat` | `9999.0.0` | the mismatch branch |
 
-`9999` stays a mismatch regardless of future bumps, the same convention as `snippet_wrong_version.mrb`.
+`9999.0.0` stays a mismatch regardless of future bumps, the same convention as `snippet_wrong_version.mrb`.
 
-## `minimal_alloc_zero.wat`
+## `minimal_alloc_trap.wat`
 
-Hand-written text-format module that passes the ABI version check but whose `__kobako_alloc` always returns `0`. It is the frozen stand-in for a failed guest allocation.
+Hand-written text-format module that passes the ABI version check but whose `cabi_realloc` always traps, as a guest with no room left does. It is the frozen stand-in for a failed guest allocation.
 
 | Step | What happens |
 |---|---|
-| host reserves the downcall | the guest returns no memory |
-| the failure surfaces | as `Kobako::SandboxError`, never a trap |
+| host reserves the downcall | the guest traps |
+| the failure surfaces | as `Kobako::TrapError` |
 | the downcall | is never reached |
-
-The runtime stays intact, which is why the failure is not a trap.
 
 ## `minimal_spinning_start.wat`
 
@@ -59,7 +57,7 @@ Hand-written text-format module whose start function never returns. It is the fr
 
 ## `minimal_spinning_alloc.wat`
 
-Hand-written text-format module that passes the ABI version check but whose `__kobako_alloc` never returns. It is the frozen stand-in for a guest that stalls while being set up.
+Hand-written text-format module that passes the ABI version check but whose `cabi_realloc` never returns. It is the frozen stand-in for a guest that stalls while being set up.
 
 | Step | What happens |
 |---|---|

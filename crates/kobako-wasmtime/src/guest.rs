@@ -22,12 +22,12 @@ impl GuestInstance for Guest<'_> {
         Some(memory.data_mut(&mut self.0))
     }
 
-    fn alloc(&mut self, len: u32) -> Option<wasmtime::Result<u32>> {
-        let alloc = self.0.data().exports()?.alloc?;
-        Some(alloc.call(&mut self.0, len))
+    fn realloc(&mut self, len: u32) -> Option<wasmtime::Result<u32>> {
+        let realloc = self.0.data().exports()?.realloc?;
+        Some(realloc.call(&mut self.0, (0, 0, 1, len)))
     }
 
-    fn downcall(&mut self, ptr: i32, len: i32) -> Option<wasmtime::Result<u64>> {
+    fn downcall(&mut self, ptr: i32, len: i32) -> Option<wasmtime::Result<u32>> {
         let downcall = self.0.data().exports()?.downcall?;
         Some(downcall.call(&mut self.0, (ptr, len)))
     }

@@ -25,4 +25,9 @@ pub use kobako_transport::envelope::{
     CompileReply, Flag, Outcome, Preamble, Run, Unsupported, YieldReply,
 };
 pub use panic::sandbox_panic;
+
+// `export_guest!` spells its export names through this, in the shell that
+// expands it, which need not depend on `kobako-transport` itself.
+#[doc(hidden)]
+pub use kobako_transport::abi_name as __abi_name;
 pub use proxy::{dispatch, DispatchError};

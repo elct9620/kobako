@@ -19,7 +19,7 @@ boot reaches as follows.
 | Import reached during boot | What the linker answers |
 |---|---|
 | the WASI surface wasi-libc's `_initialize` touches | constants, as kobako's ambient denial |
-| `env::__kobako_upcall` | a trap |
+| `upcall` and `preamble` from `kobako:abi/host@0.6.0` | a trap |
 | anything else | the bake aborts |
 
 Identical inputs produce identical baked bytes, so a double-bake byte-identity

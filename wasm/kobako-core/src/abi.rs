@@ -1,37 +1,54 @@
-//! Guest ABI machinery: the `__kobako_upcall` host-import declaration,
-//! the guest memory the host writes into (`alloc`), and the downcall a
-//! guest answers (`serve`, framed out through `answer`).
+//! Guest ABI machinery: the host imports (`upcall`, `preamble`), the guest
+//! memory the host writes into (`realloc`), the downcall a guest answers
+//! (`serve`, handed back through `answer`), and the one run of the static
+//! constructors (`run_ctors_once`).
 //!
-//! The values the ABI fixes — the version, the packed-return layout —
-//! are `kobako_transport::abi`'s and are re-exported here so
-//! `crate::export_guest!` reaches them through `$crate` in the shell that
-//! expands it. The `#[no_mangle]` exports themselves are that macro's;
-//! this module carries only what they delegate to.
+//! The names the ABI fixes are `kobako_transport::abi`'s. The exports
+//! themselves are `crate::export_guest!`'s; this module carries only what
+//! they delegate to.
 
 mod downcall;
 mod memory;
 
 pub use downcall::serve;
-pub use kobako_transport::abi::{pack_ptr_len, unpack_ptr_len, ABI_VERSION};
-pub use memory::{alloc, answer, realloc};
+pub use memory::{answer, realloc, run_ctors_once};
 
-// ---------------------------------------------------------------------------
-// Host import declaration.
-// ---------------------------------------------------------------------------
-//
-// The `wasm_import_module = "env"` attribute pins the import namespace.
-// Signature: `(ptr: i32, len: i32) -> i64`, the ABI's upcall import.
-// We only declare the import on the wasm32 target —
-// on the host target (where the rlib's unit tests run) there is no
-// host to provide the symbol.
+/// Declare the host imports under the host interface's literal name, the
+/// only form `wasm_import_module` accepts.
 #[cfg(target_arch = "wasm32")]
-#[link(wasm_import_module = "env")]
-extern "C" {
-    /// Host-provided upcall. Guest writes a request at
-    /// `[ptr, ptr + len)` and calls this; host returns a packed u64
-    /// holding (ptr, len) of an answer the host allocated via
-    /// `__kobako_alloc` inside the same call frame.
-    /// Crate-internal — guests dispatch through `proxy`,
-    /// never the raw import.
-    pub(crate) fn __kobako_upcall(ptr: u32, len: u32) -> u64;
+macro_rules! host_imports {
+    ($module:literal) => {
+        #[link(wasm_import_module = $module)]
+        extern "C" {
+            /// The guest writes a Call at `[ptr, ptr + len)`; the host writes
+            /// the Reply into room it took from `cabi_realloc` and names it in
+            /// the two u32 at `ret`. Crate-internal: guests dispatch through
+            /// `proxy`, never the raw import.
+            pub(crate) fn upcall(ptr: u32, len: u32, ret: u32);
+
+            /// The host writes this Invocation's Preamble into room it took
+            /// from `cabi_realloc` and names it in the two u32 at `ret`.
+            pub(crate) fn preamble(ret: u32);
+        }
+    };
+}
+
+#[cfg(target_arch = "wasm32")]
+kobako_transport::abi_name!(host => host_imports);
+
+/// The `(ptr, len)` a host names in a return area, as the bytes it holds.
+/// An empty list names nothing to read.
+///
+/// # Safety
+///
+/// The host wrote `area` and promises `[ptr, ptr + len)` lies in this
+/// instance's memory, which lives until the instance is dropped.
+#[cfg(target_arch = "wasm32")]
+pub(crate) unsafe fn take_list(area: [u32; 2]) -> Vec<u8> {
+    let [ptr, len] = area;
+    if len == 0 {
+        return Vec::new();
+    }
+    // SAFETY: the caller's promise above.
+    unsafe { core::slice::from_raw_parts(ptr as *const u8, len as usize) }.to_vec()
 }

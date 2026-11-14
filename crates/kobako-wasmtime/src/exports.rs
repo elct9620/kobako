@@ -10,7 +10,7 @@
 
 use wasmtime::{AsContextMut, Instance as WtInstance, Memory, TypedFunc};
 
-use kobako_runtime::endpoint::RUNTIME_INCOMPATIBLE;
+use kobako_runtime::endpoint::{self, RUNTIME_INCOMPATIBLE};
 use kobako_runtime::error::Trap;
 
 /// The resolved host-driven export handles. Each is `Option` because test
@@ -24,8 +24,8 @@ use kobako_runtime::error::Trap;
 /// own data for the host imports to reach.
 #[derive(Clone)]
 pub(crate) struct Exports {
-    pub(crate) downcall: Option<TypedFunc<(i32, i32), u64>>,
-    pub(crate) alloc: Option<TypedFunc<u32, u32>>,
+    pub(crate) downcall: Option<TypedFunc<(i32, i32), u32>>,
+    pub(crate) realloc: Option<TypedFunc<(u32, u32, u32, u32), u32>>,
     pub(crate) memory: Option<Memory>,
 }
 
@@ -35,10 +35,10 @@ impl Exports {
     pub(crate) fn resolve(instance: &WtInstance, mut ctx: impl AsContextMut) -> Self {
         Self {
             downcall: instance
-                .get_typed_func::<(i32, i32), u64>(&mut ctx, "__kobako_downcall")
+                .get_typed_func::<(i32, i32), u32>(&mut ctx, &endpoint::downcall_export())
                 .ok(),
-            alloc: instance
-                .get_typed_func::<u32, u32>(&mut ctx, "__kobako_alloc")
+            realloc: instance
+                .get_typed_func::<(u32, u32, u32, u32), u32>(&mut ctx, "cabi_realloc")
                 .ok(),
             memory: instance.get_memory(&mut ctx, "memory"),
         }
@@ -77,12 +77,7 @@ mod tests {
 
     const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
-    const ABI_EXPORTS: [&str; 4] = [
-        "__kobako_abi_version",
-        "__kobako_alloc",
-        "__kobako_downcall",
-        "cabi_realloc",
-    ];
+    const ABI_EXPORTS: [&str; 2] = ["cabi_realloc", "kobako:abi/guest@0.6.0#downcall"];
 
     // @behavior RT-068
     #[test]

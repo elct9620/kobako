@@ -3,7 +3,8 @@
 //!
 //! Owned as the data of each per-invocation `wasmtime::Store`
 //! and threaded through every host import —
-//! the `__kobako_upcall` dispatcher reads the bound dispatch handler,
+//! the `upcall` dispatcher reads the bound dispatch handler, the `preamble`
+//! import the Invocation's Preamble,
 //! and the WASI imports read the invocation's `Wasi` context, which the
 //! Store is created with.
 //!
@@ -41,6 +42,7 @@ pub(crate) struct Invocation {
     wall_time: Duration,
     exports: Option<Exports>,
     hostcall_fuel: usize,
+    preamble: Arc<[u8]>,
 }
 
 impl Invocation {
@@ -57,7 +59,18 @@ impl Invocation {
             wall_time: Duration::ZERO,
             exports: None,
             hostcall_fuel: 0,
+            preamble: Arc::from([]),
         }
+    }
+
+    /// The Preamble bytes the `preamble` import hands the guest; empty until
+    /// an entry sets them.
+    pub(crate) fn preamble(&self) -> Arc<[u8]> {
+        Arc::clone(&self.preamble)
+    }
+
+    pub(crate) fn set_preamble(&mut self, preamble: Vec<u8>) {
+        self.preamble = Arc::from(preamble);
     }
 
     /// How much of the guest's memory the call under way may have the host

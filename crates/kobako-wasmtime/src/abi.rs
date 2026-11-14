@@ -1,5 +1,6 @@
-//! Reading the Guest Binary's declared ABI version for the endpoint to
-//! accept or refuse.
+//! Reading the Guest Binary's declared ABI version, from its export names,
+//! for the endpoint to accept or refuse, once the artifact has shown it
+//! instantiates.
 //!
 //! An artifact reports one ABI version, so the answer belongs to the
 //! module and not to the sandbox asking for it. The check therefore runs
@@ -19,8 +20,8 @@ use kobako_runtime::error::{SetupError, Trap};
 
 /// An absent or unequal version is a deterministic artifact fault, so
 /// every failure is a `SetupError`. `setup_timeout` bounds instantiating
-/// the artifact and reading its version, so a start function that never
-/// returns fails construction instead of hanging it.
+/// the artifact, so a start function that never returns fails construction
+/// instead of hanging it.
 pub(crate) fn verify(
     pre: &InstancePre<Invocation>,
     setup_timeout: Option<Duration>,
@@ -38,22 +39,9 @@ pub(crate) fn verify(
             ))
         })
     };
-    let instance = pre
-        .instantiate(store.as_context_mut())
+    pre.instantiate(store.as_context_mut())
         .map_err(|e| past_deadline(&e).unwrap_or_else(|| trap::to_setup_error(e)))?;
-    let Ok(probe) =
-        instance.get_typed_func::<(), u32>(store.as_context_mut(), "__kobako_abi_version")
-    else {
-        return endpoint::verify_abi_version(None);
-    };
-    let reported = probe.call(store.as_context_mut(), ()).map_err(|e| {
-        past_deadline(&e).unwrap_or_else(|| {
-            SetupError::Dead(format!(
-                "failed to read the Guest Binary's ABI version: {e}"
-            ))
-        })
-    })?;
-    endpoint::verify_abi_version(Some(reported))
+    endpoint::verify_abi_version(pre.module().exports().map(|export| export.name()))
 }
 
 #[cfg(test)]

@@ -28,8 +28,5 @@ kobako = { path = "../kobako" }
 # through the opaque `Receiver::call` seam.
 kobako-codec = { path = "../kobako-codec" }
 
-# The ABI's frame length prefix the oracles frame their stdio with.
-kobako-transport = { path = "../kobako-transport" }
-
 # Scenario / observable JSON.
 serde_json = "1.0.150"

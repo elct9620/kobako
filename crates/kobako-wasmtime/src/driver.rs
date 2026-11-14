@@ -83,15 +83,15 @@ impl Driver {
     }
 
     /// Instantiate the guest in `store`, write `request` into it, and call
-    /// `__kobako_downcall` under the invocation's caps, answering the packed
-    /// reply. A fault before the call starts is the outer `Err`, the call's
-    /// own the inner one. Disarm runs whether the call returns or traps, so
+    /// the downcall under the invocation's caps, answering the return area
+    /// that names its answer. A fault before the call starts is the outer
+    /// `Err`, the call's own the inner one. Disarm runs whether the call returns or traps, so
     /// the `wall_time` bracket and the memory budget always close.
     fn downcall(
         &self,
         store: &mut WtStore<Invocation>,
         request: &[u8],
-    ) -> Result<wasmtime::Result<u64>, InvokeError> {
+    ) -> Result<wasmtime::Result<u32>, InvokeError> {
         let exports = self.instantiate(store)?;
         let downcall = exports::require(exports.downcall.as_ref())?;
         let (ptr, len) = endpoint::write_request(&mut guest_of(store), request)?;
@@ -145,16 +145,17 @@ impl ContractRuntime for Driver {
         handler: Option<Arc<dyn DispatchHandler>>,
         grants: &[Grant],
     ) -> Result<Snapshot, InvokeError> {
-        let stdin =
-            endpoint::stdin_content(preamble).map_err(|msg| Trap::Other(msg.to_string()))?;
-        let wasi = Wasi::for_invocation(&self.config, stdin, grants, &self.open_connections)?;
+        let preamble =
+            endpoint::preamble_bytes(preamble).map_err(|msg| Trap::Other(msg.to_string()))?;
+        let wasi = Wasi::for_invocation(&self.config, Vec::new(), grants, &self.open_connections)?;
         let mut store = self.new_store(wasi)?;
+        store.data_mut().set_preamble(preamble);
         if let Some(handler) = handler {
             store.data_mut().bind_on_dispatch(handler);
         }
         let called = self.downcall(&mut store, &endpoint::request_of(entry))?;
         let completion = match called {
-            Ok(packed) => match endpoint::read_outcome(&mut guest_of(&mut store), packed) {
+            Ok(ret) => match endpoint::read_outcome(&mut guest_of(&mut store), ret) {
                 Ok(outcome) => Completion::Outcome(outcome),
                 Err(t) => Completion::Trap(t),
             },
@@ -165,7 +166,8 @@ impl ContractRuntime for Driver {
 
     /// Exactly the profile `Config` requested. `Hermetic` freezes ambient time
     /// and entropy; both profiles wire no ambient filesystem, environment, or network,
-    /// and the linker adds only `__kobako_upcall` beyond that WASI surface.
+    /// and the linker adds only the kobako ABI's `upcall` and `preamble`
+    /// beyond that WASI surface.
     fn profile(&self) -> Profile {
         self.config.profile
     }
@@ -181,13 +183,15 @@ impl ContractRuntime for Driver {
     /// own that no script ever runs on, so what it answers carries
     /// nothing a script could have written.
     fn compile(&self, preamble: &Preamble) -> Option<Vec<Vec<u8>>> {
-        let wasi = Wasi::for_compile(&self.config, endpoint::stdin_content(preamble).ok()?).ok()?;
+        let bytes = endpoint::preamble_bytes(preamble).ok()?;
+        let wasi = Wasi::for_compile(&self.config).ok()?;
         let mut store = self.new_store(wasi).ok()?;
-        let packed = self
+        store.data_mut().set_preamble(bytes);
+        let ret = self
             .downcall(&mut store, &endpoint::compile_request())
             .ok()?
             .ok()?;
-        let reply = endpoint::read_compile_reply(&mut guest_of(&mut store), packed).ok()?;
+        let reply = endpoint::read_compile_reply(&mut guest_of(&mut store), ret).ok()?;
         endpoint::compiled_bytecodes(preamble, reply)
     }
 }

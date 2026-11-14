@@ -5,8 +5,9 @@
 //! `wizer.initialize` export (the `MrbGuest::bake_boot` body) against a
 //! deterministic linker: the WASI surface wasi-libc's reactor
 //! `_initialize` touches is stubbed with constant results (mirroring
-//! the host's ambient denial), `env::__kobako_upcall` traps
-//! (boot must never dispatch), and any other import fails instantiation
+//! the host's ambient denial), the kobako ABI's `upcall` and `preamble`
+//! trap (boot must never dispatch or read an Invocation's setup), and any
+//! other import fails instantiation
 //! loudly. Identical inputs therefore produce identical baked bytes;
 //! kobako's Guest Binary build re-bakes and compares to gate reproducibility.
 
@@ -15,6 +16,9 @@ use wasmtime::Result;
 /// `Caller` against the bake's unit store data — the type every WASI
 /// stub closure receives.
 type Caller<'a> = wasmtime::Caller<'a, ()>;
+
+/// The kobako ABI interface a Guest Binary imports its host functions from.
+const HOST_INTERFACE: &str = "kobako:abi/host@0.6.0";
 
 /// Run the module's `wizer.initialize` export and snapshot the
 /// resulting instance state into a new module, returned as bytes.
@@ -47,10 +51,18 @@ pub fn bake(wasm: &[u8]) -> Result<Vec<u8>> {
 fn deterministic_linker(engine: &wasmtime::Engine) -> Result<wasmtime::Linker<()>> {
     let mut linker = wasmtime::Linker::new(engine);
     add_deterministic_wasi_stubs(&mut linker)?;
-    // Boot must never reach the Transport: a dispatch during the bake
-    // is a build bug, surfaced as a trap that aborts the bake.
-    linker.func_wrap("env", "__kobako_upcall", |_ptr: u32, _len: u32| -> u64 {
-        panic!("__kobako_upcall called during the canonical boot state bake");
+    // Boot must never reach the Transport or read an Invocation's
+    // Preamble: either during the bake is a build bug, surfaced as a trap
+    // that aborts the bake.
+    linker.func_wrap(
+        HOST_INTERFACE,
+        "upcall",
+        |_ptr: u32, _len: u32, _ret: u32| -> Result<()> {
+            wasmtime::bail!("upcall called during the canonical boot state bake")
+        },
+    )?;
+    linker.func_wrap(HOST_INTERFACE, "preamble", |_ret: u32| -> Result<()> {
+        wasmtime::bail!("preamble called during the canonical boot state bake")
     })?;
     Ok(linker)
 }

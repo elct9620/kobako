@@ -5,6 +5,6 @@
 ;; allocator, so an invocation against it traps before reaching the guest.
 ;; Text format on purpose — the ext enables wasmtime's `wat` feature, so
 ;; the file loads through the same `wasm_path:` path as a binary artifact.
+;; The version is the one in the export name; update it by hand on a bump.
 (module
-  (func (export "__kobako_downcall") (param i32 i32) (result i64) (i64.const 0))
-  (func (export "__kobako_abi_version") (result i32) (i32.const 6)))
+  (func (export "kobako:abi/guest@0.6.0#downcall") (param i32 i32) (result i32) (i32.const 0)))

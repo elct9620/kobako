@@ -1,5 +1,5 @@
-//! The guest's WASI context for one instance: the Preamble on stdin,
-//! a capture pipe for each of stdout and stderr, the ambient authority
+//! The guest's WASI context for one instance: what stdin holds, a capture
+//! pipe for each of stdout and stderr, the ambient authority
 //! the instance's purpose grants, a preopen for each Mount an invocation
 //! was handed, and the preview2 resources it holds, with the network its
 //! network Grants open.
@@ -63,6 +63,7 @@ impl Wasi {
     /// and presenting each of the invocation's Mounts as a preopen, from
     /// descriptor 3 in order. A network entry whose endpoints the ruleset
     /// refuses answers `InvokeError::Entry`, the Host App's argument.
+    /// `stdin` is what descriptor 0 reads; the Preamble never rides there.
     pub(crate) fn for_invocation(
         config: &Config,
         stdin: Vec<u8>,
@@ -90,9 +91,9 @@ impl Wasi {
     /// A compile's context, on the hermetic profile whatever the Sandbox
     /// requested: compiling the Snippets needs no ambient authority, so
     /// it is granted none.
-    pub(crate) fn for_compile(config: &Config, stdin: Vec<u8>) -> Result<Self, Trap> {
+    pub(crate) fn for_compile(config: &Config) -> Result<Self, Trap> {
         Self::new(
-            stdin,
+            Vec::new(),
             config.limits.stdout_limit,
             config.limits.stderr_limit,
             config.limits.open_file_limit,

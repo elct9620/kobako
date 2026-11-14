@@ -95,19 +95,21 @@ class TestSandbox < Minitest::Test
   end
 
   # @behavior RT-006
-  # Construction probes the guest's __kobako_abi_version export and
-  # accepts only the host's own ABI version. minimal.wasm predates the
-  # export (absent branch);
-  # minimal_abi_mismatch.wat reports 9999 (non-equal branch). Both are
-  # deterministic artifact faults, so they surface at Sandbox.new as
-  # Kobako::SetupError — never mid-invocation.
+  # Construction reads the ABI version from the name the guest exports its
+  # downcall under and accepts only the host's own. minimal.wasm exports no
+  # versioned downcall (absent branch); minimal_abi_mismatch.wat exports one
+  # under 9999.0.0 (non-equal branch). Both are deterministic artifact
+  # faults, so they surface at Sandbox.new as Kobako::SetupError — never
+  # mid-invocation.
   def test_construction_rejects_guest_without_abi_version_export
     require_fixture(ABSENT_ABI_FIXTURE_PATH)
 
     err = assert_raises(Kobako::SetupError) do
       Kobako::Sandbox.new(wasm_path: ABSENT_ABI_FIXTURE_PATH)
     end
-    assert_match(/does not export __kobako_abi_version/, err.message)
+    assert_match(%r{exports no kobako:abi/guest@}, err.message,
+                 "a Guest Binary exporting no versioned downcall through Kobako::Sandbox.new " \
+                 "must raise Kobako::SetupError saying it exports none")
   end
 
   # @behavior RT-007 RT-008
