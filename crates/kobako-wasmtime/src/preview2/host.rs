@@ -1277,7 +1277,7 @@ mod tests {
 
     /// The guest module, instantiated over an Invocation `config` builds.
     fn guest_of(config: Config) -> (Store<Invocation>, Instance) {
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
+        let wasi = Wasi::for_invocation(&config, &[], &sandbox_connections())
             .expect("WASI context must build");
         instantiate(Invocation::new(wasi))
     }

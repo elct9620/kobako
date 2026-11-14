@@ -63,15 +63,14 @@ impl Wasi {
     /// and presenting each of the invocation's Mounts as a preopen, from
     /// descriptor 3 in order. A network entry whose endpoints the ruleset
     /// refuses answers `InvokeError::Entry`, the Host App's argument.
-    /// `stdin` is what descriptor 0 reads; the Preamble never rides there.
+    /// Descriptor 0 reads nothing.
     pub(crate) fn for_invocation(
         config: &Config,
-        stdin: Vec<u8>,
         grants: &[Grant],
         open_connections: &Arc<OpenConnections>,
     ) -> Result<Self, InvokeError> {
         let mut wasi = Self::new(
-            stdin,
+            Vec::new(),
             config.limits.stdout_limit,
             config.limits.stderr_limit,
             config.limits.open_file_limit,
@@ -86,6 +85,22 @@ impl Wasi {
             config.limits.connection_limit,
         )?;
         Ok(wasi)
+    }
+
+    /// An invocation's context with no grants whose descriptor 0 reads
+    /// `stdin`, for comparing a stdin read with wasmtime-wasi's.
+    #[cfg(test)]
+    pub(crate) fn reading_stdin(config: &Config, stdin: Vec<u8>) -> Self {
+        Self::new(
+            stdin,
+            config.limits.stdout_limit,
+            config.limits.stderr_limit,
+            config.limits.open_file_limit,
+            prepare_creds(config),
+            config.profile,
+            &[],
+        )
+        .expect("a context with no grants builds")
     }
 
     /// A compile's context, on the hermetic profile whatever the Sandbox
@@ -364,7 +379,7 @@ mod tests {
     fn probe(profile: Profile) -> impl FnMut(&str) -> i64 {
         let engine = load_engine().expect("shared engine must be constructible");
         let config = Config::for_profile(profile);
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
+        let wasi = Wasi::for_invocation(&config, &[], &sandbox_connections())
             .expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(wasi));
         store.set_epoch_deadline(crate::trap::NO_TIMEOUT_EPOCH_DELTA);

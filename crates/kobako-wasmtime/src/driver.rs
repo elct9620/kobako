@@ -147,7 +147,7 @@ impl ContractRuntime for Driver {
     ) -> Result<Snapshot, InvokeError> {
         let preamble =
             endpoint::preamble_bytes(preamble).map_err(|msg| Trap::Other(msg.to_string()))?;
-        let wasi = Wasi::for_invocation(&self.config, Vec::new(), grants, &self.open_connections)?;
+        let wasi = Wasi::for_invocation(&self.config, grants, &self.open_connections)?;
         let mut store = self.new_store(wasi)?;
         store.data_mut().set_preamble(preamble);
         if let Some(handler) = handler {

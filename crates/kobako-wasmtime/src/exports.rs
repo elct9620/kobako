@@ -112,7 +112,7 @@ mod tests {
         }
         let module = load_module(path).expect("the Guest Binary must load");
         let config = Config::for_profile(Profile::Hermetic);
-        let wasi = Wasi::for_invocation(&config, Vec::new(), &[], &sandbox_connections())
+        let wasi = Wasi::for_invocation(&config, &[], &sandbox_connections())
             .expect("WASI context must build");
         let mut store = Store::new(
             load_engine().expect("shared engine must be constructible"),

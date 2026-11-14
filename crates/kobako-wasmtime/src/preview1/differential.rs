@@ -20,11 +20,11 @@ use crate::config::Config;
 use crate::imports;
 use crate::invocation::Invocation;
 use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
-use crate::wasi::{sandbox_connections, Wasi};
+use crate::wasi::Wasi;
 use kobako_runtime::profile::Profile;
 
-/// The bytes stdin carries after a length prefix.
-const PREAMBLE: &[u8] = b"hello";
+/// The bytes descriptor 0 reads, on each side alike.
+const STDIN: &[u8] = b"hello";
 
 /// Every export takes a descriptor and answers the call's errno. Memory
 /// holds an `iovec` at 64 over 512..528, an empty one at 72, a `ciovec` at 80 over "hello" at
@@ -245,12 +245,6 @@ struct Observation {
 /// A capped Channel exercises the pipe filling mid-write.
 const CHANNEL_LIMITS: [Option<usize>; 2] = [None, Some(3)];
 
-fn stdin_bytes() -> Vec<u8> {
-    let mut bytes = (PREAMBLE.len() as u32).to_be_bytes().to_vec();
-    bytes.extend_from_slice(PREAMBLE);
-    bytes
-}
-
 fn observe<T>(
     mut store: Store<T>,
     linker: &Linker<T>,
@@ -287,8 +281,7 @@ fn through_kobako(call: &str, fd: i32, limit: Option<usize>) -> Observation {
     let mut config = Config::for_profile(Profile::Hermetic);
     config.limits.stdout_limit = limit;
     config.limits.stderr_limit = limit;
-    let wasi = Wasi::for_invocation(&config, stdin_bytes(), &[], &sandbox_connections())
-        .expect("WASI context must build");
+    let wasi = Wasi::reading_stdin(&config, STDIN.to_vec());
     let mut store = Store::new(engine, Invocation::new(wasi));
     store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
     let linker = imports::linker().expect("host imports must link");
@@ -310,7 +303,7 @@ fn through_wasmtime_wasi(call: &str, fd: i32, limit: Option<usize>) -> Observati
     let stdout = MemoryOutputPipe::new(kobako_runtime::Capture::pipe_capacity_of(limit));
     let stderr = MemoryOutputPipe::new(kobako_runtime::Capture::pipe_capacity_of(limit));
     let ctx = WasiCtxBuilder::new()
-        .stdin(MemoryInputPipe::new(stdin_bytes()))
+        .stdin(MemoryInputPipe::new(STDIN))
         .stdout(stdout.clone())
         .stderr(stderr.clone())
         .build_p1();
