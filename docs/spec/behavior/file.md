@@ -380,17 +380,17 @@ disable_file flag -> no File constant
 | When | the script opens a file with a mode holding a bit no flag names, or `WRONLY` beside `RDWR` |
 | Then | the open raises `Errno::EINVAL` |
 
-## `FL-030` File::Constants names the flags an open honors
+## `FL-030` File::Constants names the flags an open and a glob honor
 
 | Attribute | Value |
 | --- | --- |
-| relates | `FL-027`, `FL-007` |
+| relates | `FL-027`, `FL-007`, `FL-092` |
 
 | Step | Statement |
 | --- | --- |
 | Given | the default Guest Binary |
 | When | the script lists `File::Constants` and asks whether `IO` includes it |
-| Then | it lists `RDONLY`, `WRONLY`, `RDWR`, `CREAT`, `EXCL`, `TRUNC`, and `APPEND` at CRuby's Linux values, and `IO` includes it |
+| Then | it lists the open flags and the `FNM_` matching flags at CRuby's Linux values, and `IO` includes it |
 
 ## `FL-031` RDONLY beside WRONLY opens to write only
 
