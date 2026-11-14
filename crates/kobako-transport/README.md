@@ -15,9 +15,8 @@ same in every assembly. This crate is both of them, and nothing else.
 The envelope covers the downcall's and the upcall's requests under one
 tag registry. It also covers a dispatch round-trip, how an invocation
 ended, and what an invocation is handed, and re-exports every message
-type. The ABI values are the version, the packed `(ptr, len)` return
-layout, the length prefix the Preamble rides stdin behind, and the
-message size cap.
+type. The ABI values are the version, the interface and function
+names it carries, and the message size cap.
 
 ## Opaque Payload
 

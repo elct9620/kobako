@@ -12,9 +12,9 @@ compiler-checked contract.
 
 | Item | What it provides |
 |---|---|
-| `Guest` trait + `export_guest!` | the operations as a trait; the macro emits each `#[no_mangle]` export |
-| `proxy` / `dispatch` | the guest dispatch path to the host over `__kobako_upcall` |
-| `abi` | `serve` behind the downcall export, `alloc`, `answer`, and `ABI_VERSION` |
+| `Guest` trait + `export_guest!` | the operations as a trait; the macro emits each export |
+| `proxy` / `dispatch` | the guest dispatch path to the host over the `upcall` import |
+| `abi` | `serve` behind the downcall export, `answer`, `realloc`, and `run_ctors_once` |
 
 The messages themselves live in
 [kobako-transport](https://crates.io/crates/kobako-transport): the
@@ -62,7 +62,7 @@ The host checks a Guest Binary's ABI version before it runs anything.
 
 | Side | What it does |
 |---|---|
-| Guest | reports `abi::ABI_VERSION` through `__kobako_abi_version` |
+| Guest | exports its downcall under `kobako:abi/guest@0.6.0`, the version in the name |
 | Host | requires an equal version at Sandbox construction |
 | Host, on skew | rejects the Guest Binary with `Kobako::SetupError` |
 

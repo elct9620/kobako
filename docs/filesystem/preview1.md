@@ -13,14 +13,14 @@ The WASI call starts the syscall, so `kobako-runtime` holds a judgment only when
 
 ## Three ABIs
 
-The Guest Binary crosses three ABIs. `wasm-tools print` shows the same 98 imports in all five variants.
+The Guest Binary crosses three ABIs. `wasm-tools print` shows the same 122 imports in all five variants.
 
 | ABI | Imports | Answered by |
 |---|---|---|
-| kobako ABI | `env.__kobako_upcall` | `kobako-runtime`'s `endpoint` |
+| kobako ABI | `upcall` and `preamble` from `kobako:abi/host@0.6.0` | `kobako-runtime`'s `endpoint` |
 | WASI file calls | 21 `fd_*` and `path_*`, and `poll_oneoff` | kobako |
 | WASI rest | `environ_*`, `random_get`, `proc_exit` | wasmtime-wasi |
-| WASI 0.2 | 71 `wasi:*`, for sockets, HTTP, and their waits | kobako |
+| WASI 0.2 | 94 `wasi:*`, for sockets, HTTP, and their waits | kobako |
 
 The Wasm Driver only wires the kobako ABI's import to `endpoint`.
 

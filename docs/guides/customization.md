@@ -348,7 +348,7 @@ every answer (→ [`isolation/README.md`](../isolation/README.md)).
 |---|---|
 | preview1's descriptor calls, `fd_*`, `path_*`, `poll_oneoff` | `vfs` and a descriptor table |
 | `wasi:sockets`, `wasi:http`, and the `wasi:io` they stand on | `net::Namespace` and a resource table |
-| the kobako ABI's `__kobako_upcall` | `endpoint` |
+| the kobako ABI's `upcall` and `preamble` | `endpoint` |
 
 ### Engine Options
 

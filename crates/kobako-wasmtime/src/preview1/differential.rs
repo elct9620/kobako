@@ -23,7 +23,7 @@ use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
 use crate::wasi::{sandbox_connections, Wasi};
 use kobako_runtime::profile::Profile;
 
-/// The Preamble bytes stdin carries after its length prefix.
+/// The bytes stdin carries after a length prefix.
 const PREAMBLE: &[u8] = b"hello";
 
 /// Every export takes a descriptor and answers the call's errno. Memory
