@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "codec/error"
-require_relative "codec/utils"
+require_relative "codec/boundary"
 require_relative "codec/handle_walk"
 require_relative "codec/nesting"
 require_relative "codec/state"

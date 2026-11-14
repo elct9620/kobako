@@ -3,7 +3,7 @@
 require "msgpack"
 
 require_relative "error"
-require_relative "utils"
+require_relative "boundary"
 require_relative "state"
 require_relative "../handle"
 
@@ -49,7 +49,7 @@ module Kobako
         # unpacker would otherwise apply to invalid bytes.
         def unpack_symbol(payload)
           name = payload.b.force_encoding(Encoding::UTF_8)
-          Utils.assert_utf8(name, "Symbol payload")
+          Boundary.assert_utf8(name, "Symbol payload")
           name.to_sym
         end
 
@@ -66,7 +66,7 @@ module Kobako
           raise InvalidTypeError, "Handle payload must be 4 bytes, got #{bytes.bytesize}" unless bytes.bytesize == 4
 
           id = bytes.unpack1("N") # : Integer
-          Codec::Utils.with_boundary { Kobako::Handle.restore(id) }
+          Codec::Boundary.within { Kobako::Handle.restore(id) }
         end
 
         def register_symbol(factory)

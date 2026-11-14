@@ -4,7 +4,9 @@ require_relative "error"
 
 module Kobako
   module Codec
-    module Utils # :nodoc:
+    # What the codec refuses as it reads a value off the wire, each refusal
+    # raised as a Codec error.
+    module Boundary # :nodoc:
       def self.assert_utf8(string, label)
         return if string.valid_encoding?
 
@@ -14,7 +16,7 @@ module Kobako
       # Only for a value object built outside a Decoder.decode block, whose
       # rescue already maps the same way; a host-layer +ArgumentError+
       # elsewhere should propagate unchanged.
-      def self.with_boundary
+      def self.within
         yield
       rescue ::ArgumentError => e
         raise InvalidTypeError, e.message
