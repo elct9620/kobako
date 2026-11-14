@@ -26,6 +26,26 @@ module NetworkSandboxes
     end
   end
 
+  # A Sandbox built with network: +mock+ and +options+, its one entry what
+  # the block builds.
+  def mock_sandbox(mock, **, &block)
+    Kobako::Sandbox.new(wasm_path: E2eGuestHelper::REAL_WASM, network: mock, **).network(:web, &block)
+  end
+
+  # A Kobako::Network::Mock built with +options+, answering each name of
+  # +answers+ with its address.
+  def mock_answering(answers, **)
+    Kobako::Network::Mock.new(**).tap do |mock|
+      answers.each { |name, address| mock.answer(name, address) }
+    end
+  end
+
+  # Add a TCP endpoint at port 80 for each of +hosts+ to the entry +net+
+  # builds.
+  def add_tcp_hosts(net, *hosts)
+    hosts.each { |host| net.endpoint host, port: 80, protocol: :tcp }
+  end
+
   # Add a TCP endpoint at +port+ on loopback to the entry +net+ builds.
   def add_loopback_tcp(net, port)
     net.endpoint "127.0.0.1", port: port, protocol: :tcp, addresses: [:local]

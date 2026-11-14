@@ -58,6 +58,8 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_https.rb`
 - `test/e2e/test_network_udp.rb`
 - `test/e2e/test_network_mock.rb`
+- `test/e2e/test_network_mock_names.rb`
+- `test/e2e/test_network_mock_failures.rb`
 - `test/e2e/test_network_udp_cruby.rb`
 - `test/e2e/test_network_udp_flags.rb`
 - `test/e2e/test_network_udp_peerless.rb`

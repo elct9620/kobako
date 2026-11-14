@@ -25,24 +25,13 @@ class TestE2ENetworkMock < Minitest::Test
     end
   RUBY
 
-  # A Sandbox built with +mock+, whose one entry reaches each of +hosts+ at
-  # port 80 over TCP.
-  def mock_sandbox(mock, *hosts)
-    Kobako::Sandbox.new(wasm_path: E2eGuestHelper::REAL_WASM, network: mock).network(:web) do |net|
-      hosts.each { |host| net.endpoint host, port: 80, protocol: :tcp }
-    end
-  end
-
   def connect_each(mock, *hosts)
-    mock_sandbox(mock, *hosts).eval(format(CONNECT_EACH, hosts: hosts)).value
+    mock_sandbox(mock) { |net| add_tcp_hosts(net, *hosts) }.eval(format(CONNECT_EACH, hosts: hosts)).value
   end
 
   # A Mock answering +name+ with PUBLIC, routed to the loopback +port+.
   def routed_mock(name, port)
-    Kobako::Network::Mock.new.tap do |mock|
-      mock.answer(name, PUBLIC)
-      mock.route(PUBLIC, 80, to: ["127.0.0.1", port])
-    end
+    mock_answering({ name => PUBLIC }).tap { |mock| mock.route(PUBLIC, 80, to: ["127.0.0.1", port]) }
   end
 
   # @behavior NW-212
@@ -60,8 +49,7 @@ class TestE2ENetworkMock < Minitest::Test
 
   # @behavior NW-213
   def test_a_mock_refuses_a_dial_with_the_error_it_was_given
-    mock = Kobako::Network::Mock.new
-    mock.answer("app.test", PUBLIC)
+    mock = mock_answering({ "app.test" => PUBLIC })
     mock.refuse(PUBLIC, 80, Errno::ECONNRESET)
 
     assert_equal ["Errno::ECONNRESET"], connect_each(mock, "app.test"),
