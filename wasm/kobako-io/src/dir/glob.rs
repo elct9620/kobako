@@ -63,7 +63,7 @@ pub(super) fn glob(pattern: &[u8], base: Option<&[u8]>, options: Options) -> Vec
 }
 
 /// Each pattern `pattern`'s braces spell, in order, as `ruby_brace_expand`
-/// spells them; an unclosed brace stays a literal character.
+/// spells them; a pattern whose brace never closes spells none.
 fn brace_expand(pattern: &[u8], escape: bool) -> Vec<Vec<u8>> {
     let (mut lbrace, mut rbrace, mut nest, mut i) = (None, None, 0usize, 0);
     while i < pattern.len() {
@@ -87,7 +87,10 @@ fn brace_expand(pattern: &[u8], escape: bool) -> Vec<Vec<u8>> {
         i += 1;
     }
     let (Some(lbrace), Some(rbrace)) = (lbrace, rbrace) else {
-        return vec![pattern.to_vec()];
+        return match lbrace {
+            Some(_) => Vec::new(),
+            None => vec![pattern.to_vec()],
+        };
     };
     let (prefix, suffix) = (&pattern[..lbrace], &pattern[rbrace + 1..]);
     let mut expanded = Vec::new();
@@ -179,6 +182,8 @@ fn has_magic(segment: &[u8], escape: bool) -> bool {
     false
 }
 
+/// `segment` without its escaping backslashes, as `remove_backslashes`
+/// drops each, a trailing one included.
 fn unescape(segment: &[u8], escape: bool) -> Vec<u8> {
     if !escape {
         return segment.to_vec();
@@ -187,7 +192,7 @@ fn unescape(segment: &[u8], escape: bool) -> Vec<u8> {
     let mut bytes = segment.iter();
     while let Some(&byte) = bytes.next() {
         match byte {
-            b'\\' => plain.push(*bytes.next().unwrap_or(&b'\\')),
+            b'\\' => plain.extend(bytes.next()),
             _ => plain.push(byte),
         }
     }
@@ -217,18 +222,20 @@ fn fnmatch(pattern: &[u8], name: &[u8], options: Options) -> bool {
                     star = Some((p, s));
                     continue;
                 }
-                b'?' => (s < name.len()).then_some(p + 1),
-                b'[' => name
-                    .get(s)
-                    .and_then(|&byte| bracket(pattern, p + 1, byte, options)),
-                b'\\' if options.escape && p + 1 < pattern.len() => {
-                    (name.get(s) == Some(&pattern[p + 1])).then_some(p + 2)
+                _ if s == name.len() => None,
+                b'?' => Some((p + 1, s + char_at(name, s).1)),
+                b'[' => {
+                    let (held, len) = char_at(name, s);
+                    bracket(pattern, p + 1, held, options).map(|next| (next, s + len))
                 }
-                byte => (name.get(s) == Some(&byte)).then_some(p + 1),
+                b'\\' if options.escape && p + 1 < pattern.len() => {
+                    (name[s] == pattern[p + 1]).then_some((p + 2, s + 1))
+                }
+                byte => (name[s] == byte).then_some((p + 1, s + 1)),
             };
-            if let Some(next) = advanced {
-                p = next;
-                s += 1;
+            if let Some((next_p, next_s)) = advanced {
+                p = next_p;
+                s = next_s;
                 continue;
             }
         } else if s == name.len() {
@@ -236,30 +243,49 @@ fn fnmatch(pattern: &[u8], name: &[u8], options: Options) -> bool {
         }
         match star {
             Some((after, from)) if from < name.len() => {
-                star = Some((after, from + 1));
+                let from = from + char_at(name, from).1;
+                star = Some((after, from));
                 p = after;
-                s = from + 1;
+                s = from;
             }
             _ => return false,
         }
     }
 }
 
+/// The character starting `bytes` at `at`, as a code point beside its
+/// length, read as UTF-8 as Linux names are, so a wildcard takes a whole
+/// character as CRuby's `Inc` steps one; a byte that starts no UTF-8
+/// character stands alone.
+fn char_at(bytes: &[u8], at: usize) -> (u32, usize) {
+    let len = match bytes[at] {
+        0xc0..=0xdf => 2,
+        0xe0..=0xef => 3,
+        0xf0..=0xf7 => 4,
+        _ => 1,
+    };
+    bytes
+        .get(at..at + len)
+        .and_then(|char| std::str::from_utf8(char).ok())
+        .and_then(|char| char.chars().next())
+        .map_or((u32::from(bytes[at]), 1), |char| (u32::from(char), len))
+}
+
 /// Where the bracket expression opening before `start` ends, when it holds
-/// `byte`; `None` when it does not, or never closes.
-fn bracket(pattern: &[u8], start: usize, byte: u8, options: Options) -> Option<usize> {
+/// the character `held`; `None` when it does not, or never closes.
+fn bracket(pattern: &[u8], start: usize, held: u32, options: Options) -> Option<usize> {
     let mut i = start;
     let negated = matches!(pattern.get(i), Some(b'!' | b'^'));
     if negated {
         i += 1;
     }
-    let mut held = false;
-    let take = |i: &mut usize| -> u8 {
+    let mut holds = false;
+    let take = |i: &mut usize| -> u32 {
         if options.escape && pattern[*i] == b'\\' && *i + 1 < pattern.len() {
             *i += 1;
         }
-        let taken = pattern[*i];
-        *i += 1;
+        let (taken, len) = char_at(pattern, *i);
+        *i += len;
         taken
     };
     while i < pattern.len() && pattern[i] != b']' {
@@ -269,9 +295,9 @@ fn bracket(pattern: &[u8], start: usize, byte: u8, options: Options) -> Option<u
             i += 1;
             high = take(&mut i);
         }
-        held |= (low..=high).contains(&byte);
+        holds |= (low..=high).contains(&held);
     }
-    (i < pattern.len() && held != negated).then_some(i + 1)
+    (i < pattern.len() && holds != negated).then_some(i + 1)
 }
 
 /// A node a path still has to meet, beside the separators that join the
@@ -320,7 +346,7 @@ impl Walk<'_> {
     /// pending or `FNM_DOTMATCH` is given, as `glob_helper`'s `skipdot` keeps
     /// a walk from answering each directory again as its own `.`.
     fn entries(&mut self, path: &[u8], recursive: bool) -> Vec<(Vec<u8>, bool)> {
-        let Ok(listing) = fs::read_dir(OsStr::from_bytes(&self.host_path(path))) else {
+        let Ok(listing) = super::listed(OsStr::from_bytes(&self.host_path(path))) else {
             return Vec::new();
         };
         let mut entries = Vec::new();
@@ -328,10 +354,7 @@ impl Walk<'_> {
             entries.push((b".".to_vec(), false));
         }
         self.listed = true;
-        entries.extend(listing.flatten().map(|entry| {
-            let real_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
-            (entry.file_name().as_bytes().to_vec(), real_dir)
-        }));
+        entries.extend(listing);
         if self.options.sort {
             entries.sort();
         }
@@ -438,7 +461,7 @@ mod tests {
     }
 
     #[test]
-    fn braces_expand_in_order_and_an_unclosed_one_stays_literal() {
+    fn braces_expand_in_order_and_an_unclosed_one_spells_nothing() {
         let spelled = |pattern: &str| -> Vec<String> {
             brace_expand(pattern.as_bytes(), true)
                 .into_iter()
@@ -446,14 +469,20 @@ mod tests {
                 .collect()
         };
         assert_eq!(
-            (spelled("{a,{b,Z}}.*"), spelled("{a.rb"), spelled("{}"), spelled("x\\{a,b}")),
+            (
+                spelled("{a,{b,Z}}.*"),
+                spelled("{a.rb"),
+                spelled("{}"),
+                spelled("x\\{a,b}")
+            ),
             (
                 vec!["a.*".to_string(), "b.*".to_string(), "Z.*".to_string()],
-                vec!["{a.rb".to_string()],
+                Vec::<String>::new(),
                 vec![String::new()],
                 vec!["x\\{a,b}".to_string()]
             ),
-            "braces must expand as CRuby's ruby_brace_expand: nested in order, unclosed and escaped literal"
+            "braces must expand as CRuby's ruby_brace_expand: nested in order, an unclosed one to \
+             nothing, an escaped one literal"
         );
     }
 }

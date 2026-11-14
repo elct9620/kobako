@@ -24,6 +24,11 @@ class TestE2EDirGlob < Minitest::Test
       ["**/*", "*/*", "sub/*", "**/"].map { |pattern| Dir.glob(pattern, File::FNM_DOTMATCH) }
   RUBY
 
+  EDGES = <<~RUBY
+    Dir.chdir("/t")
+    ["{a.rb", "a.rb\\\\", "?.rb", "[あ].rb", "[!a].rb", "*?.rb", "[ぁ-ん].rb", "{a,{b}.rb"].map { |pattern| Dir.glob(pattern) }
+  RUBY
+
   CHOSEN = <<~RUBY
     Dir.chdir("/t")
     yielded = []
@@ -64,6 +69,16 @@ class TestE2EDirGlob < Minitest::Test
                  sandbox.eval(DOTTED).value,
                  "Dir.glob through the bundled guest must answer a directory as its own . only in the " \
                  "first directory a pattern lists, and never under **/ without FNM_DOTMATCH, as CRuby does"
+  end
+
+  # @behavior FL-102
+  def test_a_pattern_matches_a_whole_character_and_spells_an_unclosed_brace_as_nothing
+    files = ["{a.rb", "a.rb", "あ.rb", "ab.rb"].to_h { |path| [path, "x"] }
+    spelled = Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/t", Kobako::Filesystem::Tmpfs.new(files))
+    assert_equal [[], %w[a.rb], %w[a.rb あ.rb], %w[あ.rb], %w[あ.rb], %w[a.rb ab.rb {a.rb あ.rb], %w[あ.rb], []],
+                 spelled.eval(EDGES).value,
+                 "Dir.glob through the bundled guest must match a character of several bytes as one, spell " \
+                 "an unclosed brace as no pattern, and drop a trailing backslash, as CRuby does"
   end
 
   # @behavior FL-093

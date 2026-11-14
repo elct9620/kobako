@@ -12,6 +12,7 @@
 use std::cell::RefCell;
 use std::fs;
 use std::io;
+use std::path::Path;
 
 use beni::prelude::*;
 use beni::scan_args::{get_kwargs, scan_args};
@@ -92,11 +93,22 @@ fn dir_path_arg(mrb: &Mrb, call: &str, value: Value) -> Result<String, Error> {
     path_arg(mrb, value)
 }
 
+/// The names in `path` but `.` and `..`, as the host lists them, each beside
+/// whether it is a directory and not a link to one.
+fn listed(path: impl AsRef<Path>) -> io::Result<Vec<(Vec<u8>, bool)>> {
+    fs::read_dir(path)?
+        .map(|entry| {
+            entry.map(|entry| {
+                let real_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
+                (entry.file_name().into_encoded_bytes(), real_dir)
+            })
+        })
+        .collect()
+}
+
 /// The names in `path` but `.` and `..`, as the host lists them.
 fn children(path: &str) -> io::Result<Vec<Vec<u8>>> {
-    fs::read_dir(path)?
-        .map(|entry| entry.map(|entry| entry.file_name().into_encoded_bytes()))
-        .collect()
+    Ok(listed(path)?.into_iter().map(|(name, _)| name).collect())
 }
 
 /// The names in `path` behind `.` and `..`, as `readdir(3)` answers them.
