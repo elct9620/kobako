@@ -137,11 +137,16 @@ module Kobako
       # Returns +self+.
       # A given block yields a Rules adding the methods and paths an +:http+
       # endpoint allows and denies.
-      def endpoint(host, port:, protocol: :http, addresses: [:public])
+      def endpoint(host, port:, **written)
+        unknown = written.keys - %i[protocol addresses]
+        if unknown.any?
+          raise ArgumentError,
+                "unknown keyword#{"s" if unknown.size > 1}: #{unknown.map(&:inspect).join(", ")}"
+        end
+
         rules = Rules.new
         yield rules if block_given?
-        @endpoints << Endpoint.new(host: host, port: port, protocol: protocol, addresses: addresses,
-                                   rules: rules.to_a)
+        @endpoints << Endpoint.new(host: host, port: port, **written, rules: rules.to_a)
         self
       end
 

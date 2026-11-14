@@ -44,6 +44,18 @@ module Kobako
              "Kobako::Network::Endpoint.new must hold its host, addresses, and rules frozen, as data"
     end
 
+    # @behavior NW-007
+    def test_a_built_endpoint_takes_the_same_defaults
+      built = Network::Builder.new.endpoint("api.example.com", port: 443).to_native[1].first
+
+      assert_equal Network::Endpoint.new(host: "api.example.com", port: 443, rules: []), built,
+                   "Sandbox#network's builder endpoint with only a host and a port must read as " \
+                   "Kobako::Network::Endpoint.new does"
+      assert_raises(ArgumentError, "the builder's endpoint must refuse rules:, which its block writes") do
+        Network::Builder.new.endpoint("api.example.com", port: 443, rules: [])
+      end
+    end
+
     MALFORMED_ENDPOINTS = [
       { host: "", port: 443 },
       { host: "api.example.com", port: 0 },
