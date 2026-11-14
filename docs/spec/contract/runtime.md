@@ -233,6 +233,14 @@ The caps a Sandbox runs under, each one off when it is none.
 pub struct Limits {}
 ```
 
+## `LookupError`
+
+Why a lookup has no address, as `getaddrinfo` names each by its `EAI_` code. A Mock answers it for a host no lookup asks.
+
+```rust
+pub enum LookupError {}
+```
+
 ## `SetupError`
 
 Why an invocation could not start before the engine ran.
