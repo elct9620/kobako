@@ -1,0 +1,13 @@
+module Kobako
+  module Transport
+    module ArgumentWrap
+      def self.wrap: (untyped value, Kobako::Codec::_HandleTable handles, ?Integer depth) -> untyped
+
+      private
+
+      def self.refuse_past_nesting: (Integer depth) -> void
+
+      def self.wrap_hash: (Hash[untyped, untyped] hash, Kobako::Codec::_HandleTable handles, Integer depth) -> Hash[untyped, untyped]
+    end
+  end
+end

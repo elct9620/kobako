@@ -79,7 +79,7 @@ class TestPayloadOracle < Minitest::Test
     # A non-wire-representable argument auto-wraps into the Handles table
     # and rides as ext 0x01 in its args position, where a payload may
     # carry a Handle.
-    wrapped = Kobako::Codec::HandleWalk.deep_wrap([Object.new], Kobako::Catalog::Handles.new)
+    wrapped = Kobako::Transport::ArgumentWrap.wrap([Object.new], Kobako::Catalog::Handles.new)
     bytes = Kobako::Payload::Arguments.new(args: wrapped, kwargs: {}).encode
     assert_equal bytes, oracle_roundtrip("A", bytes),
                  "a Handle in an argument position must cross to the guest codec unchanged"

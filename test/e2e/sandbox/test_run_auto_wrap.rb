@@ -32,7 +32,7 @@ class TestSandboxRunAutoWrap < Minitest::Test
   end
 
   # Same auto-wrap path through the kwargs branch — exercises the
-  # symmetric deep_wrap walk over Hash values.
+  # symmetric wrap walk over Hash values.
   # @behavior T-067
   def test_kwargs_value_host_object_round_trips_via_handle_proxy
     sandbox = Kobako::Sandbox.new

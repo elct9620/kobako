@@ -26,22 +26,9 @@ module Kobako
         primitive_type?(value) || container_representable?(value, depth)
       end
 
-      # Only Hash values are wrapped: a non-representable key raises rather
-      # than crossing as a token the guest→host restore walk could not
-      # round-trip.
-      def self.deep_wrap(value, handles, depth = 0)
-        guard_nesting(depth)
-        case value
-        when ::Array then value.map { |element| deep_wrap(element, handles, depth + 1) }
-        when ::Hash  then deep_wrap_hash(value, handles, depth)
-        else
-          representable?(value) ? value : handles.alloc(value)
-        end
-      end
-
-      # The inverse of #deep_wrap. A Handle here was decoded off the wire,
-      # never forged by the guest, and +handles.fetch+ refuses an id with no
-      # live binding.
+      # Each Handle a decoded value holds, as the object it stands for. A
+      # Handle here was decoded off the wire, never forged by the guest, and
+      # +handles.fetch+ refuses an id with no live binding.
       def self.deep_restore(value, handles)
         case value
         when ::Array then value.map { |element| deep_restore(element, handles) }
@@ -58,33 +45,6 @@ module Kobako
 
       class << self
         private
-
-        # A reference cycle necessarily trips the nesting bound, so a +#run+
-        # argument fails as a clean +Kobako::SandboxError+ rather than an
-        # unbounded host recursion.
-        def guard_nesting(depth)
-          return unless depth > MAX_NESTING_DEPTH
-
-          raise Kobako::SandboxError,
-                "a #run argument nests deeper than #{MAX_NESTING_DEPTH} levels within the Run payload and " \
-                "cannot cross the sandbox boundary (possible reference cycle)"
-        end
-
-        # A stateful object may cross the boundary as a Hash value but not as
-        # a key — the one deliberate asymmetry with the guest→host restore
-        # walk, which resolves Handle keys the guest built.
-        def deep_wrap_hash(hash, handles, depth)
-          wrapped = {} # : Hash[untyped, untyped]
-          hash.each do |key, val|
-            unless representable?(key, depth + 1)
-              raise Kobako::SandboxError,
-                    "a Hash passed to #run has a key that cannot cross the sandbox boundary " \
-                    "(#{key.class}); only wire-representable values may be Hash keys"
-            end
-            wrapped[key] = deep_wrap(val, handles, depth + 1)
-          end
-          wrapped
-        end
 
         def primitive_type?(value)
           case value

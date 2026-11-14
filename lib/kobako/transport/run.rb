@@ -3,6 +3,7 @@
 require_relative "../handle"
 require_relative "../codec"
 require_relative "../payload"
+require_relative "argument_wrap"
 
 module Kobako
   module Transport
@@ -22,8 +23,8 @@ module Kobako
       # is counted from.
       def encode_payload(handles)
         Payload::Arguments.new(
-          args: Codec::HandleWalk.deep_wrap(args, handles, 1),
-          kwargs: Codec::HandleWalk.deep_wrap(kwargs, handles, 1)
+          args: ArgumentWrap.wrap(args, handles, 1),
+          kwargs: ArgumentWrap.wrap(kwargs, handles, 1)
         ).encode
       end
 

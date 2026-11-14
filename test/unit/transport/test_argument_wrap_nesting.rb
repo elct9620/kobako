@@ -2,13 +2,13 @@
 
 require "test_helper"
 
-# The structural nesting-depth cap on Codec::HandleWalk's host→guest wrap
-# walk. A #run argument nesting past the maximum encodable depth — a
-# reference cycle necessarily does — is refused host-side as a clean
-# SandboxError rather than recursing until the host stack overflows. The
-# happy-path wrap surface lives in test_handle_walk.rb.
-class TestCodecHandleWalkNesting < Minitest::Test
-  HandleWalk = Kobako::Codec::HandleWalk
+# The structural nesting-depth cap on a #run argument's host→guest wrap
+# walk. An argument nesting past the maximum encodable depth — a reference
+# cycle necessarily does — is refused host-side as a clean SandboxError
+# rather than recursing until the host stack overflows. The happy-path wrap
+# surface lives in test_argument_wrap.rb.
+class TestTransportArgumentWrapNesting < Minitest::Test
+  ArgumentWrap = Kobako::Transport::ArgumentWrap
   MAX_DEPTH = Kobako::Codec::MAX_NESTING_DEPTH
 
   def setup
@@ -24,7 +24,7 @@ class TestCodecHandleWalkNesting < Minitest::Test
   def test_argument_at_max_nesting_depth_crosses_unchanged
     value = nest(MAX_DEPTH)
 
-    assert_equal value, HandleWalk.deep_wrap(value, @table),
+    assert_equal value, ArgumentWrap.wrap(value, @table),
                  "a #run argument nested at the maximum encodable depth must cross the boundary unchanged"
   end
 
@@ -33,7 +33,7 @@ class TestCodecHandleWalkNesting < Minitest::Test
   # argument one level past it has no representation to cross in.
   def test_argument_past_max_nesting_depth_is_rejected_as_sandbox_error
     err = assert_raises(Kobako::SandboxError) do
-      HandleWalk.deep_wrap(nest(MAX_DEPTH + 1), @table)
+      ArgumentWrap.wrap(nest(MAX_DEPTH + 1), @table)
     end
 
     assert_match(/nests deeper than #{MAX_DEPTH} levels/, err.message,
@@ -47,7 +47,7 @@ class TestCodecHandleWalkNesting < Minitest::Test
     cyclic = []
     cyclic << cyclic
 
-    assert_raises(Kobako::SandboxError) { HandleWalk.deep_wrap(cyclic, @table) }
+    assert_raises(Kobako::SandboxError) { ArgumentWrap.wrap(cyclic, @table) }
   end
 
   # @behavior CD-014
@@ -57,6 +57,6 @@ class TestCodecHandleWalkNesting < Minitest::Test
     cyclic = []
     cyclic << cyclic
 
-    assert_raises(Kobako::SandboxError) { HandleWalk.deep_wrap({ cyclic => "v" }, @table) }
+    assert_raises(Kobako::SandboxError) { ArgumentWrap.wrap({ cyclic => "v" }, @table) }
   end
 end

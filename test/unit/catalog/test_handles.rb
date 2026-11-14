@@ -177,7 +177,7 @@ module Kobako
     # non-representable Hash key, so the walk mints an id and then aborts.
     def wrap_that_fails_after_minting(table)
       assert_raises(Kobako::SandboxError) do
-        Kobako::Codec::HandleWalk.deep_wrap([Object.new, { Object.new => 1 }], table)
+        Kobako::Transport::ArgumentWrap.wrap([Object.new, { Object.new => 1 }], table)
       end
     end
   end

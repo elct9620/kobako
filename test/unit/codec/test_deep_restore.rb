@@ -3,8 +3,8 @@
 require "test_helper"
 
 # Coverage for Codec::HandleWalk.deep_restore — the guest→host Handle
-# restoration walk. The symmetric inverse of
-# deep_wrap (test_handle_walk.rb): a value decoded off a guest→host wire
+# restoration walk. The symmetric inverse of a #run argument's wrap
+# (test_argument_wrap.rb): a value decoded off a guest→host wire
 # (the #eval / #run result or a yield-block result) carries Kobako::Handle
 # tokens where the guest returned a Handle it held; the walk resolves each
 # back to the host object before the Host App or a Service yield site sees
@@ -48,7 +48,7 @@ class TestCodecDeepRestore < Minitest::Test
     assert_equal :sym, restored[2]
   end
 
-  # deep_wrap walks Hash values only (keys arrive as Symbols on the wire),
+  # A #run argument's wrap walks Hash values only (keys arrive as Symbols on the wire),
   # but a decoded return Hash can carry a Handle in either position, so the
   # restore walk covers keys as well.
   # @behavior T-035

@@ -30,7 +30,7 @@ The table is specified with the wire format, and its scenarios are the payload e
 
 ## Includes
 
-- `test/unit/codec/test_handle_walk_nesting.rb`
+- `test/unit/transport/test_argument_wrap_nesting.rb`
 - `test/unit/codec/test_unrepresentable_guard.rb`
 - `test/unit/codec/test_track_handles.rb`
 - `test/e2e/test_byte_fidelity.rb`

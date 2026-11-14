@@ -26,6 +26,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 - `test/unit/transport/test_dispatcher_routing.rb`
 - `test/unit/catalog/test_handles.rb`
 - `test/unit/codec/test_handle_walk.rb`
+- `test/unit/transport/test_argument_wrap.rb`
 - `test/unit/codec/test_deep_restore.rb`
 - `test/e2e/test_handle_arguments.rb`
 - `test/e2e/test_handle_restoration.rb`
