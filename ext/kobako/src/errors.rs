@@ -1,6 +1,7 @@
 //! Ruby error classes (lazy-resolved once the top-level Kobako error
-//! hierarchy is loaded by `lib/kobako/errors.rb`) and the conversions into
-//! them every Context module shares. The ext raises
+//! hierarchy is loaded by `lib/kobako/errors.rb`), the conversions into
+//! them every Context module shares, and the reading of a Ruby `Errno`
+//! class back into the runtime's `Errno`. The ext raises
 //! directly into the invocation-outcome taxonomy (`TrapError` and its
 //! subclasses) for run-path failures and into the construction-layer
 //! `SetupError` (and its `ModuleNotBuiltError` subclass) for `from_path`
