@@ -80,8 +80,8 @@ mod tests {
             assert!(
                 boot_message(decode_preamble(bytes).unwrap_err())
                     .starts_with("failed to decode the Sandbox's Preamble"),
-                "a Preamble of {bytes:?} through decode_preamble must answer the invocation as \
-                 a boot failure"
+                "a Preamble of {bytes:?} read by the guest must answer the invocation as a boot \
+                 failure"
             );
         }
     }
@@ -94,8 +94,8 @@ mod tests {
 
         assert!(
             boot_message(decode_preamble(&bytes).unwrap_err()).contains("critical record"),
-            "a critical record of a kind this guest does not know through decode_preamble must \
-             refuse the invocation as a boot failure naming why"
+            "a Preamble holding a critical record of a kind this guest does not know must refuse \
+             the invocation as a boot failure naming why"
         );
     }
 }

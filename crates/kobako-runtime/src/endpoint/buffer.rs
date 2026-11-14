@@ -255,8 +255,7 @@ mod tests {
         assert_eq!(
             lift_list(&memory, 8).ok(),
             Some(b"answer".to_vec()),
-            "a return area holding 32 then 6, read through lift_list, must answer the 6 bytes \
-             at 32"
+            "a return area holding 32 then 6, read by the host, must answer the 6 bytes at 32"
         );
     }
 
@@ -272,7 +271,7 @@ mod tests {
                 .iter()
                 .all(|&ret| lift_list(&memory, ret).is_err()),
             "a return area at 1 (unaligned, naming a list inside memory), 60 (past 64 bytes), or \
-             u32::MAX - 3 through lift_list must be refused"
+             u32::MAX - 3, read by the host, must be refused"
         );
     }
 
