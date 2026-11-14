@@ -104,18 +104,13 @@ impl Kobako {
     }
 
     /// A kwargs name rides as a Symbol (ext 0x00), whose payload the wire
-    /// requires to be UTF-8, so a Symbol or String key reads its own bytes
-    /// and a non-UTF-8 name has no representation. Any other key class
-    /// renders, which loses nothing: only Symbol and String carry bytes a
-    /// render could drop.
+    /// requires to be UTF-8, so a Symbol or String key reads its own bytes.
+    /// A non-UTF-8 name, or a key of any other class, has no representation.
     fn key_name_of(&self, key: Value) -> Option<String> {
         if let Some(symbol) = Symbol::from_value(key) {
             return name_of(self, symbol);
         }
-        match Vec::<u8>::from_value(key) {
-            Some(bytes) => String::from_utf8(bytes).ok(),
-            None => Some(key.to_string(self.mrb())),
-        }
+        String::from_utf8(Vec::<u8>::from_value(key)?).ok()
     }
 
     /// An explicit `{...}` Hash literal in `rest` stays positional, matching

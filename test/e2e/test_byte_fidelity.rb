@@ -94,6 +94,18 @@ class TestE2EByteFidelity < Minitest::Test
                  "refused as the script's own type error at the call site, not renamed"
   end
 
+  # @behavior CD-055
+  def test_dispatch_keyword_named_by_neither_symbol_nor_string_is_refused
+    sandbox = probe_sandbox
+
+    %w[Probe::Sink.call(**{1=>2}) Probe::Sink.call(**{nil=>2}) Probe::Sink.call(**{[1]=>2})].each do |script|
+      err = assert_raises(Kobako::SandboxError) { sandbox.eval(script) }
+      assert_equal "TypeError", err.klass,
+                   "#{script} must refuse its keyword name as the script's own type error at the " \
+                   "call site, not rename it through to_s"
+    end
+  end
+
   # @behavior CD-010
   # The rule is the bytes, not the shape a guest wrote the name in, so
   # this stands beside the refusal above to show what it is reacting to.
