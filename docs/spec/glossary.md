@@ -492,6 +492,14 @@ The backend that answers a name, as userspace's `getaddrinfo` does beside Linux'
 lookup, L7 proxy -> Resolver -> host resolver
 ```
 
+### Mock
+
+A Protocol Family and a Resolver kobako ships for a Host App's tests. It answers names from a table, dials only the routes it was given, and records what it was asked. The rules judge it as they judge the host's.
+
+```
+name -> table -> real address -> rules -> route -> a test server
+```
+
 ### Outbound Seam
 
 The sender of a guest's HTTP request, as wasmtime's `send_request`. It frames and sends what the ruleset already admitted. It stays kobako's own, since the rules hold only while it dials through the socket layer.

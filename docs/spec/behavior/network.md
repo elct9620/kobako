@@ -2632,3 +2632,41 @@ endpoint "api.example.com", port: 443
 | Given | a Rust Host App handing the engine its own Protocol Family and Resolver, and two `tcp` endpoints by name |
 | When | the guest opens a TCPSocket to a name resolving to a public address, then to a metadata one |
 | Then | the Resolver answers both names, and the family dials only the public address, as the rules refuse the other |
+
+## `NW-212` A Mock answers names from its table and dials only its routes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-211` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox built with a Mock, and a `tcp` endpoint naming a name. The Mock answers it with a public address routed to a test server |
+| When | the guest opens a TCPSocket to that name, then to an address the Mock routes nowhere |
+| Then | the first reaches the test server, and the second raises `Errno::ECONNREFUSED` without touching the host network. The Mock reads back each name it was asked and each address it dialed |
+
+## `NW-213` A Mock refuses a dial with the error it was given
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-212` |
+| relates | `NW-074` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mock told to refuse an address with a host errno |
+| When | the guest connects to that address |
+| Then | the connect fails as a host socket failing with that errno does |
+
+## `NW-214` A Mock's held name answers once its hold ends
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-212` |
+| relates | `NW-085` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mock holding a name |
+| When | the guest looks the name up while the hold lasts |
+| Then | the lookup waits, as a resolver that has not answered does. It answers once the hold ends. A hold ends at the latest with the block or guard that took it |

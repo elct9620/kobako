@@ -18,6 +18,7 @@ experimental, so the runtime promises it nothing here.
 - `crates/kobako-runtime/src/net/backends.rs`
 - `crates/kobako-runtime/src/net/family.rs`
 - `crates/kobako-runtime/src/net/lookup.rs`
+- `crates/kobako-runtime/src/net/mock.rs`
 - `crates/kobako-runtime/src/profile.rs`
 - `crates/kobako-runtime/src/cred.rs`
 - `crates/kobako-runtime/src/security/hooks.rs`
@@ -126,6 +127,102 @@ The addresses a fully qualified name resolves to.
 pub trait Resolver {
     fn resolve(&self, name: &str) -> std::io::Result<Vec<IpAddr>>;
 }
+```
+
+## `Mock`
+
+A Protocol Family and a Resolver a Host App's tests write as a table.
+
+```rust
+pub struct Mock {}
+```
+
+## `Mock::with_local_addresses`
+
+The host's own addresses, which the rules count as local.
+
+```rust
+impl Mock {
+    pub fn with_local_addresses(self, addresses: Vec<IpAddr>) -> Self {}
+}
+```
+
+## `Mock::without_local_addresses`
+
+A host that cannot say its own addresses.
+
+```rust
+impl Mock {
+    pub fn without_local_addresses(self) -> Self {}
+}
+```
+
+## `Mock::answer`
+
+The addresses a name answers from now on.
+
+```rust
+impl Mock {
+    pub fn answer(&self, name: &str, addresses: Vec<IpAddr>) {}
+}
+```
+
+## `Mock::route`
+
+Where a dial to one address goes instead.
+
+```rust
+impl Mock {
+    pub fn route(&self, from: SocketAddr, to: SocketAddr) {}
+}
+```
+
+## `Mock::refuse`
+
+The host errno a dial to one address fails with.
+
+```rust
+impl Mock {
+    pub fn refuse(&self, addr: SocketAddr, errno: i32) {}
+}
+```
+
+## `Mock::hold`
+
+Keep a name unanswered for as long as the returned guard lives.
+
+```rust
+impl Mock {
+    pub fn hold(&self, name: &str) -> Hold<'_> {}
+}
+```
+
+## `Mock::lookups`
+
+Each name the guest's lookups asked, in order.
+
+```rust
+impl Mock {
+    pub fn lookups(&self) -> Vec<String> {}
+}
+```
+
+## `Mock::dials`
+
+Each address dialed, in order.
+
+```rust
+impl Mock {
+    pub fn dials(&self) -> Vec<SocketAddr> {}
+}
+```
+
+## `Hold`
+
+A name a Mock keeps unanswered until this drops.
+
+```rust
+pub struct Hold<'a> {}
 ```
 
 ## `Limits`

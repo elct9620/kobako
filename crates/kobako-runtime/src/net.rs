@@ -9,6 +9,7 @@ mod egress;
 mod family;
 mod http;
 mod lookup;
+mod mock;
 mod namespace;
 mod reactor;
 mod socket;
@@ -29,6 +30,7 @@ pub use http::{
     ResponseFuture, ResponseHead, Scheme, Timeouts, MAX_FIELD_SIZE,
 };
 pub use lookup::{resolve, LookupError, NameLookup, Resolver};
+pub use mock::{Hold, Mock};
 pub use namespace::Namespace;
 pub use socket::{
     sock_alloc_file, sys_bind, sys_connect, AddressFamily, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
