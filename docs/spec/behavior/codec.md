@@ -442,3 +442,15 @@ The table is specified with the wire format, and its scenarios are the payload e
 | Given | a Sandbox |
 | When | guest code answers −2⁶³ computed from a larger Integer |
 | Then | the host receives −2⁶³ |
+
+## `CD-055` A keyword whose name is neither a Symbol nor a String is refused
+
+| Attribute | Value |
+| --- | --- |
+| refines | `CD-009` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a bound Service |
+| When | guest code passes a keyword whose name is an Integer, `nil`, or an Array |
+| Then | the guest sees a `TypeError`, since the wire carries a keyword name only as text. CRuby passes such a name through unchanged |
