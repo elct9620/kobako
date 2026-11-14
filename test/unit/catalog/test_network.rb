@@ -83,6 +83,14 @@ module Kobako
                    "Rules#allow :get must read back as GET, and Rules#deny :any as nil, the rule for any method"
     end
 
+    def test_a_credential_reads_back_its_header_as_written
+      credential = Kobako::Network::Credential.new("X-Api-Key", placeholder: "k") { "v" }
+
+      assert_equal "X-Api-Key", credential.placement,
+                   "Kobako::Network::Credential#placement must answer the header name as written, as the Rust " \
+                   "SDK's does, the header being matched in any case"
+    end
+
     def test_a_credential_with_another_placement_is_refused
       assert_raises(ArgumentError, "Kobako::Network::Credential with another placement must be refused") do
         Kobako::Network::Credential.new(:digest, placeholder: "x") { "y" }

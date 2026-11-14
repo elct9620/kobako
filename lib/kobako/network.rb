@@ -124,7 +124,7 @@ module Kobako
       def initialize(placement, placeholder:, &source)
         raise ArgumentError, "a credential needs a block answering its value" unless source
 
-        @placement = placement.is_a?(String) ? placement.downcase.freeze : placement
+        @placement = placement.is_a?(String) ? placement.dup.freeze : placement
         @placeholder = placeholder.to_s.freeze
         @source = source
         Network.validate_credential(self)
