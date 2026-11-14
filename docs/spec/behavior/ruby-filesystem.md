@@ -526,3 +526,27 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Given | a Ruby Filesystem whose `exclusive?` answers true, so only the guest changes it |
 | When | the guest reads a file three directories deep twice |
 | Then | the second read asks `stat` about no directory on the way, as gVisor's exclusive mount keeps the names it found |
+## `RF-041` What an object's `exclusive?` raises reaches the mount
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-040` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an object answering `open` and `stat` whose `exclusive?` raises |
+| When | the Host App mounts it |
+| Then | the mount raises what `exclusive?` raised, rather than taking the object as not exclusive |
+
+## `RF-042` A read a Ruby Filesystem overanswers raises EIO
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RF-005` |
+| relates | `RF-012` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem whose file answers `pread` with more bytes than it was asked for |
+| When | the script reads that file |
+| Then | the read raises `Errno::EIO`, as a FUSE reply longer than its request fails the read |
