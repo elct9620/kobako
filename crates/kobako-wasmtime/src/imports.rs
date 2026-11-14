@@ -14,7 +14,7 @@ use crate::guest::Guest;
 use crate::invocation::Invocation;
 use crate::preview1;
 use crate::preview2;
-use kobako_runtime::endpoint::{self, UpcallEnd, ABANDONED};
+use kobako_runtime::endpoint::{self, ImportEnd, ABANDONED};
 use kobako_runtime::error::SetupError;
 use kobako_transport::abi::{HOST_INTERFACE, PREAMBLE, UPCALL};
 
@@ -67,10 +67,10 @@ pub(crate) fn linker() -> Result<Linker<Invocation>, SetupError> {
 }
 
 /// The trap a host import ends the invocation with instead of answering.
-fn ended(end: UpcallEnd<wasmtime::Error>) -> wasmtime::Error {
+fn ended(end: ImportEnd<wasmtime::Error>) -> wasmtime::Error {
     match end {
-        UpcallEnd::Fault(trap) => trap,
-        UpcallEnd::Abandoned => wasmtime::Error::msg(ABANDONED),
-        UpcallEnd::Unwritable(reason) => wasmtime::Error::msg(reason),
+        ImportEnd::Fault(trap) => trap,
+        ImportEnd::Abandoned => wasmtime::Error::msg(ABANDONED),
+        ImportEnd::Unwritable(reason) => wasmtime::Error::msg(reason),
     }
 }

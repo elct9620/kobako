@@ -12,11 +12,11 @@ mod invoke;
 
 use std::fmt::Display;
 
-use kobako_transport::abi::{ABI_VERSION, DOWNCALL, GUEST_INTERFACE};
+use kobako_transport::abi::{ABI_VERSION, DOWNCALL_EXPORT, GUEST_INTERFACE};
 
 use crate::error::{SetupError, Trap};
 
-pub use dispatch::{hand_preamble, handle, Calls, UpcallEnd, ABANDONED};
+pub use dispatch::{hand_preamble, handle, Calls, ImportEnd, ABANDONED};
 pub use invoke::{
     compile_request, compiled_bytecodes, preamble_bytes, read_compile_reply, read_outcome,
     request_of, write_request,
@@ -28,12 +28,6 @@ pub use invoke::{
 pub const RUNTIME_INCOMPATIBLE: &str =
     "the Sandbox runtime is incompatible; rebuild it against the kobako version in use";
 
-/// The export a Guest Binary answers downcalls through, as a Wasm Driver
-/// resolves it.
-pub fn downcall_export() -> String {
-    format!("{GUEST_INTERFACE}#{DOWNCALL}")
-}
-
 /// Accept a Guest Binary only when, among the names of its `exports`, its
 /// downcall stands under the host's ABI version. Only rebuilding the artifact
 /// fixes either refusal, so both are `Dead` and say so.
@@ -43,14 +37,16 @@ pub fn verify_abi_version<'a>(
     let interface = GUEST_INTERFACE
         .strip_suffix(ABI_VERSION)
         .expect("the guest interface carries the ABI version");
-    let downcall = format!("#{DOWNCALL}");
+    let downcall = DOWNCALL_EXPORT
+        .strip_prefix(GUEST_INTERFACE)
+        .expect("the downcall export stands under the guest interface");
     let reported = exports.into_iter().find_map(|name| {
         name.strip_prefix(interface)
-            .and_then(|rest| rest.strip_suffix(downcall.as_str()))
+            .and_then(|rest| rest.strip_suffix(downcall))
     });
     match reported {
         None => Err(SetupError::Dead(format!(
-            "the Guest Binary exports no {interface}{ABI_VERSION}{downcall}; \
+            "the Guest Binary exports no {DOWNCALL_EXPORT}; \
              rebuild it against ABI version {ABI_VERSION}"
         ))),
         Some(version) if version != ABI_VERSION => Err(SetupError::Dead(format!(
@@ -225,7 +221,7 @@ mod tests {
              version it reports"
         );
         assert!(
-            verify_abi_version([downcall_export().as_str()]).is_ok(),
+            verify_abi_version([DOWNCALL_EXPORT]).is_ok(),
             "a Guest Binary exporting its downcall under the host's version must be accepted"
         );
     }

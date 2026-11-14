@@ -62,8 +62,9 @@ impl<F> Calls<F> {
     }
 }
 
-/// How an upcall ends an invocation instead of answering.
-pub enum UpcallEnd<F> {
+/// How a host import, the upcall or the Preamble's, ends an invocation
+/// instead of answering.
+pub enum ImportEnd<F> {
     /// The guest trapped during a callback into it.
     Fault(F),
     /// The host gave the invocation up.
@@ -99,17 +100,17 @@ pub fn handle<G: GuestInstance>(
     req_ptr: i32,
     req_len: i32,
     ret: i32,
-) -> Result<(), UpcallEnd<G::Fault>> {
+) -> Result<(), ImportEnd<G::Fault>> {
     let reply = reply_to(guest, req_ptr, req_len)
         .unwrap_or_else(|reason| Reply::Fault(Fault::new(FaultKind::Internal, reason)));
     let written = lower_from_callback(guest, &fit_in_message(reply).encode(), ret as u32);
     if let Some(trap) = guest.calls().reentry_trap.take() {
-        return Err(UpcallEnd::Fault(trap));
+        return Err(ImportEnd::Fault(trap));
     }
     if guest.calls().abandoned() {
-        return Err(UpcallEnd::Abandoned);
+        return Err(ImportEnd::Abandoned);
     }
-    written.map_err(UpcallEnd::Unwritable)
+    written.map_err(ImportEnd::Unwritable)
 }
 
 /// Answer one `preamble` call with `preamble`, the Invocation's Preamble
@@ -119,12 +120,12 @@ pub fn hand_preamble<G: GuestInstance>(
     guest: &mut G,
     preamble: &[u8],
     ret: i32,
-) -> Result<(), UpcallEnd<G::Fault>> {
+) -> Result<(), ImportEnd<G::Fault>> {
     let written = lower_from_callback(guest, preamble, ret as u32);
     if let Some(trap) = guest.calls().reentry_trap.take() {
-        return Err(UpcallEnd::Fault(trap));
+        return Err(ImportEnd::Fault(trap));
     }
-    written.map_err(UpcallEnd::Unwritable)
+    written.map_err(ImportEnd::Unwritable)
 }
 
 /// An answer past the message cap is the Service's to change, as any other

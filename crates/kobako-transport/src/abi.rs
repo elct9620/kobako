@@ -27,6 +27,9 @@ macro_rules! abi_name {
     (downcall) => {
         "downcall"
     };
+    (downcall_export) => {
+        concat!($crate::abi_name!(guest), "#", $crate::abi_name!(downcall))
+    };
     (upcall) => {
         "upcall"
     };
@@ -49,6 +52,10 @@ pub const HOST_INTERFACE: &str = abi_name!(host);
 
 /// The guest function a host calls with each request.
 pub const DOWNCALL: &str = abi_name!(downcall);
+
+/// The core export the downcall stands under: its interface, `#`, then the
+/// function, as the Canonical ABI's legacy core naming spells it.
+pub const DOWNCALL_EXPORT: &str = abi_name!(downcall_export);
 
 /// The host function a guest calls with each Call.
 pub const UPCALL: &str = abi_name!(upcall);

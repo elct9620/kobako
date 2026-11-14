@@ -59,7 +59,7 @@ pub trait Guest {
 #[macro_export]
 macro_rules! export_guest {
     ($guest:ty) => {
-        #[export_name = concat!($crate::__abi_name!(guest), "#", $crate::__abi_name!(downcall))]
+        #[export_name = $crate::__abi_name!(downcall_export)]
         pub extern "C" fn __kobako_downcall(ptr: u32, len: u32) -> u32 {
             $crate::abi::run_ctors_once();
             // SAFETY: the host wrote the request at `[ptr, ptr + len)` in

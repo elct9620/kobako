@@ -10,8 +10,9 @@
 
 use wasmtime::{AsContextMut, Instance as WtInstance, Memory, TypedFunc};
 
-use kobako_runtime::endpoint::{self, RUNTIME_INCOMPATIBLE};
+use kobako_runtime::endpoint::RUNTIME_INCOMPATIBLE;
 use kobako_runtime::error::Trap;
+use kobako_transport::abi::DOWNCALL_EXPORT;
 
 /// The resolved host-driven export handles. Each is `Option` because test
 /// fixtures (a minimal "ping" module) need not provide them; real
@@ -35,7 +36,7 @@ impl Exports {
     pub(crate) fn resolve(instance: &WtInstance, mut ctx: impl AsContextMut) -> Self {
         Self {
             downcall: instance
-                .get_typed_func::<(i32, i32), u32>(&mut ctx, &endpoint::downcall_export())
+                .get_typed_func::<(i32, i32), u32>(&mut ctx, DOWNCALL_EXPORT)
                 .ok(),
             realloc: instance
                 .get_typed_func::<(u32, u32, u32, u32), u32>(&mut ctx, "cabi_realloc")
@@ -65,6 +66,7 @@ mod tests {
     use std::path::Path;
 
     use kobako_runtime::profile::Profile;
+    use kobako_transport::abi::DOWNCALL_EXPORT;
     use wasmtime::{ExternType, Store};
 
     use crate::cache::{load_engine, load_module};
@@ -77,7 +79,7 @@ mod tests {
 
     const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
-    const ABI_EXPORTS: [&str; 2] = ["cabi_realloc", "kobako:abi/guest@0.6.0#downcall"];
+    const ABI_EXPORTS: [&str; 2] = ["cabi_realloc", DOWNCALL_EXPORT];
 
     // @behavior RT-068
     #[test]

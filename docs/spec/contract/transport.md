@@ -54,6 +54,15 @@ The guest function a host calls with each request.
 pub const DOWNCALL: &str;
 ```
 
+## `DOWNCALL_EXPORT`
+
+The core export name a Guest Binary answers downcalls under, its interface and
+function joined by `#`.
+
+```rust
+pub const DOWNCALL_EXPORT: &str;
+```
+
 ## `UPCALL`
 
 The host function a guest calls with each Call.
