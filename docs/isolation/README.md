@@ -161,7 +161,7 @@ Each ABI version gets its own syscall table, and every table asks the same `koba
           +-----------------------+
 ```
 
-Each ABI's encoding keeps its own table and numbers its own: preview1's fd table holds files, and preview2's resource table everything preview2 hands out. Both count against one `OpenFiles`, as `RLIMIT_NOFILE` counts every descriptor a process holds. Every table refers to the same Open File, which `kobako-runtime` holds. Precedents take this shape:
+Each ABI's encoding keeps its own table and numbers its own: preview1's fd table holds files, and preview2's resource table everything preview2 hands out. Both count against one `OpenFiles`, as `RLIMIT_NOFILE` counts every descriptor a process holds. Each preview2 entry also takes its room from the memory limit, as Linux charges a `struct file` to its memory cgroup. Every table refers to the same Open File, which `kobako-runtime` holds. Precedents take this shape:
 
 | Precedent | Shape |
 |---|---|
