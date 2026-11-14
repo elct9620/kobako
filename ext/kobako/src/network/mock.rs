@@ -13,9 +13,9 @@ use magnus::{
 use kobako_runtime::net::{Backends, Mock};
 
 #[magnus::wrap(class = "Kobako::Network::Mock", free_immediately, size)]
-pub(crate) struct RubyMock(Arc<Mock>);
+pub(crate) struct MockNet(Arc<Mock>);
 
-impl RubyMock {
+impl MockNet {
     /// The backends a Sandbox built with this Mock dials and resolves
     /// through.
     pub(crate) fn backends(&self) -> Backends {
@@ -38,7 +38,7 @@ pub(super) fn register(network: RModule) -> Result<(), MagnusError> {
 
 /// `Mock.new(local_addresses: [])`: the host's own addresses, or `nil` for
 /// a host that cannot say them.
-fn mock_new(args: &[Value]) -> Result<RubyMock, MagnusError> {
+fn mock_new(args: &[Value]) -> Result<MockNet, MagnusError> {
     let args = scan_args::<(), (), (), (), RHash, ()>(args)?;
     let kwargs = get_kwargs::<_, (), (Option<Option<RArray>>,), ()>(
         args.keywords,
@@ -50,11 +50,11 @@ fn mock_new(args: &[Value]) -> Result<RubyMock, MagnusError> {
         Some(None) => Mock::default().without_local_addresses(),
         Some(Some(addresses)) => Mock::default().with_local_addresses(to_ips(addresses)?),
     };
-    Ok(RubyMock(Arc::new(mock)))
+    Ok(MockNet(Arc::new(mock)))
 }
 
 /// `answer(name, *addresses)`.
-fn answer(rb_self: &RubyMock, args: &[Value]) -> Result<(), MagnusError> {
+fn answer(rb_self: &MockNet, args: &[Value]) -> Result<(), MagnusError> {
     let args = scan_args::<(String,), (), RArray, (), (), ()>(args)?;
     let (name,) = args.required;
     rb_self.0.answer(&name, to_ips(args.splat)?);
@@ -62,7 +62,7 @@ fn answer(rb_self: &RubyMock, args: &[Value]) -> Result<(), MagnusError> {
 }
 
 /// `route(address, port, to: [address, port])`.
-fn route(rb_self: &RubyMock, args: &[Value]) -> Result<(), MagnusError> {
+fn route(rb_self: &MockNet, args: &[Value]) -> Result<(), MagnusError> {
     let args = scan_args::<(String, u16), (), (), (), RHash, ()>(args)?;
     let (address, port) = args.required;
     let kwargs = get_kwargs::<_, ((String, u16),), (), ()>(args.keywords, &["to"], &[])?;
@@ -76,7 +76,7 @@ fn route(rb_self: &RubyMock, args: &[Value]) -> Result<(), MagnusError> {
 
 /// `refuse(address, port, errno)`, the errno an Integer or a
 /// `SystemCallError` class, read as the host's own number.
-fn refuse(rb_self: &RubyMock, address: String, port: u16, errno: Value) -> Result<(), MagnusError> {
+fn refuse(rb_self: &MockNet, address: String, port: u16, errno: Value) -> Result<(), MagnusError> {
     let errno = match RClass::from_value(errno) {
         Some(class) => class.const_get::<_, i32>("Errno")?,
         None => i32::try_convert(errno)?,
@@ -89,7 +89,7 @@ fn refuse(rb_self: &RubyMock, address: String, port: u16, errno: Value) -> Resul
 
 /// `hold(name) { ... }`: the name answers no lookup until the block
 /// returns or raises.
-fn hold(ruby: &Ruby, rb_self: &RubyMock, name: String) -> Result<Value, MagnusError> {
+fn hold(ruby: &Ruby, rb_self: &MockNet, name: String) -> Result<Value, MagnusError> {
     if !ruby.block_given() {
         return Err(MagnusError::new(
             ruby.exception_arg_error(),
@@ -101,12 +101,12 @@ fn hold(ruby: &Ruby, rb_self: &RubyMock, name: String) -> Result<Value, MagnusEr
 }
 
 /// Each name the guest's lookups asked, in order.
-fn lookups(rb_self: &RubyMock) -> Vec<String> {
+fn lookups(rb_self: &MockNet) -> Vec<String> {
     rb_self.0.lookups()
 }
 
 /// Each address dialed, in order, as `[address, port]`.
-fn dials(rb_self: &RubyMock) -> Vec<(String, u16)> {
+fn dials(rb_self: &MockNet) -> Vec<(String, u16)> {
     rb_self
         .0
         .dials()

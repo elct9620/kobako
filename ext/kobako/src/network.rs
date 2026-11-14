@@ -24,7 +24,7 @@ use kobako_runtime::network::{
 };
 use kobako_runtime::policy::Policy;
 
-pub(super) use mock::RubyMock;
+pub(super) use mock::MockNet;
 
 use super::pinned_value::PinnedValue;
 use super::{escape, gvl, symbol_name_of};

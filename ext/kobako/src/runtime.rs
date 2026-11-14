@@ -309,7 +309,7 @@ impl Runtime {
         let mock: Value = options.fetch(ruby.to_symbol("network"))?;
         let backends = match mock.is_nil() {
             true => Backends::default(),
-            false => <&network::RubyMock>::try_convert(mock)?.backends(),
+            false => <&network::MockNet>::try_convert(mock)?.backends(),
         };
 
         let mut config = Config::default();
