@@ -194,9 +194,9 @@ pub(crate) fn init(mrb: &Mrb) -> Result<RClass, beni::Error> {
 }
 
 /// `IO.new(fd, mode = nil)` refuses any `fd` but 1, 2, or a file this
-/// guest opened: stdin and a preopened directory are the host's, so
-/// neither is the guest's to wrap. A captured descriptor
-/// only writes, so its `mode` must be `"w"`; a file's mode is read as
+/// guest opened: stdin reads nothing a Sandbox gives it, and a preopened
+/// directory is the host's, so neither is the guest's to wrap. A captured
+/// descriptor only writes, so its `mode` must be `"w"`; a file's mode is read as
 /// `File.open` reads it. Without a mode, the IO takes the access its
 /// descriptor holds, as CRuby's does.
 fn io_initialize(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<(), Error> {
