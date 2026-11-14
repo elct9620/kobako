@@ -32,10 +32,10 @@ module Kobako
   #   Where a dial goes instead. A dial with no route is refused, so nothing
   #   reaches the host network unasked.
   # [<tt>refuse(address, port, errno)</tt>]
-  #   Fails a dial as a host socket failing with +errno+ does, a
-  #   SystemCallError class such as Errno::ECONNRESET, read by its name so it
-  #   fails alike on every host. Raises ArgumentError for an errno kobako
-  #   never answers.
+  #   Fails a dial as a host socket failing with +errno+ does: an Errno class
+  #   such as Errno::ECONNRESET, or a subclass of one, read by its name so it
+  #   fails alike on every host. Raises ArgumentError for a class no Errno
+  #   class is behind, or an errno kobako never answers.
   # [<tt>hold(name) { ... }</tt>]
   #   Keeps each lookup of +name+ waiting until the block returns or raises,
   #   +name+ read as +answer+ reads it.

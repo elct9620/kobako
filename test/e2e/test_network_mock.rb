@@ -83,6 +83,29 @@ class TestE2ENetworkMock < Minitest::Test
     end
   end
 
+  # @behavior NW-213
+  def test_a_mock_refuses_with_the_errno_a_subclass_stands_for
+    mock = mock_answering({ "app.test" => PUBLIC })
+    mock.refuse(PUBLIC, 80, Class.new(Errno::ECONNRESET))
+
+    assert_equal ["Errno::ECONNRESET"], connect_each(mock, "app.test"),
+                 "a Mock told to refuse with a subclass of Errno::ECONNRESET must fail the guest's connect as a " \
+                 "host socket reset does"
+  end
+
+  # A class named as an errno is, with no Errno class behind it.
+  module Lookalike
+    class ECONNRESET < StandardError
+    end
+  end
+
+  def test_refuse_with_a_class_no_errno_is_behind_raises_argument_error
+    assert_raises(ArgumentError, "Mock#refuse with a class that is no Errno class, whatever it is named, must " \
+                                 "raise ArgumentError") do
+      Kobako::Network::Mock.new.refuse(PUBLIC, 80, Lookalike::ECONNRESET)
+    end
+  end
+
   def test_hold_without_a_block_raises_argument_error
     assert_raises(ArgumentError, "Mock#hold without a block must raise ArgumentError, as a hold lasts for its block") do
       Kobako::Network::Mock.new.hold("held.test")

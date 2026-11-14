@@ -9,9 +9,10 @@
 //! unchanged.
 
 use magnus::value::Lazy;
-use magnus::{Error as MagnusError, ExceptionClass, Ruby};
+use magnus::{prelude::*, Error as MagnusError, ExceptionClass, RClass, Ruby};
 
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
+use kobako_runtime::Errno;
 
 static SETUP_ERROR: Lazy<ExceptionClass> =
     Lazy::new(|ruby| crate::constant_by_path(ruby, &["SetupError"]));
@@ -87,4 +88,14 @@ pub(super) fn from_invoke(ruby: &Ruby, err: InvokeError) -> MagnusError {
         // started, which the taxonomy attributes to the engine.
         other => trap_err(ruby, other.to_string()),
     }
+}
+
+/// The failure the nearest `Errno::` class among `class`'s ancestors names
+/// by its POSIX name, so an `Errno::ENOENT` and its subclasses read alike;
+/// `None` for a class no `Errno::` class is behind.
+pub(super) fn errno_of(class: RClass) -> Option<Errno> {
+    class.ancestors().into_iter().find_map(|module| {
+        let name: Option<String> = module.funcall("name", ()).ok()?;
+        Errno::from_posix_name(name?.strip_prefix("Errno::")?)
+    })
 }

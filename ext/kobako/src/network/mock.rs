@@ -11,7 +11,8 @@ use magnus::{
 };
 
 use kobako_runtime::net::{Backends, Mock};
-use kobako_runtime::Errno;
+
+use crate::errors::errno_of;
 
 #[magnus::wrap(class = "Kobako::Network::Mock", free_immediately, size)]
 pub(crate) struct MockNet(Arc<Mock>);
@@ -77,18 +78,14 @@ fn route(rb_self: &MockNet, args: &[Value]) -> Result<(), MagnusError> {
     Ok(())
 }
 
-/// `refuse(address, port, errno)`, the errno a `SystemCallError` class read
-/// by its POSIX name, since the number behind one differs between hosts.
+/// `refuse(address, port, errno)`, the errno an `Errno` class read by its
+/// POSIX name, since the number behind one differs between hosts.
 fn refuse(rb_self: &MockNet, address: String, port: u16, errno: RClass) -> Result<(), MagnusError> {
-    let ruby = Ruby::get().expect("Ruby thread");
-    let class_name: String = errno
-        .funcall::<_, _, Option<String>>("name", ())?
-        .unwrap_or_default();
-    let posix_name = class_name.rsplit("::").next().unwrap_or_default();
-    let err = Errno::from_posix_name(posix_name).ok_or_else(|| {
+    let err = errno_of(errno).ok_or_else(|| {
+        let ruby = Ruby::get().expect("Ruby thread");
         MagnusError::new(
             ruby.exception_arg_error(),
-            format!("kobako answers no errno named {class_name}"),
+            format!("kobako answers no errno {}", errno.inspect()),
         )
     })?;
     rb_self

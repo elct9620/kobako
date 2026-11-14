@@ -25,6 +25,7 @@ use kobako_runtime::vfs::{
 };
 use kobako_runtime::Errno;
 
+use crate::errors::errno_of;
 use crate::pinned_value::PinnedValue;
 use crate::{escape, gvl};
 
@@ -166,20 +167,12 @@ fn change_if_answered(object: Opaque<Value>, name: &str) -> Result<(), Errno> {
     })
 }
 
-/// What the nearest Ruby `Errno` class of `err` stands for, by its POSIX name; anything else is `Other`, which reaches the guest as
-/// `EIO`.
+/// What the nearest Ruby `Errno` class of `err` stands for; anything else is
+/// `Other`, which reaches the guest as `EIO`.
 fn to_error(err: MagnusError) -> Errno {
-    let named = err.value().and_then(|exception| {
-        exception
-            .class()
-            .ancestors()
-            .into_iter()
-            .find_map(|module| {
-                let name: Option<String> = module.funcall("name", ()).ok()?;
-                Errno::from_posix_name(name?.strip_prefix("Errno::")?)
-            })
-    });
-    named.unwrap_or_else(|| Errno::Other(err.to_string()))
+    err.value()
+        .and_then(|exception| errno_of(exception.class()))
+        .unwrap_or_else(|| Errno::Other(err.to_string()))
 }
 
 /// `File::Constants` flags for `how`, read from Ruby since their
