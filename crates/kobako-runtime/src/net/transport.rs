@@ -20,7 +20,7 @@ use super::connections::Place;
 use super::http::HttpError;
 use super::lookup::{NameLookup, Resolver};
 use super::namespace::TcpSockets;
-use super::socket::{BindHash, Destination};
+use super::socket::{BindHash, Carried, Destination};
 use super::{Namespace, ProtoOps, ProtocolFamily, SockOpt, TcpSock};
 use crate::cred::Cred;
 use crate::network::{Host, Protocol, Ruleset};
@@ -178,19 +178,10 @@ impl Transport {
     }
 }
 
-/// `err` as the I/O error tokio-rustls and hyper carry, of the kind
-/// `to_error` reads back.
+/// `err` as the I/O error tokio-rustls and hyper carry, holding the failure
+/// itself so `to_error` reads back the very one the socket answered.
 fn to_io(err: Errno) -> io::Error {
-    let kind = match err {
-        Errno::ConnectionRefused => io::ErrorKind::ConnectionRefused,
-        Errno::ConnectionReset => io::ErrorKind::ConnectionReset,
-        Errno::ConnectionAborted => io::ErrorKind::ConnectionAborted,
-        Errno::TimedOut => io::ErrorKind::TimedOut,
-        Errno::BrokenPipe => io::ErrorKind::BrokenPipe,
-        Errno::NotConnected => io::ErrorKind::NotConnected,
-        _ => io::ErrorKind::Other,
-    };
-    kind.into()
+    io::Error::other(Carried(err))
 }
 
 impl AsyncRead for Transport {
@@ -229,5 +220,32 @@ impl AsyncWrite for Transport {
 impl Drop for Transport {
     fn drop(&mut self) {
         self.sock.release();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::super::socket::to_error;
+    use super::*;
+
+    // A failure the upstream socket answers reaches the HTTP seam through
+    // tokio-rustls and hyper, which carry only io::Error.
+    #[test]
+    fn a_sockets_failure_reads_back_as_itself_through_an_io_error() {
+        let failures = [
+            Errno::ConnectionReset,
+            Errno::TimedOut,
+            Errno::OutOfMemory,
+            Errno::HostUnreachable,
+        ];
+        assert_eq!(
+            (
+                failures.clone().map(|err| to_error(&to_io(err))),
+                HttpError::from_io(&to_io(Errno::OutOfMemory))
+            ),
+            (failures, HttpError::Internal),
+            "a failure the upstream socket answers must read back as the same errno once it \
+             crosses an io::Error, so memory the socket could not reserve answers internal-error"
+        );
     }
 }
