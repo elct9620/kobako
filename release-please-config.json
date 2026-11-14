@@ -116,6 +116,11 @@
           "jsonpath": "$.package[?(@.name=='kobako-baker')].version"
         },
         {
+          "type": "toml",
+          "path": "/wasm/kobako-baker/Cargo.toml",
+          "jsonpath": "$.dependencies['kobako-transport'].version"
+        },
+        {
           "type": "generic",
           "path": "/wasm/kobako-baker/README.md"
         }
@@ -138,6 +143,11 @@
         {
           "type": "toml",
           "path": "/wasm/Cargo.lock",
+          "jsonpath": "$.package[?(@.name=='kobako-transport')].version"
+        },
+        {
+          "type": "toml",
+          "path": "/wasm/kobako-baker/Cargo.lock",
           "jsonpath": "$.package[?(@.name=='kobako-transport')].version"
         },
         {

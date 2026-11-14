@@ -119,7 +119,7 @@ Each part owns one concern. Its dependencies on other kobako parts may only poin
 | `kobako-mruby` | the mruby guest model: `MrbGuest` flows and the bridge gem | core, transport, codec *(optional)* |
 | `kobako-io` · `-regexp` · `-json` | capability gems: guest-local behavior, no wire | none |
 | `kobako-wasm` | the shipped shell, naming the Codec and the gem set | core, mruby, io, regexp *(optional)*, json *(optional)* |
-| `kobako-baker` | the build-time bake of the boot state into an artifact | none |
+| `kobako-baker` | the build-time bake of the boot state into an artifact | transport |
 | `kobako-parity` | the Rust half of the parity harness, never published | kobako, codec, transport |
 
 ### Outside Crates

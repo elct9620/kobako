@@ -653,10 +653,15 @@ name = "kobako-baker"
 version = "0.20.0"
 dependencies = [
  "anyhow",
+ "kobako-transport",
  "pollster",
  "wasmtime",
  "wasmtime-wizer",
 ]
+
+[[package]]
+name = "kobako-transport"
+version = "0.20.0"
 
 [[package]]
 name = "leb128fmt"

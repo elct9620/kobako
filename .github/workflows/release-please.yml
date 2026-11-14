@@ -87,7 +87,7 @@ jobs:
         run: cargo update -p kobako-transport -p kobako-codec -p kobako-core -p kobako-mruby -p kobako-io -p kobako-json -p kobako-regexp --workspace --offline || cargo update -p kobako-transport -p kobako-codec -p kobako-core -p kobako-mruby -p kobako-io -p kobako-json -p kobako-regexp
       - name: Regenerate wasm/kobako-baker/Cargo.lock entry
         working-directory: wasm/kobako-baker
-        run: cargo update -p kobako-baker --offline || cargo update -p kobako-baker
+        run: cargo update -p kobako-baker -p kobako-transport --offline || cargo update -p kobako-baker -p kobako-transport
       - name: Regenerate crates/Cargo.lock entries
         working-directory: crates
         run: cargo update -p kobako -p kobako-transport -p kobako-codec -p kobako-runtime -p kobako-wasmtime --workspace --offline || cargo update -p kobako -p kobako-transport -p kobako-codec -p kobako-runtime -p kobako-wasmtime

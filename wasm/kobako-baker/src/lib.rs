@@ -11,14 +11,12 @@
 //! loudly. Identical inputs therefore produce identical baked bytes;
 //! kobako's Guest Binary build re-bakes and compares to gate reproducibility.
 
+use kobako_transport::abi::{HOST_INTERFACE, PREAMBLE, UPCALL};
 use wasmtime::Result;
 
 /// `Caller` against the bake's unit store data — the type every WASI
 /// stub closure receives.
 type Caller<'a> = wasmtime::Caller<'a, ()>;
-
-/// The kobako ABI interface a Guest Binary imports its host functions from.
-const HOST_INTERFACE: &str = "kobako:abi/host@0.6.0";
 
 /// Run the module's `wizer.initialize` export and snapshot the
 /// resulting instance state into a new module, returned as bytes.
@@ -56,12 +54,12 @@ fn deterministic_linker(engine: &wasmtime::Engine) -> Result<wasmtime::Linker<()
     // that aborts the bake.
     linker.func_wrap(
         HOST_INTERFACE,
-        "upcall",
+        UPCALL,
         |_ptr: u32, _len: u32, _ret: u32| -> Result<()> {
             wasmtime::bail!("upcall called during the canonical boot state bake")
         },
     )?;
-    linker.func_wrap(HOST_INTERFACE, "preamble", |_ret: u32| -> Result<()> {
+    linker.func_wrap(HOST_INTERFACE, PREAMBLE, |_ret: u32| -> Result<()> {
         wasmtime::bail!("preamble called during the canonical boot state bake")
     })?;
     Ok(linker)
