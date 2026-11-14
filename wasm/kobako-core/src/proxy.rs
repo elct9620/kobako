@@ -1,10 +1,8 @@
 //! Guest dispatch proxy — the guest-side half of the dispatch pipeline.
 //!
-//! This module is the glue between the interpreter-side bridge of the
-//! consuming guest crate (for the bundled guest: the `method_missing`
-//! shims in `kobako-mruby`'s bridge module, whose shared
-//! `forward_to_dispatch` body calls `dispatch` here) and the wasm-level
-//! `upcall` host import declared in `crate::abi`. The Envelope's
+//! This module is the glue between a consuming guest crate's interpreter
+//! bridge and the wasm-level `upcall` host import declared in
+//! `crate::abi`. The Envelope's
 //! Call and Reply layouts are the contract this module implements.
 //!
 //! `dispatch` builds a `Call` around a payload it never reads, sends it
@@ -78,10 +76,10 @@ impl std::error::Error for DispatchError {}
 /// *upcall bytes* the caller would have written into wasm linear
 /// memory and returns the Reply bytes the host would have written
 /// back through `cabi_realloc`. Pure in/out; no shared state.
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 type LoopbackFn = Box<dyn Fn(&[u8]) -> Vec<u8> + Send + 'static>;
 
-#[cfg(not(target_arch = "wasm32"))]
+#[cfg(all(test, not(target_arch = "wasm32")))]
 thread_local! {
     static LOOPBACK: std::cell::RefCell<Option<LoopbackFn>> =
         const { std::cell::RefCell::new(None) };
@@ -155,7 +153,15 @@ fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     Ok(reply)
 }
 
-#[cfg(not(target_arch = "wasm32"))]
+/// Outside a Guest Binary there is no host to call.
+#[cfg(all(not(test), not(target_arch = "wasm32")))]
+fn host_call(_req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
+    Err(DispatchError::Envelope(envelope::DecodeError::new(
+        "a dispatch reaches a host only from inside a Guest Binary",
+    )))
+}
+
+#[cfg(all(test, not(target_arch = "wasm32")))]
 fn host_call(req_bytes: &[u8]) -> Result<Vec<u8>, DispatchError> {
     LOOPBACK.with(|cell| match cell.borrow().as_ref() {
         Some(hook) => Ok(hook(req_bytes)),
