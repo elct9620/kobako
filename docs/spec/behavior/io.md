@@ -545,3 +545,10 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Given | a Sandbox |
 | When | guest code warns with a Hash, then with a keyword `warn` does not take |
 | Then | standard error holds the Hash, and the keyword raises `ArgumentError` |
+## `IO-056` A count given as a Float drops its fraction, and NaN raises RangeError
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | guest code writes a character by `65.9`, then by NaN and by an infinity |
+| Then | the first writes `A`, and each other raises `RangeError`, as CRuby's `NUM2INT` reads a Float |

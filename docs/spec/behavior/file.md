@@ -1031,3 +1031,15 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount holding a file whose lines end in a carriage return and a newline |
 | When | the script reads its lines with `chomp: true` by the default separator, by `"\n"`, by another separator, and by paragraph |
 | Then | the newline separators take the carriage return before them, and the others keep it, as CRuby's `chomp_cr` does |
+
+## `FL-105` A read length given as a Float drops its fraction
+
+| Attribute | Value |
+| --- | --- |
+| relates | `IO-056` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file |
+| When | the script reads it by `2.5`, preads it by `2.5`, and reads it by NaN |
+| Then | each read answers its first two bytes, and NaN raises `RangeError`, as CRuby's `NUM2LONG` reads the length |
