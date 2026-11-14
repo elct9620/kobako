@@ -4363,3 +4363,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest under a `memory_limit` |
 | When | it keeps subscribing to a clock through `wasi:clocks` |
 | Then | each handle holds its room against the limit, as Linux's `filp` cache is accounted to the memory cgroup. Past the limit the call traps, since a constructor has no error for it. A dropped handle gives its room back |
+
+## `RT-395` A wait sleeps only to its soonest due as that due moves
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-335` |
+| relates | `NW-068` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a wait whose soonest due is far off |
+| When | a wake moves that due earlier, as an exchange's next timeout starts once the last ends |
+| Then | the wait sleeps only to the new due, and answers nothing ready once it passes |
