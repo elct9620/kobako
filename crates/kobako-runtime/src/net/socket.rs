@@ -561,6 +561,8 @@ pub(crate) fn to_error(err: &io::Error) -> Errno {
         match HostErrno::from_io_error(err) {
             Some(HostErrno::NOBUFS) => return Errno::NoBufferSpace,
             Some(HostErrno::HOSTDOWN) => return Errno::HostUnreachable,
+            Some(HostErrno::DESTADDRREQ) => return Errno::DestinationAddressRequired,
+            Some(HostErrno::NOPROTOOPT) => return Errno::ProtocolNotAvailable,
             #[cfg(target_os = "linux")]
             Some(HostErrno::NONET) => return Errno::NetworkUnreachable,
             _ => {}
@@ -858,6 +860,8 @@ mod tests {
             HostErrno::NETDOWN,
             HostErrno::NOBUFS,
             HostErrno::HOSTDOWN,
+            HostErrno::DESTADDRREQ,
+            HostErrno::NOPROTOOPT,
             HostErrno::AGAIN,
             HostErrno::INVAL,
         ]
@@ -868,12 +872,15 @@ mod tests {
                 Errno::NetworkDown,
                 Errno::NoBufferSpace,
                 Errno::HostUnreachable,
+                Errno::DestinationAddressRequired,
+                Errno::ProtocolNotAvailable,
                 Errno::WouldBlock,
                 Errno::InvalidInput
             ],
-            "a host socket failing with ENETDOWN, ENOBUFS, EHOSTDOWN, EAGAIN, or EINVAL must \
-             answer ENETDOWN, ENOBUFS, EHOSTUNREACH, EAGAIN, and EINVAL, read from its errno \
-             where std names no kind, as a file's failure is otherwise"
+            "a host socket failing with ENETDOWN, ENOBUFS, EHOSTDOWN, EDESTADDRREQ, ENOPROTOOPT, \
+             EAGAIN, or EINVAL must answer ENETDOWN, ENOBUFS, EHOSTUNREACH, EDESTADDRREQ, \
+             ENOPROTOOPT, EAGAIN, and EINVAL, read from its errno where std names no kind, as a \
+             file's failure is otherwise"
         );
     }
 
