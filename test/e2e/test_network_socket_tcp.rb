@@ -29,11 +29,20 @@ class TestE2ENetworkSocketTcp < Minitest::Test
     [[plain.class.to_s, plain.closed?, plain.peeraddr[1]], answered, held.closed?, refused, past]
   RUBY
 
+  # A Sandbox reaching loopback at +open+ and +closed+, whose Mock routes
+  # +open+ alone, so a dial to +closed+ is refused whatever listens there on
+  # the host.
+  def open_and_closed_sandbox(open, closed)
+    mock = Kobako::Network::Mock.new
+    mock.route("127.0.0.1", open, to: ["127.0.0.1", open])
+    loopback_sandbox(open, closed, network: mock)
+  end
+
   # @behavior NW-143
   def test_a_script_connects_with_socket_tcp_as_crubys
     with_listening_server do |open|
       closed = other_port(open)
-      value = loopback_sandbox(open, closed).eval(format(CONNECTS, open: open, closed: closed)).value
+      value = open_and_closed_sandbox(open, closed).eval(format(CONNECTS, open: open, closed: closed)).value
 
       assert_equal [["TCPSocket", false, open], false, true,
                     ["Errno::ECONNREFUSED", "Connection refused - connect(2) for 127.0.0.1:#{closed}"],
