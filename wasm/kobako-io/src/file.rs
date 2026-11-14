@@ -15,9 +15,10 @@ use std::io::{self, Write};
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Mrb, Object, RArray, RClass, Value};
+use beni::{Error, IntoValue, Mrb, Object, RArray, RClass, RString, Symbol, Value};
 
 use crate::io::{argument_error, required_block, Stream};
+use crate::socket::string_value_of;
 use crate::stream::FileLines;
 use crate::{descriptors, errno, lines};
 
@@ -292,14 +293,22 @@ fn file_s_rename(mrb: &Mrb, _self: Value, from: Value, to: Value) -> Result<Valu
     Ok(0.into_value(mrb))
 }
 
-/// The bytes of the path `value` names: one holding a NUL raises
-/// `ArgumentError`, and any other byte is taken as it stands, as CRuby's
-/// `check_path_encoding` refuses only an encoding with no ASCII, so a helper
-/// that touches nothing reads any path.
+/// The bytes of the path `value` names, a String or what its `to_path`, else
+/// its `to_str`, answers, as CRuby's `rb_get_path` reads one. One holding a
+/// NUL raises `ArgumentError`, and any other byte is taken as it stands, as
+/// CRuby's `check_path_encoding` refuses only an encoding with no ASCII, so a
+/// helper that touches nothing reads any path.
 fn path_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
-    let Some(bytes) = Vec::<u8>::from_value(value) else {
-        return Err(errno::type_error(mrb, value));
+    let to_path = Symbol::new(mrb, "to_path")?.as_value();
+    let path = match RString::from_value(value) {
+        Some(path) => path,
+        None if value.funcall::<_, _, bool>(mrb, c"respond_to?", [to_path])? => {
+            string_value_of(mrb, value.funcall::<_, _, Value>(mrb, c"to_path", ())?)?
+        }
+        None => string_value_of(mrb, value)?,
     };
+    // SAFETY: the bytes are copied before the next mruby call.
+    let bytes = unsafe { path.as_slice(mrb) }.to_vec();
     if bytes.contains(&0) {
         return Err(argument_error(mrb, "string contains null byte"));
     }
