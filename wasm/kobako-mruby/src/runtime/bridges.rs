@@ -76,8 +76,6 @@ fn exception(
 fn forward_to_dispatch(
     kobako: super::Kobako,
     target: kobako_transport::envelope::Target<'_>,
-    sym_err_msg: &str,
-    envelope_err_msg: &str,
 ) -> Result<Value, beni::Error> {
     use crate::refusal::Position;
 
@@ -93,7 +91,7 @@ fn forward_to_dispatch(
 
     let method_name = match method_sym.name(kobako.mrb()) {
         Ok(name) => name,
-        Err(_) => return Err(kobako.transport_error(sym_err_msg)),
+        Err(_) => return Err(kobako.transport_error("proxy method symbol name is null")),
     };
 
     // Guest-side mirror of the host's reflection rejection:
@@ -147,14 +145,17 @@ fn forward_to_dispatch(
         // did not take.
         Err(DispatchError::Break) => match super::block_exit::BLOCK_EXIT.take(kobako.mrb()) {
             Some(exit) => Err(beni::Error::Exception(exit)),
-            None => Err(kobako.transport_error(envelope_err_msg)),
+            None => Err(kobako.transport_error(PROXY_DISPATCH_FAILED)),
         },
         Err(DispatchError::Unsupported(refusal)) => Err(kobako.unsupported_error(&refusal.message)),
         // Anything that is not the Service's own fault means the exchange
         // did not complete, which reaches the guest as a wire fault.
-        Err(_) => Err(kobako.transport_error(envelope_err_msg)),
+        Err(_) => Err(kobako.transport_error(PROXY_DISPATCH_FAILED)),
     }
 }
+
+/// What the guest reads when a proxied Call's exchange did not complete.
+const PROXY_DISPATCH_FAILED: &str = "transport envelope error (proxy dispatch)";
 
 /// The attribution itself is `crate::refusal`'s; this only delivers it
 /// into a running script.
@@ -213,12 +214,7 @@ pub(crate) fn proxy_method_missing(
         return Err(no_target(mrb, self_));
     };
 
-    forward_to_dispatch(
-        kobako,
-        target,
-        "proxy method symbol name is null",
-        "transport envelope error (proxy dispatch)",
-    )
+    forward_to_dispatch(kobako, target)
 }
 
 fn no_target(mrb: &Mrb, self_: Value) -> beni::Error {
