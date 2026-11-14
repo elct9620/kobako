@@ -109,8 +109,8 @@ Each part owns one concern. Its dependencies on other kobako parts may only poin
 |---|---|---|
 | `kobako-transport` | the Envelope and the ABI's values | none, ever |
 | `kobako-codec` | the payload Codecs, one namespace and feature per Codec | transport |
-| `kobako-runtime` | the contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Limits`, `Snapshot`, `Grant`, `Network` | transport |
-| `kobako-runtime` | what every Wasm Driver keeps: `endpoint`, `cred`, `vfs`, `security`, `Mount`, `sched`, `wait`, `memcg`, Filesystems, `net` | transport |
+| `kobako-runtime` | the contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Limits`, `Snapshot`, `Grant`, `Network`, `Policy`, `Backends`, `Errno`, `error` | transport |
+| `kobako-runtime` | what every Driver keeps: `endpoint`, `cred`, `vfs`, `security`, `Mount`, `sched`, `wait`, `locking`, `memcg`, Filesystems, `net` | transport |
 | `kobako-wasmtime` | one Wasm Driver, `kobako_wasmtime::Driver`, and its preview1 and preview2 encodings | runtime, transport |
 | `kobako` | the Rust SDK: `Sandbox`, `Receiver`, `Handles`, `Execution` | transport, runtime, wasmtime *(optional)*, codec *(optional)* |
 | `lib/` | the Ruby gem and its own Codec | the native ext |
@@ -166,7 +166,7 @@ An assembly composes replaceable parts around the fixed pillar. Each line names 
 ```
 Sandbox        = host model . Wasm Driver . kobako-runtime . Guest Binary
 Wasm Driver    = Engine + preview1, preview2 encodings   (kobako-wasmtime)
-kobako-runtime = host ABI endpoint + VFS + socket layer + L7 proxy seam
+kobako-runtime = host ABI endpoint + VFS + socket layer + L7 proxy + Backends
 Guest Binary   = guest ABI endpoint + guest model + gems (kobako-wasm)
 host model     = Frontend + Codec                        (ext/ + lib/ | kobako)
 guest model    = flows + Codec                           (kobako-mruby | own Guest)
