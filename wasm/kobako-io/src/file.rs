@@ -17,7 +17,7 @@ use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{Error, IntoValue, Mrb, Object, RArray, RClass, RString, Symbol, Value};
 
-use crate::io::{argument_error, required_block, Stream};
+use crate::io::{argument_error, close_after, required_block, Stream};
 use crate::socket::string_value_of;
 use crate::stream::FileLines;
 use crate::{descriptors, errno, lines};
@@ -224,12 +224,7 @@ fn with_opened(
     path: Value,
     read: impl FnOnce(Value) -> Result<Value, Error>,
 ) -> Result<Value, Error> {
-    let opened: Value = file.funcall(mrb, c"new", [path])?;
-    let answer = read(opened);
-    let closed: Result<Value, Error> = opened.funcall(mrb, c"close", ());
-    let answer = answer?;
-    closed?;
-    Ok(answer)
+    close_after(mrb, file.funcall(mrb, c"new", [path])?, read)
 }
 
 fn file_s_write(mrb: &Mrb, _self: Value, path: Value, data: Value) -> Result<Value, Error> {

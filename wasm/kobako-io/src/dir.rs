@@ -234,8 +234,13 @@ fn globbed(
 
 /// The working directory, `/` until a script changes it.
 fn dir_s_pwd(mrb: &Mrb, _self: Value) -> Result<Value, Error> {
+    Ok(mrb.str_new(&cwd(mrb)?).as_value())
+}
+
+/// The working directory's name, as wasi-libc's `getcwd` keeps it.
+fn cwd(mrb: &Mrb) -> Result<Vec<u8>, Error> {
     let cwd = std::env::current_dir().map_err(|err| errno::from_io(mrb, &err, "."))?;
-    Ok(mrb.str_new(cwd.as_os_str().as_encoded_bytes()).as_value())
+    Ok(cwd.into_os_string().into_encoded_bytes())
 }
 
 /// `chdir(path) { |path| }`: make `path` the working directory, `0`
@@ -253,10 +258,10 @@ fn dir_s_chdir(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
         change_dir(mrb, &path)?;
         return Ok(0.into_value(mrb));
     };
-    let previous = std::env::current_dir().map_err(|err| errno::from_io(mrb, &err, "."))?;
+    let previous = cwd(mrb)?;
     change_dir(mrb, &path)?;
     let answer = block.call(mrb, [mrb.str_new(path.as_bytes()).as_value()]);
-    name_cwd(previous.as_os_str().as_encoded_bytes());
+    name_cwd(&previous);
     answer
 }
 
@@ -266,13 +271,9 @@ fn dir_s_chdir(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error>
 /// guest reads no link's target, so a `..` steps back by name.
 fn change_dir(mrb: &Mrb, path: &str) -> Result<(), Error> {
     std::env::set_current_dir(path).map_err(|err| errno::from_io(mrb, &err, path))?;
-    let joined = std::env::current_dir().map_err(|err| errno::from_io(mrb, &err, path))?;
+    let joined = cwd(mrb)?;
     let mut names: Vec<&[u8]> = Vec::new();
-    for name in joined
-        .as_os_str()
-        .as_encoded_bytes()
-        .split(|&byte| byte == b'/')
-    {
+    for name in joined.split(|&byte| byte == b'/') {
         match name {
             b"" | b"." => {}
             b".." => {

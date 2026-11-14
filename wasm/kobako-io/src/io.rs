@@ -110,7 +110,18 @@ fn io_s_open(mrb: &Mrb, self_: RClass, args: &[Value]) -> Result<Value, Error> {
 /// Yield `io` to `block` and close it however the block ends, answering the
 /// block's value, as `rb_ensure` closes it around `rb_yield`.
 pub(crate) fn yield_and_close(mrb: &Mrb, io: Value, block: Proc) -> Result<Value, Error> {
-    let answer = block.call::<_, Value>(mrb, [io]);
+    close_after(mrb, io, |io| block.call::<_, Value>(mrb, [io]))
+}
+
+/// Run `body` over `io` and close it however `body` ends, answering what
+/// `body` does, as `rb_ensure` closes it; a close that fails raises in its
+/// place.
+pub(crate) fn close_after(
+    mrb: &Mrb,
+    io: Value,
+    body: impl FnOnce(Value) -> Result<Value, Error>,
+) -> Result<Value, Error> {
+    let answer = body(io);
     io.funcall::<_, _, Value>(mrb, c"close", ())?;
     answer
 }
