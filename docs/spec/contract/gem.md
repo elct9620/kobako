@@ -756,7 +756,7 @@ end
 
 ## `Kobako::Error`
 
-The root a caller rescues to catch every failure kobako raises.
+The root a caller rescues to catch every failure a run or a setup meets. A mistake in a call raises the class CRuby's core methods raise for it instead.
 
 ```ruby
 module Kobako

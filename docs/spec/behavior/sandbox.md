@@ -1096,7 +1096,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | --- | --- |
 | Given | a Sandbox |
 | When | an evaluation is given source that is not text |
-| Then | it fails as a Sandbox failure saying the source must be text |
+| Then | it raises `TypeError` saying the source must be text, as CRuby's `eval` does |
 
 ## `S-131` Output past the cap keeps exactly what fit
 
@@ -1857,7 +1857,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | --- | --- |
 | Given | a Sandbox |
 | When | an evaluation is given a String whose bytes are not UTF-8 |
-| Then | it fails as a Sandbox failure saying the source must be UTF-8 text. UTF-8 bytes in a binary String evaluate as text |
+| Then | it raises `ArgumentError` saying the source must be UTF-8 text, as a preloaded source's bytes are refused. UTF-8 bytes in a binary String evaluate as text |
 
 ## `S-211` A growth the engine fails to make costs the memory budget nothing
 
@@ -1871,3 +1871,40 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | an invocation's memory budget, and a linear memory whose declared maximum the budget would allow past |
 | When | the guest grows the memory past its maximum, so the engine fails the growth the budget allowed |
 | Then | what is left of the budget is as before. The peak reported keeps the growth, as `page_counter_cancel` keeps a watermark |
+
+## `S-212` A registration the seal refuses raises FrozenError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-124` |
+| relates | `S-099` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox that has run an invocation |
+| When | a Service, a mount, a network entry, a snippet, a flag, or an Extension is registered |
+| Then | it raises `FrozenError`, as Ruby refuses a change to a frozen object. The Rust SDK answers `Sealed` |
+
+## `S-213` An argument of a class a call does not take raises TypeError
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-130`, `S-141`, `S-142`, `S-185` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | a snippet, a flag, an Extension's source, or a run's arguments or keywords are given a value of another class |
+| Then | it raises `TypeError`, as CRuby's core methods do for an argument of the wrong class |
+
+## `S-214` A cap past what the host counts raises RangeError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-058` |
+
+| Step | Statement |
+| --- | --- |
+| Given | Sandbox options |
+| When | a count cap is given an Integer past what the host counts, or a deadline past what it times |
+| Then | it raises `RangeError`, as CRuby does for a number too large to convert. A cap of another class raises `TypeError` |
