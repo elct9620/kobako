@@ -29,8 +29,16 @@ class TestE2EFileLinesByName < Minitest::Test
      -> { File.foreach("/m/none") {} }, -> { File.foreach("/m/d") {} }].map(&attempt)
   RUBY
 
+  CHOMPED = <<~RUBY
+    walked = []
+    File.foreach("/m/crlf", chomp: true) { |line| walked << line }
+    [File.readlines("/m/crlf", chomp: true), walked, File.readlines("/m/crlf", "", chomp: true),
+     File.open("/m/crlf") { |f| [f.gets(chomp: true), f.gets("\\n", chomp: true), f.gets("x", chomp: true)] }]
+  RUBY
+
   def sandbox
-    filesystem = Kobako::Filesystem::Tmpfs.new("note" => "a\nbb\n\nccc\n", "d/x" => "1")
+    filesystem = Kobako::Filesystem::Tmpfs.new("note" => "a\nbb\n\nccc\n", "d/x" => "1",
+                                               "crlf" => "a\r\nb\r\n\r\nc\rx\r")
     Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/m", filesystem)
   end
 
@@ -50,6 +58,14 @@ class TestE2EFileLinesByName < Minitest::Test
                  sandbox.eval(ATTEMPT + WALKED).value,
                  "File.foreach of a mounted file through the bundled guest must yield each line and " \
                  "answer nil, and raise ArgumentError without a block"
+  end
+
+  # @behavior FL-104
+  def test_a_chomped_line_drops_its_carriage_return_as_crubys_does
+    assert_equal [["a", "b", "", "c\rx\r"], ["a", "b", "", "c\rx\r"], ["a\r\nb\r\n\r\nc\rx\r"], ["a", "b", "\r\nc\r"]],
+                 sandbox.eval(CHOMPED).value,
+                 "a line read with chomp: through the bundled guest must drop the carriage return before " \
+                 "a lone newline separator, and keep it before any other separator, as CRuby does"
   end
 
   # @behavior FL-091

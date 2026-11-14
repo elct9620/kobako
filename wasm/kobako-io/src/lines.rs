@@ -174,6 +174,11 @@ pub(crate) fn take_line(
     if let Some(separator) = separator.filter(|_| *chomp) {
         if line.ends_with(separator) {
             line.truncate(line.len() - separator.len());
+            // A lone "\n" separator takes the "\r" before it too, as CRuby's
+            // `chomp_cr` drops a CRLF line ending.
+            if separator == b"\n" && line.ends_with(b"\r") {
+                line.pop();
+            }
         }
     }
     Ok(Some(line))
