@@ -18,6 +18,23 @@ class TestE2EFilePathConversion < Minitest::Test
     [by_path, by_str, by_both].map { |path| File.read(path) } + [Dir.children(Dir.new("/m/d"))]
   RUBY
 
+  EMPTY = <<~RUBY
+    Dir.chdir("/m")
+    attempt = ->(call) { begin; call.call; rescue Exception => e; e.class.to_s; end }
+    [-> { File.open("") }, -> { File.read("") }, -> { File.stat("") }, -> { Dir.children("") },
+     -> { Dir.chdir("") }, -> { Dir.mkdir("") }, -> { File.exist?("") }, -> { File.directory?("") },
+     -> { Dir.exist?("") }].map(&attempt) + [Dir.pwd]
+  RUBY
+
+  # @behavior FL-103
+  def test_a_path_call_refuses_an_empty_path_as_linux_does
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/m", Kobako::Filesystem::Tmpfs.new("f" => "x"))
+
+    assert_equal (["Errno::ENOENT"] * 6) + [false, false, false, "/m"], sandbox.eval(EMPTY).value,
+                 "an empty path through the bundled guest must raise Errno::ENOENT from each call that " \
+                 "raises and answer false from each predicate, never naming the working directory"
+  end
+
   # @behavior FL-101
   def test_a_path_call_takes_what_answers_to_path_or_to_str
     filesystem = Kobako::Filesystem::Tmpfs.new("f" => "hello", "d/x" => "1")

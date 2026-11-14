@@ -92,11 +92,22 @@ pub(crate) fn require_mount(mrb: &Mrb, call: &str) -> Result<(), Error> {
     ))
 }
 
+/// A path a call hands the host, as `path_text` reads it. An empty one
+/// raises `Errno::ENOENT`, as Linux's `getname` refuses one, since
+/// wasi-libc would take it for the working directory.
+pub(crate) fn path_arg(mrb: &Mrb, value: Value) -> Result<String, Error> {
+    let path = path_text(mrb, value)?;
+    match path.is_empty() {
+        true => Err(errno::error_by_name(mrb, c"ENOENT", &path)),
+        false => Ok(path),
+    }
+}
+
 /// A path as a String names it. One holding a NUL raises `ArgumentError`,
 /// as CRuby refuses one for every path call. One whose bytes are no valid
 /// UTF-8 names nothing WASI can reach, so it fails as the engine would
 /// answer it.
-pub(crate) fn path_arg(mrb: &Mrb, value: Value) -> Result<String, Error> {
+pub(crate) fn path_text(mrb: &Mrb, value: Value) -> Result<String, Error> {
     String::from_utf8(path_bytes_of(mrb, value)?).map_err(|err| {
         let path = String::from_utf8_lossy(err.as_bytes());
         errno::error_by_name(mrb, c"EILSEQ", &path)
@@ -245,8 +256,8 @@ fn file_s_write(mrb: &Mrb, _self: Value, path: Value, data: Value) -> Result<Val
 /// predicate that answers false rather than raise.
 pub(crate) fn stat_or_none(mrb: &Mrb, call: &str, path: Value) -> Result<Option<Stat>, Error> {
     require_mount(mrb, call)?;
-    let path = path_arg(mrb, path)?;
-    Ok(stat::stat_of(&path).ok())
+    let path = path_text(mrb, path)?;
+    Ok(stat::stat_of(&path).ok().filter(|_| !path.is_empty()))
 }
 
 fn file_s_exist_p(mrb: &Mrb, _self: Value, path: Value) -> Result<bool, Error> {

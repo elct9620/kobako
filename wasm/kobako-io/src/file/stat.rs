@@ -13,7 +13,7 @@ use beni::prelude::*;
 use beni::value::qnil;
 use beni::{Error, IntoValue, Module, Mrb, RClass, RTypedData, TryConvert, TypedData, Value};
 
-use super::{path_arg, require_mount, to_c_path, REACH_REFUSAL};
+use super::{path_text, require_mount, to_c_path, REACH_REFUSAL};
 use crate::errno;
 
 // wasi-libc's `st_mode` kinds.
@@ -234,8 +234,11 @@ fn ask_host(
     ask: fn(&CStr) -> io::Result<Stat>,
 ) -> Result<(String, io::Result<Stat>), Error> {
     require_mount(mrb, call)?;
-    let path = path_arg(mrb, path)?;
-    let found = ask(&to_c_path(&path));
+    let path = path_text(mrb, path)?;
+    let found = match path.is_empty() {
+        true => Err(io::ErrorKind::NotFound.into()),
+        false => ask(&to_c_path(&path)),
+    };
     Ok((path, found))
 }
 

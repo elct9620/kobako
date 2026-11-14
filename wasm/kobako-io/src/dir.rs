@@ -23,7 +23,7 @@ use beni::{
 };
 
 use crate::errno;
-use crate::file::{path_arg, require_mount, stat_or_none};
+use crate::file::{path_arg, path_text, require_mount, stat_or_none};
 use crate::io::{argument_error, to_int};
 
 mod glob;
@@ -216,7 +216,7 @@ fn globbed(
     )?;
     let (base, sort) = kw.optional;
     let base = match base.filter(|base| !base.is_nil()) {
-        Some(base) => Some(path_arg(mrb, base)?).filter(|base| !base.is_empty()),
+        Some(base) => Some(path_text(mrb, base)?).filter(|base| !base.is_empty()),
         None => None,
     };
     let sort = match sort {
@@ -228,7 +228,7 @@ fn globbed(
     let options = glob::Options::new(flags, sort);
     let mut found = Vec::new();
     for pattern in patterns {
-        let pattern = path_arg(mrb, *pattern)?;
+        let pattern = path_text(mrb, *pattern)?;
         found.extend(glob::glob(
             pattern.as_bytes(),
             base.as_deref().map(str::as_bytes),
