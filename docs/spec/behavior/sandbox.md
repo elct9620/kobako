@@ -1895,7 +1895,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | a snippet, a flag, an Extension's source, or a run's arguments or keywords are given a value of another class |
+| When | a registration's name or text, or a run's keyword name, is given a value of another class |
 | Then | it raises `TypeError`, as CRuby's core methods do for an argument of the wrong class |
 
 ## `S-214` A cap past what the host counts raises RangeError
