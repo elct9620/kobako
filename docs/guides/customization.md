@@ -67,8 +67,9 @@ Each row is one seam a third party can fill, with the endpoint it sits on.
 | Host wait, for a lock or for I/O | `impl Blocking`, handed once to `sched::register_blocking` | a Frontend of your own | experimental |
 | Network policy | `impl Policy<Name>`, `Policy<Connection>`, or `Policy<Request>`, handed to a `network::Builder` | Rust SDK | replaceable |
 | Credential | `impl CredentialSource`, handed to `Credential::new` | Rust SDK | replaceable |
-| Protocol Family | `impl ProtocolFamily`, handed to `kobako_wasmtime::Config::network` by `Backends::new` | Rust SDK | replaceable · methods append-only |
-| Resolver | `impl Resolver`, handed to `kobako_wasmtime::Config::network` by `Backends::new` | Rust SDK | replaceable · methods append-only |
+| Protocol Family | `impl ProtocolFamily`, handed to `Options::network` or `kobako_wasmtime::Config::network` by `Backends::new` | Rust SDK | replaceable · methods append-only |
+| Resolver | `impl Resolver`, handed to `Options::network` or `kobako_wasmtime::Config::network` by `Backends::new` | Rust SDK | replaceable · methods append-only |
+| The network, for a test | `Mock`, handed as both of the above; `Kobako::Network::Mock` as `Sandbox.new(network:)` | Rust SDK, Ruby gem | replaceable |
 | security module | `impl SecurityOperations`, handed to `kobako_wasmtime::Config::security` | Rust SDK | replaceable · methods append-only |
 
 A Wasm engine, Wasm Driver, or Frontend of your own stays experimental while kobako builds its own WASI host layer, which reshapes everything beneath `Runtime`.
@@ -83,7 +84,7 @@ The types those seams carry, by grade:
 | **stable** | `kobako_runtime::{Tmpfs, Bind, Overlay}` · `kobako_runtime::filesystem::{Filesystem, Rdir}` · `kobako_runtime::vfs::{Cred, Dentry, DirContext, FileSecurity, FMode, Identity, Inode, Mask, PollMask, SuperBlock, VfsMount, dir_emit_dots, generic_file_llseek, generic_read_dir, generic_write_sync, NAME_MAX}` · `kobako_runtime::wait::{WaitQueueHead, PollTable, poll_wait}` |
 | **stable** | `kobako_runtime::network::{Secret, EntryError, Builder}` · `kobako_runtime::net::{Backends, ProtocolFamily, Resolver}` |
 | **stable · exhaustive** | `kobako_mruby::Arguments` · `kobako_runtime::{Profile, Access}` · `kobako_runtime::vfs::{Lookup, SecurityPath, SetTime, Whence}` · `kobako_codec::msgpack::{Value, Arguments}` · `kobako::{Backend, Provider, msgpack::RunArg}` · `kobako_runtime::network::Action` |
-| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{SetupError, Policy, MountRequest, FileType, Errno, SeedError, Usage, Kstat, DirEntry}` · `kobako::Errno` · `kobako_runtime::filesystem::{RenameFlag, Finish}` · `kobako_runtime::vfs::{OpenHow, DirEmit, Iattr, Kiocb}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` · `kobako_runtime::network::{Entry, CredentialSource, Placement, Credential, Policies, Request, Name, Connection, Endpoint, HttpRule, Protocol, Addresses}` |
+| **append-only** | `kobako_core::DispatchError` · `kobako_mruby::{CodecError, InstallError}` · `kobako_runtime::{SetupError, Policy, MountRequest, FileType, Errno, SeedError, Usage, Kstat, DirEntry}` · `kobako::Errno` · `kobako_runtime::filesystem::{RenameFlag, Finish}` · `kobako_runtime::vfs::{OpenHow, DirEmit, Iattr, Kiocb}` · `kobako_codec::msgpack::Error` · `kobako::{Error, Failure, YieldError, Receiver, Extension, Options}` · `kobako::msgpack::ValueReceiver` · `kobako_wasmtime::Config` · `kobako_runtime::network::{Entry, CredentialSource, Placement, Credential, Policies, Request, Name, Connection, Endpoint, HttpRule, Protocol, Addresses}` · `kobako_runtime::net::{Mock, Hold}` |
 | **append-only, read by an older peer as `Undefined`** | `kobako_transport::envelope::FaultKind` |
 | **append-only, read by an older peer as `Unknown`** | `kobako_transport::envelope::{Downcall, Upcall}` |
 | **append-only, a record an older peer skips or refuses as its sender marked** | `kobako_transport::envelope::Preamble`, re-exported from `kobako_core` |

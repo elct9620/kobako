@@ -247,6 +247,139 @@ module Kobako
 end
 ```
 
+## `Kobako::Network::Mock.new`
+
+A network a test writes as a table, handed to Sandbox.new as `network:`.
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
+
+```ruby
+module Kobako
+  module Network
+    class Mock
+      def self.new(local_addresses: [])
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Mock#answer`
+
+What a lookup of a name answers from now on.
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
+
+```ruby
+module Kobako
+  module Network
+    class Mock
+      def answer(name, *addresses)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Mock#route`
+
+Where a dial to one address goes instead.
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
+
+```ruby
+module Kobako
+  module Network
+    class Mock
+      def route(address, port, to:)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Mock#refuse`
+
+The host errno a dial to one address fails with.
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
+
+```ruby
+module Kobako
+  module Network
+    class Mock
+      def refuse(address, port, errno)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Mock#hold`
+
+Keep a name unanswered for as long as the block runs.
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
+
+```ruby
+module Kobako
+  module Network
+    class Mock
+      def hold(name)
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Mock#lookups`
+
+Each name the guest's lookups asked, in order.
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
+
+```ruby
+module Kobako
+  module Network
+    class Mock
+      def lookups
+      end
+    end
+  end
+end
+```
+
+## `Kobako::Network::Mock#dials`
+
+Each address dialed, in order.
+
+| Attribute | Value |
+| --- | --- |
+| unverifiable | the native extension defines it through magnus, beyond the Ruby reading |
+
+```ruby
+module Kobako
+  module Network
+    class Mock
+      def dials
+      end
+    end
+  end
+end
+```
+
 ## `Kobako::Filesystem`
 
 The kinds of Filesystem a Host App mounts for the guest's `File`. An object

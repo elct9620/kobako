@@ -10,6 +10,7 @@ module Kobako
     attr_reader connection_limit: Integer?
     attr_reader profile: Symbol
     attr_reader gvl: Symbol
+    attr_reader network: Network::Mock?
 
     def self.new: (
       timeout: (Float | Integer)?,
@@ -21,7 +22,8 @@ module Kobako
       open_connection_limit: Integer?,
       connection_limit: Integer?,
       profile: Symbol,
-      gvl: Symbol
+      gvl: Symbol,
+      network: Network::Mock?
     ) -> SandboxOptions
 
     def initialize: (
@@ -34,7 +36,8 @@ module Kobako
       open_connection_limit: Integer?,
       connection_limit: Integer?,
       profile: Symbol,
-      gvl: Symbol
+      gvl: Symbol,
+      network: Network::Mock?
     ) -> void
 
     def to_h: () -> {
@@ -47,7 +50,8 @@ module Kobako
       open_connection_limit: Integer?,
       connection_limit: Integer?,
       profile: Symbol,
-      gvl: Symbol
+      gvl: Symbol,
+      network: Network::Mock?
     }
 
     def value_budget: () -> Integer?

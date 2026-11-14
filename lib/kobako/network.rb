@@ -10,6 +10,32 @@ module Kobako
   #     net.endpoint "api.github.com", port: 443
   #     net.endpoint "cache.internal", port: 6379, protocol: :tcp, addresses: [:private]
   #   end
+  #
+  # A test hands Sandbox.new a Mock as +network:+, so the guest's names
+  # answer from a table and its dials reach a server the test runs. The
+  # rules judge the Mock's answers as they judge the host's:
+  #
+  #   mock = Kobako::Network::Mock.new
+  #   mock.answer("api.example.com", "93.184.216.34")
+  #   mock.route("93.184.216.34", 443, to: ["127.0.0.1", server.addr[1]])
+  #   sandbox = Kobako::Sandbox.new(network: mock)
+  #
+  # [<tt>Mock.new(local_addresses: [])</tt>]
+  #   The host's own addresses, which the rules count as local; +nil+ for a
+  #   host that cannot say them, so every connect to a name is refused.
+  # [<tt>answer(name, *addresses)</tt>]
+  #   What a lookup of +name+ answers from now on; a name with no answer
+  #   resolves to nothing.
+  # [<tt>route(address, port, to: [address, port])</tt>]
+  #   Where a dial goes instead. A dial with no route is refused, so nothing
+  #   reaches the host network unasked.
+  # [<tt>refuse(address, port, errno)</tt>]
+  #   Fails a dial as a host socket failing with +errno+ does, an Integer
+  #   or a SystemCallError class such as Errno::ECONNRESET.
+  # [<tt>hold(name) { ... }</tt>]
+  #   Keeps each lookup of +name+ waiting until the block returns or raises.
+  # [+lookups+, +dials+]
+  #   Each name asked, and each <tt>[address, port]</tt> dialed, in order.
   module Network
     # What a keyword nobody wrote reads as, so the runtime's contract alone
     # gives its default.

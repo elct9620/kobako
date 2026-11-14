@@ -10,7 +10,7 @@ class TestSandboxOptions < Minitest::Test
   # it is about.
   GIVEN = { timeout: 60.0, setup_timeout: 10.0, memory_limit: 4 << 20, stdout_limit: 1 << 20,
             stderr_limit: 1 << 20, open_file_limit: 1024, open_connection_limit: 6, connection_limit: 50,
-            profile: :hermetic, gvl: :hold }.freeze
+            profile: :hermetic, gvl: :hold, network: nil }.freeze
 
   # @behavior S-005
   def test_explicit_nil_disables_each_cap

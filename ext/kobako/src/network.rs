@@ -7,6 +7,8 @@
 //! `Kobako::Network::Builder` only collects what its block declares; the
 //! runtime's `Builder` composes it with the object given beside it.
 
+mod mock;
+
 use std::sync::Arc;
 
 use magnus::value::{Lazy, Opaque, ReprValue};
@@ -21,6 +23,8 @@ use kobako_runtime::network::{
     EntryError, HttpRule, Name, Network, Placement, Policies, Protocol, Request, Secret,
 };
 use kobako_runtime::policy::Policy;
+
+pub(super) use mock::RubyMock;
 
 use super::pinned_value::PinnedValue;
 use super::{escape, gvl, symbol_name_of};
@@ -148,7 +152,7 @@ pub(super) fn register(kobako: RModule) -> Result<(), MagnusError> {
     network.define_singleton_method("normalize_rule", function!(normalize_rule, 3))?;
     network.define_singleton_method("validate_credential", function!(validate_credential, 1))?;
     network.define_singleton_method("validate_name", function!(validate_name, 1))?;
-    Ok(())
+    mock::register(network)
 }
 
 /// The endpoint at `host` and `port` with the `protocol`, `addresses`, and

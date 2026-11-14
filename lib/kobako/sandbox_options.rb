@@ -31,18 +31,23 @@ module Kobako
   # [+gvl+]           How an invocation holds Ruby's GVL: +:hold+ through
   #                   the invocation, or +:release+ while the guest runs, so
   #                   Sandboxes on different Threads run in parallel; +:hold+.
+  # [+network+]       What the guest's network dials and looks names up
+  #                   through, beneath every rule its entries make: +nil+
+  #                   for the host's own, or a Kobako::Network::Mock a test
+  #                   writes; +nil+.
   #
   # Raises ArgumentError for a cap outside these shapes. The runtime judges
-  # every cap, and +profile+ and +gvl+ as Sandbox.new builds it.
+  # every cap, and +profile+, +gvl+, and +network+ as Sandbox.new builds it.
   class SandboxOptions < Data.define(:timeout, :setup_timeout, :memory_limit, :stdout_limit, :stderr_limit,
-                                     :open_file_limit, :open_connection_limit, :connection_limit, :profile, :gvl)
+                                     :open_file_limit, :open_connection_limit, :connection_limit, :profile, :gvl,
+                                     :network)
     # Every option is required; Sandbox.new fills each one left out from
     # the runtime's defaults.
     def initialize(timeout:, setup_timeout:, memory_limit:, stdout_limit:, stderr_limit:, open_file_limit:,
-                   open_connection_limit:, connection_limit:, profile:, gvl:)
+                   open_connection_limit:, connection_limit:, profile:, gvl:, network:)
       caps = Kobako::Runtime.normalize_caps({ timeout:, setup_timeout:, memory_limit:, stdout_limit:, stderr_limit:,
                                               open_file_limit:, open_connection_limit:, connection_limit: })
-      super(**caps.merge(profile:, gvl:))
+      super(**caps.merge(profile:, gvl:, network:))
     end
 
     def value_budget # :nodoc:

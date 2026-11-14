@@ -13,6 +13,22 @@ module Kobako
 
     def self.validate_name: (String name) -> nil
 
+    class Mock
+      def initialize: (?local_addresses: Array[String]?) -> void
+
+      def answer: (String name, *String addresses) -> nil
+
+      def route: (String address, Integer port, to: [String, Integer]) -> nil
+
+      def refuse: (String address, Integer port, Integer | singleton(SystemCallError) errno) -> nil
+
+      def hold: [T] (String name) { () -> T } -> T
+
+      def lookups: () -> Array[String]
+
+      def dials: () -> Array[[String, Integer]]
+    end
+
     class Endpoint < Data
       attr_reader host: String
       attr_reader port: Integer

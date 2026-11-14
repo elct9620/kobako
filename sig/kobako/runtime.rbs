@@ -12,7 +12,8 @@ module Kobako
       open_connection_limit: Integer?,
       connection_limit: Integer?,
       profile: Symbol,
-      gvl: Symbol
+      gvl: Symbol,
+      network: nil
     }
 
     def self.normalize_caps: (Hash[Symbol, untyped] caps) -> {
@@ -39,7 +40,8 @@ module Kobako
       open_connection_limit: Integer?,
       connection_limit: Integer?,
       profile: Symbol,
-      gvl: Symbol
+      gvl: Symbol,
+      network: Network::Mock?
     ) -> Runtime
 
     type setup = [

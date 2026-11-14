@@ -34,12 +34,12 @@ class TestSandbox < Minitest::Test
   def test_options_left_out_take_the_runtime_defaults
     defaults = { timeout: 60.0, setup_timeout: 10.0, memory_limit: 4 << 20, stdout_limit: 1 << 20,
                  stderr_limit: 1 << 20, open_file_limit: 1024, open_connection_limit: 6, connection_limit: 50,
-                 profile: :hermetic, gvl: :hold }
+                 profile: :hermetic, gvl: :hold, network: nil }
 
     assert_equal defaults, Kobako::Sandbox.new(wasm_path: FIXTURE_PATH).options.to_h,
                  "each option left out of Sandbox.new must take its default: a 60 s deadline, 10 s to set up, " \
                  "4 MiB of memory, 1 MiB per output, 1024 files, 6 open connections and 50 in all, the " \
-                 "hermetic profile, and holding the GVL"
+                 "hermetic profile, holding the GVL, and the host's own network"
   end
 
   # Sandbox.new delegates cap normalization to SandboxOptions, whose

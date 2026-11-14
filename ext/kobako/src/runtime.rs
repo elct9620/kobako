@@ -32,6 +32,7 @@ use std::time::Duration;
 
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::limits::Limits;
+use kobako_runtime::net::Backends;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_transport::envelope::{Bindings, Flag, Preamble, Snippet, Snippets};
@@ -265,6 +266,7 @@ impl Runtime {
             to_profile_name(&ruby, Profile::default()),
         )?;
         options.aset(ruby.to_symbol("gvl"), ruby.to_symbol("hold"))?;
+        options.aset(ruby.to_symbol("network"), ruby.qnil())?;
         Ok(options)
     }
 
@@ -303,9 +305,17 @@ impl Runtime {
             }
         };
 
+        // `nil` is the host's own network; anything else must be a Mock.
+        let mock: Value = options.fetch(ruby.to_symbol("network"))?;
+        let backends = match mock.is_nil() {
+            true => Backends::default(),
+            false => <&network::RubyMock>::try_convert(mock)?.backends(),
+        };
+
         let mut config = Config::default();
         config.limits = limits;
         config.profile = profile;
+        config.network = backends;
         let driver =
             Driver::new(Path::new(&path), config).map_err(|e| errors::from_setup(&ruby, e))?;
         Ok(Self {
