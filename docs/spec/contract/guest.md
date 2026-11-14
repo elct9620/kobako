@@ -31,8 +31,8 @@ pub fn answer(bytes: &[u8]) -> u32 {}
 
 ## `run_ctors_once`
 
-Run the Guest Binary's static constructors the first time any export is
-entered, and never again.
+Run the Guest Binary's static constructors the first time an export other
+than `cabi_realloc` is entered, and never again.
 
 ```rust
 pub fn run_ctors_once() {}

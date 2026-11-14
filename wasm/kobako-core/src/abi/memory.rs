@@ -74,10 +74,11 @@ pub fn answer(bytes: &[u8]) -> u32 {
     }
 }
 
-/// Run the static constructors the first time any export is entered, as
-/// wit-bindgen's runtime does. Calling `__wasm_call_ctors` here also keeps
-/// wasm-ld from wrapping each export to run them, and their destructors,
-/// on every call.
+/// Run the static constructors the first time an export other than
+/// `cabi_realloc` is entered, as wit-bindgen's runtime does: the host may
+/// take room before any other export runs. Calling `__wasm_call_ctors`
+/// here also keeps wasm-ld from wrapping each export to run them, and
+/// their destructors, on every call.
 pub fn run_ctors_once() {
     #[cfg(target_arch = "wasm32")]
     {

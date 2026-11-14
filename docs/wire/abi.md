@@ -11,14 +11,14 @@ The ABI is the set of Wasm functions that carry both [wire](README.md) layers be
 
 ## ABI Signatures
 
-The surface is five functions, named as the Component Model's WIT world `kobako:abi` would name them. Signatures here use Wasm's own types; a Rust side spells the same values as `u32`.
+The surface is four functions and a memory, named as the Component Model's WIT world `kobako:abi` would name them. Signatures here use Wasm's own types; a Rust side spells the same values as `u32`.
 
 | Symbol | Linkage | Wasm signature | Layer |
 |---|---|---|---|
 | `kobako:abi/guest@0.6.0#downcall` | export | `(ptr: i32, len: i32) -> i32` | message |
 | `upcall` from `kobako:abi/host@0.6.0` | import | `(ptr: i32, len: i32, ret: i32)` | message |
 | `preamble` from `kobako:abi/host@0.6.0` | import | `(ret: i32)` | setup |
-| `cabi_realloc` | export | `(ptr: i32, len: i32, align: i32, new: i32) -> i32` | memory |
+| `cabi_realloc` | export | `(old_ptr: i32, old_len: i32, align: i32, new_len: i32) -> i32` | memory |
 | `memory` | export | linear memory | memory |
 
 Each name follows the Canonical ABI's legacy core naming, so the same core module wraps into a component unchanged. The WIT these lower from is:
@@ -150,7 +150,7 @@ Version `6` takes the Canonical ABI's core shape, so the Guest Binary imports WA
 | one allocator, `cabi_realloc`, that traps | the host never writes at an address it was not given |
 | answers through a return area | no packed i64 crosses the boundary |
 | the Preamble from an import, not stdin | descriptor 0 is free for the script's own input |
-| ctors run once, at the first export entry | an unbaked Guest Binary still runs them |
+| ctors run once, at the first entry to an export other than `cabi_realloc` | an unbaked Guest Binary still runs them |
 
 ### Version 5
 
