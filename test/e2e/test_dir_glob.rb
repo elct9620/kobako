@@ -18,6 +18,12 @@ class TestE2EDirGlob < Minitest::Test
       [Dir.glob("*", File::FNM_DOTMATCH), Dir.glob("**/*.rb", File::FNM_DOTMATCH)]
   RUBY
 
+  DOTTED = <<~RUBY
+    Dir.chdir("/t")
+    ["**/.*", "**/.", "sub/**/.*"].map { |pattern| Dir.glob(pattern) } +
+      ["**/*", "*/*", "sub/*", "**/"].map { |pattern| Dir.glob(pattern, File::FNM_DOTMATCH) }
+  RUBY
+
   CHOSEN = <<~RUBY
     Dir.chdir("/t")
     yielded = []
@@ -47,6 +53,17 @@ class TestE2EDirGlob < Minitest::Test
                  sandbox.eval(MATCHED).value,
                  "Dir.glob through the bundled guest must answer CRuby's paths, in CRuby's order, for " \
                  "wildcards, brackets, braces, **/, a trailing separator, and FNM_DOTMATCH"
+  end
+
+  # @behavior FL-092
+  def test_a_pattern_answers_a_directory_as_its_own_dot_only_where_crubys_does
+    assert_equal [%w[.hidden sub/.d.rb], [], %w[sub/.d.rb],
+                  %w[. .hidden Z.rb a.rb b.txt sub sub/.d.rb sub/c.rb sub/deep sub/deep/e.rb],
+                  %w[./.hidden ./Z.rb ./a.rb ./b.txt ./sub sub/.d.rb sub/c.rb sub/deep],
+                  %w[sub/. sub/.d.rb sub/c.rb sub/deep], %w[sub/ sub/deep/]],
+                 sandbox.eval(DOTTED).value,
+                 "Dir.glob through the bundled guest must answer a directory as its own . only in the " \
+                 "first directory a pattern lists, and never under **/ without FNM_DOTMATCH, as CRuby does"
   end
 
   # @behavior FL-093

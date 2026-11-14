@@ -55,6 +55,7 @@ pub(super) fn glob(pattern: &[u8], base: Option<&[u8]>, options: Options) -> Vec
             base,
             options,
             found: &mut found,
+            listed: false,
         }
         .start(&expanded);
     }
@@ -282,6 +283,8 @@ struct Walk<'a> {
     base: Option<&'a [u8]>,
     options: Options,
     found: &'a mut Vec<Vec<u8>>,
+    /// The walk has listed a directory, so no later listing offers `.`.
+    listed: bool,
 }
 
 impl Walk<'_> {
@@ -310,14 +313,21 @@ impl Walk<'_> {
         fs::metadata(OsStr::from_bytes(&self.host_path(path))).is_ok_and(|found| found.is_dir())
     }
 
-    /// The entries of the directory `path` names, `.` among them and `..`
-    /// never, each beside whether it is a directory and not a link; none
-    /// where it reads as no directory, as a glob ignores what it cannot list.
-    fn entries(&self, path: &[u8]) -> Vec<(Vec<u8>, bool)> {
+    /// The entries of the directory `path` names, each beside whether it is a
+    /// directory and not a link; none where it reads as no directory, as a
+    /// glob ignores what it cannot list. `..` is never among them, and `.`
+    /// only in the walk's first listing, and there only when `**/` is not
+    /// pending or `FNM_DOTMATCH` is given, as `glob_helper`'s `skipdot` keeps
+    /// a walk from answering each directory again as its own `.`.
+    fn entries(&mut self, path: &[u8], recursive: bool) -> Vec<(Vec<u8>, bool)> {
         let Ok(listing) = fs::read_dir(OsStr::from_bytes(&self.host_path(path))) else {
             return Vec::new();
         };
-        let mut entries = vec![(b".".to_vec(), false)];
+        let mut entries = Vec::new();
+        if !self.listed && (self.options.dotmatch || !recursive) {
+            entries.push((b".".to_vec(), false));
+        }
+        self.listed = true;
         entries.extend(listing.flatten().map(|entry| {
             let real_dir = entry.file_type().is_ok_and(|kind| kind.is_dir());
             (entry.file_name().as_bytes().to_vec(), real_dir)
@@ -339,7 +349,7 @@ impl Walk<'_> {
                 here.push((node + 1, separators));
             }
         }
-        let (mut listed, mut plain) = (false, false);
+        let (mut magical, mut recursive, mut plain) = (false, false, false);
         for (node, separators) in &here {
             match self.nodes[*node].0 {
                 Node::End if !path.is_empty() && (known || self.exists(&path)) => {
@@ -348,13 +358,14 @@ impl Walk<'_> {
                 Node::DirEnd if !path.is_empty() && self.is_dir(&path) => {
                     self.found.push([&path, separators.as_slice()].concat());
                 }
-                Node::Magic(_) | Node::Recursive => listed = true,
+                Node::Magic(_) => magical = true,
+                Node::Recursive => recursive = true,
                 Node::Plain(_) => plain = true,
                 _ => {}
             }
         }
-        if listed {
-            for (name, real_dir) in self.entries(&path) {
+        if magical || recursive {
+            for (name, real_dir) in self.entries(&path, recursive) {
                 self.descend(&path, &here, &name, real_dir);
             }
         } else if plain {
