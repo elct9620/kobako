@@ -743,15 +743,15 @@ fn is_literal_char(text: &str) -> bool {
     matches!((chars.next(), chars.next()), (Some(c), None) if !matches!(c, '|' | '.' | '^' | '$'))
 }
 
-/// MRI's ceiling on an interval bound.
-const MAX_REPEAT: u64 = 100_000;
+/// MRI's ceiling on an interval bound, under Onigmo's name.
+const ONIG_MAX_REPEAT_NUM: u64 = 100_000;
 
 /// An interval's bounds as MRI reads them: no lower bound is zero, `{n}` is
 /// exact and `{n,}` has no upper bound.
 fn read_interval(lower: &str, upper: Option<&str>) -> Result<Quantity, String> {
     let bound = |text: &str| -> Result<u64, String> {
         match text.parse::<u64>() {
-            Ok(number) if number <= MAX_REPEAT => Ok(number),
+            Ok(number) if number <= ONIG_MAX_REPEAT_NUM => Ok(number),
             _ => Err("too big number for repeat range".to_string()),
         }
     };
