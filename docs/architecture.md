@@ -108,7 +108,7 @@ Each part owns one concern. Its dependencies on other kobako parts may only poin
 | Part | Owns | kobako parts it uses |
 |---|---|---|
 | `kobako-transport` | the Envelope and the ABI's values | none, ever |
-| `kobako-codec` | the payload Codecs, one namespace and feature per Codec | none |
+| `kobako-codec` | the payload Codecs, one namespace and feature per Codec | transport |
 | `kobako-runtime` | the contract: `Runtime`, `DispatchHandler`, `Yielder`, `Profile`, `Limits`, `Snapshot`, `Grant`, `Network` | transport |
 | `kobako-runtime` | what every Wasm Driver keeps: `endpoint`, `cred`, `vfs`, `security`, `Mount`, `sched`, `wait`, `memcg`, Filesystems, `net` | transport |
 | `kobako-wasmtime` | one Wasm Driver, `kobako_wasmtime::Driver`, and its preview1 and preview2 encodings | runtime, transport |

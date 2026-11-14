@@ -14,6 +14,7 @@
 
 use beni::ReprValue;
 use beni::Value;
+use kobako_transport::envelope::MAX_HANDLE_ID;
 
 use super::Kobako;
 
@@ -23,12 +24,6 @@ use super::Kobako;
 /// `const` makes the writer / reader pairing impossible to drift
 /// silently when the ivar layout changes.
 const HANDLE_ID_IVAR: &core::ffi::CStr = c"@__kobako_id__";
-
-/// Largest Handle id the wire admits, the top of the positive i32 range.
-/// Named here because `Kobako::mint_handle` enforces it for
-/// itself: every layer that can admit an id states the bound rather than
-/// inheriting it from the one before.
-const MAX_HANDLE_ID: u32 = 0x7fff_ffff;
 
 impl Kobako {
     /// Empty when the call raises or answers anything else, so the Panic

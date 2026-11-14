@@ -33,9 +33,13 @@ categories = ["wasm", "encoding"]
 # (`kobako-mruby` is where that happens — the dependency is optional
 # there and unconditional wherever the schema is the point).
 default = ["msgpack"]
-msgpack = ["dep:rmp"]
+msgpack = ["dep:rmp", "dep:kobako-transport"]
 
 [dependencies]
+# The fixed tier, for the Capability Handle id range a namespace carrying
+# Handles holds to; it brings no dependency of its own.
+kobako-transport = { path = "../kobako-transport", version = "0.20.0", optional = true }
+
 # `rmp` is the low-level (no-serde) Pure Rust MessagePack codec — the
 # Rust counterpart of the msgpack-ruby gem used on the host side. The
 # codec stays a thin shim over `rmp::encode` / `rmp::decode`, keeping

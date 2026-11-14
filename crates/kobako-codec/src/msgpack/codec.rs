@@ -27,6 +27,8 @@ pub use encoder::{Encode, Encoder};
 pub use error::Error;
 pub use value::Value;
 
+use kobako_transport::envelope::MAX_HANDLE_ID;
+
 /// MessagePack ext type code reserved for Symbol. Module-private
 /// — mirrors the `EXT_SYMBOL`
 /// constant on the Ruby Factory side.
@@ -35,10 +37,6 @@ const EXT_SYMBOL: i8 = 0x00;
 /// MessagePack ext type code reserved for Capability Handle. Module-private — every
 /// encoder/decoder that needs it lives inside this module.
 const EXT_HANDLE: i8 = 0x01;
-
-/// Maximum legal Capability Handle ID — the wire pins ids to the positive
-/// i32 range. Module-private.
-const MAX_HANDLE_ID: u32 = 0x7fff_ffff;
 
 /// Maximum structural nesting depth the guest codec walks on both the
 /// encode and decode paths. The cap keeps a reference cycle or a pathologically deep

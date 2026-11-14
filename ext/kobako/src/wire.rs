@@ -1,12 +1,14 @@
 //! The Wire's rules a Ruby frontend asks before it writes a name the guest
-//! interns, so both frontends judge a name by the one rule the Envelope tier
-//! keeps.
+//! interns or issues a Capability Handle id, so both frontends hold to the
+//! one rule the Envelope tier keeps.
 
 use magnus::{function, prelude::*, Error as MagnusError, RModule, RString};
 
 use kobako_transport::envelope::name::{is_constant_name, is_constant_path, is_reserved};
+use kobako_transport::envelope::MAX_HANDLE_ID;
 
 pub(crate) fn register(kobako: RModule) -> Result<(), MagnusError> {
+    kobako.define_singleton_method("max_handle_id", function!(|| MAX_HANDLE_ID, 0))?;
     kobako.define_singleton_method(
         "constant_name?",
         function!(|name: RString| holds(name, is_constant_name), 1),

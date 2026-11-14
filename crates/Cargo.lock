@@ -958,6 +958,7 @@ dependencies = [
 name = "kobako-codec"
 version = "0.20.0"
 dependencies = [
+ "kobako-transport",
  "rmp",
 ]
 

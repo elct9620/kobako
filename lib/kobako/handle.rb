@@ -6,9 +6,9 @@ module Kobako
   class Handle < Data.define(:id)
     # The smallest id; 0 never names a Handle.
     MIN_ID = 1
-    # The largest id, the positive half of a signed 32-bit integer; an
+    # The largest id, the bound the wire's Envelope holds every side to; an
     # invocation needing more raises HandleExhaustedError.
-    MAX_ID = 0x7fff_ffff
+    MAX_ID = Kobako.max_handle_id
 
     def initialize(id:) # :nodoc:
       raise ArgumentError, "Handle id must be Integer" unless id.is_a?(Integer)

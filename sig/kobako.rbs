@@ -4,4 +4,6 @@ module Kobako
   def self.constant_path?: (String path) -> bool
 
   def self.reserved_path?: (String path) -> bool
+
+  def self.max_handle_id: () -> Integer
 end
