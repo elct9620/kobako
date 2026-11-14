@@ -29,8 +29,11 @@ What the guest cannot answer as CRuby does, it leaves out, so a script fails ins
 fileno                    -> NoMethodError
 a call given no block     -> ArgumentError, where CRuby answers an Enumerator
 chdir naming no directory -> ArgumentError, as CRuby without HOME
+chdir out of every Mount  -> Errno::ENOENT or EACCES, as WASI
 the encoding: keyword     -> ArgumentError
 ```
+
+A glob of `**/` with `base:` leaves out the `/` CRuby answers for the base itself, an answer naming no entry.
 
 ## Includes
 
