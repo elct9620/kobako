@@ -12,7 +12,9 @@
 use std::sync::Arc;
 
 use kobako_runtime::runtime::Runtime;
-use kobako_transport::envelope::name::{is_constant_path, is_reserved, RESERVED_NAMESPACE};
+use kobako_transport::envelope::name::{
+    collides, is_constant_path, is_reserved, RESERVED_NAMESPACE,
+};
 use kobako_transport::envelope::{Bindings, Flag, Preamble};
 
 use crate::error::Error;
@@ -45,21 +47,13 @@ impl Catalog {
                 "Service path {path} is in the reserved {RESERVED_NAMESPACE} namespace"
             )));
         }
-        if self.collides(path) {
+        if self.bindings.iter().any(|(bound, _)| collides(path, bound)) {
             return Err(Error::Argument(format!(
                 "Service path {path} conflicts with an existing binding"
             )));
         }
         self.bindings.push((path.to_string(), object));
         Ok(())
-    }
-
-    fn collides(&self, path: &str) -> bool {
-        self.bindings.iter().any(|(existing, _)| {
-            existing == path
-                || existing.starts_with(&format!("{path}::"))
-                || path.starts_with(&format!("{existing}::"))
-        })
     }
 
     pub(crate) fn lookup(&self, path: &str) -> Option<Arc<dyn Receiver>> {

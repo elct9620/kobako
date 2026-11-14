@@ -5,5 +5,7 @@ module Kobako
 
   def self.reserved_path?: (String path) -> bool
 
+  def self.paths_collide?: (String path, String bound) -> bool
+
   def self.max_handle_id: () -> Integer
 end

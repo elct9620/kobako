@@ -29,6 +29,18 @@ pub fn is_reserved(path: &str) -> bool {
     path.split("::").next() == Some(RESERVED_NAMESPACE)
 }
 
+/// Whether `path` and `bound` cannot both be bound: they name one constant,
+/// or one stands as the other's namespace, so the guest could not tell a
+/// Service from a grouping module.
+pub fn collides(path: &str, bound: &str) -> bool {
+    let within = |inner: &str, outer: &str| {
+        inner
+            .strip_prefix(outer)
+            .is_some_and(|rest| rest.starts_with("::"))
+    };
+    path == bound || within(path, bound) || within(bound, path)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -66,6 +78,22 @@ mod tests {
             [true, false, false, true, true, false],
             "is_constant_path must join constant names by '::' only, and is_reserved must hold \
              a path whose first segment is Kobako and no other"
+        );
+    }
+
+    #[test]
+    fn a_path_collides_with_itself_and_with_either_side_of_a_namespace() {
+        assert_eq!(
+            [
+                collides("KV", "KV"),
+                collides("KV::Store", "KV"),
+                collides("KV", "KV::Store"),
+                collides("KVStore", "KV"),
+                collides("KV", "Cache"),
+            ],
+            [true, true, true, false, false],
+            "collides must hold for one path and for a path inside another's namespace, and \
+             not for a path that only shares a prefix"
         );
     }
 }

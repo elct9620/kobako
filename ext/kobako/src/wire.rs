@@ -4,7 +4,7 @@
 
 use magnus::{function, prelude::*, Error as MagnusError, RModule, RString};
 
-use kobako_transport::envelope::name::{is_constant_name, is_constant_path, is_reserved};
+use kobako_transport::envelope::name::{collides, is_constant_name, is_constant_path, is_reserved};
 use kobako_transport::envelope::MAX_HANDLE_ID;
 
 pub(crate) fn register(kobako: RModule) -> Result<(), MagnusError> {
@@ -21,7 +21,18 @@ pub(crate) fn register(kobako: RModule) -> Result<(), MagnusError> {
         "reserved_path?",
         function!(|path: RString| holds(path, is_reserved), 1),
     )?;
+    kobako.define_singleton_method("paths_collide?", function!(paths_collide, 2))?;
     Ok(())
+}
+
+/// Whether the paths `path` and `bound` spell cannot both be bound; bytes
+/// that spell no text are no name at all, so they collide with nothing.
+fn paths_collide(path: RString, bound: RString) -> bool {
+    let (path, bound) = (crate::to_bytes(path), crate::to_bytes(bound));
+    match (std::str::from_utf8(&path), std::str::from_utf8(&bound)) {
+        (Ok(path), Ok(bound)) => collides(path, bound),
+        _ => false,
+    }
 }
 
 /// Whether `rule` holds for the text `s` spells; bytes that spell no text

@@ -51,11 +51,7 @@ module Kobako
 
       # Keeps a name from being both a bound Service and a grouping prefix.
       def collision?(path)
-        @bindings.each_key.any? do |existing|
-          existing == path ||
-            existing.start_with?("#{path}::") ||
-            path.start_with?("#{existing}::")
-        end
+        @bindings.each_key.any? { |bound| Kobako.paths_collide?(path, bound) }
       end
     end
   end
