@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.20.0...kobako-codec-v0.21.0) (2026-11-14)
+
+
+### Miscellaneous Chores
+
+* **kobako-codec:** Synchronize kobako crates versions
+
 ## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.19.0...kobako-codec-v0.20.0) (2026-11-07)
 
 

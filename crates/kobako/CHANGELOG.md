@@ -1,5 +1,39 @@
 # Changelog
 
+## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.20.0...kobako-sdk-v0.21.0) (2026-11-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sdk:** `kobako::Options` and `kobako_wasmtime::Config` read and set every cap through `limits`: write `options.limits.timeout = …` where `options.timeout = …` was written, and likewise for `setup_timeout`, `memory_limit`, `stdout_limit`, `stderr_limit`, `open_file_limit`, `open_connection_limit`, and `connection_limit`.
+* **sdk:** `RunPayload::bytes`, `RunPayload::build`, and `RunPayload::values` are now `RunPayload::from_bytes`, `RunPayload::from_fn`, and `RunPayload::from_values`, taking the same arguments.
+* **runtime:** `kobako_runtime::FilesystemError`, `kobako_runtime::vfs::FilesystemError`, and `kobako_runtime::filesystem::FilesystemError` are now `kobako_runtime::Errno`, also reachable as `kobako::Errno`. Rename the type in a Filesystem or security module; its variants are unchanged.
+* **runtime:** kobako_runtime::mount::Policy moves to kobako_runtime::grant::Policy<R>. Implement Policy<MountRequest<'_>> with allows(&self, request: &MountRequest<'_>) in place of allows(&self, path: &str, access: Access), reading request.path and request.access; a mount_with_policy policy is now Arc<dyn for<'a> Policy<MountRequest<'a>>>, which a closure also fills.
+
+### Features
+
+* bound a guest's connections per Sandbox, per run, and per process ([7a4f869](https://github.com/elct9620/kobako/commit/7a4f8692cbc788a23c582b90112cd0275739d496))
+* **runtime:** give the guest named network entries as a Grant ([85cfc10](https://github.com/elct9620/kobako/commit/85cfc10b029c2a94adc45d1809fbbd7c651d94f9))
+* **sdk:** add Sandbox::network_with to build on an entry in a closure ([9e050df](https://github.com/elct9620/kobako/commit/9e050df718126f389896b0b2253eebc2bd882139))
+* **sdk:** take the network's backends from Options ([5b5b5d2](https://github.com/elct9620/kobako/commit/5b5b5d2b437eed5df83c8476ba4ff5eea178ea9f))
+* **transport:** spell once the form of a name a guest interns ([95c10bc](https://github.com/elct9620/kobako/commit/95c10bcf7180fc0e5ef432a9935ce3f856c75c9f))
+
+
+### Bug Fixes
+
+* **network:** answer an endpoint the ruleset refuses as the Host App's argument ([1c6d710](https://github.com/elct9620/kobako/commit/1c6d710855495f874761eef1933f51c93a7a62b0))
+* **runtime:** refuse a cap of zero in one place both frontends ask ([aef531e](https://github.com/elct9620/kobako/commit/aef531eda4f2b32bc4748b0d09b98058331af3b6))
+* **sdk:** refuse a run argument carrying a Handle the Host App wrote ([c094a9b](https://github.com/elct9620/kobako/commit/c094a9b137d8090b137f4cd12210ee23d28cfc73))
+* **transport:** route a Ruby dispatch before reading its arguments ([10c7635](https://github.com/elct9620/kobako/commit/10c76356d106ccd8f2da615075de93170b21a086))
+
+
+### Code Refactoring
+
+* **runtime:** judge each Grant's requests through one generic Policy ([770fc66](https://github.com/elct9620/kobako/commit/770fc665b00532f4092dfdb8a864e02d387065c3))
+* **runtime:** name the errno type Errno at the crate root ([f608e31](https://github.com/elct9620/kobako/commit/f608e31e81d1be9ddc6bb2fc8f6a26e5acafced4))
+* **sdk:** hold a Sandbox's caps as the runtime's Limits ([9730d6a](https://github.com/elct9620/kobako/commit/9730d6a73fec595c2b75ac8981aeb655937045df))
+* **sdk:** name RunPayload's constructors with from_ ([6e95532](https://github.com/elct9620/kobako/commit/6e955327f6e9d7c29641f89ac2b1edb58ed24993))
+
 ## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.19.0...kobako-sdk-v0.20.0) (2026-11-07)
 
 

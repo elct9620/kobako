@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.20.0...kobako-core-v0.21.0) (2026-11-14)
+
+
+### Features
+
+* **core:** export cabi_realloc from export_guest! ([dd215f5](https://github.com/elct9620/kobako/commit/dd215f5324457442ad6c031d6c6302698e29b36d))
+
+
+### Bug Fixes
+
+* **core:** take no room for an empty list the host lowers ([f2fac23](https://github.com/elct9620/kobako/commit/f2fac236de645f69e479fa5bff97979005e344eb))
+
 ## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.19.0...kobako-core-v0.20.0) (2026-11-07)
 
 

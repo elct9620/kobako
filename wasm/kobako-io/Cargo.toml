@@ -12,7 +12,7 @@
 
 [package]
 name = "kobako-io"
-version = "0.20.0"
+version = "0.21.0"
 edition = "2021"
 description = "Sandbox IO / File / Kernel capability gem for kobako mruby guests — $stdout / $stderr and preopened files over wasi-libc, sockets and Net::HTTP over WASI 0.2, built on beni."
 license = "Apache-2.0"

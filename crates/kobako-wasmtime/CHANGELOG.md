@@ -1,5 +1,129 @@
 # Changelog
 
+## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-wasmtime-v0.20.0...kobako-wasmtime-v0.21.0) (2026-11-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sdk:** `kobako::Options` and `kobako_wasmtime::Config` read and set every cap through `limits`: write `options.limits.timeout = …` where `options.timeout = …` was written, and likewise for `setup_timeout`, `memory_limit`, `stdout_limit`, `stderr_limit`, `open_file_limit`, `open_connection_limit`, and `connection_limit`.
+* **options:** SandboxOptions no longer defines the DEFAULT_* constants, and SandboxOptions.new requires every option; a Sandbox's defaults are unchanged and readable through Sandbox#options.
+* **runtime:** `memory_limit` now bounds the guest's `memory.grow` and what the host holds for the run together, where a Filesystem written in Ruby had its directory listings counted against a limit of their own. A run that grew close to `memory_limit` and listed a large directory may now raise `Errno::ENOMEM` in the guest or `Kobako::MemoryLimitError`, and `Usage#memory_peak` includes the listings. Raise `memory_limit` by what those listings hold to keep the earlier headroom.
+* **runtime:** `kobako_runtime::FilesystemError`, `kobako_runtime::vfs::FilesystemError`, and `kobako_runtime::filesystem::FilesystemError` are now `kobako_runtime::Errno`, also reachable as `kobako::Errno`. Rename the type in a Filesystem or security module; its variants are unchanged.
+* **runtime:** FileOperations::poll takes a second parameter, Option<&mut PollTable>; write fn poll(&self, mode: FMode, _table: Option<&mut PollTable>) in place of fn poll(&self, mode: FMode). File::poll takes the table too; pass None for a poll that will not sleep.
+* **transport:** ABI_VERSION is 6. A Guest Binary built against version 5 is refused; rebuild it on kobako-core, whose export_guest! now also emits cabi_realloc.
+* **runtime:** kobako_runtime::mount::Policy moves to kobako_runtime::grant::Policy<R>. Implement Policy<MountRequest<'_>> with allows(&self, request: &MountRequest<'_>) in place of allows(&self, path: &str, access: Access), reading request.path and request.access; a mount_with_policy policy is now Arc<dyn for<'a> Policy<MountRequest<'a>>>, which a closure also fills.
+
+### Features
+
+* bound a guest's connections per Sandbox, per run, and per process ([7a4f869](https://github.com/elct9620/kobako/commit/7a4f8692cbc788a23c582b90112cd0275739d496))
+* **io:** match patterns and change the working directory through Dir ([72cca2c](https://github.com/elct9620/kobako/commit/72cca2c400c20f6cb52d7fb0e4589fd366bf0878))
+* **runtime:** answer the guest's network from a table a test writes ([b3aba65](https://github.com/elct9620/kobako/commit/b3aba650760b8cff3113341500fa414b17f4dd76))
+* **runtime:** let a file's poll register on the poller's wait queue ([05fd5a6](https://github.com/elct9620/kobako/commit/05fd5a626a5ebd21f037e1bbacbf61350a5f5d89))
+* **runtime:** send a guest's HTTP request through an outbound seam dialing only kobako's connector ([43c49fe](https://github.com/elct9620/kobako/commit/43c49fec9b7f7947cb8ed29daf20f3e3d1db8ca1))
+* **runtime:** wait on wait queues that a producer or an interrupt wakes ([8b15e44](https://github.com/elct9620/kobako/commit/8b15e4484587d3aed5cdf3a88386ffdb99974276))
+* **transport:** move the ABI to version 6, exporting cabi_realloc ([2704b30](https://github.com/elct9620/kobako/commit/2704b3036c025e70730c94c35d2097a5ef316738))
+* **wasmtime:** answer a TCP socket's keep-alive-enabled from the socket ([0a78137](https://github.com/elct9620/kobako/commit/0a781371651f05196179c2c92cc22f6191e68062))
+* **wasmtime:** answer a TCP socket's keepalive timing and buffer sizes ([5b248a3](https://github.com/elct9620/kobako/commit/5b248a3a58c7422c21e8a7bd31cb4f264ab5c3b6))
+* **wasmtime:** answer hop limits and a UDP socket's buffer sizes ([3cf0a71](https://github.com/elct9620/kobako/commit/3cf0a71c28acfc2ac4cb7928f3e73b31b924fa90))
+* **wasmtime:** answer the client half of wasi:http through the Invocation's namespace ([00844d0](https://github.com/elct9620/kobako/commit/00844d04075e01f436c4933912283deed3048059))
+* **wasmtime:** answer wasi:sockets ip-name-lookup through the Invocation's namespace ([de2e84c](https://github.com/elct9620/kobako/commit/de2e84c63e1dbed0931b693c6cde5ec5897bd303))
+* **wasmtime:** answer wasi:sockets/udp with one peer a guest names ([e15500d](https://github.com/elct9620/kobako/commit/e15500d6268bb4b31c11367048731a64eaf91577))
+* **wasmtime:** connect a guest's TCP socket through the Invocation's namespace ([8656890](https://github.com/elct9620/kobako/commit/8656890d84f561f99351d2bd1e13b2d3f6690562))
+* **wasmtime:** connect a guest's TCP socket to an address its endpoints name ([3c982ac](https://github.com/elct9620/kobako/commit/3c982ac52ce58aea2a5af61af5a1a9ed7eccc76a))
+* **wasmtime:** count each Driver's socket workers as its Sandbox's ([a046261](https://github.com/elct9620/kobako/commit/a0462613999c9b941eabdfdf4378c152fcfdbba9))
+* **wasmtime:** let a frozen clock beside a socket elapse in host time ([b6bd98c](https://github.com/elct9620/kobako/commit/b6bd98c1abbd69bc5b89a276bd7f86b5536bdbd0))
+* **wasmtime:** link the WASI 0.2 sockets, io, and clock imports a core module names ([7c932e7](https://github.com/elct9620/kobako/commit/7c932e770231621ac978bcc43af46877610941c8))
+* **wasmtime:** read the host's trust store as a Driver is built ([119ede5](https://github.com/elct9620/kobako/commit/119ede5439bb8c12523ef3607a64ee67cd45532d))
+* **wasmtime:** take the network's Protocol Family and Resolver from Config ([56cc53f](https://github.com/elct9620/kobako/commit/56cc53fa56cd987666f6b18b16e5264e314d8ef8))
+
+
+### Bug Fixes
+
+* answer an oversized datagram EMSGSIZE from the socket itself ([02317bc](https://github.com/elct9620/kobako/commit/02317bcc8e1ef86aa4b4a5e7a3b63b297cb6aeab))
+* bound a guest's header list by size and charge it to its memory ([80c9ee2](https://github.com/elct9620/kobako/commit/80c9ee2523e0a3ad5de78e769a45136bcbcb6dc8))
+* **core:** take no room for an empty list the host lowers ([f2fac23](https://github.com/elct9620/kobako/commit/f2fac236de645f69e479fa5bff97979005e344eb))
+* **http:** refuse an outgoing body finished with trailers ([c3c8f1b](https://github.com/elct9620/kobako/commit/c3c8f1b3b6277865f119c04065109a8cb4e1ab76))
+* **http:** send the trailers an outgoing body finishes with ([7792bcc](https://github.com/elct9620/kobako/commit/7792bccbedff4758b2ec85bae344c45769997518))
+* **io:** answer a script's socket addr at the guest's own virtual address ([6e8891a](https://github.com/elct9620/kobako/commit/6e8891a9b242849f1d1d9cea825ab47480b69b0e))
+* **io:** answer each stream call with its own error, as CRuby's ([9f54696](https://github.com/elct9620/kobako/commit/9f54696635a4a0026c2555fcc6d0b6ab64b266e4))
+* **io:** convert a number a file or socket call takes through to_int ([3da8767](https://github.com/elct9620/kobako/commit/3da8767e53b6c5d759b5a891357c6a3fe50ba01b))
+* **io:** let the host judge a script's bind, as CRuby names it ([0ec0f80](https://github.com/elct9620/kobako/commit/0ec0f805b8a0c6caed0e4c7c25dd99c5cdaffd07))
+* **io:** name every errno as CRuby does and build SystemCallError as it does ([487fcb6](https://github.com/elct9620/kobako/commit/487fcb67affc89b445296b6f482cec791f438ccd))
+* **io:** read a file's mode, names, lines, and seeks as CRuby does ([aeb0125](https://github.com/elct9620/kobako/commit/aeb01252708fecab8d5ed968866ca1b368670f0b))
+* **io:** read a Float whence as the Integer it truncates to ([5386576](https://github.com/elct9620/kobako/commit/5386576297a76be3c14cc8ce87d1640cab75346e))
+* **io:** seek, putc, warn, and an unknown errno answer as CRuby's do ([86f8bff](https://github.com/elct9620/kobako/commit/86f8bffe826a01785edbdf6df142ae9353f30bac))
+* judge a request's authority, path, and headers as wasmtime does ([903cc7b](https://github.com/elct9620/kobako/commit/903cc7b39217f3038de6bab5981ea37499f25e1c))
+* make each guest socket and its file at creation, as socket() does ([fca4311](https://github.com/elct9620/kobako/commit/fca4311060be90df2ec79c1d21bb3a9a5b0b36ca))
+* **net:** answer EAGAIN on a shut UDP read, as non-blocking Linux does ([675376d](https://github.com/elct9620/kobako/commit/675376d971c721ca23a5bd581e7d83db59dc94aa))
+* **net:** answer preview2 permits, options, and schemes as wasmtime-wasi ([3489166](https://github.com/elct9620/kobako/commit/3489166945852ca53626b82510f5c0a728cf0b26))
+* **net:** bound an HTTP request by the timeouts request-options sets ([b0e35d8](https://github.com/elct9620/kobako/commit/b0e35d80a275ecb33679ff1967e05f476f155ce7))
+* **net:** deny a socket without a network as wasmtime-wasi does ([09b0e9a](https://github.com/elct9620/kobako/commit/09b0e9a2713bd76ab0aafeaa5d459566891154e6))
+* **net:** hold a request's parts against memory while it is sent ([d1b642b](https://github.com/elct9620/kobako/commit/d1b642b1171d54b4c0d4cbc1ae6e8ff313b3dc89))
+* **net:** hold a request's parts and a response's head against memory ([fbc93c5](https://github.com/elct9620/kobako/commit/fbc93c5d763396cb5b928801380ef3989ec931af))
+* **net:** name a host socket's failure from its errno where std names none ([dddffa4](https://github.com/elct9620/kobako/commit/dddffa4bdc22575e3af4b27809662b04127aafc6))
+* **net:** read a host the guest names as wasmtime-wasi's lookup does ([2defe86](https://github.com/elct9620/kobako/commit/2defe8666e9046179dab4ff8b74057e69c9ab10a))
+* **net:** start a TCP socket's send buffer at Linux's default until it connects ([ea560c8](https://github.com/elct9620/kobako/commit/ea560c8ecdb0af143f94581ed10147bdc3e0359a))
+* **net:** wait on a socket by its own flag, and reset a released one sent to ([9dbac06](https://github.com/elct9620/kobako/commit/9dbac065500e78c84a2ae000f06064f6f21b17f1))
+* **network:** answer an endpoint the ruleset refuses as the Host App's argument ([1c6d710](https://github.com/elct9620/kobako/commit/1c6d710855495f874761eef1933f51c93a7a62b0))
+* **network:** read a socket's own end at a virtual port, not the host's ([1ef8486](https://github.com/elct9620/kobako/commit/1ef84864b6f8106e25eaa5fd0abf7310d56835c6))
+* **runtime:** charge empty datagrams and virtual addresses ([9a4d9ba](https://github.com/elct9620/kobako/commit/9a4d9ba92cbd3ba5f7570f1693282202db43b6d9))
+* **runtime:** charge the guest's growth and host-held memory to one budget ([f19659e](https://github.com/elct9620/kobako/commit/f19659ed93d0f5b0c1472dbc3bdbbb6815efbb4f))
+* **runtime:** give a socket its virtual port as Linux's inet layer does ([2c80c02](https://github.com/elct9620/kobako/commit/2c80c027801b5a00501fb8141e8ebde53879a855))
+* **runtime:** give each Invocation's outbound seam its own TLS sessions ([75119d8](https://github.com/elct9620/kobako/commit/75119d88a49f546a2d827a9476c5067d99bc02dd))
+* **runtime:** give each real address its own virtual address and dial one destination ([71c1b8d](https://github.com/elct9620/kobako/commit/71c1b8d7c3ee5ee34f57e5f1a48b43619176d129))
+* **runtime:** hold a socket's buffers against the Invocation's memory ([5d629a7](https://github.com/elct9620/kobako/commit/5d629a71f1940222dac36a57502030025575ef70))
+* **runtime:** judge the guest's HTTP headers, binds, and peerless streams in the runtime ([bc3e024](https://github.com/elct9620/kobako/commit/bc3e024483e43d8b121cb67e661e06e99997f604))
+* **runtime:** judge the request target the server reads ([9bc185e](https://github.com/elct9620/kobako/commit/9bc185e6f00375498f4d9119a34357e32d52279b))
+* **runtime:** keep a failed growth in the memory peak ([2e2b986](https://github.com/elct9620/kobako/commit/2e2b986dfa47aff61f0c20ad9b63178bfccbd441))
+* **runtime:** let an HTTP exchange go once nothing holds it ([2d78df9](https://github.com/elct9620/kobako/commit/2d78df98d11cdd8671629b1da2a5ac4b0b1862e7))
+* **runtime:** refuse a second connect on a connecting or connected socket ([2949d40](https://github.com/elct9620/kobako/commit/2949d402303e11af2b4346a866fee754e1e00dbd))
+* **runtime:** take the reactor before a TCP socket dials ([e056522](https://github.com/elct9620/kobako/commit/e0565227c357d05bca12610cd26d4aaac85b604a))
+* **wasmtime:** answer a connect, a short write, and a datagram's sender as wasmtime-wasi ([d1762d0](https://github.com/elct9620/kobako/commit/d1762d0a6f703c003cdb8bf00c81628f61ce2b6f))
+* **wasmtime:** answer a file's preview1 calls on a socket's number as Linux does ([0ba90a0](https://github.com/elct9620/kobako/commit/0ba90a0b3369065865d6d1b5d3387217f5f37ca2))
+* **wasmtime:** answer a lookup or request past the file limit ([82d9f34](https://github.com/elct9620/kobako/commit/82d9f344a1a322d3b3bb811a8bbf39b4f98ad21f))
+* **wasmtime:** answer a socket's edges as wasmtime-wasi does ([2b80a61](https://github.com/elct9620/kobako/commit/2b80a61876c9eef18d8100df46b05033825b5b58))
+* **wasmtime:** answer closed to a blocking flush of nothing once the send side shut ([284d5a0](https://github.com/elct9620/kobako/commit/284d5a0ba7d30ba022d27ba60ed6cc2d4fb0a3c9))
+* **wasmtime:** answer new-socket-limit for a socket past the open file limit ([e45c8e8](https://github.com/elct9620/kobako/commit/e45c8e8a86003c47f69e251f0e87a77764ed2fa9))
+* **wasmtime:** answer preview1 reads, writes, and polls on a socket's number ([5514429](https://github.com/elct9620/kobako/commit/5514429067d83e6f5775bff21a1f8ac09b70eff6))
+* **wasmtime:** answer the non-blocking stream calls a guest bounds its waits with ([16ef908](https://github.com/elct9620/kobako/commit/16ef908947f5c94a37ee0f5370038936b2052e4a))
+* **wasmtime:** answer the socket and stream edges as wasmtime answers them ([4f690ea](https://github.com/elct9620/kobako/commit/4f690ea29f45451982dee726c42dd178dc4ae880))
+* **wasmtime:** answer three preview2 socket and stream steps as wasmtime-wasi ([702addd](https://github.com/elct9620/kobako/commit/702adddb0a2626117303bcfcc9d80eb4f0bf938e))
+* **wasmtime:** answer three socket calls as wasmtime-wasi does ([e0b8c8b](https://github.com/elct9620/kobako/commit/e0b8c8b45d1b2e7b7152b6332c49b5248bd0253d))
+* **wasmtime:** ask a UDP address only what wasmtime asks, and its size first ([934d2eb](https://github.com/elct9620/kobako/commit/934d2eb8b7034db263423b8ad925a56ea731b1f4))
+* **wasmtime:** bound what one preview2 call lifts by its hostcall fuel ([99ebca7](https://github.com/elct9620/kobako/commit/99ebca726a803d2de0b12bfcbcf7382bf7ab1308))
+* **wasmtime:** check a preview2 return area whole once the call returns ([9910dea](https://github.com/elct9620/kobako/commit/9910dea5e4e13056d9007b78d99f67486ebb0bdc))
+* **wasmtime:** close a TCP input stream once its receive side shuts ([76d944a](https://github.com/elct9620/kobako/commit/76d944a966e152f9e16e9fc0d61b8765b65a7418))
+* **wasmtime:** close an output stream once a call on it fails ([df6b96f](https://github.com/elct9620/kobako/commit/df6b96fc65e3fba8ad4bbf92edebbf35639547d2))
+* **wasmtime:** count a socket, a lookup, or an exchange as one file ([b5633e4](https://github.com/elct9620/kobako/commit/b5633e4c1e2d1efba35ef4a9c3f7f97b2c1ea65e))
+* **wasmtime:** derive preview1's errno from its name, and map two more to preview2 ([aabd599](https://github.com/elct9620/kobako/commit/aabd5997070291dbe5055ae6b075f85f890f674b))
+* **wasmtime:** end a run its host gave up at its next preview2 call ([0d1b324](https://github.com/elct9620/kobako/commit/0d1b32494c501ee346f50e39e8e38d7fb885dab9))
+* **wasmtime:** give back the charge of a growth wasmtime then fails ([070c463](https://github.com/elct9620/kobako/commit/070c463e11428eb27465d6d9a9e7ba38b738249f))
+* **wasmtime:** hold a socket's streams and pollables as its children ([0957eda](https://github.com/elct9620/kobako/commit/0957eda5a2159e402573ddfa7e2de5e941adea80))
+* **wasmtime:** judge a TCP socket's pollable by the connect under way as it is polled ([b89bccd](https://github.com/elct9620/kobako/commit/b89bccdba789d69dc7b69ad07a7176b0d310b963))
+* **wasmtime:** make every pollable a child of what it watches ([48a0d2c](https://github.com/elct9620/kobako/commit/48a0d2c1cab25232baf29a9632e9b8a76413d236))
+* **wasmtime:** number preview2 handles apart and reach no socket from preview1 ([adb0341](https://github.com/elct9620/kobako/commit/adb03410fd12804ccdaccd94748c6d1415417407))
+* **wasmtime:** number preview2 handles from the descriptor space and trap a misnamed drop ([925a724](https://github.com/elct9620/kobako/commit/925a7244007e7fd72bec43f1b5dd5fa0d419dc84))
+* **wasmtime:** permit a datagram send whenever its pollable is ready, and end a full flush on close ([8cf4961](https://github.com/elct9620/kobako/commit/8cf49612ee3af7ae5002ffa7b373a8b0579c2b78))
+* **wasmtime:** poll an output stream ready only when it takes a write ([3247e0e](https://github.com/elct9620/kobako/commit/3247e0e80e5fee98e83e562b8fc99484d5863b8e))
+* **wasmtime:** ready a closed output stream's pollable at once ([4ebd41a](https://github.com/elct9620/kobako/commit/4ebd41a90c5ee96f9e3ca90eea2fcb6246eb6ef5))
+* **wasmtime:** refuse a short socket write whole, before any byte leaves ([5be1ec0](https://github.com/elct9620/kobako/commit/5be1ec027474376ecfcadce6d280891efe1a0afa))
+* **wasmtime:** report RSYNC beside SYNC for a file opened to sync ([da46930](https://github.com/elct9620/kobako/commit/da46930be0a874bbdce2c6bccb85355a769b4912))
+* **wasmtime:** round a keepalive time's part of a second up, as wasmtime's reaches the host ([31c5184](https://github.com/elct9620/kobako/commit/31c51843e4e6758179b05725334203915aa42611))
+* **wasmtime:** trap a preview2 handle the guest does not hold as it is lifted ([f866c42](https://github.com/elct9620/kobako/commit/f866c4279ab54b581c0e827266c7b9ce75e4c371))
+* **wasmtime:** trap and fail where the WIT says, and map errors as wasmtime-wasi does ([f8241ba](https://github.com/elct9620/kobako/commit/f8241baa1ebe9e399e6ce658f60d24e716b59522))
+* **wasmtime:** trap on a misaligned preview2 return area ([6192d9e](https://github.com/elct9620/kobako/commit/6192d9e7db3d3f42ab2520b9a3a25d168bd341b6))
+* **wasmtime:** trap on a preview2 list past the guest's memory before reading it ([7d9dc3c](https://github.com/elct9620/kobako/commit/7d9dc3ce63d8936053046cacaef4b31a6dadf86a))
+* **wasmtime:** wait once per handle a poll lists more than once ([682fb21](https://github.com/elct9620/kobako/commit/682fb21b0623d015ebd5de4b1c78628eba99fef2))
+* **wasmtime:** wait through preview2's poll from poll_oneoff ([760a280](https://github.com/elct9620/kobako/commit/760a28052853cbdb2dc9aa49cda2d1883744b86b))
+
+
+### Code Refactoring
+
+* **options:** take every option's default from the runtime ([1982afe](https://github.com/elct9620/kobako/commit/1982afe89a987a269e1d8c42f69207e05f64ee40))
+* **runtime:** judge each Grant's requests through one generic Policy ([770fc66](https://github.com/elct9620/kobako/commit/770fc665b00532f4092dfdb8a864e02d387065c3))
+* **runtime:** name the errno type Errno at the crate root ([f608e31](https://github.com/elct9620/kobako/commit/f608e31e81d1be9ddc6bb2fc8f6a26e5acafced4))
+* **sdk:** hold a Sandbox's caps as the runtime's Limits ([9730d6a](https://github.com/elct9620/kobako/commit/9730d6a73fec595c2b75ac8981aeb655937045df))
+
 ## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-wasmtime-v0.19.0...kobako-wasmtime-v0.20.0) (2026-11-07)
 
 
