@@ -163,9 +163,11 @@ impl Wasi {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        // Each Mount's root opens before its Policy applies, as a Linux task
-        // opens what it keeps and then calls `landlock_restrict_self`, so a
-        // Policy judges only what the guest asks for.
+        // Each Mount's root opens before its Policy applies, as a Landlock
+        // sandboxer opens what it keeps and then calls
+        // `landlock_restrict_self`, so a Policy judges only what the guest
+        // asks for. The order is all this sets up: `restrict_self` and the
+        // hooks it adds decide what the Cred reaches.
         let descriptors = Descriptors::new(
             create_pipe_files(&PipeInodeInfo::from_bytes(stdin), &opener).0,
             create_pipe_files(&stdout, &opener).1,

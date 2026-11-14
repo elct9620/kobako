@@ -61,9 +61,11 @@ Each role keeps to its own work, so a change that crosses roles is a change in t
 
 | Role | Owns |
 |---|---|
-| Wasm Driver | decoding, errno, fd table, rights, building the Cred, syscall-entry checks |
+| Wasm Driver | decoding, errno, fd table, rights, syscall-entry checks, the order a Cred is set up in |
 | VFS | the walk, dentries, inodes, open files, mounts, operation tables, what an entry lacks |
-| Security hooks | whether a path may be reached, `WalkGuard` |
+| Security hooks | whether a path may be reached, `WalkGuard`, the Cred's restriction |
+
+The Driver sets a Cred up as a Landlock sandboxer does: it opens each Mount's root, then restricts the Cred through the runtime. What the Cred may reach is judged only by the hooks.
 | Filesystem | what one entry answers, its own state on a dentry or inode |
 | locking, sched | whether a wait can end, who asks, the Frontend's way to wait |
 
