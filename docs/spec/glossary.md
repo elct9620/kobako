@@ -494,7 +494,7 @@ lookup, L7 proxy -> Resolver -> host resolver
 
 ### Outbound Seam
 
-The replaceable sender of a guest's HTTP request, as wasmtime's `send_request`. It frames and sends what the ruleset already admitted.
+The sender of a guest's HTTP request, as wasmtime's `send_request`. It frames and sends what the ruleset already admitted. It stays kobako's own, since the rules hold only while it dials through the socket layer.
 
 ```
 L7 proxy -> outbound seam -> socket layer -> the server

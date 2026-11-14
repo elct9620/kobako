@@ -15,6 +15,9 @@ experimental, so the runtime promises it nothing here.
 - `crates/kobako-runtime/src/limits.rs`
 - `crates/kobako-runtime/src/policy.rs`
 - `crates/kobako-runtime/src/mount.rs`
+- `crates/kobako-runtime/src/net/backends.rs`
+- `crates/kobako-runtime/src/net/family.rs`
+- `crates/kobako-runtime/src/net/lookup.rs`
 - `crates/kobako-runtime/src/profile.rs`
 - `crates/kobako-runtime/src/cred.rs`
 - `crates/kobako-runtime/src/security/hooks.rs`
@@ -46,6 +49,83 @@ against it.
 
 ```rust
 pub enum Profile {}
+```
+
+## `Backends`
+
+What every network entry of an Invocation dials and looks names up through,
+beneath the rules its entries make.
+
+```rust
+pub struct Backends {}
+```
+
+## `Backends::new`
+
+Dial through one Protocol Family and look names up through one Resolver.
+
+```rust
+impl Backends {
+    pub fn new(family: Arc<dyn ProtocolFamily>, resolver: Arc<dyn Resolver>) -> Self {}
+}
+```
+
+## `ProtocolFamily`
+
+What dials the host network, handed only an address the rules admitted.
+
+```rust
+pub trait ProtocolFamily: Send + Sync {}
+```
+
+## `ProtocolFamily::connect`
+
+A non-blocking stream to an address, whose connect may still be under way.
+
+```rust
+pub trait ProtocolFamily {
+    fn connect(&self, addr: SocketAddr) -> io::Result<TcpStream>;
+}
+```
+
+## `ProtocolFamily::local_addresses`
+
+The host's own addresses, read at each connect; a family that cannot say has
+every connect refused.
+
+```rust
+pub trait ProtocolFamily {
+    fn local_addresses(&self) -> io::Result<Vec<IpAddr>>;
+}
+```
+
+## `ProtocolFamily::connect_datagram`
+
+A non-blocking datagram socket connected to one peer; a family with no
+datagrams answers `Unsupported`.
+
+```rust
+pub trait ProtocolFamily {
+    fn connect_datagram(&self, _addr: SocketAddr) -> io::Result<UdpSocket>;
+}
+```
+
+## `Resolver`
+
+What answers a name, each address it answers judged again at connect.
+
+```rust
+pub trait Resolver: Send + Sync {}
+```
+
+## `Resolver::resolve`
+
+The addresses a fully qualified name resolves to.
+
+```rust
+pub trait Resolver {
+    fn resolve(&self, name: &str) -> std::io::Result<Vec<IpAddr>>;
+}
 ```
 
 ## `Limits`

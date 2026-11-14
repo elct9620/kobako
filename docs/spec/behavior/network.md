@@ -76,6 +76,7 @@ endpoint "api.example.com", port: 443
 - `crates/kobako-wasmtime/src/preview2/host.rs`
 - `crates/kobako-wasmtime/src/preview2/http.rs`
 - `crates/kobako-wasmtime/src/preview2/sockets.rs`
+- `crates/kobako-wasmtime/tests/integration/network_backends.rs`
 
 ## `NW-001` An entry after the first invocation is refused
 
@@ -2618,3 +2619,16 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox with a short timeout, and an `http` endpoint naming a server that accepts and never answers |
 | When | the script sends a request that sets no timeout of its own |
 | Then | the run ends at its deadline with `Kobako::TimeoutError` |
+
+## `NW-211` A Host App's own backends dial and resolve beneath the rules
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-014` |
+| relates | `NW-016` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Rust Host App handing the engine its own Protocol Family and Resolver, and two `tcp` endpoints by name |
+| When | the guest opens a TCPSocket to a name resolving to a public address, then to a metadata one |
+| Then | the Resolver answers both names, and the family dials only the public address, as the rules refuse the other |
