@@ -38,7 +38,7 @@ impl PayloadCodec for MsgpackCodec {
         let args = arguments
             .args
             .into_iter()
-            .map(|value| kobako.to_mrb_value(value))
+            .map(|value| kobako.mrb_value_of(value))
             .collect();
         // An empty keyword map stays absent so an entrypoint taking only
         // positionals never sees a trailing Hash it did not ask for.
@@ -50,7 +50,7 @@ impl PayloadCodec for MsgpackCodec {
                 .into_iter()
                 .map(|(name, value)| (CodecValue::Sym(name), value))
                 .collect();
-            let hash = kobako.to_mrb_value(CodecValue::Map(pairs));
+            let hash = kobako.mrb_value_of(CodecValue::Map(pairs));
             beni::RHash::from_value(hash)
         };
         Ok(Arguments { args, kwargs })
@@ -58,7 +58,7 @@ impl PayloadCodec for MsgpackCodec {
 
     fn encode_value(kobako: &Kobako, value: Value) -> Result<Vec<u8>, CodecError> {
         let encoded = kobako
-            .try_codec_value(value)
+            .codec_value_of(value)
             .ok_or_else(|| CodecError::unrepresentable(kobako, value))?;
         Encoder::encode(&encoded).map_err(|_| CodecError::Malformed)
     }
@@ -67,7 +67,7 @@ impl PayloadCodec for MsgpackCodec {
         let value = Decoder::new(bytes)
             .read_sole_value()
             .map_err(|_| CodecError::Malformed)?;
-        Ok(kobako.to_mrb_value(value))
+        Ok(kobako.mrb_value_of(value))
     }
 
     fn decode_yield_arguments(kobako: &Kobako, bytes: &[u8]) -> Result<Vec<Value>, CodecError> {
@@ -79,7 +79,7 @@ impl PayloadCodec for MsgpackCodec {
         };
         Ok(items
             .into_iter()
-            .map(|value| kobako.to_mrb_value(value))
+            .map(|value| kobako.mrb_value_of(value))
             .collect())
     }
 }

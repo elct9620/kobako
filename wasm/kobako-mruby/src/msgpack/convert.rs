@@ -2,13 +2,13 @@
 //! `super::MsgpackCodec`.
 //!
 //! The methods stay on `Kobako` (so call sites read
-//! `kobako.try_codec_value(val)` rather than
-//! `convert::try_codec_value(&kobako, val)`) via a second `impl` block;
+//! `kobako.codec_value_of(val)` rather than
+//! `convert::codec_value_of(&kobako, val)`) via a second `impl` block;
 //! the codec façade frames what they produce into payload positions.
 //!
 //! Two concerns:
 //!
-//! 1. **Value conversion** (`try_codec_value`) — the single guest→host
+//! 1. **Value conversion** (`codec_value_of`) — the single guest→host
 //!    value converter, shared by the `#eval` / `#run` outcome, the
 //!    yield-block result, and the dispatch Call args / kwargs. A value
 //!    with no wire representation yields `None`, never a coerced
@@ -17,10 +17,11 @@
 //!    raises at the guest call site. No guest→host value path performs an
 //!    implicit `inspect` / `to_h` / `to_s` conversion.
 //! 2. **Args / kwargs unpacking** (`extract_hash_kwargs` /
-//!    `unpack_args_kwargs`) — used by the `method_missing` C bridges to
+//!    `unpack_args_kwargs`) — used by the codec's Call encoding, which the
+//!    `method_missing` bridges reach through the codec slot, to
 //!    convert a dispatch call's positional rest slice and its separate
 //!    keyword Hash into wire args and kwargs, running each leaf through
-//!    `try_codec_value` and reporting the first unrepresentable value as an
+//!    `codec_value_of` and reporting the first unrepresentable value as an
 //!    `CodecError`.
 
 use crate::codec::CodecError;
@@ -95,7 +96,7 @@ impl Kobako {
         val: Value,
     ) -> Result<(String, kobako_codec::msgpack::codec::Value), CodecError> {
         let encoded = self
-            .try_codec_value(val)
+            .codec_value_of(val)
             .ok_or_else(|| CodecError::unrepresentable(self, val))?;
         let name = self
             .key_name_of(key)
@@ -123,7 +124,7 @@ impl Kobako {
         let mut args: Vec<kobako_codec::msgpack::codec::Value> = Vec::with_capacity(rest.len());
         for &mrb_val in rest {
             let encoded = self
-                .try_codec_value(mrb_val)
+                .codec_value_of(mrb_val)
                 .ok_or_else(|| CodecError::unrepresentable(self, mrb_val))?;
             args.push(encoded);
         }
@@ -142,7 +143,7 @@ impl Kobako {
         let entries = ary.entries(self.mrb());
         let mut items = Vec::with_capacity(entries.len());
         for elem in entries {
-            items.push(self.try_codec_value_at(elem, depth + 1));
+            items.push(self.codec_value_at_depth(elem, depth + 1));
         }
         items
     }
@@ -163,8 +164,8 @@ impl Kobako {
         let mut representable = true;
         hash.foreach(self.mrb(), |key: Value, val: Value| {
             match self
-                .try_codec_value_at(key, depth + 1)
-                .zip(self.try_codec_value_at(val, depth + 1))
+                .codec_value_at_depth(key, depth + 1)
+                .zip(self.codec_value_at_depth(val, depth + 1))
             {
                 Some(pair) => pairs.push(pair),
                 None => {
@@ -185,14 +186,11 @@ impl Kobako {
     /// collection nested past `MAX_NESTING_DEPTH` (a reference cycle
     /// necessarily is). No path coerces through an implicit `to_s` /
     /// `inspect`, so the host is never handed a misleading String.
-    pub(crate) fn try_codec_value(
-        &self,
-        val: Value,
-    ) -> Option<kobako_codec::msgpack::codec::Value> {
-        self.try_codec_value_at(val, 0)
+    pub(crate) fn codec_value_of(&self, val: Value) -> Option<kobako_codec::msgpack::codec::Value> {
+        self.codec_value_at_depth(val, 0)
     }
 
-    fn try_codec_value_at(
+    fn codec_value_at_depth(
         &self,
         val: Value,
         depth: usize,
@@ -244,7 +242,7 @@ impl Kobako {
         }
     }
 
-    pub(crate) fn to_mrb_value(&self, val: kobako_codec::msgpack::codec::Value) -> Value {
+    pub(crate) fn mrb_value_of(&self, val: kobako_codec::msgpack::codec::Value) -> Value {
         use beni::IntoValue;
         let mrb = self.mrb();
         match val {
@@ -268,7 +266,7 @@ impl Kobako {
             CodecValue::Array(items) => {
                 let ary = mrb.ary_new();
                 for item in items {
-                    let elem = self.to_mrb_value(item);
+                    let elem = self.mrb_value_of(item);
                     // Fresh array, never frozen — the push cannot raise.
                     let _ = ary.push(mrb, elem);
                 }
@@ -277,8 +275,8 @@ impl Kobako {
             CodecValue::Map(pairs) => {
                 let hash = mrb.hash_new();
                 for (k, v) in pairs {
-                    let key = self.to_mrb_value(k);
-                    let val = self.to_mrb_value(v);
+                    let key = self.mrb_value_of(k);
+                    let val = self.mrb_value_of(v);
                     // Fresh hash, never frozen — the set cannot raise.
                     let _ = hash.aset(mrb, key, val);
                 }
