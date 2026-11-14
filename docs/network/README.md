@@ -7,7 +7,7 @@ The Network Context owns the named entries, their endpoints, and the sockets the
 | this one | the outbound path, the socket file, virtual addresses, waiting, the answers without a Grant |
 | [`spec/behavior/network.md`](../spec/behavior/network.md) | each promise, as a scenario |
 | [`guides/security.md`](../guides/security.md) | what an endpoint lets the guest do |
-| [`guides/customization.md`](../guides/customization.md) | the network seams a Wasm Driver of one's own replaces |
+| [`guides/customization.md`](../guides/customization.md) | the network seams a Host App replaces |
 
 ## Layers
 
@@ -57,6 +57,17 @@ Linux's shape holds down to the per-family socket. Below it, the Protocol Family
 | host | the network beneath, as gVisor's `hostinet` | the same, through the socket layer |
 
 The L7 proxy has no kernel counterpart. It is the userspace proxy an egress-controlled host runs. Its upstream passes the socket layer again, as Cilium marks Envoy's upstream with the workload's identity.
+
+### Replaceable Parts
+
+A Host App replaces a part only where the rules above it still hold, whatever the part does. The engine's `Config` takes the backends, one pair for each Sandbox, as gVisor takes one network stack.
+
+| Part | Its rules sit | Host App |
+|---|---|---|
+| security modules, entries | are the rules, and only refuse | hands its own |
+| Protocol Family | above it: it dials only an admitted address | hands its own |
+| Resolver | above it: connect judges each answer again | hands its own |
+| L7 proxy's sender | inside it: they hold only while it dials through the socket layer | keeps kobako's |
 
 ### Socket Path
 
