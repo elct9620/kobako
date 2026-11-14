@@ -35,8 +35,8 @@ use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
 use beni::{
-    Error, ExceptionClass, Float, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, RHash,
-    RString, RTypedData, Symbol, TryConvert, TypedData, Value,
+    Error, ExceptionClass, Integer, IntoValue, Module, Mrb, Proc, RArray, RClass, RHash, RString,
+    RTypedData, Symbol, TryConvert, TypedData, Value,
 };
 
 use crate::{descriptors, errno};
@@ -469,15 +469,29 @@ fn to_putc_byte(mrb: &Mrb, obj: Value) -> Result<Option<u8>, Error> {
 }
 
 /// The Integer `obj` stands for, as CRuby's `rb_num2long` reads it: an
-/// Integer as itself, a Float truncated, and anything else through its
+/// Integer as itself, a Float truncated, NaN, an infinity, or a Float past
+/// what an Integer holds raising `RangeError`, and anything else through its
 /// `to_int`, as `rb_to_int` asks; one with no `to_int`, or whose `to_int`
 /// answers no Integer, raises the `TypeError` mruby's own coercion words.
 pub(crate) fn to_int(mrb: &Mrb, obj: Value) -> Result<Integer, Error> {
     if let Some(int) = Integer::from_value(obj) {
         return Ok(int);
     }
-    if Float::from_value(obj).is_some() {
-        return obj.funcall(mrb, c"to_i", ());
+    if let Some(float) = f64::from_value(obj) {
+        // `i64::MIN as f64` is exactly -2⁶³, and `i64::MAX as f64` rounds up
+        // to 2⁶³, the first value past it.
+        if float >= i64::MIN as f64 && float < i64::MAX as f64 {
+            return Integer::try_convert((float.trunc() as i64).into_value(mrb), mrb);
+        }
+        let shown = obj
+            .funcall::<_, _, Value>(mrb, c"to_s", ())?
+            .to_r_string(mrb)?
+            .to_string(mrb)?;
+        return Err(crate::errno::to_error(
+            mrb,
+            mrb.exception_range_error(),
+            &format!("float {shown} out of range of integer"),
+        ));
     }
     if !obj.is_nil() {
         if let Some(int) =
@@ -487,6 +501,21 @@ pub(crate) fn to_int(mrb: &Mrb, obj: Value) -> Result<Integer, Error> {
         }
     }
     Integer::try_convert(obj, mrb)
+}
+
+/// The length `read` and `readpartial` are given, refusing a negative one as
+/// CRuby's `io_getpartial` does.
+pub(crate) fn read_length_of(mrb: &Mrb, length: Value) -> Result<usize, Error> {
+    let length = to_int(mrb, length)?.to_i64(mrb)?;
+    usize::try_from(length)
+        .map_err(|_| argument_error(mrb, &format!("negative length {length} given")))
+}
+
+/// The length a read sizes its buffer by, as CRuby's `rb_str_new` takes one,
+/// so a negative one raises what `rb_str_new` raises.
+pub(crate) fn strbuf_length_of(mrb: &Mrb, length: Value) -> Result<usize, Error> {
+    usize::try_from(to_int(mrb, length)?.to_i64(mrb)?)
+        .map_err(|_| argument_error(mrb, "negative string size (or size too big)"))
 }
 
 /// Write each of `args` inspected to `out` through its `write`, answering

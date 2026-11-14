@@ -9,7 +9,7 @@ use std::task::Poll;
 use beni::prelude::*;
 use beni::scan_args::get_kwargs;
 use beni::value::qnil;
-use beni::{Error, Integer, IntoValue, Mrb, Qfalse, RClass, Symbol, TryConvert, Value};
+use beni::{Error, IntoValue, Mrb, Qfalse, RClass, Symbol, Value};
 
 use super::address::to_sockaddr;
 use super::buffer::fill;
@@ -18,7 +18,7 @@ use super::option::Refusal;
 use super::tcp::Connection;
 use crate::convert::{string_bytes_of, string_value_of};
 use crate::errno::{self, eof_error};
-use crate::io::{argument_error, split_options, to_int, would_wait, Direction};
+use crate::io::{argument_error, split_options, strbuf_length_of, to_int, would_wait, Direction};
 use crate::wasi::wasi::io::poll::Pollable;
 
 /// Whether one call waits for the socket, as Linux's `MSG_DONTWAIT` chooses
@@ -256,21 +256,6 @@ fn written_bytes_of(mrb: &Mrb, object: Value) -> Result<Vec<u8>, Error> {
     Ok(unsafe { data.as_slice(mrb) }.to_vec())
 }
 
-/// The length `read` and `readpartial` are given, refusing a negative one as
-/// CRuby's `io_getpartial` does.
-pub(super) fn read_length_of(mrb: &Mrb, length: Value) -> Result<usize, Error> {
-    let length = to_int(mrb, length)?.to_i64(mrb)?;
-    usize::try_from(length)
-        .map_err(|_| argument_error(mrb, &format!("negative length {length} given")))
-}
-
-/// The length a socket read sizes its buffer by, as CRuby's `rsock_strbuf`
-/// makes one, so a negative one raises what `rb_str_new` raises.
-pub(super) fn strbuf_length_of(mrb: &Mrb, length: Value) -> Result<usize, Error> {
-    usize::try_from(to_int(mrb, length)?.to_i64(mrb)?)
-        .map_err(|_| argument_error(mrb, "negative string size (or size too big)"))
-}
-
 /// The socket `value` stands for, a `TCPSocket` or a `UDPSocket`.
 pub(super) fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
     match Connection::of(mrb, value) {
@@ -395,20 +380,7 @@ pub(super) fn dest_sockaddr_of(mrb: &Mrb, dest: Value) -> Result<Value, Error> {
 /// them: a Float drops its fraction, and NaN, an infinity, or a number past
 /// C's `int` raises `RangeError`.
 pub(super) fn flags_of(mrb: &Mrb, flags: Value) -> Result<i64, Error> {
-    let whole = match f64::from_value(flags) {
-        Some(float) if float.abs() < i64::MAX as f64 => {
-            Integer::try_convert((float.trunc() as i64).into_value(mrb), mrb)?
-        }
-        Some(_) => {
-            let shown = flags
-                .funcall::<_, _, Value>(mrb, c"to_s", ())?
-                .to_r_string(mrb)?;
-            let message = format!("float {} out of range of integer", shown.to_string(mrb)?);
-            return Err(Error::new(mrb, mrb.exception_range_error()?, &message));
-        }
-        None => Integer::try_convert(flags, mrb)?,
-    };
-    Ok(i64::from(whole.to_i32(mrb)?))
+    Ok(i64::from(to_int(mrb, flags)?.to_i32(mrb)?))
 }
 
 /// `send(mesg, flags[, dest])` sends every byte of `mesg` past any buffer,

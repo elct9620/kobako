@@ -22,10 +22,10 @@ use beni::scan_args::scan_args;
 use beni::value::qnil;
 use core::ffi::c_int;
 
-use beni::{Error, Integer, IntoValue, Module, Mrb, RClass, RString, Symbol, Value};
+use beni::{Error, IntoValue, Module, Mrb, RClass, RString, Symbol, Value};
 
 use crate::file::fstat_of;
-use crate::io::{argument_error, checked_fd, is_closed, release, to_int, Stream};
+use crate::io::{checked_fd, is_closed, read_length_of, release, strbuf_length_of, to_int, Stream};
 use crate::lines::{self, LineSource};
 use crate::{descriptors, errno};
 
@@ -134,16 +134,10 @@ fn position_error(mrb: &Mrb, self_: Value, err: &io::Error) -> Error {
 fn io_read(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
     let fd = readable_fd(mrb, self_)?;
     let (length,) = scan_args::<(), (Option<Value>,), (), (), (), ()>(mrb)?.optional;
-    let length = match length.filter(|v| !v.is_nil()) {
-        None => None,
-        Some(v) => Some(
-            Integer::from_value(v)
-                .map(|int| int.to_i64(mrb))
-                .transpose()?
-                .filter(|n| *n >= 0)
-                .ok_or_else(|| argument_error(mrb, "negative length given"))? as usize,
-        ),
-    };
+    let length = length
+        .filter(|v| !v.is_nil())
+        .map(|v| read_length_of(mrb, v))
+        .transpose()?;
     let bytes = with_file(fd, |file| match length {
         None => {
             let mut all = Vec::new();
@@ -325,7 +319,7 @@ mod raw {
 /// reads a chunk at a time, so `maxlen` claims no memory the file does not
 /// fill, and replaces what `outbuf` held with what it read.
 fn io_pread(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
-    let args = scan_args::<(i64, i64), (Option<Value>,), (), (), (), ()>(mrb)?;
+    let args = scan_args::<(Value, i64), (Option<Value>,), (), (), (), ()>(mrb)?;
     let (length, offset) = args.required;
     let (outbuf,) = args.optional;
     let outbuf = match outbuf.filter(|value| !value.is_nil()) {
@@ -335,8 +329,7 @@ fn io_pread(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
         None => None,
     };
     let fd = readable_fd(mrb, self_)?;
-    let length = usize::try_from(length)
-        .map_err(|_| argument_error(mrb, "negative string size (or size too big)"))?;
+    let length = strbuf_length_of(mrb, length)?;
     let mut bytes = Vec::with_capacity(length.min(CHUNK));
     let mut chunk = [0u8; CHUNK];
     while bytes.len() < length {

@@ -49,6 +49,19 @@ class TestE2EIoWriters < Minitest::Test
                  "it does not take with ArgumentError"
   end
 
+  # @behavior IO-056
+  def test_putc_reads_a_float_as_crubys_num2int_does
+    source = <<~RUBY
+      putc(65.9)
+      [Float::NAN, Float::INFINITY].map { |f| begin; putc(f); rescue RangeError => e; e.class.to_s; end }
+    RUBY
+    execution = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(source)
+
+    assert_equal [%w[RangeError RangeError], "A"], [execution.value, execution.stdout],
+                 "putc through Sandbox#eval must write 65.9 as A and refuse NaN and an infinity with " \
+                 "RangeError, as CRuby's NUM2INT reads a Float"
+  end
+
   # @behavior IO-054
   def test_putc_converts_as_crubys_num2chr_does
     source = <<~RUBY

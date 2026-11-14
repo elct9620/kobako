@@ -9,12 +9,11 @@ use beni::value::qnil;
 use beni::{Error, Integer, IntoValue, Mrb, RClass, TryConvert, Value};
 
 use super::basic::{
-    exception_option_of, open_socket_of, outbuf_of, read_length_of, reader_of, ready_of, source_of,
-    strbuf_length_of, SocketIo, Wait,
+    exception_option_of, open_socket_of, outbuf_of, reader_of, ready_of, source_of, SocketIo, Wait,
 };
 use crate::convert::string_bytes_of;
 use crate::errno::eof_error;
-use crate::io::{required_block, would_wait, Direction};
+use crate::io::{read_length_of, required_block, strbuf_length_of, would_wait, Direction};
 use crate::lines::{self, line_args_of, LineArgs, LineSource};
 use crate::wasi::MAX_READ;
 

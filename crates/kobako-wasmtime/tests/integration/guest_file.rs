@@ -1279,6 +1279,30 @@ fn a_seek_by_a_whence_no_name_stands_for_raises_type_error() {
     );
 }
 
+// @behavior FL-105
+#[test]
+fn a_read_length_given_as_a_float_drops_its_fraction() {
+    let script = r#"
+        File.open("/data/lines.txt") do |f|
+          nan = begin
+            f.read(Float::NAN)
+          rescue RangeError => e
+            e.class.to_s
+          end
+          print [f.read(2.5), f.pread(2.5, 0), nan].inspect
+        end
+    "#;
+    let Some(answer) = run(script, &[mount(lines_tmpfs(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok(r#"["on", "on", "RangeError"]"#.to_string()),
+        "File#read and File#pread by 2.5 through the bundled guest must read two bytes, and \
+         File#read by NaN must raise RangeError, as CRuby's NUM2LONG reads a length"
+    );
+}
+
 // @behavior FL-088
 #[test]
 fn a_number_a_file_call_takes_converts_through_to_int() {
