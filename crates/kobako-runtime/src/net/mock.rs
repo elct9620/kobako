@@ -1,9 +1,11 @@
 //! A Protocol Family and a Resolver for a Host App's tests: names answer
 //! from a table, a dial reaches only a route it was given, and each question
 //! is recorded so a test reads back what the guest asked. It stands where
-//! `HostInet` stands, beneath every rule, so the rules judge it alike.
+//! `HostInet` stands, beneath every rule, so the rules judge it alike. It
+//! lives in the runtime so the Rust SDK and the Ruby gem hand the guest one
+//! Mock, as neither frontend depends on the other.
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
@@ -23,7 +25,8 @@ pub struct Mock {
 struct State {
     answers: HashMap<String, Vec<IpAddr>>,
     routes: HashMap<SocketAddr, Dial>,
-    held: HashSet<String>,
+    /// How many holds each held name has.
+    held: HashMap<String, usize>,
     lookups: Vec<String>,
     dials: Vec<SocketAddr>,
 }
@@ -85,7 +88,7 @@ impl Mock {
     /// resolver that has not answered.
     pub fn hold(&self, name: &str) -> Hold<'_> {
         let name = to_key(name);
-        self.state().held.insert(name.clone());
+        *self.state().held.entry(name.clone()).or_default() += 1;
         Hold { mock: self, name }
     }
 
@@ -112,7 +115,14 @@ pub struct Hold<'a> {
 
 impl Drop for Hold<'_> {
     fn drop(&mut self) {
-        self.mock.state().held.remove(&self.name);
+        let mut state = self.mock.state();
+        if let Some(count) = state.held.get_mut(&self.name) {
+            *count -= 1;
+            if *count == 0 {
+                state.held.remove(&self.name);
+            }
+        }
+        drop(state);
         self.mock.released.notify_all();
     }
 }
@@ -147,7 +157,7 @@ impl Resolver for Mock {
         let key = to_key(name);
         let mut state = self.state();
         state.lookups.push(name.to_string());
-        while state.held.contains(&key) {
+        while state.held.contains_key(&key) {
             state = self
                 .released
                 .wait(state)
@@ -160,4 +170,36 @@ impl Resolver for Mock {
 /// A name as the table keys it, in any case and with or without its root.
 fn to_key(name: &str) -> String {
     name.trim_end_matches('.').to_ascii_lowercase()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::sync::mpsc;
+    use std::sync::Arc;
+    use std::thread;
+    use std::time::Duration;
+
+    use super::*;
+
+    #[test]
+    fn a_name_held_twice_waits_until_both_holds_drop() {
+        let mock = Arc::new(Mock::default());
+        mock.answer("held.test", vec![IpAddr::from([93, 184, 216, 34])]);
+        let outer = mock.hold("held.test");
+        let inner = mock.hold("held.test");
+        let (done, answered) = mpsc::channel();
+        let resolving = mock.clone();
+        thread::spawn(move || {
+            let _ = done.send(resolving.resolve("held.test").map(|found| found.len()).ok());
+        });
+        drop(inner);
+        let waited = answered.recv_timeout(Duration::from_millis(100)).is_err();
+        drop(outer);
+        assert_eq!(
+            (waited, answered.recv_timeout(Duration::from_secs(10)).ok()),
+            (true, Some(Some(1))),
+            "a lookup of a name held twice must wait while either hold lives, and answer once both \
+             have dropped"
+        );
+    }
 }
