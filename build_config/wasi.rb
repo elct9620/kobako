@@ -7,19 +7,20 @@
 # `vendor/mruby/build/wasi/lib/libmruby.a`, cross-compiled for
 # `wasm32-wasip1` against the vendored wasi-sdk toolchain.
 #
-# This file encodes the five customisation rules:
+# This file encodes these customisations:
 #
-#   1. mrbgem allowlist — no I/O / network / sleep / random-seed gems leak
-#      into the guest binary; only the core extension gems listed below.
-#   2. CC / AR / LD pinned to vendor/wasi-sdk/bin/* (no host clang or libc).
-#   3. setjmp/longjmp three-flag set, applied to every translation unit AND
-#      to the link step:
+#   - the mrbgem allowlist: no I/O / network / sleep / random-seed gems leak
+#     into the guest binary; only the core extension gems listed below.
+#   - the pinned toolchain: CC / AR / LD from vendor/wasi-sdk/bin/* (no host
+#     clang or libc).
+#   - the setjmp/longjmp flags, applied to every translation unit AND to the
+#     link step:
 #         -mllvm -wasm-enable-sjlj
 #         -lsetjmp
 #         -mllvm -wasm-use-legacy-eh=false
-#   4. `-D` flag central management; integer width pinned to MRB_INT64 and
-#      mrb_value layout pinned to MRB_NO_BOXING.
-#   5. VM dispatch mode left at mruby default (no MRB_USE_VM_SWITCH_DISPATCH).
+#   - the `-D` flags in one place: integer width pinned to MRB_INT64 and
+#     mrb_value layout pinned to MRB_NO_BOXING.
+#   - the default VM dispatch mode (no MRB_USE_VM_SWITCH_DISPATCH).
 #
 # The pinned toolchain and the setjmp/longjmp flags are implemented by the
 # `:wasi` toolchain file the beni gem stages into
@@ -129,7 +130,7 @@ unless Gem.win_platform?
       conf.cxx.defines << flag
     end
 
-    # Rule #5: we deliberately do NOT add `MRB_USE_VM_SWITCH_DISPATCH`.
+    # The default VM dispatch mode: we deliberately do NOT add `MRB_USE_VM_SWITCH_DISPATCH`.
     # mruby's default computed-goto path is rewritten by LLVM
     # IndirectBrExpandPass into a switch+br_table on the wasm32 backend —
     # the produced code is structurally equivalent to switch dispatch.
