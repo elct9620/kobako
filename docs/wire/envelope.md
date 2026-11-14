@@ -41,7 +41,7 @@ A `bytes` field of length `0` is a present, empty value. A field that can mean "
 
 ### Framing Rule
 
-Every field except the last is self-delimiting; the last consumes the rest of the message. Its length is already known from the frame prefix or the ABI's `len`, so repeating it would give one fact two sources.
+Every field except the last is self-delimiting; the last consumes the rest of the message. Its length is already known from the ABI's `len`, so repeating it would give one fact two sources.
 
 ```
 [ field ][ field ] ... [ last field ............ ]
@@ -291,7 +291,7 @@ It carries no `method`, since the entrypoint is invoked through `#call`, and no 
 
 ## Preamble
 
-The Preamble is what each Invocation reads from stdin before its entry runs (→ [`abi.md`](abi.md) § Invocation inputs). It is a counted list of records, so a new kind of setup joins as a registry entry rather than a new position.
+The Preamble is what each Invocation takes from the host before its entry runs (→ [`abi.md`](abi.md) § Invocation inputs). It is a counted list of records, so a new kind of setup joins as a registry entry rather than a new position.
 
 | Field | Type | Meaning |
 |-------|------|---------|
@@ -329,6 +329,6 @@ Every message, the Preamble included, is at most 16 MiB, a size of exactly 16 Mi
 | guest → host | Call, Outcome, Yield Reply, Compile Reply |
 | host → guest | downcall request, Reply, Preamble |
 
-A Guest Binary may admit a declared Preamble length up to 64 MiB. That ceiling only bounds an allocation; the contract stays 16 MiB. A `memory_limit` below 16 MiB binds first, since the guest grows memory to hold what it reads.
+A `memory_limit` below 16 MiB binds first, since the guest grows memory to hold what it reads.
 
 This layer is non-recursive, so it has no depth to budget. Each payload has its own (→ [`payload-msgpack.md`](payload-msgpack.md) § Structural Nesting Depth).

@@ -57,7 +57,7 @@ Every exchange is one request answered by one answer, and the request decides wh
 | Call | Guest Binary (`Kobako::Proxy`) | a Reply from the host | inside the same import call frame |
 | Yield Call | host | a Yield Reply | only to re-enter a Block |
 
-Wasm linear memory carries every message but the Preamble, which the guest reads from WASI stdin (→ [`abi.md`](abi.md) § Invocation inputs); the carrier is an implementation note. Every round-trip is synchronous. To guest code, a Service call is an ordinary call that completes before the next line.
+Wasm linear memory carries every message, the Preamble included, which the guest takes through an import (→ [`abi.md`](abi.md) § Invocation inputs); the carrier is an implementation note. Every round-trip is synchronous. To guest code, a Service call is an ordinary call that completes before the next line.
 
 ---
 

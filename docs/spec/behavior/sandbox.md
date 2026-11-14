@@ -860,9 +860,9 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose guest allocator reports exhaustion |
+| Given | a Sandbox whose guest allocator traps for want of room |
 | When | the entrypoint verb reserves the invocation envelope |
-| Then | it fails as a Sandbox failure saying the input buffer could not be allocated |
+| Then | it fails as a trap saying the input buffer could not be allocated |
 
 ## `S-099` Both frontends refuse a registration that arrives after the seal
 

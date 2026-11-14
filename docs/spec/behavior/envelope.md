@@ -42,22 +42,6 @@ These rules let every other undefined value be a refusal. The extension point is
 - `crates/kobako/src/snippet.rs`
 - `crates/kobako/src/catalog.rs`
 
-## `WE-001` The packed answer carries the pointer high and the length low
-
-| Step | Statement |
-| --- | --- |
-| Given | a pointer and a length |
-| When | they are packed into the answer the ABI's buffer-returning functions give |
-| Then | the pointer occupies the high half and the length the low half |
-
-## `WE-002` Every pointer and length pair survives the packing
-
-| Step | Statement |
-| --- | --- |
-| Given | each bound of the pointer and length ranges |
-| When | the pair is packed and read back |
-| Then | it arrives as it was given |
-
 ## `WE-003` Every field the envelope is built from round-trips
 
 | Step | Statement |
@@ -562,14 +546,6 @@ These rules let every other undefined value be a refusal. The extension point is
 | When | the frame is read |
 | Then | the payload arrives as it was given |
 
-## `WE-067` A frame declaring more than the ceiling is refused
-
-| Step | Statement |
-| --- | --- |
-| Given | a frame whose length prefix declares more than the allocation ceiling |
-| When | it is read |
-| Then | it is refused before anything is allocated for it |
-
 ## `WE-068` Every answer's ok arm carries the same tag
 
 | Step | Statement |
@@ -811,3 +787,23 @@ These rules let every other undefined value be a refusal. The extension point is
 | Given | a Call targeting a reference id above `0x7fff_ffff`, which no table issues |
 | When | it is read |
 | Then | it is refused |
+
+## `WE-092` A return area names its answer's place first and its length second
+
+| Step | Statement |
+| --- | --- |
+| Given | an answer written into guest memory |
+| When | the return area naming it is read |
+| Then | the first little-endian u32 is the answer's place and the second its length |
+
+## `WE-093` A return area the guest cannot hold is refused
+
+| Attribute | Value |
+| --- | --- |
+| refines | `WE-092` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a return area off its 4-byte alignment, or reaching past guest memory |
+| When | it is read or written |
+| Then | it is refused before any answer is copied |

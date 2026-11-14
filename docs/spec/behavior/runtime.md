@@ -126,7 +126,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Guest Binary exporting no ABI version |
+| Given | a Guest Binary exporting no downcall under the ABI's guest interface |
 | When | a Sandbox is constructed over it |
 | Then | construction fails |
 
@@ -134,7 +134,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Guest Binary reporting an ABI version the host does not implement |
+| Given | a Guest Binary exporting its downcall under an ABI version the host does not implement |
 | When | a Sandbox is constructed over it |
 | Then | construction fails |
 
@@ -501,7 +501,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a Guest Binary other than the bundled one, reporting the ABI version the host implements |
+| Given | a Guest Binary other than the bundled one, exporting its downcall under the ABI version the host implements |
 | When | a Sandbox is constructed over it |
 | Then | construction completes |
 
@@ -4376,3 +4376,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a wait whose soonest due is far off |
 | When | a wake moves that due earlier, as an exchange's next timeout starts once the last ends |
 | Then | the wait sleeps only to the new due, and answers nothing ready once it passes |
+
+## `RT-396` The host hands the guest one Preamble however often it asks
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-191` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Invocation with a Preamble |
+| When | the guest asks the host's `preamble` import for it more than once |
+| Then | each answer holds the same bytes, as `wasi:cli/environment` answers its values |

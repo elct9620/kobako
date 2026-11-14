@@ -22,18 +22,52 @@ them.
 
 ## `ABI_VERSION`
 
-The Guest ABI version a host accepts a Guest Binary under.
+The Guest ABI version a host accepts a Guest Binary under, as the semver
+every ABI name carries.
 
 ```rust
-pub const ABI_VERSION: u32;
+pub const ABI_VERSION: &str;
 ```
 
-## `FRAME_LEN_SIZE`
+## `GUEST_INTERFACE`
 
-The width of the length prefix that frames a message on stdin.
+The interface a Guest Binary exports its downcall under, version included.
 
 ```rust
-pub const FRAME_LEN_SIZE: usize;
+pub const GUEST_INTERFACE: &str;
+```
+
+## `HOST_INTERFACE`
+
+The interface a Guest Binary imports the upcall and the Preamble from, version
+included.
+
+```rust
+pub const HOST_INTERFACE: &str;
+```
+
+## `DOWNCALL`
+
+The guest function a host calls with each request.
+
+```rust
+pub const DOWNCALL: &str;
+```
+
+## `UPCALL`
+
+The host function a guest calls with each Call.
+
+```rust
+pub const UPCALL: &str;
+```
+
+## `PREAMBLE`
+
+The host function a guest calls for the Preamble of its Invocation.
+
+```rust
+pub const PREAMBLE: &str;
 ```
 
 ## `MAX_MESSAGE_LEN`
@@ -42,30 +76,6 @@ The largest message either side may send, its whole Envelope counted.
 
 ```rust
 pub const MAX_MESSAGE_LEN: usize;
-```
-
-## `MAX_FRAME_LEN`
-
-The largest declared length a reader allocates a framed message for.
-
-```rust
-pub const MAX_FRAME_LEN: usize;
-```
-
-## `pack_ptr_len`
-
-Pack a guest pointer and length into the one value a downcall or an upcall returns.
-
-```rust
-pub fn pack_ptr_len(ptr: u32, len: u32) -> u64 {}
-```
-
-## `unpack_ptr_len`
-
-Split a downcall's or an upcall's return value back into its pointer and length.
-
-```rust
-pub fn unpack_ptr_len(packed: u64) -> (u32, u32) {}
 ```
 
 ## `DecodeError`

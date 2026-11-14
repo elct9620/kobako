@@ -22,11 +22,20 @@ pub fn serve<G: Guest>(request: &[u8]) -> Vec<u8> {}
 
 ## `answer`
 
-Hand the host an encoded answer, packed as its place and length in the Guest
-Binary's memory.
+Hand the host an encoded answer. The address returned is a return area holding
+the answer's place and length.
 
 ```rust
-pub fn answer(bytes: &[u8]) -> u64 {}
+pub fn answer(bytes: &[u8]) -> u32 {}
+```
+
+## `run_ctors_once`
+
+Run the Guest Binary's static constructors the first time any export is
+entered, and never again.
+
+```rust
+pub fn run_ctors_once() {}
 ```
 
 ## `Guest`
@@ -88,19 +97,11 @@ a host that does not serve it, or an unfinished exchange.
 pub enum DispatchError {}
 ```
 
-## `alloc`
-
-Hand the host a buffer in the Guest Binary's memory to write a request or an answer into.
-
-```rust
-pub fn alloc(size: u32) -> u32 {}
-```
-
 ## `realloc`
 
-Hand the host room for a WASI 0.2 answer's list, as the Canonical ABI's
-`cabi_realloc` asks. An empty list takes no room, and the Guest Binary traps
-when it has no room left.
+Hand the host room for a list it writes, as the Canonical ABI's `cabi_realloc`
+asks. Requests and WASI 0.2 answers both land there. An empty list takes no
+room, and the Guest Binary traps when it has no room left.
 
 ```rust
 pub fn realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {}
