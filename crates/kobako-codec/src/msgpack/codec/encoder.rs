@@ -54,8 +54,16 @@ impl Encoder {
             Value::Float(f) => {
                 write_f64(&mut self.buf, *f).map_err(|_| Error::Truncated)?;
             }
-            Value::Str(s) => write_str(&mut self.buf, s).map_err(|_| Error::Truncated)?,
-            Value::Bin(b) => write_bin(&mut self.buf, b).map_err(|_| Error::Truncated)?,
+            // rmp casts a length to `u32` unchecked, so each is checked
+            // first, as an Array's is.
+            Value::Str(s) => {
+                u32::try_from(s.len()).map_err(|_| Error::PayloadTooLarge)?;
+                write_str(&mut self.buf, s).map_err(|_| Error::Truncated)?;
+            }
+            Value::Bin(b) => {
+                u32::try_from(b.len()).map_err(|_| Error::PayloadTooLarge)?;
+                write_bin(&mut self.buf, b).map_err(|_| Error::Truncated)?;
+            }
             Value::Array(items) => {
                 let len = u32::try_from(items.len()).map_err(|_| Error::PayloadTooLarge)?;
                 write_array_len(&mut self.buf, len).map_err(|_| Error::Truncated)?;
