@@ -29,6 +29,7 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 - `test/e2e/test_host_exception.rb`
 - `test/e2e/test_ruby_filesystem_errno.rb`
 - `test/e2e/test_ruby_filesystem_append.rb`
+- `test/e2e/test_ruby_filesystem_replies.rb`
 - `test/e2e/test_ruby_filesystem_truncate.rb`
 - `test/e2e/test_ruby_filesystem_sync.rb`
 - `test/e2e/test_ruby_filesystem_walk.rb`

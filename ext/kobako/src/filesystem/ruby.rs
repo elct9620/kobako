@@ -645,9 +645,18 @@ impl FileOperations for RubyFile {
                 let bytes = unsafe { read.as_slice() };
                 let len = bytes.len().min(buf.len());
                 buf[..len].copy_from_slice(&bytes[..len]);
-                Ok(len)
+                Ok(bytes.len())
             },
-        )?;
+        )
+        // A reply longer than its request fails the read, as FUSE's
+        // `fuse_copy_out_args` does, rather than cut to fit.
+        .and_then(|read| match read {
+            read if read <= buf.len() => Ok(read),
+            read => Err(Errno::Other(format!(
+                "pread answered {read} bytes of the {} it was asked for",
+                buf.len()
+            ))),
+        })?;
         iocb.pos += read as u64;
         Ok(read)
     }
