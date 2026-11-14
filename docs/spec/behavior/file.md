@@ -1007,3 +1007,15 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount over a file |
 | When | the script names it by an object answering `to_path`, by one answering only `to_str`, and by one answering both |
 | Then | each reads the file, `to_path` taken before `to_str`, as CRuby's `rb_get_path` reads a path |
+
+## `FL-103` A path call refuses an empty path as Linux does
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-101` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount, its working directory beneath it |
+| When | the script hands an empty path to calls that open, list, change into, and ask about an entry |
+| Then | each that raises raises `Errno::ENOENT`, and each predicate answers false, as CRuby on Linux does |
