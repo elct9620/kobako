@@ -83,19 +83,13 @@ static COMPILE_CACHE: Lazy<Obj<CompileCache>> = Lazy::new(|mrb| mrb.obj_wrap(Com
 impl CompileCache {
     fn new() -> Self {
         Self {
-            entries: RefCell::new(LruCache::new(cache_capacity())),
+            entries: RefCell::new(LruCache::new(CACHE_CAPACITY)),
         }
     }
 }
 
-/// Compiled-pattern cache capacity — 64 by default, overridable at build time
-/// with `KOBAKO_REGEXP_CACHE_CAP` to trade guest memory for fewer recompiles.
-fn cache_capacity() -> NonZeroUsize {
-    option_env!("KOBAKO_REGEXP_CACHE_CAP")
-        .and_then(|raw| raw.parse::<usize>().ok())
-        .and_then(NonZeroUsize::new)
-        .unwrap_or(NonZeroUsize::new(64).expect("64 is non-zero"))
-}
+/// The most compiled patterns one invocation keeps.
+const CACHE_CAPACITY: NonZeroUsize = NonZeroUsize::new(64).expect("64 is non-zero");
 
 pub(crate) fn init(mrb: &Mrb) -> Result<(), beni::Error> {
     // RegexpError is the guest exception a bad pattern or a blown
