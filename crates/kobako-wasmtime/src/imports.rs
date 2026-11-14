@@ -47,7 +47,7 @@ pub(crate) fn linker() -> Result<Linker<Invocation>, SetupError> {
              ret: i32|
              -> wasmtime::Result<()> {
                 let mut guest = Guest(caller.as_context_mut());
-                endpoint::handle(&mut guest, req_ptr, req_len, ret).map_err(ended)
+                endpoint::handle(&mut guest, req_ptr, req_len, ret).map_err(to_import_error)
             },
         )
         .map_err(bridge)?;
@@ -58,7 +58,7 @@ pub(crate) fn linker() -> Result<Linker<Invocation>, SetupError> {
             |mut caller: Caller<'_, Invocation>, ret: i32| -> wasmtime::Result<()> {
                 let preamble = caller.data().preamble();
                 let mut guest = Guest(caller.as_context_mut());
-                endpoint::hand_preamble(&mut guest, &preamble, ret).map_err(ended)
+                endpoint::hand_preamble(&mut guest, &preamble, ret).map_err(to_import_error)
             },
         )
         .map_err(bridge)?;
@@ -67,7 +67,7 @@ pub(crate) fn linker() -> Result<Linker<Invocation>, SetupError> {
 }
 
 /// The trap a host import ends the invocation with instead of answering.
-fn ended(end: ImportEnd<wasmtime::Error>) -> wasmtime::Error {
+fn to_import_error(end: ImportEnd<wasmtime::Error>) -> wasmtime::Error {
     match end {
         ImportEnd::Fault(trap) => trap,
         ImportEnd::Abandoned => wasmtime::Error::msg(ABANDONED),
