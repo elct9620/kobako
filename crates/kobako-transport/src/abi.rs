@@ -9,6 +9,10 @@
 /// Spell an ABI name as a literal, for the attributes that accept no
 /// constant: a guest's `export_name`, and its `wasm_import_module` through
 /// `(host => $then)`, which hands the host interface to `$then!`.
+///
+/// `wasm_import_module` takes no macro, so the host interface is spelled
+/// once more there; a build whose spelling no longer matches
+/// `HOST_INTERFACE` fails.
 #[doc(hidden)]
 #[macro_export]
 macro_rules! abi_name {
@@ -16,13 +20,17 @@ macro_rules! abi_name {
         "0.6.0"
     };
     (guest) => {
-        "kobako:abi/guest@0.6.0"
+        concat!("kobako:abi/guest@", $crate::abi_name!(version))
     };
     (host) => {
-        "kobako:abi/host@0.6.0"
+        concat!("kobako:abi/host@", $crate::abi_name!(version))
     };
     (host => $then:ident) => {
-        $then!("kobako:abi/host@0.6.0");
+        $crate::abi_name!(@import $then "kobako:abi/host@0.6.0");
+    };
+    (@import $then:ident $module:literal) => {
+        $then!($module);
+        const _: () = assert!($crate::abi::is_host_interface($module));
     };
     (downcall) => {
         "downcall"
@@ -63,26 +71,22 @@ pub const UPCALL: &str = abi_name!(upcall);
 /// The host function a guest calls for the Preamble of its Invocation.
 pub const PREAMBLE: &str = abi_name!(preamble);
 
-/// Whether `name` ends with `ABI_VERSION`, readable in a const context.
-const fn carries_version(name: &str) -> bool {
-    let (name, version) = (name.as_bytes(), ABI_VERSION.as_bytes());
-    if name.len() < version.len() {
+/// Whether `module` spells `HOST_INTERFACE`, readable in a const context.
+#[doc(hidden)]
+pub const fn is_host_interface(module: &str) -> bool {
+    let (module, host) = (module.as_bytes(), HOST_INTERFACE.as_bytes());
+    if module.len() != host.len() {
         return false;
     }
-    let start = name.len() - version.len();
     let mut i = 0;
-    while i < version.len() {
-        if name[start + i] != version[i] {
+    while i < host.len() {
+        if module[i] != host[i] {
             return false;
         }
         i += 1;
     }
     true
 }
-
-// Each interface literal spells the version again, since an attribute takes
-// no constant; a bump that misses one fails the build.
-const _: () = assert!(carries_version(GUEST_INTERFACE) && carries_version(HOST_INTERFACE));
 
 /// The largest message either side sends: 16 MiB, the whole Envelope
 /// rather than the payload alone. A larger one is a wire violation the
