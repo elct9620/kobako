@@ -38,7 +38,9 @@ use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_transport::envelope::{Bindings, Flag, Preamble, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
-use crate::{errors, escape, filesystem, gvl, name_of, named, network, symbol_name_of, to_bytes};
+use crate::{
+    errors, escape, filesystem, gvl, name_of, network, symbol_name_of, to_bytes, value_by_name,
+};
 use snapshot::Snapshot;
 
 /// `kind` arrives as a Symbol so the registry never names the wire's
@@ -296,7 +298,8 @@ impl Runtime {
         let gvl: Value = options.fetch(ruby.to_symbol("gvl"))?;
         // A value kobako does not name a profile has no profile to stand
         // for, so it is refused rather than read as a weaker one.
-        let Some(profile) = symbol_name_of(profile)?.and_then(|name| named(&PROFILE_NAMES, &name))
+        let Some(profile) =
+            symbol_name_of(profile)?.and_then(|name| value_by_name(&PROFILE_NAMES, &name))
         else {
             return Err(MagnusError::new(
                 ruby.exception_arg_error(),

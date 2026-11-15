@@ -55,7 +55,7 @@ fn symbol_name_of(value: Value) -> Result<Option<String>, Error> {
 }
 
 /// The value `table` names `name`.
-fn named<T: Copy>(table: &[(T, &str)], name: &str) -> Option<T> {
+fn value_by_name<T: Copy>(table: &[(T, &str)], name: &str) -> Option<T> {
     table
         .iter()
         .find(|(_, spelled)| *spelled == name)

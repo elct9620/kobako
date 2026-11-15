@@ -13,7 +13,7 @@ use kobako_runtime::policy::Policy;
 
 use super::to_filesystem;
 use crate::pinned_value::PinnedValue;
-use crate::{escape, gvl, name_of, named, symbol_name_of};
+use crate::{escape, gvl, name_of, symbol_name_of, value_by_name};
 
 /// Refuse a Mount at `mount` time by the same rules an invocation builds
 /// it with, so a mistake raises where it was made.
@@ -41,7 +41,7 @@ const ACCESS_NAMES: [(Access, &str); 2] =
 
 fn to_access(access: Value) -> Result<Access, MagnusError> {
     symbol_name_of(access)?
-        .and_then(|name| named(&ACCESS_NAMES, &name))
+        .and_then(|name| value_by_name(&ACCESS_NAMES, &name))
         .ok_or_else(|| {
             MagnusError::new(
                 Ruby::get().expect("Ruby thread").exception_arg_error(),

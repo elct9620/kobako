@@ -27,7 +27,7 @@ use kobako_runtime::policy::Policy;
 pub(super) use mock::MockNet;
 
 use super::pinned_value::PinnedValue;
-use super::{escape, gvl, name_of, named, symbol_name_of};
+use super::{escape, gvl, name_of, symbol_name_of, value_by_name};
 
 /// A Ruby entry as one invocation reads it: its endpoints, its own
 /// `resolve?`, `connect?`, and `request?` for each it plays, and its
@@ -541,7 +541,7 @@ fn build_endpoint(
     let mut endpoint = Endpoint::new(host, port).map_err(|err| to_arg_error(err.to_string()))?;
     if let Some(protocol) = protocol {
         let protocol = symbol_name_of(protocol)?
-            .and_then(|name| named(&PROTOCOL_NAMES, &name))
+            .and_then(|name| value_by_name(&PROTOCOL_NAMES, &name))
             .ok_or_else(|| to_arg_error("protocol must be :http, :tcp, or :udp".to_string()))?;
         endpoint = endpoint.with_protocol(protocol);
     }
@@ -576,7 +576,7 @@ fn to_rule(ruby: &Ruby, rule: Value) -> Result<HttpRule, MagnusError> {
 /// it reads an endpoint's host.
 fn to_addresses(value: Value) -> Option<Addresses> {
     if let Some(name) = symbol_name_of(value).ok()? {
-        return named(&ADDRESS_SET_NAMES, &name);
+        return value_by_name(&ADDRESS_SET_NAMES, &name);
     }
     let cidr = match RString::try_convert(value) {
         Ok(text) => text.to_string().ok()?,
