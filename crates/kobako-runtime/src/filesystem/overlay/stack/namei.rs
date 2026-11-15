@@ -128,7 +128,7 @@ impl OverlayFs {
         let found = real.inode().ok_or(Errno::NotFound)?;
         let breaks = self.has_upper() && index != UPPER && real.getattr()?.nlink > 1;
         Ok(match breaks {
-            true => Inode::new(&Kstat::new(found.kind(), 0), ops),
+            true => Inode::new(&Kstat::new(found.file_type(), 0), ops),
             false => found.with_ops(ops),
         })
     }

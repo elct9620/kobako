@@ -241,7 +241,7 @@ fn to_fdstat(file: &File, preopen: bool) -> types::Fdstat {
         (rights, rights)
     };
     types::Fdstat {
-        fs_filetype: to_filetype(file.kind()),
+        fs_filetype: to_filetype(file.file_type()),
         fs_flags,
         fs_rights_base,
         fs_rights_inheriting,

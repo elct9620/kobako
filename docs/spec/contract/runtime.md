@@ -498,13 +498,13 @@ impl Inode {
 }
 ```
 
-## `Inode::kind`
+## `Inode::file_type`
 
 What kind of entry it is.
 
 ```rust
 impl Inode {
-    pub fn kind(&self) -> FileType {}
+    pub fn file_type(&self) -> FileType {}
 }
 ```
 
@@ -631,7 +631,7 @@ included. What the module answers it keeps on the open file.
 
 ```rust
 pub trait SecurityOperations {
-    fn file_open(&self, _path: SecurityPath<'_>, _kind: FileType, _mode: FMode, _how: &OpenHow) -> Result<FileSecurity, Errno>;
+    fn file_open(&self, _path: SecurityPath<'_>, _file_type: FileType, _mode: FMode, _how: &OpenHow) -> Result<FileSecurity, Errno>;
 }
 ```
 

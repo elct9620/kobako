@@ -651,7 +651,7 @@ where
         let opened = self.inner.open(dentry, how)?;
         if dentry
             .inode()
-            .is_none_or(|inode| inode.kind() == kobako_runtime::filesystem::FileType::Dir)
+            .is_none_or(|inode| inode.file_type() == kobako_runtime::filesystem::FileType::Dir)
         {
             return Ok(opened);
         }

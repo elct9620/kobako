@@ -98,7 +98,7 @@ pub trait SecurityOperations: Send + Sync {
     fn file_open(
         &self,
         _path: SecurityPath<'_>,
-        _kind: FileType,
+        _file_type: FileType,
         _mode: FMode,
         _how: &OpenHow,
     ) -> Result<FileSecurity, Errno> {

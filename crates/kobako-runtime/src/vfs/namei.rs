@@ -350,7 +350,7 @@ impl Nameidata {
             return Ok(());
         }
         let inode = dentry.inode().ok_or(Errno::NotFound)?;
-        match inode.kind() {
+        match inode.file_type() {
             FileType::Symlink => self.pick_link(&dentry),
             FileType::Dir => {
                 self.dir = dentry;
@@ -3557,7 +3557,8 @@ mod tests {
         fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
             match self.tmpfs.lookup(dentry)? {
                 Lookup::Found(inode) if self.stale.load(Ordering::SeqCst) => {
-                    let replaced = Kstat::new(inode.kind(), 0).with_identity(u64::MAX, u64::MAX);
+                    let replaced =
+                        Kstat::new(inode.file_type(), 0).with_identity(u64::MAX, u64::MAX);
                     Ok(Lookup::Found(Inode::new(&replaced, inode.ops().clone())))
                 }
                 found => Ok(found),
@@ -5405,7 +5406,9 @@ mod tests {
     impl InodeOperations for StaleBehindLinks {
         fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
             Ok(Kstat::new(
-                dentry.inode().map_or(FileType::Dir, |inode| inode.kind()),
+                dentry
+                    .inode()
+                    .map_or(FileType::Dir, |inode| inode.file_type()),
                 0,
             ))
         }

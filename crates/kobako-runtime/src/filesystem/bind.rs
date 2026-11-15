@@ -183,7 +183,10 @@ impl Bind {
         match (found, inode) {
             (Ok(found), Some(inode)) => {
                 let found = to_kstat(found);
-                Ok(Identity::of(&found) == inode.identity() && found.file_type == inode.kind())
+                Ok(
+                    Identity::of(&found) == inode.identity()
+                        && found.file_type == inode.file_type(),
+                )
             }
             (Ok(_), None) => Ok(false),
             (Err(Errno::NotFound), None) => Ok(true),
@@ -1766,7 +1769,7 @@ mod tests {
         assert!(
             matches!(
                 root.inode().expect("the root stands").ops().lookup(&note),
-                Ok(Lookup::Found(inode)) if inode.kind() == FileType::RegFile
+                Ok(Lookup::Found(inode)) if inode.file_type() == FileType::RegFile
             ),
             "a name looked up through Bind in a directory not yet opened, once its dentry moved \
              with it, must be found where the dentry stands"

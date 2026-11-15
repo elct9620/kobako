@@ -318,7 +318,7 @@ impl Dentry {
     pub(super) fn __instantiate(&self, inode: Arc<Inode>, held: &mut Weak<Dentry>) {
         let mut state = self.state();
         if state.inode.is_none() {
-            if inode.kind() == FileType::Dir {
+            if inode.file_type() == FileType::Dir {
                 *held = self.this.clone();
             }
             state.inode = Some(inode);
@@ -559,7 +559,7 @@ impl Dentry {
     /// Linux's `d_is_*` read a dentry without asking its filesystem.
     pub(crate) fn kind(&self) -> Result<FileType, Errno> {
         self.inode()
-            .map(|inode| inode.kind())
+            .map(|inode| inode.file_type())
             .ok_or(Errno::NotFound)
     }
 
@@ -657,12 +657,15 @@ impl Hashtables {
     /// number before it hands a new one. A directory removed is found no more,
     /// and an entry naming no identity is never kept.
     fn iget5_locked(&self, inode: Arc<Inode>) -> Arc<Inode> {
-        let Some(identity) = inode.identity().filter(|_| inode.kind() == FileType::Dir) else {
+        let Some(identity) = inode
+            .identity()
+            .filter(|_| inode.file_type() == FileType::Dir)
+        else {
             return inode;
         };
         let mut table = self.inode_hashtable();
         match table.get(&identity) {
-            Some(found) if found.kind() == FileType::Dir && !found.is_deaddir() => found,
+            Some(found) if found.file_type() == FileType::Dir && !found.is_deaddir() => found,
             _ => {
                 table.insert(identity, &inode);
                 inode

@@ -404,7 +404,7 @@ impl Inode {
         self.dead.store(true, Ordering::SeqCst);
     }
 
-    pub fn kind(&self) -> FileType {
+    pub fn file_type(&self) -> FileType {
         self.kind
     }
 

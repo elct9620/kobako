@@ -459,12 +459,12 @@ impl File {
 
     /// Whether it is a directory, as `S_ISDIR(file_inode(file))`.
     pub fn is_directory(&self) -> bool {
-        self.kind() == FileType::Dir
+        self.file_type() == FileType::Dir
     }
 
     /// What kind of entry it is, as `file_inode(file)->i_mode` says.
-    pub fn kind(&self) -> FileType {
-        self.inode.kind()
+    pub fn file_type(&self) -> FileType {
+        self.inode.file_type()
     }
 
     /// What it was opened for.
@@ -532,7 +532,7 @@ impl File {
     /// refuses a FIFO, then a negative offset or length, and ignores the rest.
     /// Every Filesystem is still correct without one.
     pub fn fadvise(&self, offset: u64, len: u64) -> Result<(), Errno> {
-        if self.kind() == FileType::Fifo {
+        if self.file_type() == FileType::Fifo {
             return Err(Errno::NotSeekable);
         }
         match offset > OFFSET_MAX || len > OFFSET_MAX {
@@ -550,7 +550,7 @@ impl File {
             return Err(Errno::InvalidInput);
         }
         self.may_write()?;
-        match self.kind() {
+        match self.file_type() {
             FileType::Fifo => return Err(Errno::NotSeekable),
             FileType::Dir => return Err(Errno::IsADirectory),
             FileType::RegFile | FileType::Blkdev => {}
@@ -712,7 +712,7 @@ impl File {
     /// Truncate or extend it through what it was opened on, as `do_ftruncate`
     /// refuses anything but a file open to write, and reaches `->setattr`.
     pub fn truncate(&mut self, len: u64) -> Result<(), Errno> {
-        if self.kind() != FileType::RegFile || !self.writable() || len > OFFSET_MAX {
+        if self.file_type() != FileType::RegFile || !self.writable() || len > OFFSET_MAX {
             return Err(Errno::InvalidInput);
         }
         self.cred.security_file_truncate(&self.security)?;

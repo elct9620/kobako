@@ -195,7 +195,7 @@ impl OverlayPath {
     pub(super) fn open_dir(&self, name: &str) -> Result<Self, Errno> {
         let dentry = self.lookup_real(name)?;
         let inode = dentry.inode().ok_or(Errno::NotFound)?;
-        match inode.kind() {
+        match inode.file_type() {
             FileType::Dir => Ok(self.beneath(dentry)),
             FileType::Symlink => Err(Errno::FilesystemLoop),
             _ => Err(Errno::NotADirectory),
