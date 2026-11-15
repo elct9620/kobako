@@ -365,7 +365,7 @@ One block here is deliberately written in one frontend's own names. The ancestry
 
 | Step | Statement |
 | --- | --- |
-| Given | `Kobako::ModuleNotBuiltError` |
+| Given | `Kobako::GuestBinaryNotFoundError` |
 | When | its ancestry is read |
 | Then | it descends from `Kobako::SetupError` |
 

@@ -4,7 +4,7 @@
 //! class back into the runtime's `Errno`. The ext raises
 //! directly into the invocation-outcome taxonomy (`TrapError` and its
 //! subclasses) for run-path failures and into the construction-layer
-//! `SetupError` (and its `ModuleNotBuiltError` subclass) for `from_path`
+//! `SetupError` (and its `GuestBinaryNotFoundError` subclass) for `from_path`
 //! setup failures — no engine-specific intermediate layer; the Sandbox
 //! layer adds the verb prefix and lets the subclass identity flow through
 //! unchanged.
@@ -19,7 +19,7 @@ static SETUP_ERROR: Lazy<ExceptionClass> =
     Lazy::new(|ruby| crate::constant_by_path(ruby, &["SetupError"]));
 
 static MODULE_NOT_BUILT_ERROR: Lazy<ExceptionClass> =
-    Lazy::new(|ruby| crate::constant_by_path(ruby, &["ModuleNotBuiltError"]));
+    Lazy::new(|ruby| crate::constant_by_path(ruby, &["GuestBinaryNotFoundError"]));
 
 static TRAP_ERROR: Lazy<ExceptionClass> =
     Lazy::new(|ruby| crate::constant_by_path(ruby, &["TrapError"]));

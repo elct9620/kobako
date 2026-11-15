@@ -36,7 +36,7 @@ class TestRuntime < Minitest::Test
   end
 
   # A present-but-unparseable wasm artifact through +from_path+ raises
-  # +Kobako::SetupError+ — neither the absent-artifact +ModuleNotBuiltError+
+  # +Kobako::SetupError+ — neither the absent-artifact +GuestBinaryNotFoundError+
   # nor the invocation-outcome +TrapError+ — so a single
   # +rescue Kobako::SetupError+ covers every unconstructable-runtime cause.
   # @behavior RT-060
@@ -51,7 +51,7 @@ class TestRuntime < Minitest::Test
     err = assert_raises(Kobako::SetupError, "a non-wasm file through from_path must raise SetupError") do
       Kobako::Runtime.from_path(non_wasm, **runtime_options)
     end
-    refute_kind_of Kobako::ModuleNotBuiltError, err,
+    refute_kind_of Kobako::GuestBinaryNotFoundError, err,
                    "a present-but-corrupt artifact is a SetupError, not the absent-artifact subclass"
     refute_kind_of Kobako::TrapError, err,
                    "a construction failure must not be attributed as an invocation TrapError"

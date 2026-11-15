@@ -40,7 +40,7 @@ module Kobako
   class SetupError < Error; end
 
   # The Guest Binary is missing at +wasm_path+.
-  class ModuleNotBuiltError < SetupError; end
+  class GuestBinaryNotFoundError < SetupError; end
 
   module Diagnosable # :nodoc:
     attr_reader :origin, :class_name, :backtrace_lines

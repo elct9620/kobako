@@ -910,13 +910,13 @@ module Kobako
 end
 ```
 
-## `Kobako::ModuleNotBuiltError`
+## `Kobako::GuestBinaryNotFoundError`
 
 A Guest Binary not built yet at the configured path.
 
 ```ruby
 module Kobako
-  class ModuleNotBuiltError
+  class GuestBinaryNotFoundError
   end
 end
 ```

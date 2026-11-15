@@ -21,7 +21,7 @@ module Kobako
   class SetupError < Error
   end
 
-  class ModuleNotBuiltError < SetupError
+  class GuestBinaryNotFoundError < SetupError
   end
 
   module Diagnosable : Error

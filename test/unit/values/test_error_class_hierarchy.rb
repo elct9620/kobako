@@ -19,7 +19,7 @@ class TestErrorClassHierarchy < Minitest::Test
   # of them.
   def test_setup_error_is_a_construction_branch_under_kobako_error
     assert Kobako::SetupError < Kobako::Error
-    assert Kobako::ModuleNotBuiltError < Kobako::SetupError
+    assert Kobako::GuestBinaryNotFoundError < Kobako::SetupError
     refute Kobako::SetupError < Kobako::TrapError,
            "construction failures are not invocation traps"
   end
