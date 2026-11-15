@@ -209,11 +209,11 @@ impl Invocation {
             IpAddressFamily::Ipv6 => AddressFamily::Inet6,
         };
         let sock = create(self.network(), &cred, address_family)?;
-        if self.wasi().table().is_full() {
+        let Some(room) = self.wasi().table().reserve_producer::<H>()? else {
             return Err(ErrorCode::NewSocketLimit.into());
-        }
+        };
         let socket = SocketFile::new(sock.clone(), family, sock_alloc_file(sock, &cred));
-        Ok(self.table_mut().push_file(resource(socket))?)
+        Ok(self.table_mut().install(room, resource(socket)))
     }
 
     /// A pollable ready once `file`'s poll finds `mask`, a child `parent` must
@@ -323,16 +323,23 @@ impl SocketsHost for Invocation {
         let Some(namespace) = self.wasi().network() else {
             return Err(ErrorCode::PermanentResolverFailure.into());
         };
-        if self.wasi().table().is_full() {
+        let Some(room) = self
+            .wasi()
+            .table()
+            .reserve_producer::<ResolveAddressStream>()?
+        else {
             return Err(ErrorCode::NewSocketLimit.into());
-        }
+        };
         let lookup = resolve(namespace, &name).map_err(to_lookup_error_code)?;
         let file = lookup.alloc_file(self.wasi().cred());
-        Ok(self.table_mut().push_file(sockets::ResolveAddressStream {
-            lookup,
-            file: Arc::new(Mutex::new(file)),
-            handed: 0,
-        })?)
+        Ok(self.table_mut().install(
+            room,
+            sockets::ResolveAddressStream {
+                lookup,
+                file: Arc::new(Mutex::new(file)),
+                handed: 0,
+            },
+        ))
     }
 
     /// The name's virtual addresses one by one, in the order its lookup

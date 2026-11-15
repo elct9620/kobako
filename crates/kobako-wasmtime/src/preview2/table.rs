@@ -90,23 +90,19 @@ impl Table {
         }
     }
 
-    /// Whether the Invocation holds as many files as it may, so a new socket
-    /// answers `new-socket-limit`, as Linux's `socket()` answers EMFILE.
-    pub(crate) fn is_full(&self) -> bool {
-        self.open_files.is_full()
-    }
-
-    /// Hand out a handle for `resource`, a host-side producer that holds a
-    /// file, as a socket, a lookup, or an exchange does; refused past the
-    /// Invocation's open file limit.
-    pub(crate) fn push_file<H: Handle>(&mut self, resource: H::Host) -> wasmtime::Result<H> {
-        let room = self.reserve_file::<H>().map_err(|err| {
-            wasmtime::Error::msg(match err {
-                Errno::OutOfMemory => "the guest's resources outgrow its memory",
-                _ => "the guest holds as many files as its limit allows",
-            })
-        })?;
-        Ok(self.install(room, resource))
+    /// The room a host-side producer's file takes, as a socket's, a
+    /// lookup's, or an exchange's does: none past the open file limit, which
+    /// each WIT answers with its own code, as Linux's `socket()` answers
+    /// EMFILE; a trap past the Invocation's memory, since no WIT constructor
+    /// has an error for it.
+    pub(crate) fn reserve_producer<H: Handle>(&self) -> wasmtime::Result<Option<FileRoom>> {
+        match self.reserve_file::<H>() {
+            Ok(room) => Ok(Some(room)),
+            Err(Errno::OutOfMemory) => Err(wasmtime::Error::msg(
+                "the guest's resources outgrow its memory",
+            )),
+            Err(_) => Ok(None),
+        }
     }
 
     /// The room a file of kind `H` takes, refused as EMFILE past the open

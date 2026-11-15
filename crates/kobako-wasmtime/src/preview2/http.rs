@@ -688,9 +688,13 @@ impl HttpHost for Invocation {
         if self.wasi().network().is_none() {
             return Err(ErrorCode::HTTPRequestDenied.into());
         }
-        if self.wasi().table().is_full() {
+        let Some(room) = self
+            .wasi()
+            .table()
+            .reserve_producer::<FutureIncomingResponse>()?
+        else {
             return Err(ErrorCode::ConnectionLimitReached.into());
-        }
+        };
         let future = match request.link.is_complete() {
             true => self.send(request),
             false => FutureState::Waiting(request),
@@ -700,7 +704,7 @@ impl HttpHost for Invocation {
         }
         Ok(self
             .table_mut()
-            .push_file(resource::FutureIncomingResponse(future))?)
+            .install(room, resource::FutureIncomingResponse(future)))
     }
 }
 
