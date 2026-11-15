@@ -99,8 +99,8 @@ module Kobako
     # innermost one.
     #
     # Raises TypeError for a path that is no String or something other than
-    # a Filesystem, and ArgumentError for a malformed or duplicate path, an
-    # unknown access, or a call after the first invocation.
+    # a Filesystem, ArgumentError for a malformed or duplicate path or an
+    # unknown access, and FrozenError for a call after the first invocation.
     def mount(at, filesystem, access: :read, &policy)
       refuse_once_invoked("mount")
       @grants.register(Catalog::Mount.new(at: at, access: access, filesystem: filesystem, policy: policy))
@@ -168,10 +168,11 @@ module Kobako
     # and +kwargs+, and return the Execution. A given block receives the
     # invocation's Context before the guest runs.
     #
-    # Raises TypeError when +target+ is not a Symbol or String or a keyword
-    # is not a Symbol, and ArgumentError when +target+ is not a constant
-    # name or the arguments carry a Handle. A failed run raises as #eval
-    # does.
+    # Raises TypeError when +target+ is not a Symbol or String, a keyword is
+    # not a Symbol, or an argument holds a Hash key or a reflective object
+    # that cannot cross, and ArgumentError when +target+ is not a constant
+    # name, the arguments carry a Handle, or an argument nests past what the
+    # wire carries. A failed run raises as #eval does.
     def run(target, *args, **kwargs, &block)
       request = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
       Codec.within_value_budget(@options.value_budget) { begin_invocation.run(request, &block) }

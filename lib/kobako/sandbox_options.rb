@@ -36,8 +36,10 @@ module Kobako
   #                   for the host's own, or a Kobako::Network::Mock a test
   #                   writes; +nil+.
   #
-  # Raises ArgumentError for a cap outside these shapes. The runtime judges
-  # every cap, and +profile+, +gvl+, and +network+ as Sandbox.new builds it.
+  # Raises TypeError for a cap of another class, RangeError for one past
+  # what the host counts, and ArgumentError for another value outside these
+  # shapes. The runtime judges every cap, and +profile+, +gvl+, and
+  # +network+ as Sandbox.new builds it.
   class SandboxOptions < Data.define(:timeout, :setup_timeout, :memory_limit, :stdout_limit, :stderr_limit,
                                      :open_file_limit, :open_connection_limit, :connection_limit, :profile, :gvl,
                                      :network)

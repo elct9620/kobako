@@ -91,10 +91,11 @@ pub enum Error {
     /// unusable, or a host-side pre-call step failed.
     Setup(SetupError),
     /// A registration verb arrived after the first invocation sealed
-    /// the Sandbox's tables.
+    /// the Sandbox's tables (Ruby: `FrozenError`).
     Sealed(&'static str),
     /// A host-side refusal of what the embedder passed, before any run;
-    /// `kind` names which mistake it was (Ruby: `ArgumentError`).
+    /// `kind` names which mistake it was (Ruby: `TypeError`,
+    /// `ArgumentError`, or `RangeError`, as CRuby's core methods raise it).
     Argument { kind: ArgumentKind, message: String },
 }
 

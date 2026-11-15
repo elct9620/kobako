@@ -33,8 +33,9 @@ module Kobako
     # Use +object+ for the Service at +path+ during this invocation only,
     # filling a fillable Service or shadowing a bound one. Returns +self+.
     #
-    # Raises ArgumentError when +path+ was never bound on the Sandbox, or when
-    # called after the block has returned.
+    # Raises TypeError for a +path+ neither a Symbol nor a String, and
+    # ArgumentError when +path+ was never bound on the Sandbox, or when called
+    # after the block has returned.
     def bind(path, object)
       raise ArgumentError, "Kobako::Context is spent; ctx.bind is only valid inside the #eval / #run block" if @spent
 
@@ -65,8 +66,9 @@ module Kobako
     # only, built and added to as Sandbox#network takes them; it may reach more
     # than the Sandbox's own. Returns +self+.
     #
-    # Raises ArgumentError when +name+ was never given on the Sandbox, or when
-    # called after the block has returned.
+    # Raises TypeError for a +name+ neither a Symbol nor a String, and
+    # ArgumentError when +name+ was never given on the Sandbox, or when called
+    # after the block has returned.
     def network(name, entry = nil, &builder)
       raise ArgumentError, "Kobako::Context is spent; ctx.network is only valid inside the #eval / #run block" if @spent
 
