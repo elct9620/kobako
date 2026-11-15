@@ -9,7 +9,7 @@ use std::sync::Arc;
 use super::credential::{occurrences_of, Swap};
 use super::http::{
     is_token, join_authority, split_authority, to_field_name, to_field_value, to_origin_form,
-    Exchange, HttpError, OutgoingRequest, Scheme,
+    Exchange, FieldError, HttpError, OutgoingRequest, Scheme,
 };
 use super::lookup::allows_lookup;
 use super::socket::{check_family, AddressFamily};
@@ -25,7 +25,8 @@ use crate::Errno;
 /// too, and an `http` endpoint must name it at its port; a literal address
 /// passes the ruleset as itself, so a virtual one is refused, and an IPv6 one
 /// reaches nothing. A header the guest may not set is refused too, so the
-/// seam frames every request itself. So is a method that is not a token,
+/// seam frames every request itself, and each name goes on in lower case,
+/// as a request policy reads it. So is a method that is not a token,
 /// which HTTP cannot carry, and a target not in origin form, which a proxy
 /// would forward past the judged authority, and a bound credential's header
 /// carrying its placeholder more than once. Any refusal answers `Denied`, and
@@ -33,18 +34,18 @@ use crate::Errno;
 pub fn send(
     net: &Namespace,
     cred: &Arc<Cred>,
-    request: OutgoingRequest,
+    mut request: OutgoingRequest,
 ) -> Result<Arc<Exchange>, HttpError> {
     let in_origin_form = to_origin_form(&request.path_with_query).as_deref()
         == Some(request.path_with_query.as_str());
-    if !in_origin_form
-        || !is_token(&request.method)
-        || request.headers.iter().any(|(name, value)| {
-            to_field_name(name).is_err() || to_field_value(value.clone()).is_err()
-        })
-    {
+    if !in_origin_form || !is_token(&request.method) {
         return Err(HttpError::Denied);
     }
+    request.headers = std::mem::take(&mut request.headers)
+        .into_iter()
+        .map(|(name, value)| Ok((to_field_name(&name)?, to_field_value(value)?)))
+        .collect::<Result<_, FieldError>>()
+        .map_err(|_| HttpError::Denied)?;
     let (host, port) =
         split_authority(&request.authority, request.scheme).ok_or(HttpError::Denied)?;
     let judged = Host::parse(&host).ok_or(HttpError::Denied)?;
@@ -85,7 +86,6 @@ pub fn send(
             .ok_or(HttpError::Denied)?,
         Scheme::Http => Vec::new(),
     };
-    let mut request = request;
     request.authority = join_authority(&host, port, request.scheme);
     request.swaps = swaps;
     let connector = Connector::new(net, cred, judged, port);

@@ -1780,7 +1780,7 @@ mod tests {
         let mut request = greeting_request(&format!("127.0.0.1:{port}"));
         request
             .headers
-            .push(("x-probe".to_string(), b"secret".to_vec()));
+            .push(("X-Probe".to_string(), b"secret".to_vec()));
         let cred = prepare_creds(&[], None);
         let answer = crate::net::send(&namespace, &cred, request).err();
         thread::sleep(Duration::from_millis(20));
@@ -1802,7 +1802,8 @@ mod tests {
                 true
             ),
             "a request policy must see the authority, method, scheme, path with no query, and \
-             header names, and its refusal must answer Denied, sending nothing"
+             header names in lower case however the request spelled them, and its refusal must \
+             answer Denied, sending nothing"
         );
     }
 

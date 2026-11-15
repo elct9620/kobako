@@ -594,7 +594,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | an entry's request policy beside an `http` endpoint |
 | When | the guest sends a request with a header |
-| Then | the policy sees the authority, method, scheme, path with no query, and header names, never a value. Its refusal answers `Denied`, and nothing is sent |
+| Then | the policy sees the authority, method, scheme, path with no query, and header names in lower case, never a value. Its refusal answers `Denied`, and nothing is sent |
 
 ## `NW-046` A Ruby endpoint's rules refuse a request they do not allow
 
