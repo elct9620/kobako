@@ -235,11 +235,11 @@ The failed arm of an Outcome. It attributes the failure to a side of the boundar
 
 ### Sandbox failure
 
-A failed Invocation the guest's own code or the wire is answerable for.
+A failed Invocation caused by the guest's own code or the wire.
 
 ### Service failure
 
-A failed Invocation a Service is answerable for.
+A failed Invocation caused by a Service.
 
 ### Preamble
 
@@ -312,7 +312,7 @@ Grant ─┬─ Mount   -> a Filesystem at a guest path
 
 ### Trap
 
-A failed Invocation the engine is answerable for: a cap was reached, or no Outcome could be framed.
+A failed Invocation caused by the engine: a cap was reached, or no Outcome could be framed.
 
 ### Yielder
 
