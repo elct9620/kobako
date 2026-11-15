@@ -25,14 +25,6 @@ use kobako_runtime::profile::Profile;
 use kobako_runtime::security::{prepare_creds, restrict_self, WalkGuard};
 use kobako_runtime::vfs::{File, OpenFiles};
 
-/// The Cred an invocation's Mounts open as: kobako's own rules, then each
-/// module the Driver was built with, its Filesystems holding at most the
-/// memory the Driver allots, as Linux's `prepare_creds` gives a task the
-/// LSMs it booted with.
-fn prepare_creds_for(config: &Config) -> Arc<Cred> {
-    prepare_creds(&config.security, config.limits.memory_limit)
-}
-
 /// One instance's WASI context: who its calls are made for, each encoding's
 /// table, the clocks its waits pass on, and the capture pipes stdout and
 /// stderr write into, so the captures are read back from the same owner that
@@ -67,7 +59,7 @@ impl Wasi {
             config.limits.stdout_limit,
             config.limits.stderr_limit,
             config.limits.open_file_limit,
-            prepare_creds_for(config),
+            prepare_creds(&config.security, config.limits.memory_limit),
             config.profile,
             grants,
         )?;
@@ -84,7 +76,7 @@ impl Wasi {
             config.limits.stdout_limit,
             config.limits.stderr_limit,
             config.limits.open_file_limit,
-            prepare_creds_for(config),
+            prepare_creds(&config.security, config.limits.memory_limit),
             config.profile,
             &[],
         )
@@ -100,7 +92,7 @@ impl Wasi {
             config.limits.stdout_limit,
             config.limits.stderr_limit,
             config.limits.open_file_limit,
-            prepare_creds_for(config),
+            prepare_creds(&config.security, config.limits.memory_limit),
             Profile::Hermetic,
             &[],
         )
