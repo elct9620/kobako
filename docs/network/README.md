@@ -189,7 +189,7 @@ The range is `198.18.0.0/15`, inside the reserved set, so no real destination li
 
 ### Virtual Ports
 
-A socket's own port is virtual too. The protocol takes it as it binds or connects, as `inet_csk_get_port` and `inet_hash_connect` do. Ports run from 32768, as `ip_local_port_range` starts. The host's ephemeral port stays with the Protocol Family, since it would carry the host's connection state into the guest, as CVE-2022-1012 showed.
+A socket's own port is virtual too. The protocol takes it as it binds or connects. TCP's `inet_csk_get_port` and `inet_hash_connect` do so, and UDP's `udp_lib_get_port` and `inet_autobind`. Ports run from 32768, as `ip_local_port_range` starts. The host's ephemeral port stays with the Protocol Family, since it would carry the host's connection state into the guest, as CVE-2022-1012 showed.
 
 | Socket | Its own end |
 |---|---|
