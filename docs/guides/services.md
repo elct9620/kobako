@@ -161,7 +161,7 @@ bundled payload shape, and `into_receiver` presents it at that seam.
 | `eval(code) { \|ctx\| ctx.bind(...) }` | `eval_with(code, \|ctx\| ctx.bind(...))` |
 | `yield` / `blk.call` | `Yielder::call_values` on the `block` argument |
 | a returned object becoming a Handle | `Handles::alloc`, answered as `Value::Handle(id)` |
-| a private `respond_to_guest?` | `Receiver::respond_to_guest` |
+| a private `respond_to_guest?` | `Receiver::responds_to_guest` |
 
 ```rust
 impl ValueReceiver for Lookup {
