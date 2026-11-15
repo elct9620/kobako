@@ -67,8 +67,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-wasmtime/src/preview1/poll.rs`
 - `crates/kobako-wasmtime/src/preview1/sock.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
+- `crates/kobako-wasmtime/src/preview2/filesystem.rs`
 - `crates/kobako-wasmtime/src/preview1/fd.rs`
-- `crates/kobako-wasmtime/src/preview1/path.rs`
 - `crates/kobako-wasmtime/src/preview1/mount_view.rs`
 - `crates/kobako-wasmtime/src/preview1/memory.rs`
 - `crates/kobako-wasmtime/src/preview1/differential.rs`

@@ -15,9 +15,9 @@ use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
-use super::path::retry_eagain;
 use super::types::{self, Fdflags, Filetype, Fstflags, Rights};
 use crate::descriptors::Descriptor;
+use crate::preview2::filesystem;
 use crate::wasi::Wasi;
 
 /// What a preopen allows itself: every path call, as wasmtime-wasi hands
@@ -277,10 +277,12 @@ pub(crate) fn filestat_set_size(wasi: &mut Wasi, fd: u32, size: u64) -> Answer {
 
 pub(crate) fn filestat_set_times(wasi: &Wasi, fd: u32, times: &Iattr) -> Answer {
     let file = get_file(wasi, fd)?;
-    Ok(retry_eagain(|| {
-        wasi.walk_guard().check(file.path())?;
-        vfs::do_utimes_fd(wasi.cred(), file.path(), times)
-    })?)
+    Ok(filesystem::set_times(
+        wasi.cred(),
+        wasi.walk_guard(),
+        file,
+        times,
+    )?)
 }
 
 pub(crate) fn pread(

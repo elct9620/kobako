@@ -5,6 +5,7 @@
 
 pub(crate) mod abi;
 mod error;
+pub(crate) mod filesystem;
 mod host;
 mod http;
 mod sockets;

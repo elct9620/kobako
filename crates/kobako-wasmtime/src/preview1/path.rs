@@ -12,6 +12,7 @@ use super::fd::to_filestat;
 use super::memory::GuestMemory;
 use super::types;
 use crate::descriptors::Descriptor;
+use crate::preview2::filesystem::{self, retry_eagain};
 use crate::wasi::Wasi;
 
 /// The arguments `path_open` takes besides where it starts and the path, as
@@ -24,43 +25,15 @@ pub(crate) struct PathOpen {
     pub(crate) fdflags: types::Fdflags,
 }
 
-/// How many times a call is made before a guest is answered EAGAIN, as cap-std
-/// makes `openat2` four times: any move in the process answers a `..` walking
-/// past it so, and nothing bounds how often one lands.
-const MAX_ATTEMPTS: usize = 4;
-
-/// What `call` answers once no move landed during its walk, made again at most
-/// `MAX_ATTEMPTS` times in all, as cap-std retries `openat2` on EAGAIN.
-pub(super) fn retry_eagain<T>(
-    mut call: impl FnMut() -> Result<T, kobako_runtime::Errno>,
-) -> Result<T, kobako_runtime::Errno> {
-    let mut answer = call();
-    for _ in 1..MAX_ATTEMPTS {
-        if !matches!(answer, Err(kobako_runtime::Errno::WouldBlock)) {
-            break;
-        }
-        answer = call();
-    }
-    answer
-}
-
-/// Where `fd` stands, for a path to be walked from, once the guard answered for a
-/// directory there, found when the VFS has taken the name, as Linux's
-/// `path_init` takes the descriptor. What is no directory the walk itself
-/// refuses, and a move the guard meets is one a walk meets, so `retry_eagain`
-/// makes the call again.
+/// Where `fd` stands, for a path to be walked from, as the filesystem host
+/// starts every walk from a descriptor.
 fn start_of(wasi: &Wasi, fd: u32) -> impl vfs::Start + '_ {
-    move || {
-        let file = &wasi
-            .descriptors()
+    filesystem::start_at(wasi.walk_guard(), move || {
+        wasi.descriptors()
             .get(fd)
-            .ok_or(kobako_runtime::Errno::BadDescriptor)?
-            .file;
-        if file.is_directory() {
-            wasi.walk_guard().check(file.path())?;
-        }
-        Ok(file.path().clone())
-    }
+            .map(|descriptor| &descriptor.file)
+            .ok_or(kobako_runtime::Errno::BadDescriptor)
+    })
 }
 
 pub(crate) fn create_directory(
@@ -267,41 +240,6 @@ mod tests {
             (answered, &bytes),
             (3, b"\0\0tar\0\0\0"),
             "where a link points through path_readlink must fill the buffer and answer what fit"
-        );
-    }
-
-    /// What `retry_eagain` answers when the first `moves` calls each had a move
-    /// land in them, and how many calls it made.
-    fn retry_after_moves(moves: usize) -> (Result<(), kobako_runtime::Errno>, usize) {
-        let mut made = 0;
-        let answer = retry_eagain(|| {
-            made += 1;
-            match made <= moves {
-                true => Err(kobako_runtime::Errno::WouldBlock),
-                false => Ok(()),
-            }
-        });
-        (answer, made)
-    }
-
-    // A move lands during a walk only between two of its steps, which no guest
-    // call can time, so the retry itself witnesses it.
-    // @behavior RT-256
-    #[test]
-    fn a_path_call_a_move_landed_in_is_made_again_four_times_at_most() {
-        assert_eq!(
-            [
-                retry_after_moves(0),
-                retry_after_moves(3),
-                retry_after_moves(4)
-            ],
-            [
-                (Ok(()), 1),
-                (Ok(()), 4),
-                (Err(kobako_runtime::Errno::WouldBlock), 4),
-            ],
-            "a path_* call answered EAGAIN must be made again until it answers otherwise, four \
-             times in all at most, as cap-std makes openat2"
         );
     }
 }
