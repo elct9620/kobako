@@ -23,7 +23,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::os::unix::fs::symlink;
 use std::path::Path;
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Mutex, PoisonError};
 
 use kobako_runtime::filesystem::{Bind, Filesystem, Overlay, Tmpfs};
 use kobako_runtime::mount::Access;
