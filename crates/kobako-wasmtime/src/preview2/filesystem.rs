@@ -64,6 +64,26 @@ pub(crate) fn set_times(
     })
 }
 
+/// Make a link at `path` from `start` to `target`. A link to an absolute
+/// path is refused once the start is found, as cap-std refuses one beneath
+/// wasmtime's filesystem host, so no program outside the guest follows it
+/// out of the Mount.
+pub(crate) fn symlink(
+    cred: &Arc<Cred>,
+    target: &str,
+    start: &impl vfs::Start,
+    path: &str,
+) -> Result<(), Errno> {
+    let start = || -> Result<vfs::Path, Errno> {
+        let start = start.path_init()?;
+        match target.starts_with('/') {
+            true => Err(Errno::NotPermitted),
+            false => Ok(start),
+        }
+    };
+    retry_eagain(|| vfs::filename_symlinkat(cred, target, &start, path))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

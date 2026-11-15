@@ -4,7 +4,7 @@
 //! open's errors.
 
 use kobako_runtime::filesystem::Iattr;
-use kobako_runtime::vfs::{self, OpenHow, Start};
+use kobako_runtime::vfs::{self, OpenHow};
 use wiggle::GuestPtr;
 
 use super::descriptors::{Descriptor, FileHandle};
@@ -193,19 +193,12 @@ pub(crate) fn symlink(
     new_path: GuestPtr<str>,
 ) -> Answer {
     let (target, path) = (mem.read_path(old_path)?, mem.read_path(new_path)?);
-    // wasi-testsuite's symlink_create has a guest make no link to an absolute
-    // path, where Linux would make one; a guest walks none of them anyway. It
-    // is refused once the start is found, where the link would be made.
-    let start = || -> Result<vfs::Path, kobako_runtime::Errno> {
-        let start = start_of(wasi, fd).path_init()?;
-        match target.starts_with('/') {
-            true => Err(kobako_runtime::Errno::NotPermitted),
-            false => Ok(start),
-        }
-    };
-    Ok(retry_eagain(|| {
-        vfs::filename_symlinkat(wasi.cred(), &target, &start, &path)
-    })?)
+    Ok(filesystem::symlink(
+        wasi.cred(),
+        &target,
+        &start_of(wasi, fd),
+        &path,
+    )?)
 }
 
 pub(crate) fn unlink_file(
