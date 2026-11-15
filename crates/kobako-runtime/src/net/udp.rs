@@ -137,10 +137,11 @@ impl UdpSock {
         let reactor = Reactor::current().map_err(|err| to_error(&err))?;
         let host = family
             .connect_datagram(addr)
-            .and_then(|socket| {
-                set_hop_limit(SockRef::from(&socket), self.state().inet.uc_ttl).map(|()| socket)
-            })
             .map_err(|err| to_error(&err))?;
+        // The guest's own setsockopt already took the hop limit, so a host
+        // socket refusing it as it dials is no part of the connect's
+        // outcome, as a TCP dial leaves it out.
+        let _ = set_hop_limit(SockRef::from(&host), self.state().inet.uc_ttl);
         let mut socket = mio::net::UdpSocket::from_std(host);
         let ready: Weak<dyn Ready> = self.this.clone();
         let registration = reactor
