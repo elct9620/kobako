@@ -238,7 +238,7 @@ fn install_extension(sandbox: &mut Sandbox, extension: &Json) -> Result<(), Stri
 }
 
 /// A scenario-driven Extension. `backend` rebuilds a fresh `Backend` on
-/// each call so a `per_invocation` provider resolves a fresh stub,
+/// each call so a `per_invocation` lifetime resolves a fresh stub,
 /// mirroring the Ruby executor's `-> { Stubs.build(...) }`.
 struct ScenarioExtension {
     name: String,
@@ -261,7 +261,7 @@ impl Extension for ScenarioExtension {
                 .as_str()
                 .expect("backend path validated at install")
                 .to_string(),
-            lifetime: build_lifetime(spec).expect("provider validated at install"),
+            lifetime: build_lifetime(spec).expect("lifetime validated at install"),
         })
     }
 }
@@ -269,7 +269,7 @@ impl Extension for ScenarioExtension {
 /// `per_invocation` rebuilds a fresh stub each invocation, so a stateful
 /// `counter` resets between invocations.
 fn build_lifetime(backend: &Json) -> Result<Lifetime, String> {
-    match backend["provider"].as_str() {
+    match backend["lifetime"].as_str() {
         Some("fixed") => Ok(Lifetime::Static(
             build_backend_stub(&backend["methods"])?.into_receiver(),
         )),
@@ -282,7 +282,7 @@ fn build_lifetime(backend: &Json) -> Result<Lifetime, String> {
                     .into_receiver() as Arc<dyn Receiver>
             })))
         }
-        other => Err(format!("unknown provider kind {other:?}")),
+        other => Err(format!("unknown lifetime {other:?}")),
     }
 }
 

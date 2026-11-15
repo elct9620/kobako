@@ -31,8 +31,8 @@ module Parity
     end
 
     # An Extension composes a preloaded source with an optional stub
-    # backend. A +fixed+ provider binds one stub for the Sandbox's life; a
-    # +per_invocation+ provider hands back a fresh stub each invocation, so
+    # backend. A +fixed+ lifetime binds one stub for the Sandbox's life; a
+    # +per_invocation+ lifetime hands back a fresh stub each invocation, so
     # a stateful backend (a +counter+) resets between invocations.
     def install_extension(sandbox, extension)
       backend = extension[:backend]
@@ -49,10 +49,10 @@ module Parity
     def extension_backend(backend)
       methods = backend[:methods]
       path = backend.fetch(:path)
-      case backend.fetch(:provider)
+      case backend.fetch(:lifetime)
       when "fixed" then Kobako::Extension::Backend.new(path: path, object: Stubs.build(methods))
       when "per_invocation" then Kobako::Extension::Backend.new(path: path, provider: -> { Stubs.build(methods) })
-      else raise ArgumentError, "unknown provider kind: #{backend.inspect}"
+      else raise ArgumentError, "unknown lifetime: #{backend.inspect}"
       end
     end
 
