@@ -133,7 +133,7 @@ impl Sandbox {
         config.limits = limits;
         config.profile = profile;
         config.network = network;
-        let driver = Driver::new(wasm_path.as_ref(), config).map_err(Error::Setup)?;
+        let driver = Driver::from_file(wasm_path.as_ref(), config).map_err(Error::Setup)?;
         let mut sandbox = Sandbox::with_runtime(driver, profile)?;
         sandbox.value_budget = limits.value_budget();
         Ok(sandbox)

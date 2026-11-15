@@ -25,7 +25,8 @@ fn a_compile_reads_no_host_time_or_entropy_under_a_permissive_request() {
     config.limits.stderr_limit = None;
     config.limits.open_file_limit = None;
     config.profile = Profile::Permissive;
-    let driver = Driver::new(Path::new(FIXTURE), config).expect("the fixture guest must load");
+    let driver =
+        Driver::from_file(Path::new(FIXTURE), config).expect("the fixture guest must load");
     let mut preamble = Preamble::default();
     preamble.snippets = Snippets {
         entries: vec![Snippet::Source {

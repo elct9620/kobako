@@ -11,9 +11,9 @@ use super::{tag, DecodeError, ErrorRecord, Unsupported};
 ///
 /// The wire field is an open set of byte strings, but only two values
 /// carry meaning — so both sides read and write it through this type and
-/// cannot come to spell either one differently. The fallback rule lives in
-/// `from_name`: an unrecognised value attributes to the sandbox rather
-/// than widening what a Service can claim.
+/// cannot come to spell either one differently. An Outcome whose value no
+/// origin spells attributes to the sandbox rather than widening what a
+/// Service can claim.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Origin {
     /// The guest script raised, or a boot step faulted.
@@ -32,12 +32,12 @@ impl Origin {
         }
     }
 
-    /// Read a wire spelling back. Everything other than `"service"`,
-    /// recognised or not, attributes to the sandbox.
-    pub fn from_name(name: &str) -> Self {
+    /// Read a wire spelling back, `None` for one no origin spells.
+    pub fn from_name(name: &str) -> Option<Self> {
         match name {
-            "service" => Origin::Service,
-            _ => Origin::Sandbox,
+            "sandbox" => Some(Origin::Sandbox),
+            "service" => Some(Origin::Service),
+            _ => None,
         }
     }
 }
@@ -69,7 +69,7 @@ impl Outcome {
         match reader.read_u8()? {
             tag::OK => Ok(Outcome::Ok(reader.remaining().to_vec())),
             tag::PANIC => {
-                let origin = Origin::from_name(reader.read_text()?);
+                let origin = Origin::from_name(reader.read_text()?).unwrap_or(Origin::Sandbox);
                 let error = ErrorRecord::read(&mut reader)?;
                 let available = reader.read_text_list()?;
                 reader.finish()?;

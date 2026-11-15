@@ -26,13 +26,13 @@ The bundled engine over one Guest Binary, answering the engine seams.
 pub struct Driver {}
 ```
 
-## `Driver::new`
+## `Driver::from_file`
 
-Load a Guest Binary into the engine under the given caps, refusing one that
-cannot be loaded.
+Load the Guest Binary at a path into the engine under the given caps,
+refusing one that cannot be loaded.
 
 ```rust
 impl Driver {
-    pub fn new(path: &Path, config: Config) -> Result<Self, SetupError> {}
+    pub fn from_file(path: &Path, config: Config) -> Result<Self, SetupError> {}
 }
 ```

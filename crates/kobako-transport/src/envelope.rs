@@ -67,8 +67,8 @@ use std::fmt;
 pub struct DecodeError(&'static str);
 
 impl DecodeError {
-    pub const fn new(reason: &'static str) -> Self {
-        DecodeError(reason)
+    pub const fn new(message: &'static str) -> Self {
+        DecodeError(message)
     }
 
     pub fn message(&self) -> &str {

@@ -101,7 +101,7 @@ Name why bytes could not be read.
 
 ```rust
 impl DecodeError {
-    pub const fn new(reason: &'static str) -> Self {}
+    pub const fn new(message: &'static str) -> Self {}
 }
 ```
 
@@ -440,16 +440,6 @@ impl Origin {
 }
 ```
 
-## `Origin::from_name`
-
-Read a side from the name the wire carries.
-
-```rust
-impl Origin {
-    pub fn from_name(name: &str) -> Self {}
-}
-```
-
 ## `Panic`
 
 An uncaught failure, with what attributing and correcting it needs.
@@ -460,7 +450,7 @@ pub struct Panic {}
 
 ## `ErrorRecord`
 
-A script error as the wire carries it: its class name, message, and backtrace.
+A script error as the wire carries it: its name, message, and backtrace.
 
 ```rust
 pub struct ErrorRecord {}

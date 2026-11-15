@@ -134,7 +134,7 @@ A bounded set of identically set-up Sandboxes, each handed to one holder at a ti
 
 ### Catalog
 
-What a Sandbox has registered: the bindings, preloads, and Flags fixed at setup. It also holds the Handle table each Invocation mints for itself.
+What a Sandbox has registered: the bindings, Snippets, and Flags fixed at setup. It also holds the Handle table each Invocation mints for itself.
 
 ### Receiver
 
@@ -243,12 +243,12 @@ A failed Invocation a Service is answerable for.
 
 ### Preamble
 
-What the guest reads before an Invocation's entry runs or its preloads compile: the Catalog's bindings, preloads, and Flags. The guest starts knowing what this run was configured with.
+What the guest reads before an Invocation's entry runs or its Snippets compile: the Catalog's bindings, Snippets, and Flags. The guest starts knowing what this run was configured with.
 
 ```
-Preamble = bindings + preloads + Flags
+Preamble = bindings + Snippets + Flags
    read before -> an Invocation's entry
-               -> a compile of the preloads
+               -> a compile of the Snippets
 ```
 
 ### Flag

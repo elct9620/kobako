@@ -31,5 +31,5 @@ pub fn bundled_driver_with(adjust: impl FnOnce(&mut Config)) -> Option<Driver> {
     config.limits.open_file_limit = None;
     config.profile = Profile::Hermetic;
     adjust(&mut config);
-    Some(Driver::new(Path::new(WASM), config).expect("the Guest Binary must load"))
+    Some(Driver::from_file(Path::new(WASM), config).expect("the Guest Binary must load"))
 }

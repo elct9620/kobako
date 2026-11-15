@@ -332,8 +332,8 @@ impl Runtime {
         config.limits = limits;
         config.profile = profile;
         config.network = backends;
-        let driver =
-            Driver::new(Path::new(&path), config).map_err(|e| errors::from_setup(&ruby, e))?;
+        let driver = Driver::from_file(Path::new(&path), config)
+            .map_err(|e| errors::from_setup(&ruby, e))?;
         Ok(Self {
             runtime: Box::new(driver),
             release_gvl,

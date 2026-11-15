@@ -43,7 +43,7 @@ impl Driver {
     /// Load the Guest Binary at `path` and verify its ABI version. The
     /// Engine is shared by the process and the Module cached per path;
     /// neither leaves the driver.
-    pub fn new(path: &Path, config: Config) -> Result<Self, SetupError> {
+    pub fn from_file(path: &Path, config: Config) -> Result<Self, SetupError> {
         Ok(Self {
             instance_pre: instance_pre::load_instance_pre(path, config.limits.setup_timeout)?,
             config,

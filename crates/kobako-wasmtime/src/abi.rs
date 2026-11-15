@@ -63,7 +63,7 @@ mod tests {
         );
         let mut config = Config::for_profile(Profile::Hermetic);
         config.limits.setup_timeout = Some(Duration::from_millis(300));
-        let built = Driver::new(Path::new(FIXTURE), config);
+        let built = Driver::from_file(Path::new(FIXTURE), config);
         assert!(
             matches!(&built, Err(SetupError::Dead(message)) if message.contains("within 300ms")),
             "a Guest Binary whose start never returns through Driver::new must fail construction \
