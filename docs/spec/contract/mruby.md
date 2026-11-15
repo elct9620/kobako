@@ -74,13 +74,13 @@ impl Kobako {
 }
 ```
 
-## `Kobako::backtrace_of`
+## `Kobako::exc_backtrace`
 
 The backtrace a guest exception carries, as its lines.
 
 ```rust
 impl Kobako {
-    pub fn backtrace_of(&self, exc_val: Value) -> Vec<String> {}
+    pub fn exc_backtrace(&self, exc_val: Value) -> Vec<String> {}
 }
 ```
 

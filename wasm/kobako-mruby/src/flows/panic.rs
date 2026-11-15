@@ -110,7 +110,7 @@ pub(super) fn exception_fields(
             m
         }
     };
-    let backtrace = kobako.backtrace_of(exc_val);
+    let backtrace = kobako.exc_backtrace(exc_val);
     (class_name, message, backtrace)
 }
 

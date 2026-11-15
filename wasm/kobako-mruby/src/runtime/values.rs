@@ -57,7 +57,7 @@ impl Kobako {
 
     /// The exception's backtrace, or empty for a runtime built without
     /// backtrace keep-mode.
-    pub fn backtrace_of(&self, exc_val: Value) -> Vec<String> {
+    pub fn exc_backtrace(&self, exc_val: Value) -> Vec<String> {
         self.strings_from_funcall(exc_val, c"backtrace")
     }
 

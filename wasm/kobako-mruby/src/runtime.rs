@@ -47,7 +47,7 @@ use beni::ReprValue;
 ///     tree needs all four: VM access and the Handle spelling.
 ///   * **The invocation flow seam** (`MrbGuest::run` and friends) —
 ///     `init`, `from_mrb_unchecked`, `install_bindings`, `top_level_constants`,
-///     `backtrace_of`, `transport_error`.
+///     `exc_backtrace`, `transport_error`.
 ///     These look internal to the bundled flows, and are exactly what
 ///     someone writing their own flow reaches for.
 pub struct Kobako {
