@@ -18,7 +18,7 @@ use super::memory::GuestMemory;
 use super::types::{self, Fdflags, Filetype, Fstflags, Rights};
 use crate::descriptors::Descriptor;
 use crate::preview2::filesystem;
-use crate::wasi::Wasi;
+use crate::wasi::{FileRef, FileRefMut, Wasi};
 
 /// What a preopen allows itself: every path call, as wasmtime-wasi hands
 /// most userlands.
@@ -69,13 +69,13 @@ fn get_descriptor(wasi: &Wasi, fd: u32) -> Answer<&Descriptor> {
 
 /// The file `fd` stands for, one that stands only for its path included, as
 /// `fdget_raw` takes one.
-fn get_raw_file(wasi: &Wasi, fd: u32) -> Answer<&File> {
+fn get_raw_file(wasi: &Wasi, fd: u32) -> Answer<FileRef<'_>> {
     wasi.file(fd).ok_or_else(|| Errno::Badf.into())
 }
 
 /// The open file `fd` stands for, refusing one that stands only for its path,
 /// as `fdget` does.
-pub(crate) fn get_file(wasi: &Wasi, fd: u32) -> Answer<&File> {
+pub(crate) fn get_file(wasi: &Wasi, fd: u32) -> Answer<FileRef<'_>> {
     match wasi.file(fd) {
         Some(file) if !file.is_path() => Ok(file),
         _ => Err(Errno::Badf.into()),
@@ -84,7 +84,7 @@ pub(crate) fn get_file(wasi: &Wasi, fd: u32) -> Answer<&File> {
 
 /// The open file `fd` stands for, to change, refusing one that stands only for
 /// its path, as `fdget` does.
-fn get_file_mut(wasi: &mut Wasi, fd: u32) -> Answer<&mut File> {
+fn get_file_mut(wasi: &mut Wasi, fd: u32) -> Answer<FileRefMut<'_>> {
     match wasi.file_mut(fd) {
         Some(file) if !file.is_path() => Ok(file),
         _ => Err(Errno::Badf.into()),
@@ -93,7 +93,7 @@ fn get_file_mut(wasi: &mut Wasi, fd: u32) -> Answer<&mut File> {
 
 /// The open file `fd` stands for, in a call about its position. wasi-testsuite
 /// has a directory refuse one, where Linux would seek it.
-fn get_seekable(wasi: &mut Wasi, fd: u32) -> Answer<&mut File> {
+fn get_seekable(wasi: &mut Wasi, fd: u32) -> Answer<FileRefMut<'_>> {
     match get_file_mut(wasi, fd)? {
         file if file.is_directory() => Err(Errno::Badf.into()),
         file => Ok(file),
@@ -190,7 +190,10 @@ pub(crate) fn allocate(wasi: &mut Wasi, fd: u32, offset: u64, len: u64) -> Answe
 }
 
 pub(crate) fn close(wasi: &mut Wasi, fd: u32) -> Answer {
-    Ok(wasi.take_file(fd).ok_or(Errno::Badf)?.close()?)
+    match wasi.take(fd).ok_or(Errno::Badf)? {
+        Some(file) => Ok(file.close()?),
+        None => Ok(()),
+    }
 }
 
 pub(crate) fn sync(wasi: &mut Wasi, fd: u32, datasync: bool) -> Answer {
@@ -199,7 +202,7 @@ pub(crate) fn sync(wasi: &mut Wasi, fd: u32, datasync: bool) -> Answer {
 
 pub(crate) fn fdstat_get(wasi: &Wasi, fd: u32) -> Answer<types::Fdstat> {
     let preopen = get_descriptor(wasi, fd)?.preopen_path.is_some();
-    Ok(to_fdstat(get_raw_file(wasi, fd)?, preopen))
+    Ok(to_fdstat(&*get_raw_file(wasi, fd)?, preopen))
 }
 
 /// What `fd_fdstat_get` reports of `file`, a preopen's root when `preopen`.
@@ -278,7 +281,7 @@ pub(crate) fn filestat_set_times(wasi: &Wasi, fd: u32, times: &Iattr) -> Answer 
     Ok(filesystem::set_times(
         wasi.cred(),
         wasi.walk_guard(),
-        file,
+        &file,
         times,
     )?)
 }
@@ -291,7 +294,7 @@ pub(crate) fn pread(
     offset: u64,
 ) -> Answer<types::Size> {
     let buf = mem.read_first_non_empty_iovec(iovs)?;
-    let file = get_file_mut(wasi, fd)?;
+    let mut file = get_file_mut(wasi, fd)?;
     file.may_pread(offset)?;
     Ok(file.pread(mem.bytes_mut(buf)?, offset)? as u32)
 }
@@ -332,7 +335,7 @@ pub(crate) fn pwrite(
     offset: u64,
 ) -> Answer<types::Size> {
     let buf = mem.read_first_non_empty_ciovec(ciovs)?;
-    let file = get_file_mut(wasi, fd)?;
+    let mut file = get_file_mut(wasi, fd)?;
     file.may_pwrite(offset)?;
     Ok(file.pwrite(mem.bytes(buf)?, offset)? as u32)
 }
@@ -344,7 +347,7 @@ pub(crate) fn read(
     iovs: types::IovecArray,
 ) -> Answer<types::Size> {
     let buf = mem.read_first_non_empty_iovec(iovs)?;
-    let file = get_file_mut(wasi, fd)?;
+    let mut file = get_file_mut(wasi, fd)?;
     file.may_read()?;
     // Bounded before the file is asked, as a trap takes no bytes from a pipe.
     Ok(file.read(mem.bytes_mut(buf)?)? as u32)
@@ -415,7 +418,7 @@ pub(crate) fn readdir(
     cookie: u64,
 ) -> Answer<types::Size> {
     let cred = wasi.cred().clone();
-    let dir = get_file_mut(wasi, fd)?;
+    let mut dir = get_file_mut(wasi, fd)?;
     // preview1 names where a listing goes on by its cookie, as wasi-libc's
     // `seekdir` moves a directory's position before `getdents`; a listing going
     // on from where the last one stopped needs no seek.
@@ -470,11 +473,13 @@ pub(crate) fn renumber(wasi: &mut Wasi, from: u32, to: u32) -> Answer {
     if from == to {
         return Ok(());
     }
-    let replaced = wasi.take_file(to).expect("found open above");
+    let replaced = wasi.take(to).expect("found open above");
     let descriptors = wasi.descriptors_mut();
     let moved = descriptors.remove(from).expect("found open above");
     descriptors.place(to, moved);
-    let _ = replaced.close();
+    if let Some(file) = replaced {
+        let _ = file.close();
+    }
     Ok(())
 }
 
@@ -498,7 +503,7 @@ pub(crate) fn write(
     ciovs: types::CiovecArray,
 ) -> Answer<types::Size> {
     let buf = mem.read_first_non_empty_ciovec(ciovs)?;
-    let file = get_file_mut(wasi, fd)?;
+    let mut file = get_file_mut(wasi, fd)?;
     file.may_write()?;
     Ok(file.write(mem.bytes(buf)?)? as u32)
 }
@@ -579,6 +584,27 @@ mod tests {
     /// The code a call answered, if it answered one.
     fn errno<T>(answer: Answer<T>) -> Option<Errno> {
         answer.err().and_then(|err| err.downcast().ok())
+    }
+
+    // @behavior RT-401
+    #[test]
+    fn a_standard_stream_stands_over_the_preview2_stream_its_handle_names() {
+        use crate::invocation::Invocation;
+        use crate::preview2::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
+        use crate::preview2::bindings::IoHost as _;
+
+        let config = crate::config::Config::for_profile(kobako_runtime::profile::Profile::Hermetic);
+        let mut guest = Invocation::new(Wasi::reading_stdin(&config, b"hi".to_vec()));
+        let read = guest.streams_input_stream_read(InputStream(1), 16).ok();
+        let dropped = guest.streams_output_stream_drop(OutputStream(2)).is_ok();
+        let closed = errno(super::close(guest.wasi_mut(), 1));
+        assert_eq!(
+            (read, dropped, closed),
+            (Some(b"hi".to_vec()), true, None),
+            "stdin's bytes must read through preview2's input-stream under handle 1, as \
+             wasi:cli's get-stdin hands it, and fd_close of stdout through preview1 must succeed \
+             once preview2 dropped the output-stream under handle 2"
+        );
     }
 
     // @behavior RT-177

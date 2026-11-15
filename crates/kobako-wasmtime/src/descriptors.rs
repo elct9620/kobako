@@ -7,10 +7,11 @@
 //! table does not hold is taken. Each number stands over a handle in
 //! preview2's resource table, which holds the file and counts it, as
 //! wasmtime-wasi's preview1 numbers apart from the `ResourceTable` it shares
-//! with preview2.
+//! with preview2. The standard streams stand over preview2 streams, as
+//! `wasi:cli` hands them out, each over its end of a pipe.
 
 use std::collections::BTreeMap;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use kobako_runtime::cred::Cred;
 use kobako_runtime::mount::Mount;
@@ -18,12 +19,25 @@ use kobako_runtime::vfs::File;
 use kobako_runtime::Errno;
 
 pub(crate) use crate::preview2::bindings::wasi_filesystem_types_0_2_12::Descriptor as FileHandle;
+use crate::preview2::bindings::wasi_io_streams_0_2_12::{
+    InputStream as InputHandle, OutputStream as OutputHandle,
+};
+use crate::preview2::table::{InputStream, OutputStream, Stream};
 use crate::preview2::Table;
+
+/// The preview2 handle one descriptor stands over.
+#[derive(Clone, Copy)]
+pub(crate) enum Held {
+    File(FileHandle),
+    /// stdin, read as `wasi:cli`'s `get-stdin` hands it.
+    Input(InputHandle),
+    /// stdout or stderr, written as `wasi:cli`'s `get-stdout` hands it.
+    Output(OutputHandle),
+}
 
 /// What one descriptor stands for, as Linux's fd table holds a `struct file`.
 pub(crate) struct Descriptor {
-    /// The preview2 handle the file stands under.
-    pub(crate) file: FileHandle,
+    pub(crate) held: Held,
     /// The guest path a preopen names; a Mount's own root has one.
     pub(crate) preopen_path: Option<String>,
 }
@@ -32,7 +46,14 @@ impl Descriptor {
     /// The descriptor of the file under `file`, naming no preopen.
     pub(crate) fn for_file(file: FileHandle) -> Self {
         Self {
-            file,
+            held: Held::File(file),
+            preopen_path: None,
+        }
+    }
+
+    fn for_stream(held: Held) -> Self {
+        Self {
+            held,
             preopen_path: None,
         }
     }
@@ -59,15 +80,26 @@ impl Descriptors {
         opener: &Arc<Cred>,
     ) -> Result<Self, Errno> {
         let mut used = BTreeMap::new();
-        for (fd, file) in (0..).zip([stdin, stdout, stderr]) {
-            used.insert(fd, Descriptor::for_file(install(table, file)?));
+        let input = InputStream::new(stream_of(stdin));
+        let room = table.reserve_inherited_file()?;
+        used.insert(
+            0,
+            Descriptor::for_stream(Held::Input(table.install(room, input))),
+        );
+        for (fd, file) in [(1, stdout), (2, stderr)] {
+            let output = OutputStream::new(stream_of(file));
+            let room = table.reserve_inherited_file()?;
+            used.insert(
+                fd,
+                Descriptor::for_stream(Held::Output(table.install(room, output))),
+            );
         }
         for (fd, mount) in (3..).zip(mounts) {
             let root = File::root(mount.mnt(), opener)?;
             used.insert(
                 fd,
                 Descriptor {
-                    file: install(table, root)?,
+                    held: Held::File(install(table, root)?),
                     preopen_path: Some(mount.at().to_string()),
                 },
             );
@@ -105,6 +137,11 @@ impl Descriptors {
     pub(crate) fn lowest_unused(&self) -> Option<u32> {
         (self.next_fd..=u32::MAX).find(|fd| !self.used.contains_key(fd))
     }
+}
+
+/// A stream over `file`, one end of a standard stream's pipe.
+fn stream_of(file: File) -> Stream {
+    Stream::File(Arc::new(Mutex::new(file)))
 }
 
 /// The handle `file`, opened before the guest runs, takes in `table`;

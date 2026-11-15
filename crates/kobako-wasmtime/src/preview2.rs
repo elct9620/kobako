@@ -9,7 +9,7 @@ pub(crate) mod filesystem;
 mod host;
 mod http;
 mod sockets;
-mod table;
+pub(crate) mod table;
 
 pub(crate) use bindings::add_to_linker;
 #[cfg(test)]

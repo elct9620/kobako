@@ -3,6 +3,7 @@
 //! preview2 inherits it. A call on an open file needs none of it and asks the
 //! Open File itself.
 
+use std::ops::Deref;
 use std::sync::Arc;
 
 use kobako_runtime::cred::Cred;
@@ -34,9 +35,9 @@ pub(crate) fn retry_eagain<T>(mut call: impl FnMut() -> Result<T, Errno>) -> Res
 /// the VFS has taken the name, as Linux's `path_init` takes it. What is no
 /// directory the walk itself refuses, and a move the guard meets is one a
 /// walk meets, so `retry_eagain` makes the call again.
-pub(crate) fn start_at<'a>(
+pub(crate) fn start_at<'a, F: Deref<Target = File>>(
     guard: &'a WalkGuard,
-    file: impl Fn() -> Result<&'a File, Errno> + 'a,
+    file: impl Fn() -> Result<F, Errno> + 'a,
 ) -> impl vfs::Start + 'a {
     move || {
         let file = file()?;

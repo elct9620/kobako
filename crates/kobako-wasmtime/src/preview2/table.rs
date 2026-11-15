@@ -93,6 +93,24 @@ impl Stream {
         }
     }
 
+    /// The file the stream stands on, once no other view shares it.
+    pub(crate) fn into_file(self) -> Option<File> {
+        match self {
+            Stream::Socket(_) => None,
+            Stream::File(file) => Arc::try_unwrap(file)
+                .ok()
+                .map(|file| file.into_inner().unwrap_or_else(PoisonError::into_inner)),
+        }
+    }
+
+    /// The file the stream stands on, which a read or a write takes `&mut`.
+    pub(crate) fn lock(&self) -> MutexGuard<'_, File> {
+        match self {
+            Stream::Socket(socket) => socket.file(),
+            Stream::File(file) => lock(file),
+        }
+    }
+
     /// Read what the stream holds now; `WouldBlock` while it holds nothing
     /// yet, as `io.wit` makes a read non-blocking.
     pub(crate) fn read(&self, buf: &mut [u8]) -> Result<usize, Errno> {

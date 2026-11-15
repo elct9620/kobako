@@ -9,11 +9,12 @@ use wasmtime_wasi::WasiCtxBuilder;
 
 use crate::ambient::{self, Clocks};
 use crate::config::Config;
-use crate::descriptors::Descriptors;
+use crate::descriptors::{Descriptors, Held};
 use crate::preview2;
 use kobako_runtime::error::{InvokeError, Trap};
 use kobako_runtime::snapshot::Capture;
-use std::sync::Arc;
+use std::ops::{Deref, DerefMut};
+use std::sync::{Arc, MutexGuard};
 
 use kobako_runtime::cred::Cred;
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
@@ -278,16 +279,24 @@ impl Wasi {
         &mut self.descriptors
     }
 
-    /// The file `fd` stands for, one that stands only for its path included.
-    pub(crate) fn file(&self, fd: u32) -> Option<&File> {
-        let descriptor = self.descriptors.get(fd)?;
-        self.table.get(descriptor.file).ok()
+    /// The file `fd` stands for, one that stands only for its path included:
+    /// the one the resource table holds, or the pipe's end a standard
+    /// stream stands over, which answers each call as Linux's pipe does.
+    pub(crate) fn file(&self, fd: u32) -> Option<FileRef<'_>> {
+        Some(match self.descriptors.get(fd)?.held {
+            Held::File(handle) => FileRef::Held(self.table.get(handle).ok()?),
+            Held::Input(handle) => FileRef::Stream(self.table.get(handle).ok()?.stream.lock()),
+            Held::Output(handle) => FileRef::Stream(self.table.get(handle).ok()?.stream.lock()),
+        })
     }
 
     /// The file `fd` stands for, to change.
-    pub(crate) fn file_mut(&mut self, fd: u32) -> Option<&mut File> {
-        let handle = self.descriptors.get(fd)?.file;
-        self.table.get_mut(handle).ok()
+    pub(crate) fn file_mut(&mut self, fd: u32) -> Option<FileRefMut<'_>> {
+        Some(match self.descriptors.get(fd)?.held {
+            Held::File(handle) => FileRefMut::Held(self.table.get_mut(handle).ok()?),
+            Held::Input(handle) => FileRefMut::Stream(self.table.get(handle).ok()?.stream.lock()),
+            Held::Output(handle) => FileRefMut::Stream(self.table.get(handle).ok()?.stream.lock()),
+        })
     }
 
     /// Open `file` under the lowest free descriptor; `None` when the
@@ -305,15 +314,24 @@ impl Wasi {
         Some(fd)
     }
 
-    /// Take `fd` out of the descriptor table, and its file out of the
-    /// resource table that held it.
-    pub(crate) fn take_file(&mut self, fd: u32) -> Option<File> {
+    /// Take `fd` out of the descriptor table, and what it stood over out of
+    /// the resource table: the file to close, or none once preview2 dropped
+    /// the stream a standard stream stood over, or still holds a view of it.
+    pub(crate) fn take(&mut self, fd: u32) -> Option<Option<File>> {
         let descriptor = self.descriptors.remove(fd)?;
-        Some(
-            self.table
-                .delete(descriptor.file)
-                .expect("a descriptor's handle stands in the resource table"),
-        )
+        Some(match descriptor.held {
+            Held::File(handle) => self.table.delete(handle).ok(),
+            Held::Input(handle) => self
+                .table
+                .delete(handle)
+                .ok()
+                .and_then(|input| input.stream.into_file()),
+            Held::Output(handle) => self
+                .table
+                .delete(handle)
+                .ok()
+                .and_then(|output| output.stream.into_file()),
+        })
     }
 
     pub(crate) fn clocks(&self) -> Clocks {
@@ -363,6 +381,50 @@ fn to_network(
         connection_limit,
     )
     .map(Some)
+}
+
+/// A file a descriptor stands for, as `Wasi::file` finds it.
+pub(crate) enum FileRef<'a> {
+    Held(&'a File),
+    /// The pipe's end behind a standard stream, which its stream shares.
+    Stream(MutexGuard<'a, File>),
+}
+
+impl Deref for FileRef<'_> {
+    type Target = File;
+
+    fn deref(&self) -> &File {
+        match self {
+            FileRef::Held(file) => file,
+            FileRef::Stream(file) => file,
+        }
+    }
+}
+
+/// A file a descriptor stands for, to change, as `Wasi::file_mut` finds it.
+pub(crate) enum FileRefMut<'a> {
+    Held(&'a mut File),
+    Stream(MutexGuard<'a, File>),
+}
+
+impl Deref for FileRefMut<'_> {
+    type Target = File;
+
+    fn deref(&self) -> &File {
+        match self {
+            FileRefMut::Held(file) => file,
+            FileRefMut::Stream(file) => file,
+        }
+    }
+}
+
+impl DerefMut for FileRefMut<'_> {
+    fn deref_mut(&mut self) -> &mut File {
+        match self {
+            FileRefMut::Held(file) => file,
+            FileRefMut::Stream(file) => file,
+        }
+    }
 }
 
 #[cfg(test)]

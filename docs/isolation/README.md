@@ -179,7 +179,7 @@ An older encoding adapts to a newer one, never the reverse, as `wasmtime-wasi`'s
 | a socket's own call | `sock_recv`, `sock_send`, `sock_shutdown` | `NOTSOCK` |
 | a path's call | `path_*`, `fd_filestat_set_times` | preview2's `wasi:filesystem` host |
 | an open file's call | the other `fd_*` | the Open File in preview2's table |
-| a standard stream's call | `fd_read`, `fd_write` on 0 to 2 | preview2's streams |
+| a standard stream's call | `fd_*` on 0 to 2 | the pipe's end behind preview2's stream |
 
 ## Trigger Conditions
 

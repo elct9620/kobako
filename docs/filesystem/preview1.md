@@ -108,7 +108,7 @@ The table, its numbers, and its rights exist only in preview1, so they stay in t
 | `fd_fdstat_set_rights` refused | wasmtime-wasi |
 | Standard streams are preview2 streams | wasmtime-wasi |
 
-Every call finds its descriptor as its Linux syscall does, `sock_*` and `poll_oneoff` included; `kobako-runtime` marks a path-only file as `FMODE_PATH`. Renumbering ignores how the replaced descriptor's close answers. `fd_fdstat_set_rights` answers BADF for a stream and NOTSUP otherwise, since rights only narrow at open and preview2 has none. A standard stream answers only a stream's calls. A position or an offset answers ESPIPE, any other file call BADF, and its `filestat` is zero.
+Every call finds its descriptor as its Linux syscall does, `sock_*` and `poll_oneoff` included; `kobako-runtime` marks a path-only file as `FMODE_PATH`. Renumbering ignores how the replaced descriptor's close answers. `fd_fdstat_set_rights` answers BADF for a stream and NOTSUP otherwise, since rights only narrow at open and preview2 has none. A standard stream stands over the preview2 stream `wasi:cli` would hand out. A call on its file reaches the pipe's end behind that stream, so it answers as Linux's pipe does.
 
 ### Directory Listing
 
