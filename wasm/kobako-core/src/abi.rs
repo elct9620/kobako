@@ -11,7 +11,7 @@ mod downcall;
 mod memory;
 
 pub use downcall::serve;
-pub use memory::{answer, cabi_realloc, run_ctors_once};
+pub use memory::{answer, realloc, run_ctors_once};
 
 /// Declare the host imports under the host interface's literal name, the
 /// only form `wasm_import_module` accepts.

@@ -77,7 +77,7 @@ macro_rules! export_guest {
             align: u32,
             new_len: u32,
         ) -> u32 {
-            $crate::abi::cabi_realloc(old_ptr, old_len, align, new_len)
+            $crate::abi::realloc(old_ptr, old_len, align, new_len)
         }
     };
 }

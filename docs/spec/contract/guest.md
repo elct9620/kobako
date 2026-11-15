@@ -97,12 +97,12 @@ a host that does not serve it, or an unfinished exchange.
 pub enum DispatchError {}
 ```
 
-## `cabi_realloc`
+## `realloc`
 
 Hand the host room for a list it writes, as the Canonical ABI's `cabi_realloc`
 asks. Requests and WASI 0.2 answers both land there. An empty list takes no
 room, and the Guest Binary traps when it has no room left.
 
 ```rust
-pub fn cabi_realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {}
+pub fn realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {}
 ```
