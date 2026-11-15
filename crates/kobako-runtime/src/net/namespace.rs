@@ -11,23 +11,16 @@ use std::sync::{Arc, Mutex, PoisonError, Weak};
 use super::egress::EgressProxy;
 use super::http::{HyperOutbound, Outbound};
 use super::lookup::{LookupError, NameLookup, Resolver};
-use super::socket::BindHash;
+use super::socket::{BindHash, LOCAL_ADDRESS, VIRTUAL_BASE, VIRTUAL_SIZE};
 use super::{Backends, OpenConnections, ProtocolFamily, TcpSock};
 use crate::cred::Cred;
 use crate::memcg::MemoryCharge;
 use crate::network::{EntryError, Name, Network, Protocol, Ruleset};
 use crate::policy::Policy;
 
-/// The bottom of the virtual range, `198.18.0.0/15`, inside the reserved set,
-/// so no real destination is ever in it.
-const VIRTUAL_BASE: u32 = u32::from_be_bytes([198, 18, 0, 0]);
-
-/// How many virtual addresses the range holds.
-const VIRTUAL_SIZE: u32 = 1 << 17;
-
-/// How many virtual addresses lookups may take: all but the guest's own,
-/// `LOCAL_ADDRESS`, and the broadcast one above it.
-const MAX_NAMED_ADDRESSES: u32 = VIRTUAL_SIZE - 2;
+/// How many virtual addresses lookups may take: those below the guest's own,
+/// `LOCAL_ADDRESS`, which leaves out it and the broadcast one above it.
+const MAX_NAMED_ADDRESSES: u32 = LOCAL_ADDRESS.to_bits() - VIRTUAL_BASE;
 
 /// What the guest may reach, which policies judge each lookup, the backends
 /// that dial and resolve, the connections this Invocation holds open and

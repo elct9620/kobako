@@ -106,11 +106,18 @@ pub enum SockOpt {
     NoDelay,
 }
 
-/// The guest's own end of every socket it connects, kept out of what a lookup
-/// hands out, as a container in its own network namespace reads its veth's
-/// address while the host translates. It sits below the virtual range's last
-/// address, the one a broadcast would take.
-pub(crate) const LOCAL_ADDRESS: Ipv4Addr = Ipv4Addr::new(198, 19, 255, 254);
+/// The bottom of the virtual range, `198.18.0.0/15`, inside the reserved set,
+/// so no real destination is ever in it.
+pub(crate) const VIRTUAL_BASE: u32 = u32::from_be_bytes([198, 18, 0, 0]);
+
+/// How many virtual addresses the range holds.
+pub(crate) const VIRTUAL_SIZE: u32 = 1 << 17;
+
+/// The guest's own end of every socket it connects, `198.19.255.254`, kept
+/// out of what a lookup hands out, as a container in its own network
+/// namespace reads its veth's address while the host translates. It sits
+/// below the virtual range's last address, the one a broadcast would take.
+pub(crate) const LOCAL_ADDRESS: Ipv4Addr = Ipv4Addr::from_bits(VIRTUAL_BASE + VIRTUAL_SIZE - 2);
 
 /// The ports a bind to port 0 or a connect gives the guest for its own end,
 /// Linux's default `ip_local_port_range`, taken in turn from the bottom and

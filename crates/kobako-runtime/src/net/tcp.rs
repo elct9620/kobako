@@ -118,6 +118,17 @@ struct State {
     orphan: Option<Arc<TcpSock>>,
 }
 
+impl State {
+    /// The room left in the send buffer, as `sk_stream_wspace` takes what is
+    /// queued from `sk_sndbuf`.
+    fn stream_wspace(&self) -> usize {
+        self.inet
+            .buffers
+            .sndbuf
+            .saturating_sub(self.write_queue.len())
+    }
+}
+
 /// One TCP socket, shared by the socket file and the reactor.
 pub struct TcpSock {
     state: Mutex<State>,
@@ -461,12 +472,7 @@ impl TcpSock {
 
     /// How many bytes a send would take now.
     pub fn send_room(&self) -> usize {
-        let state = self.state();
-        state
-            .inet
-            .buffers
-            .sndbuf
-            .saturating_sub(state.write_queue.len())
+        self.state().stream_wspace()
     }
 
     /// Whether everything sent has left for the host, as Linux's `SIOCOUTQ`
@@ -571,13 +577,7 @@ impl ProtoOps for TcpSock {
             Phase::Connected if !state.inet.send_shutdown && state.inet.err.is_none() => {}
             _ => return Err(state.inet.err.take().unwrap_or(Errno::BrokenPipe)),
         }
-        let take = buf.len().min(
-            state
-                .inet
-                .buffers
-                .sndbuf
-                .saturating_sub(state.write_queue.len()),
-        );
+        let take = buf.len().min(state.stream_wspace());
         if take == 0 && !buf.is_empty() {
             return Err(Errno::WouldBlock);
         }
@@ -604,8 +604,7 @@ impl ProtoOps for TcpSock {
         if !state.receive_queue.is_empty() || rcv_shutdown {
             mask = mask | PollMask::IN;
         }
-        let queued = state.write_queue.len();
-        let writable = state.inet.buffers.sndbuf.saturating_sub(queued) >= queued / 2;
+        let writable = state.stream_wspace() >= state.write_queue.len() / 2;
         if state.phase != Phase::Connecting && (send_shutdown || writable) {
             mask = mask | PollMask::OUT;
         }
