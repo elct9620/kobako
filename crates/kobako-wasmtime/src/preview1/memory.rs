@@ -32,13 +32,19 @@ impl<'a, 'm> GuestMemory<'a, 'm> {
         }
     }
 
-    /// Spend `count` elements of `size` bytes of this call's fuel, as
-    /// wasmtime-wasi spends it before it copies an array.
+    /// Spend `count` elements of `size` bytes of this call's fuel.
     pub(crate) fn consume(&self, count: u32, size: u32) -> Answer {
         let cost = u64::from(count) * u64::from(size);
         let left = self.fuel.get().checked_sub(cost).ok_or(Errno::Nomem)?;
         self.fuel.set(left);
         Ok(())
+    }
+
+    /// Spend the fuel `count` elements of `T` take, each sized as the host
+    /// holds it, as wasmtime-wasi's `consume_fuel_for_array` spends it
+    /// before it copies an array.
+    pub(crate) fn consume_array<T>(&self, count: u32) -> Answer {
+        self.consume(count, size_of::<T>() as u32)
     }
 
     pub(crate) fn bytes(&self, ptr: GuestPtr<[u8]>) -> Answer<&[u8]> {
@@ -96,7 +102,7 @@ impl<'a, 'm> GuestMemory<'a, 'm> {
         array: GuestPtr<[T]>,
         buffer: impl Fn(T) -> (GuestPtr<u8>, u32),
     ) -> Answer<GuestPtr<[u8]>> {
-        self.consume(array.len(), T::guest_size())?;
+        self.consume_array::<T>(array.len())?;
         for entry in array.iter() {
             let (ptr, len) = buffer(self.memory.read(entry?)?);
             if len != 0 {

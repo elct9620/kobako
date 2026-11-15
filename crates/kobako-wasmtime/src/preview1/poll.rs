@@ -13,7 +13,7 @@
 use std::time::{Duration, Instant};
 
 use kobako_runtime::vfs::PollMask;
-use wiggle::{GuestPtr, GuestType};
+use wiggle::GuestPtr;
 
 use super::errno::{Answer, Errno};
 use super::fd::get_file;
@@ -60,8 +60,8 @@ pub(crate) fn poll_oneoff(
     if count == 0 {
         return Err(Errno::Inval.into());
     }
-    mem.consume(count, types::Subscription::guest_size())?;
-    mem.consume(count, types::Event::guest_size())?;
+    mem.consume_array::<types::Subscription>(count)?;
+    mem.consume_array::<types::Event>(count)?;
     let subscriptions = subs
         .as_array(count)
         .iter()
@@ -218,6 +218,8 @@ mod tests {
               (i64.add (i64.load (i32.const 128)) (i64.const 200000000)))
             (i32.store16 (i32.const 40) (i32.const 1))
             (call $poll (i32.const 0) (i32.const 64) (i32.const 1) (i32.const 96)))
+          (func (export "poll_count") (param $count i32) (result i32)
+            (call $poll (i32.const 0) (i32.const 0) (local.get $count) (i32.const 96)))
           (func (export "events_of_two_clocks") (result i32)
             (i32.store8 (i32.const 8) (i32.const 0))
             (i32.store (i32.const 16) (i32.const 1))
@@ -295,6 +297,46 @@ mod tests {
     }
 
     const ERRNO_INTR: i32 = 27;
+
+    /// Poll `count` subscriptions at 0 in a fresh instance whose one page
+    /// holds few of them, answering the errno or the trap.
+    fn poll_count(count: i32) -> wasmtime::Result<i32> {
+        let engine = load_engine().expect("shared engine must be constructible");
+        let config = Config::for_profile(Profile::Hermetic);
+        let wasi = Wasi::for_invocation(&config, &[], &sandbox_connections())
+            .expect("WASI context must build");
+        let mut store = Store::new(engine, Invocation::new(wasi));
+        store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
+        let linker = imports::linker().expect("host imports must link");
+        let module = Module::new(engine, WAIT_WAT).expect("wait module must compile");
+        let instance = linker
+            .instantiate(&mut store, &module)
+            .expect("wait module must instantiate");
+        instance
+            .get_typed_func::<i32, i32>(&mut store, "poll_count")
+            .expect("poll export must resolve")
+            .call(&mut store, count)
+    }
+
+    // The memory holds neither array, so a count the fuel admits fails only
+    // once the host reads past the page, and one past it before.
+    // @behavior RT-399
+    #[test]
+    fn a_poll_spends_its_fuel_as_the_host_holds_each_subscription() {
+        // 128 MiB of fuel over the 32-byte subscription and 32-byte event
+        // the host holds for each.
+        let admitted = 2_097_152;
+        let within = poll_count(admitted).ok();
+        let past = poll_count(admitted + 1).ok();
+        assert!(
+            within != Some(ERRNO_NOMEM) && past == Some(ERRNO_NOMEM),
+            "poll_oneoff must spend its hostcall fuel by the host's size of each subscription \
+             and event, as wasmtime-wasi does, answering NOMEM only past 2097152 of them, got \
+             {within:?} and {past:?}"
+        );
+    }
+
+    const ERRNO_NOMEM: i32 = 48;
 
     // @behavior RT-382
     #[test]
