@@ -32,10 +32,6 @@ fn prepare_creds(config: &Config) -> Arc<Cred> {
     prepare_creds_within(&config.security, config.limits.memory_limit)
 }
 
-/// The most entries preview1's descriptor table or preview2's resource table
-/// holds, as wasmtime's `ResourceTable::max_capacity` bounds a table.
-pub(crate) const MAX_TABLE_ENTRIES: usize = 1_000_000;
-
 /// One instance's WASI context: who its calls are made for, each encoding's
 /// table, the clocks its waits pass on, and the capture pipes stdout and
 /// stderr write into, so the captures are read back from the same owner that

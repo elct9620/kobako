@@ -3438,14 +3438,14 @@ mod tests {
         let (mut store, instance) = guest_of(config);
         let first = call::<i64, i32>(&mut store, &instance, "subscribe", 0);
         let guest = store.data_mut();
-        let held = (1..crate::wasi::MAX_TABLE_ENTRIES)
+        let held = (1..crate::preview2::table::MAX_TABLE_ENTRIES)
             .map(|_| guest.monotonic_clock_subscribe_duration(0))
             .take_while(Result::is_ok)
             .count();
         let past = guest.monotonic_clock_subscribe_duration(0);
         assert_eq!(
             (first.is_ok(), held, past.is_err()),
-            (true, crate::wasi::MAX_TABLE_ENTRIES - 4, true),
+            (true, crate::preview2::table::MAX_TABLE_ENTRIES - 4, true),
             "subscribe-duration with no memory limit and the open file limit filled by the \
              standard streams must hand out pollables until the table, the three streams \
              included, holds a million handles, then trap"
@@ -3457,7 +3457,7 @@ mod tests {
     fn each_handle_takes_its_room_from_the_memory_limit() {
         let mut guest =
             Invocation::hermetic(None, |config| config.limits.memory_limit = Some(64 << 10));
-        let held = (0..crate::wasi::MAX_TABLE_ENTRIES)
+        let held = (0..crate::preview2::table::MAX_TABLE_ENTRIES)
             .map_while(|_| guest.monotonic_clock_subscribe_duration(0).ok())
             .collect::<Vec<_>>();
         let filled = held.len();

@@ -23,7 +23,6 @@ use kobako_runtime::Errno;
 
 use super::bindings::wasi_sockets_network_0_2_12::{ErrorCode, IpAddressFamily};
 use super::MAX_READ_SIZE_ALLOC;
-use crate::wasi::MAX_TABLE_ENTRIES;
 
 /// A file every view of it shares, as handles on one `struct file` do.
 pub(crate) type SharedFile = Arc<Mutex<File>>;
@@ -425,6 +424,11 @@ impl Pollable {
         )
     }
 }
+
+/// The most entries the resource table holds, every file preview1's
+/// descriptors stand over included, as wasmtime's
+/// `ResourceTable::max_capacity` bounds a table.
+pub(crate) const MAX_TABLE_ENTRIES: usize = 1_000_000;
 
 /// One handle's resource, and the handle it is a child of, as wasmtime's
 /// `ResourceTable` keeps each entry's parent.
