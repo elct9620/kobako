@@ -72,7 +72,7 @@ pub trait Receiver: Any + Send + Sync {
     /// surface: a `false` answer rejects the dispatch as `undefined`
     /// before `call` runs, and the guest cannot reach the predicate
     /// itself. The default leaves the surface unchanged.
-    fn respond_to_guest(&self, method: &str) -> bool {
+    fn responds_to_guest(&self, method: &str) -> bool {
         let _ = method;
         true
     }

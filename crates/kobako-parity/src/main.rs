@@ -505,7 +505,7 @@ impl ValueReceiver for StubReceiver {
         }
     }
 
-    fn respond_to_guest(&self, method: &str) -> bool {
+    fn responds_to_guest(&self, method: &str) -> bool {
         self.exposed
             .as_ref()
             .is_none_or(|names| names.iter().any(|name| name == method))

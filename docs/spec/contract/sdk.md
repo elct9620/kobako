@@ -486,13 +486,13 @@ pub trait Receiver {
 }
 ```
 
-## `Receiver::respond_to_guest`
+## `Receiver::responds_to_guest`
 
 Whether the guest may call the method at all.
 
 ```rust
 pub trait Receiver {
-    fn respond_to_guest(&self, method: &str) -> bool;
+    fn responds_to_guest(&self, method: &str) -> bool;
 }
 ```
 
@@ -629,13 +629,13 @@ pub trait ValueReceiver {
 }
 ```
 
-## `ValueReceiver::respond_to_guest`
+## `ValueReceiver::responds_to_guest`
 
 Whether the guest may call the method at all.
 
 ```rust
 pub trait ValueReceiver {
-    fn respond_to_guest(&self, method: &str) -> bool;
+    fn responds_to_guest(&self, method: &str) -> bool;
 }
 ```
 

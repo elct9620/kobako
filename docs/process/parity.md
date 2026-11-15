@@ -96,7 +96,7 @@ reified machinery carries the concept's own name.
 | Block | never crosses; only the `block_given` flag travels | same; the wire contract is shared |
 | Execution | `Kobako::Execution`, from `#eval` / `#run` | `kobako::Execution`, from `eval` / `run` |
 
-An SDK `Receiver` whose `respond_to_guest` denies every name is opaque.
+An SDK `Receiver` whose `responds_to_guest` denies every name is opaque.
 The Ruby Yielder stays internal so a Service method takes an ordinary
 block ([transport-yield](../spec/behavior/transport-yield.md)). An SDK
 Receiver calls its Yielder directly.

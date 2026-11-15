@@ -57,7 +57,7 @@ impl CatalogHandler {
         // The target's own narrowing predicate answers before any
         // method runs; the rejection shares the `undefined` fault kind
         // of an unresolved target and the Ruby frontend's wording.
-        if !object.respond_to_guest(call.method) {
+        if !object.responds_to_guest(call.method) {
             return Reply::Fault(Fault::new(
                 FaultKind::Undefined,
                 format!("method :{} is not exposed to the guest", call.method),
@@ -482,7 +482,7 @@ mod tests {
             Echo.call(method, args, kwargs, block, handles)
         }
 
-        fn respond_to_guest(&self, method: &str) -> bool {
+        fn responds_to_guest(&self, method: &str) -> bool {
             method == "echo"
         }
     }

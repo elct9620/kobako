@@ -34,7 +34,7 @@ the first invocation seals them. `eval` and `run` execute on a fresh guest
 instance and return an `Execution`: the run's outcome, captures and usage.
 
 A guest reaches a `Receiver` as `MyService::KV` or through a capability
-Handle. Its `respond_to_guest` predicate narrows what the guest may call,
+Handle. Its `responds_to_guest` predicate narrows what the guest may call,
 and `Fault` is how it refuses.
 
 A `Yielder` rides the `block` parameter, and each call is a synchronous

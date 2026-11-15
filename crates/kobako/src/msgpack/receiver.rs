@@ -31,9 +31,9 @@ pub trait ValueReceiver: Any + Send + Sync {
         handles: &Handles<'_>,
     ) -> Result<Value, Fault>;
 
-    /// Same narrowing contract as `Receiver::respond_to_guest`, forwarded
+    /// Same narrowing contract as `Receiver::responds_to_guest`, forwarded
     /// unchanged across the seam.
-    fn respond_to_guest(&self, method: &str) -> bool {
+    fn responds_to_guest(&self, method: &str) -> bool {
         let _ = method;
         true
     }
@@ -99,8 +99,8 @@ impl<V: ValueReceiver> Receiver for IntoReceiver<V> {
         })
     }
 
-    fn respond_to_guest(&self, method: &str) -> bool {
-        self.0.respond_to_guest(method)
+    fn responds_to_guest(&self, method: &str) -> bool {
+        self.0.responds_to_guest(method)
     }
 }
 
@@ -128,7 +128,7 @@ mod tests {
             Ok(args.first().cloned().unwrap_or(Value::Nil))
         }
 
-        fn respond_to_guest(&self, method: &str) -> bool {
+        fn responds_to_guest(&self, method: &str) -> bool {
             method == "echo"
         }
     }
@@ -236,7 +236,7 @@ mod tests {
         let bound = Echo.into_receiver();
 
         assert!(
-            bound.respond_to_guest("echo") && !bound.respond_to_guest("label"),
+            bound.responds_to_guest("echo") && !bound.responds_to_guest("label"),
             "a narrowed ValueReceiver at the seam must keep its own answer, since the \
              predicate is forwarded unchanged"
         );
