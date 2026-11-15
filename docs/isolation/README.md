@@ -148,12 +148,12 @@ Each ABI version gets its own syscall table, and every table asks the same `koba
          |               |
          v               v
 +-----------------+  +-------------------+
-| p1 fd table     |  | p2 resource table |
-| files           |  | sockets, http, io |
-+--------+--------+  +---------+---------+
-         |                     |
-         +----------+----------+
-                    v
+| p1 fd table     |->| p2 resource table |
+| rights, numbers |  | files, sockets,   |
+|                 |  | http, io          |
++-----------------+  +---------+---------+
+                               |
+                               v
           +-----------------------+
           | kobako-runtime        |
           | Open File, VFS,       |
@@ -161,7 +161,7 @@ Each ABI version gets its own syscall table, and every table asks the same `koba
           +-----------------------+
 ```
 
-Each ABI's encoding keeps its own table and numbers its own: preview1's fd table holds files, and preview2's resource table everything preview2 hands out. Both count against one `OpenFiles`, as `RLIMIT_NOFILE` counts every descriptor a process holds. Each preview2 entry also takes its room from the memory limit, as Linux charges a `struct file` to its memory cgroup. Every table refers to the same Open File, which `kobako-runtime` holds. Precedents take this shape:
+Each ABI's encoding keeps its own table and numbers its own. preview1's fd table holds each number over a preview2 handle: a file, or a stream for the standard streams. preview2's resource table holds everything preview2 hands out. Both count against one `OpenFiles`, as `RLIMIT_NOFILE` counts every descriptor a process holds. Each preview2 entry also takes its room from the memory limit, as Linux charges a `struct file` to its memory cgroup. Every table refers to the same Open File, which `kobako-runtime` holds. Precedents take this shape:
 
 | Precedent | Shape |
 |---|---|
@@ -171,13 +171,15 @@ Each ABI's encoding keeps its own table and numbers its own: preview1's fd table
 
 ### Shared Calls
 
-An older encoding adapts to a newer one, never the reverse, as `wasmtime-wasi`'s preview1 adapts to preview2; preview2 takes no shape for preview1. Waiting is the call both answer today. `poll_oneoff` turns each subscription into a preview2 pollable and waits through preview2's poll, so one rule decides when a clock is due. preview1 reaches no socket, so its `sock_*` calls answer `NOTSOCK`, as `wasmtime-wasi`'s do.
+An older encoding adapts to a newer one, never the reverse, as `wasmtime-wasi`'s preview1 adapts to preview2; preview2 takes no shape for preview1. `poll_oneoff` turns each subscription into a preview2 pollable and waits through preview2's poll, so one rule decides when a clock is due. A call that walks a path asks the `wasi:filesystem` host, so one host judges each walk whichever encoding makes it. A call on an open file asks the Open File the preview2 entry holds, as `wasmtime-wasi`'s preview1 reads the file its preview2 entry holds. preview1 reaches no socket, so its `sock_*` calls answer `NOTSOCK`, as `wasmtime-wasi`'s do.
 
 | Call | preview1 | Answered by |
 |---|---|---|
 | waiting | `poll_oneoff` | preview2's poll |
 | a socket's own call | `sock_recv`, `sock_send`, `sock_shutdown` | `NOTSOCK` |
-| a file's call | `path_*`, `fd_*` | the Open File, preview1 only |
+| a path's call | `path_*`, `fd_filestat_set_times` | preview2's `wasi:filesystem` host |
+| an open file's call | the other `fd_*` | the Open File in preview2's table |
+| a standard stream's call | `fd_read`, `fd_write` on 0 to 2 | preview2's streams |
 
 ## Trigger Conditions
 
@@ -185,7 +187,7 @@ kobako stays at L5 until one of these holds; then L6 or the bridging is reconsid
 
 | Condition | Action |
 |---|---|
-| the guest builds for preview2 | add a `wasi:filesystem` entry |
+| the guest builds for preview2 | link the `wasi:filesystem` host preview1 already adapts |
 | `wasmtime-wasi` opens a filesystem backend | weigh moving onto it |
 
-kobako takes preview2 only where preview1 has no call, as networking, and as imports a core module links rather than a component. The filesystem stays on preview1 until a condition holds. Every other Engine speaks preview1, so none of them is a condition.
+kobako links preview2 to a guest only where preview1 has no call, as networking, and as imports a core module links rather than a component. The `wasi:filesystem` host answers preview1 meanwhile and links once a condition holds. Every other Engine speaks preview1, so none of them is a condition.

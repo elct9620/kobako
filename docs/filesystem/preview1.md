@@ -1,12 +1,13 @@
 # Preview1 Encoding
 
-The Wasm Driver encodes each WASI preview1 file call onto the VFS in `kobako-runtime`, which decides every answer a guest sees. The Wasm Driver keeps only what preview1's own shape needs, its syscall entry's checks included. The layers are in [`README.md`](README.md); why the split sits there is in [`../isolation/README.md`](../isolation/README.md).
+The Wasm Driver encodes each WASI preview1 file call onto `kobako-runtime`. A call that walks a path asks the Driver's `wasi:filesystem` host, and a call on an open file asks the Open File. The VFS decides every answer a guest sees. The preview1 encoding keeps only what preview1's own shape needs, its syscall entry's checks included. The layers are in [`README.md`](README.md); why the split sits there is in [`../isolation/README.md`](../isolation/README.md).
 
 ```
-+-------+  preview1  +-------------+  asks  +-----+  asks  +------------+
-| guest |----------->| Wasm Driver |------->| VFS |------->| Filesystem |
-+-------+            +-------------+        +-----+        +------------+
-                       encodes                decides
++-------+  preview1  +-------------------------+  asks  +-----+  asks  +------------+
+| guest |----------->| Wasm Driver             |------->| VFS |------->| Filesystem |
++-------+            | preview1 -> filesystem  |        +-----+        +------------+
+                     |             host        |        decides
+                     +-------------------------+
 ```
 
 The WASI call starts the syscall, so `kobako-runtime` holds a judgment only when every Wasm Driver would make it. A check that needs preview1's shape would vanish with preview2, so the Wasm Driver holds it. A descriptor number, a guest buffer, and a flag encoding are such shapes.
@@ -70,6 +71,17 @@ These judgments decide an answer, so `kobako-runtime` holds them whichever ABI a
 
 The Profile mask hides times, inode numbers, and a link's size; `kobako-runtime` decides it and the Wasm Driver only calls it. An open asking neither to read nor to write stands for its path alone, so it neither asks the Filesystem nor opens a file.
 
+## Filesystem Host Decisions
+
+The `wasi:filesystem` host makes these judgments for every encoding that walks from a descriptor, so a later one inherits them. Each takes only a VFS path or a runtime errno.
+
+| Judgment | Precedent |
+|---|---|
+| Start checked before a walk | gVisor `revalidatePath` |
+| EAGAIN retried, at most 4 tries | cap-std callers |
+
+The start check is kobako's own guarantee, since Linux asks nothing of a walk's starting dentry. The host asks `WalkGuard` wherever a descriptor becomes a walk's start.
+
 ## Driver Decisions
 
 These judgments need preview1's shape, so no other Wasm Driver would make them. They group by theme.
@@ -78,7 +90,7 @@ These judgments need preview1's shape, so no other Wasm Driver would make them. 
 |---|---|
 | Descriptor Table | 8 |
 | Directory Listing | 4 |
-| Error Order | 6 |
+| Error Order | 5 |
 | Formats and Waits | 5 |
 
 ### Descriptor Table
@@ -94,9 +106,9 @@ The table, its numbers, and its rights exist only in preview1, so they stay in t
 | Rights decoded to read and write | wasi-libc, wasi-testsuite |
 | Rights a directory passes down | open mode from flags only |
 | `fd_fdstat_set_rights` refused | wasmtime-wasi |
-| Start checked before a walk | gVisor `revalidatePath` |
+| Standard streams are preview2 streams | wasmtime-wasi |
 
-Every call finds its descriptor as its Linux syscall does, `sock_*` and `poll_oneoff` included; `kobako-runtime` marks a path-only file as `FMODE_PATH`. Renumbering ignores how the replaced descriptor's close answers. `fd_fdstat_set_rights` answers BADF for a stream and NOTSUP otherwise, since rights only narrow at open and preview2 has none. The start check is kobako's own guarantee, since Linux asks nothing of a walk's starting dentry. The Wasm Driver asks `WalkGuard` wherever a descriptor becomes a walk's start.
+Every call finds its descriptor as its Linux syscall does, `sock_*` and `poll_oneoff` included; `kobako-runtime` marks a path-only file as `FMODE_PATH`. Renumbering ignores how the replaced descriptor's close answers. `fd_fdstat_set_rights` answers BADF for a stream and NOTSUP otherwise, since rights only narrow at open and preview2 has none. A standard stream answers only a stream's calls. A position or an offset answers ESPIPE, any other file call BADF, and its `filestat` is zero.
 
 ### Directory Listing
 
@@ -118,13 +130,12 @@ Which error answers first is fixed at a Linux syscall entry, before the VFS. Eac
 | Judgment | Precedent |
 |---|---|
 | `fd_filestat_set_size`: size before descriptor | `ksys_ftruncate` |
-| `path_open`: flags, EMFILE, then name | `do_sys_openat2`, `FD_ADD` |
+| `path_open`: flags, EMFILE, ENOMEM, then name | `do_sys_openat2`, `alloc_empty_file` |
 | `path_readlink`: empty buffer EINVAL, truncation | `do_readlinkat` `bufsiz` |
 | No times set answers 0 first | `SYSCALL_DEFINE4(utimensat)` |
-| EAGAIN retried, at most 4 tries | cap-std callers |
 | `Escape` answers NOTCAPABLE | witx capability |
 
-A full table answers EMFILE whatever the path names. A readlink buffer is a preview1 shape that preview2 lacks. `kobako-runtime` reports a path escaping its descriptor as `Escape`; Linux would answer EXDEV, but preview1 names a capability the guest does not hold.
+A full table answers EMFILE, and a memory limit that holds no more files ENOMEM, whatever the path names. A readlink buffer is a preview1 shape that preview2 lacks. `kobako-runtime` reports a path escaping its descriptor as `Escape`; Linux would answer EXDEV, but preview1 names a capability the guest does not hold.
 
 ### Formats and Waits
 

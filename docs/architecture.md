@@ -61,6 +61,8 @@ kobako meets WASI at one layer and follows its versions by adding encodings. Why
 |---|---|
 | where kobako replaces WASI | the core-module imports, for the calls that read the descriptor table |
 | where kobako takes WASI 0.2 | `wasi:sockets` and `wasi:http`, imported by a core module, since preview1 has no connect |
+| where preview1 walks a path | through the `wasi:filesystem` host, which no guest links until it builds for preview2 |
+| where preview1 holds a descriptor | as a preview2 handle: a file, or a stream for the standard streams |
 | how a new WASI version joins | as its own encoding and numbered table; older ones adapt to it |
 | what every version shares | the one `kobako-runtime`, which holds the Open File |
 
