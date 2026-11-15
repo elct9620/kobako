@@ -84,6 +84,13 @@ pub(crate) enum Stream {
     File(SharedFile),
 }
 
+impl From<File> for Stream {
+    /// A stream over `file`, which it holds alone.
+    fn from(file: File) -> Self {
+        Stream::File(Arc::new(Mutex::new(file)))
+    }
+}
+
 impl Stream {
     /// Another view of the file the stream stands on, as Linux's `get_file` takes a
     /// reference to one `struct file`.

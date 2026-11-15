@@ -13,7 +13,7 @@
 
 use std::collections::BTreeMap;
 use std::ops::{Deref, DerefMut};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, MutexGuard};
 
 use kobako_runtime::cred::Cred;
 use kobako_runtime::mount::Mount;
@@ -24,7 +24,7 @@ pub(crate) use crate::preview2::bindings::wasi_filesystem_types_0_2_12::Descript
 use crate::preview2::bindings::wasi_io_streams_0_2_12::{
     InputStream as InputHandle, OutputStream as OutputHandle,
 };
-use crate::preview2::table::{FileRoom, InputStream, OutputStream, Stream};
+use crate::preview2::table::{Handle, InputStream, OutputStream, Stream};
 use crate::preview2::Table;
 
 /// The preview2 resource one descriptor stands over, by its handle.
@@ -93,26 +93,19 @@ impl Descriptors {
         opener: &Arc<Cred>,
     ) -> Result<Self, Errno> {
         let mut used = BTreeMap::new();
-        let input = InputStream::new(stream_of(stdin));
-        let room = table.reserve_inherited_file()?;
-        used.insert(
-            0,
-            Descriptor::for_stream(Resource::Input(install_lent(table, room, input))),
-        );
+        let input = InputStream::new(Stream::from(stdin));
+        let input = lend_inherited(table, input)?;
+        used.insert(0, Descriptor::for_stream(Resource::Input(input)));
         for (fd, file) in [(1, stdout), (2, stderr)] {
-            let output = OutputStream::new(stream_of(file));
-            let room = table.reserve_inherited_file()?;
-            used.insert(
-                fd,
-                Descriptor::for_stream(Resource::Output(install_lent(table, room, output))),
-            );
+            let output = lend_inherited(table, OutputStream::new(Stream::from(file)))?;
+            used.insert(fd, Descriptor::for_stream(Resource::Output(output)));
         }
         for (fd, mount) in (3..).zip(mounts) {
             let root = File::root(mount.mnt(), opener)?;
             used.insert(
                 fd,
                 Descriptor {
-                    resource: Resource::File(install(table, root)?),
+                    resource: Resource::File(install_inherited(table, root)?),
                     preopen_path: Some(mount.at().to_string()),
                 },
             );
@@ -200,28 +193,19 @@ impl Descriptors {
     }
 }
 
-/// A stream over `file`, one end of a standard stream's pipe.
-fn stream_of(file: File) -> Stream {
-    Stream::File(Arc::new(Mutex::new(file)))
-}
-
-/// The handle `stream` takes in `table`, lent to the descriptor standing
-/// over it.
-fn install_lent<H: crate::preview2::table::Handle>(
-    table: &mut Table,
-    room: FileRoom,
-    stream: H::Host,
-) -> H {
-    let handle = table.install(room, stream);
-    table.lend(handle);
-    handle
-}
-
-/// The handle `file`, opened before the guest runs, takes in `table`;
+/// The handle `resource`, opened before the guest runs, takes in `table`;
 /// refused past the open file limit.
-fn install(table: &mut Table, file: File) -> Result<FileHandle, Errno> {
+fn install_inherited<H: Handle>(table: &mut Table, resource: H::Host) -> Result<H, Errno> {
     let room = table.reserve_inherited_file()?;
-    Ok(table.install(room, file))
+    Ok(table.install(room, resource))
+}
+
+/// The handle a standard stream takes in `table`, lent to the descriptor
+/// standing over it.
+fn lend_inherited<H: Handle>(table: &mut Table, stream: H::Host) -> Result<H, Errno> {
+    let handle = install_inherited(table, stream)?;
+    table.lend(handle);
+    Ok(handle)
 }
 
 /// A file a descriptor stands for, as `Descriptors::file` finds it.
@@ -298,7 +282,8 @@ mod tests {
             let fd = descriptors
                 .lowest_unused()
                 .expect("a table with no limit numbers every descriptor");
-            let file = install(&mut table, pipe_end()).expect("a table with no limit takes it");
+            let file =
+                install_inherited(&mut table, pipe_end()).expect("a table with no limit takes it");
             descriptors.place(fd, Descriptor::for_file(file));
             fd
         };

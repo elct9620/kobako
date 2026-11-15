@@ -442,7 +442,7 @@ impl HttpHost for Invocation {
         if std::mem::replace(&mut body.stream_handed, true) {
             return Ok(Err(()));
         }
-        let stream = Stream::File(Arc::new(Mutex::new(body.link.body.alloc_file())));
+        let stream = Stream::from(body.link.body.alloc_file());
         self.table_mut()
             .push_child(table::OutputStream::new(stream), this)
             .map(Ok)
