@@ -163,8 +163,9 @@ impl UdpSock {
         Ok(())
     }
 
-    /// Hold a free port from `ports` as the guest's own, unless one is held.
-    pub(crate) fn hash_connect(&self, ports: &Arc<BindHash>) -> Result<(), Errno> {
+    /// Hold a free port from `ports` as the guest's own, unless one is held,
+    /// as `inet_autobind` binds a socket holding none.
+    pub(crate) fn autobind(&self, ports: &Arc<BindHash>) -> Result<(), Errno> {
         self.state().inet.hash_connect(ports)
     }
 
@@ -248,7 +249,7 @@ impl ProtoOps for UdpSock {
     fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), Errno> {
         let dest = connect4(net, addr)?;
         net.within_connection_budget(Errno::WouldBlock, || {
-            self.hash_connect(net.ports_of(Protocol::Udp))
+            self.autobind(net.ports_of(Protocol::Udp))
                 .map_err(|_| Errno::WouldBlock)?;
             let real = filter(net, &dest, Protocol::Udp)?;
             self.dial(net.family(), real, addr, net.open_connections())
@@ -399,7 +400,7 @@ impl ProtoOps for UdpSock {
 }
 
 /// A host failure as Linux's UDP answers it. Windows reports an ICMP port
-/// unreachable as `WSAECONNRESET`, where Linux's `__udp4_lib_err` sets
+/// unreachable as `WSAECONNRESET`, where Linux's `udp_err` sets
 /// `ECONNREFUSED`, and a datagram socket has no connection to reset.
 fn to_udp_error(err: &io::Error) -> Errno {
     match to_error(err) {

@@ -40,7 +40,7 @@ pub struct Namespace {
     connection_budget: Mutex<Option<usize>>,
     translations: Mutex<Translations>,
     /// The virtual ports TCP sockets hold, and those UDP sockets hold, as
-    /// each protocol keeps its own `bhash`.
+    /// TCP keeps its `bhash` and UDP its `udp_table`.
     tcp_ports: Arc<BindHash>,
     udp_ports: Arc<BindHash>,
     /// Every TCP socket made here, so an orphan still sending ends with the

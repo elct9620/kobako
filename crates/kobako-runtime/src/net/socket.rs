@@ -125,9 +125,9 @@ pub(crate) const LOCAL_ADDRESS: Ipv4Addr = Ipv4Addr::from_bits(VIRTUAL_BASE + VI
 /// same ports each run.
 const VIRTUAL_PORTS: std::ops::RangeInclusive<u16> = 32768..=60999;
 
-/// The ports one protocol's sockets hold in a namespace, as Linux's `bhash`
-/// keeps a bucket for each bound port: a port is held by one socket at a
-/// time, and goes back as that socket puts it.
+/// The ports one protocol's sockets hold in a namespace, as TCP's `bhash`
+/// and UDP's `udp_table` keep each bound port: a port is held by one socket
+/// at a time, and goes back as that socket puts it.
 pub(crate) struct BindHash {
     ports: Mutex<Ports>,
 }
@@ -153,7 +153,7 @@ impl BindHash {
     }
 
     /// `port` held for one socket, or `EADDRINUSE` while another holds it,
-    /// as `inet_csk_get_port` finds its bucket taken.
+    /// as `inet_csk_get_port` and `udp_lib_get_port` find it taken.
     fn get_port(self: &Arc<Self>, port: u16) -> Result<BoundPort, Errno> {
         match self.ports().held.insert(port) {
             true => Ok(BoundPort {
@@ -165,9 +165,9 @@ impl BindHash {
     }
 
     /// The first free port of `VIRTUAL_PORTS` from where the last search
-    /// left off, as `inet_csk_find_open_port` and `inet_hash_connect` walk
-    /// `ip_local_port_range` past each port held; `None` once every one is
-    /// held.
+    /// left off, as `inet_csk_find_open_port`, `inet_hash_connect`, and
+    /// `udp_lib_get_port` walk `ip_local_port_range` past each port held;
+    /// `None` once every one is held.
     fn find_open_port(self: &Arc<Self>) -> Option<BoundPort> {
         let mut ports = self.ports();
         let start = ports.next;
@@ -280,7 +280,7 @@ impl InetSock {
     /// socket holding a port, or past `TCP_CLOSE` and so bound by its connect,
     /// `EINVAL`. Port 0 takes a free virtual port, and a named port one no
     /// other socket holds, either answering `EADDRINUSE` once none is left,
-    /// as `inet_csk_get_port` does.
+    /// as the protocol's `get_port` does.
     pub(crate) fn bind(
         &mut self,
         addr: SocketAddr,
