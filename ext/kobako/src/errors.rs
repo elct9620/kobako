@@ -18,7 +18,7 @@ use kobako_runtime::Errno;
 static SETUP_ERROR: Lazy<ExceptionClass> =
     Lazy::new(|ruby| crate::constant_by_path(ruby, &["SetupError"]));
 
-static MODULE_NOT_BUILT_ERROR: Lazy<ExceptionClass> =
+static GUEST_BINARY_NOT_FOUND_ERROR: Lazy<ExceptionClass> =
     Lazy::new(|ruby| crate::constant_by_path(ruby, &["GuestBinaryNotFoundError"]));
 
 static TRAP_ERROR: Lazy<ExceptionClass> =
@@ -66,7 +66,7 @@ pub(super) fn from_setup(ruby: &Ruby, err: SetupError) -> MagnusError {
         // build the artifact.
         SetupError::GuestBinaryNotFound(msg) => error_in(
             ruby,
-            &MODULE_NOT_BUILT_ERROR,
+            &GUEST_BINARY_NOT_FOUND_ERROR,
             format!("{msg}; run `bundle exec rake wasm:build` to build it"),
         ),
         SetupError::Dead(msg) => error_in(ruby, &SETUP_ERROR, msg),

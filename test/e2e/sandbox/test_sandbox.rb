@@ -72,7 +72,7 @@ class TestSandbox < Minitest::Test
   end
 
   # @behavior RT-059
-  def test_missing_wasm_raises_module_not_built_error
+  def test_missing_wasm_raises_guest_binary_not_found_error
     err = assert_raises(Kobako::GuestBinaryNotFoundError) do
       Kobako::Sandbox.new(wasm_path: "/nonexistent/kobako.wasm")
     end
