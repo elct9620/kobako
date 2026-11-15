@@ -42,6 +42,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_ends.rb`
 - `test/e2e/test_network_socket_addrinfo.rb`
 - `test/e2e/test_network_addrinfo.rb`
+- `test/e2e/test_network_addrinfo_hosts.rb`
 - `test/e2e/test_network_addrinfo_inspect.rb`
 - `test/e2e/test_network_socket_tcp.rb`
 - `test/e2e/test_network_socket_edges_cruby.rb`
@@ -1764,7 +1765,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a network entry naming `localhost` |
 | When | the script calls `Addrinfo.getaddrinfo` and `Socket.getaddrinfo` for a literal and for `localhost`, with and without a family, kind, and `AI_CANONNAME`. It looks up a name no entry names |
-| Then | each answers one entry per kind CRuby's does, for the virtual address a name leads to. The canonical name comes on the first entry. The unnamed one raises `Socket::ResolutionError`, as CRuby's does. `timeout:` is taken and never read, as CRuby's `call_getaddrinfo` on Linux reads none. A `reverse_lookup` flag CRuby's refuses raises before the lookup |
+| Then | each answers one entry per kind CRuby's does, for the virtual address a name leads to. The canonical name comes on the first entry. An empty host, `<any>`, and `<broadcast>` read as the literals CRuby makes of them. The unnamed one raises `Socket::ResolutionError`, as CRuby's does. `timeout:` is taken and never read, as CRuby's `call_getaddrinfo` on Linux reads none. A `reverse_lookup` flag CRuby's refuses raises before the lookup |
 
 ## `NW-142` A script reads a socket's ends as Addrinfos
 

@@ -18,7 +18,7 @@ use super::basic::{
 };
 use super::ip::local_end_of;
 use super::option::{set_udp_option, udp_option, Refusal};
-use super::{bind, family_of, to_error, Family, AF_INET};
+use super::{bind, family_of, to_error, AF_INET};
 use crate::errno;
 use crate::io::Direction;
 use crate::wasi::wait_within;
@@ -228,10 +228,7 @@ pub(super) fn init(mrb: &Mrb, ip_socket: RClass) -> Result<(), Error> {
 
 /// Whether `family` names IPv4; a name no family has raises `SocketError`.
 fn is_inet(mrb: &Mrb, family: Value) -> Result<bool, Error> {
-    Ok(match family_of(mrb, family)? {
-        Family::Number(number) => number == AF_INET,
-        Family::Named(name) => name == "INET",
-    })
+    Ok(family_of(mrb, family)?.ip_number() == Some(AF_INET))
 }
 
 /// `UDPSocket.new(family = AF_INET)` makes an unbound IPv4 socket; any other

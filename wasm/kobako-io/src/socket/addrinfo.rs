@@ -10,7 +10,7 @@ use beni::scan_args::get_kwargs;
 use beni::value::qnil;
 use beni::{Error, Integer, IntoValue, Module, Mrb, RArray, RClass, TryConvert, TypedData, Value};
 
-use super::address::{end_of, hosts_of, port_of, to_sockaddr};
+use super::address::{addresses_of, end_of, host_of, port_of, to_sockaddr};
 use super::basic::open_socket_of;
 use super::ip::ensure_reverse_lookup_flag;
 use super::{
@@ -210,14 +210,11 @@ fn lookup_family_of(mrb: &Mrb, value: Option<Value>) -> Result<Option<i64>, Erro
     };
     match family_of(mrb, value)? {
         Family::Number(0) => Ok(None),
-        Family::Number(number) if number == AF_INET || number == AF_INET6 => Ok(Some(number)),
-        Family::Named(name) => match name.as_str() {
-            "UNSPEC" => Ok(None),
-            "INET" => Ok(Some(AF_INET)),
-            "INET6" => Ok(Some(AF_INET6)),
-            _ => Err(resolution_error(mrb, EAI_FAMILY)),
+        Family::Named(name) if name == "UNSPEC" => Ok(None),
+        family => match family.ip_number() {
+            Some(number) => Ok(Some(number)),
+            None => Err(resolution_error(mrb, EAI_FAMILY)),
         },
-        Family::Number(_) => Err(resolution_error(mrb, EAI_FAMILY)),
     }
 }
 
@@ -244,13 +241,14 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
         true => None,
         false => Some(string_value_of(mrb, node)?.to_string(mrb)?),
     };
-    let numeric = name
-        .as_deref()
-        .is_none_or(|name| name.parse::<IpAddr>().is_ok());
+    // The node as `host_of` reads it, so `""`, `<any>`, and `<broadcast>`
+    // are the literals CRuby's `host_str` makes of them.
+    let host = host_of(mrb, node, passive)?;
+    let numeric = host.parse::<IpAddr>().is_ok();
     if hints.flags & AI_NUMERICHOST != 0 && !numeric {
         return Err(resolution_error(mrb, EAI_NONAME));
     }
-    let ips = hosts_of(mrb, node, passive)?;
+    let ips = addresses_of(mrb, &host)?;
     if hints
         .family
         .is_some_and(|family| ips.iter().all(|ip| family != afamily_of(*ip)))

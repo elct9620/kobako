@@ -190,10 +190,15 @@ pub(super) fn init(mrb: &Mrb, socket: RClass) -> Result<(), Error> {
 /// name each address it leads to. The guest has no IPv6, so `nil` is IPv4's
 /// loopback.
 pub(super) fn hosts_of(mrb: &Mrb, host: Value, passive: bool) -> Result<Vec<IpAddr>, Error> {
-    let text = host_of(mrb, host, passive)?;
-    Ok(match text.parse::<IpAddr>() {
+    addresses_of(mrb, &host_of(mrb, host, passive)?)
+}
+
+/// The addresses `host` names once `host_of` read it: a literal is itself,
+/// and a name each address it leads to.
+pub(super) fn addresses_of(mrb: &Mrb, host: &str) -> Result<Vec<IpAddr>, Error> {
+    Ok(match host.parse::<IpAddr>() {
         Ok(ip) => vec![ip],
-        Err(_) => resolve(mrb, &text, None, "getaddrinfo(3)")?
+        Err(_) => resolve(mrb, host, None, "getaddrinfo(3)")?
             .into_iter()
             .map(IpAddr::V4)
             .collect(),

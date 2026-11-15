@@ -139,6 +139,22 @@ enum Family {
     Named(String),
 }
 
+impl Family {
+    /// The number of the IP family it names, `AF_INET` or `AF_INET6`, the
+    /// two the guest numbers; `None` for any other.
+    fn ip_number(&self) -> Option<i64> {
+        match self {
+            Family::Number(number) => Some(*number),
+            Family::Named(name) => match name.as_str() {
+                "INET" => Some(AF_INET),
+                "INET6" => Some(AF_INET6),
+                _ => None,
+            },
+        }
+        .filter(|number| [AF_INET, AF_INET6].contains(number))
+    }
+}
+
 /// The name a Symbol or a String spells, `None` for any other value, as
 /// CRuby's `constant_arg` reads a family, a level, or an option by name
 /// through `rb_check_string_type`.
