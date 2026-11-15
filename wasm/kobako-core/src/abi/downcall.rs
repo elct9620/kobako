@@ -69,7 +69,7 @@ mod tests {
 
     // @behavior T-181
     #[test]
-    fn a_guest_serving_no_block_answers_a_yield_as_unsupported() {
+    fn a_guest_supporting_no_block_answers_a_yield_as_unsupported() {
         let answer = handle::<NoBlockGuest>(&[0x03, 0, 0, 0, 0, 0x90]);
 
         assert!(
@@ -97,7 +97,7 @@ mod tests {
 
     // @behavior T-277
     #[test]
-    fn a_tag_the_guest_does_not_serve_is_answered_as_unsupported() {
+    fn a_tag_the_guest_does_not_support_is_answered_as_unsupported() {
         let answer = handle::<NoBlockGuest>(&[0x09]);
 
         assert_eq!(

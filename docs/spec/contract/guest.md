@@ -41,7 +41,7 @@ pub fn run_ctors_once() {}
 ## `Guest`
 
 A Guest Binary's invocation surface: the entry points the bundled macro's
-downcall export serves.
+downcall export handles.
 
 ```rust
 pub trait Guest {}
