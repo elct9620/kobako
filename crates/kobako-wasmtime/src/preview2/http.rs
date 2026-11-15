@@ -584,7 +584,10 @@ impl HttpHost for Invocation {
         let exchange = body.exchange.clone();
         let file = Arc::new(Mutex::new(exchange.alloc_body_file(self.wasi().cred())));
         self.table_mut()
-            .push_child(io::InputStream::of_body(Stream::File(file), exchange), this)
+            .push_child(
+                io::InputStream::for_body(Stream::File(file), exchange),
+                this,
+            )
             .map(Ok)
     }
 

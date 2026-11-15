@@ -477,7 +477,7 @@ impl SocketsHost for Invocation {
     ) -> Result<(InputStream, OutputStream), SocketError> {
         let socket = self.tcp_mut(this)?;
         let finished = match socket.state {
-            TcpState::Connecting => socket.socket.sock.connect_outcome(),
+            TcpState::Connecting => socket.socket.sock.take_connect_outcome(),
             TcpState::ConnectFailed(code) => {
                 socket.state = TcpState::Closed(code);
                 return Err(code.into());

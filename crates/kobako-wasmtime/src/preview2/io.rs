@@ -164,7 +164,7 @@ impl InputStream {
     }
 
     /// A stream reading `exchange`'s body.
-    pub(crate) fn of_body(stream: Stream, exchange: Arc<Exchange>) -> Self {
+    pub(crate) fn for_body(stream: Stream, exchange: Arc<Exchange>) -> Self {
         Self {
             exchange: Some(exchange),
             ..Self::new(stream)

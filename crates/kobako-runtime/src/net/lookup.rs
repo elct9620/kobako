@@ -116,7 +116,7 @@ impl NameLookup {
     }
 
     /// A lookup of a name spelling `ip`, answered as `ip` itself.
-    fn of_address(ip: IpAddr) -> Arc<Self> {
+    fn from_address(ip: IpAddr) -> Arc<Self> {
         Arc::new(Self {
             name: ip.to_string(),
             of_address: true,
@@ -200,7 +200,7 @@ impl FileOperations for LookupFile {
 /// again, with no query, so a resolver cannot rebind it.
 pub fn resolve(net: &Namespace, name: &str) -> Result<Arc<NameLookup>, LookupError> {
     let name = match Host::parse(name).ok_or(LookupError::InvalidName)? {
-        Host::Address(ip) => return Ok(NameLookup::of_address(ip)),
+        Host::Address(ip) => return Ok(NameLookup::from_address(ip)),
         Host::Name(name) => name,
     };
     if !allows_lookup(net, &name) || !net.ruleset().admits_name(&name) {

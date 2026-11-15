@@ -14,7 +14,7 @@ use super::address::{end_of, ipv4_end_of, local_of, no_timeout, peers_of, to_ip_
 use super::addrinfo::{IPPROTO_UDP, SOCK_DGRAM};
 use super::basic::{
     exception_option_of, ready_of, receive_past_buffer, send_args_of, IoState, PastBuffer,
-    Readiness, Received, SocketIo, Wait,
+    Readiness, ReceivedBytes, SocketIo, Wait,
 };
 use super::ip::local_end_of;
 use super::option::{set_udp_option, udp_option, Refusal};
@@ -90,7 +90,7 @@ impl SocketIo for Datagrams {
         max: usize,
         wait: Wait,
         call: &str,
-    ) -> Result<Poll<Option<Received>>, Error> {
+    ) -> Result<Poll<Option<ReceivedBytes>>, Error> {
         let received = self.with(mrb, |open| receive_from(mrb, open, max, call, wait))?;
         Ok(received.map(|(data, from)| Some((data, Some(from)))))
     }

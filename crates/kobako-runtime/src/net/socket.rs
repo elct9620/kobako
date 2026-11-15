@@ -541,24 +541,24 @@ pub(crate) fn take_connect_outcome(stream: &mio::net::TcpStream) -> Option<io::R
 /// A socket's failure riding inside an I/O error through a library that
 /// carries only `io::Error`, so `to_error` reads back the very one it was.
 #[derive(Debug)]
-pub(crate) struct Carried(pub(crate) Errno);
+pub(crate) struct CarriedErrno(pub(crate) Errno);
 
-impl std::fmt::Display for Carried {
+impl std::fmt::Display for CarriedErrno {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{:?}", self.0)
     }
 }
 
-impl std::error::Error for Carried {}
+impl std::error::Error for CarriedErrno {}
 
 /// The POSIX name a host socket's failure stands for: the one a socket
 /// answered, when the error carries it through a library, else read from the
 /// host's errno first where std names no kind for it; one with none carries
 /// only its kind, so no host address reaches the guest.
 pub(crate) fn to_error(err: &io::Error) -> Errno {
-    if let Some(Carried(carried)) = err
+    if let Some(CarriedErrno(carried)) = err
         .get_ref()
-        .and_then(|inner| inner.downcast_ref::<Carried>())
+        .and_then(|inner| inner.downcast_ref::<CarriedErrno>())
     {
         return carried.clone();
     }

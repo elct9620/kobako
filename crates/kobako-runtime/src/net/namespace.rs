@@ -628,7 +628,7 @@ mod tests {
     }
 
     fn settle(sock: &TcpSock) {
-        while matches!(sock.connect_outcome(), Err(Errno::WouldBlock)) {
+        while matches!(sock.take_connect_outcome(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
     }
@@ -1011,7 +1011,7 @@ mod tests {
         let second = resolve_virtual_addresses(&namespace, "cache.internal");
         let cred = prepare_creds(&[], None);
         let sock = dial(&namespace, &cred, second[1]).expect("the endpoint leads there");
-        while matches!(sock.connect_outcome(), Err(Errno::WouldBlock)) {
+        while matches!(sock.take_connect_outcome(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
         refusing.store(true, Ordering::SeqCst);
@@ -1067,7 +1067,7 @@ mod tests {
         let cred = prepare_creds(&[], None);
         let at = resolve_virtual_addresses(&namespace, "Cache.Internal.");
         let sock = dial(&namespace, &cred, at[0]).expect("the endpoint leads there");
-        while matches!(sock.connect_outcome(), Err(Errno::WouldBlock)) {
+        while matches!(sock.take_connect_outcome(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
         let private = dial(&namespace, &cred, at[1]).err();
@@ -1123,7 +1123,7 @@ mod tests {
         *family.answers.lock().unwrap() = vec!["127.0.0.1".parse().unwrap()];
         let cred = prepare_creds(&[], None);
         let sock = dial(&namespace, &cred, at).expect("the endpoint leads there");
-        while matches!(sock.connect_outcome(), Err(Errno::WouldBlock)) {
+        while matches!(sock.take_connect_outcome(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
         }
         assert_eq!(

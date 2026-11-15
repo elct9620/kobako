@@ -454,7 +454,7 @@ impl TcpSock {
     /// through `SO_ERROR`: `EAGAIN` while it is under way; success once
     /// connected; otherwise the failure pending, taken once as `sock_error`
     /// takes `sk_err`, or `ENOTCONN` when none is.
-    pub fn connect_outcome(&self) -> Result<(), Errno> {
+    pub fn take_connect_outcome(&self) -> Result<(), Errno> {
         let mut state = self.state();
         match &state.phase {
             Phase::Connecting => Err(Errno::WouldBlock),
@@ -1121,7 +1121,7 @@ mod tests {
     fn a_socket_connects_without_blocking_and_its_poll_wakes() {
         let (sock, _file, _peer) = connected_socket();
         assert_eq!(
-            sock.connect_outcome(),
+            sock.take_connect_outcome(),
             Ok(()),
             "a non-blocking connect to a listening peer must settle as connected once the \
              socket's poll finds it writable"
@@ -1132,7 +1132,7 @@ mod tests {
     #[test]
     fn a_connected_socket_asked_to_connect_again_answers_eisconn() {
         let (sock, _file, _peer) = connected_socket();
-        sock.connect_outcome().expect("the socket connected");
+        sock.take_connect_outcome().expect("the socket connected");
         let addr = sock.getname(true).expect("a connected socket has a peer");
         let (was_reset, _reset_file) = reset_socket();
         // The ruleset admits the peer only, under a cap already spent.
@@ -1188,7 +1188,7 @@ mod tests {
         wait_for(|table| file.poll(table), PollMask::OUT);
         assert_eq!(
             (
-                sock.connect_outcome(),
+                sock.take_connect_outcome(),
                 file.poll(None).contains(PollMask::ERR)
             ),
             (Ok(()), false),
@@ -1210,7 +1210,7 @@ mod tests {
         sock.dial(closed, closed, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         wait_for(|table| file.poll(table), PollMask::ERR);
-        let failed = sock.connect_outcome();
+        let failed = sock.take_connect_outcome();
         let kept = sock.getname(false).unwrap().port();
         sock.hash_connect(&ports).expect("a port is free");
         assert_eq!(
@@ -1319,7 +1319,7 @@ mod tests {
         sock.state().phase = Phase::Connecting;
         let shut = sock.shutdown(Shutdown::Both);
         let errored = sock.poll(None).contains(PollMask::ERR);
-        let (first, second) = (sock.connect_outcome(), sock.connect_outcome());
+        let (first, second) = (sock.take_connect_outcome(), sock.take_connect_outcome());
         let (marked, placed) = {
             let state = sock.state();
             (
@@ -1529,7 +1529,7 @@ mod tests {
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         wait_for(|table| file.poll(table), PollMask::OUT);
         assert_eq!(
-            sock.connect_outcome(),
+            sock.take_connect_outcome(),
             Err(Errno::ConnectionRefused),
             "a non-blocking connect to a port no peer listens on must settle as ECONNREFUSED"
         );

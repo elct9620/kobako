@@ -12,7 +12,7 @@ use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 
 use super::family::{HostInet, ProtocolFamily};
 use super::lookup::{LookupError, Resolver};
-use super::socket::Carried;
+use super::socket::CarriedErrno;
 use crate::network::Host;
 use crate::Errno;
 
@@ -138,7 +138,7 @@ impl ProtocolFamily for Mock {
         };
         match dial {
             Some(Dial::To(target)) => HostInet.connect(target),
-            Some(Dial::Refused(err)) => Err(io::Error::other(Carried(err))),
+            Some(Dial::Refused(err)) => Err(io::Error::other(CarriedErrno(err))),
             None => Err(io::ErrorKind::ConnectionRefused.into()),
         }
     }

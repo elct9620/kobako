@@ -20,7 +20,7 @@ use super::connections::Place;
 use super::http::HttpError;
 use super::lookup::{NameLookup, Resolver};
 use super::namespace::TcpSockets;
-use super::socket::{BindHash, Carried, Destination};
+use super::socket::{BindHash, CarriedErrno, Destination};
 use super::{Namespace, ProtoOps, ProtocolFamily, SockOpt, TcpSock};
 use crate::cred::Cred;
 use crate::network::{Host, Protocol, Ruleset};
@@ -156,7 +156,7 @@ impl Transport {
     /// Wait until the connect under way settles, as Linux's
     /// `inet_wait_for_connect` waits for.
     async fn wait_for_connect(&self) -> Result<(), Errno> {
-        poll_fn(|cx| self.attempt(cx, || self.sock.connect_outcome())).await
+        poll_fn(|cx| self.attempt(cx, || self.sock.take_connect_outcome())).await
     }
 
     /// `op` once it stops answering `WouldBlock`, the task added to the
@@ -181,7 +181,7 @@ impl Transport {
 /// `err` as the I/O error tokio-rustls and hyper carry, holding the failure
 /// itself so `to_error` reads back the very one the socket answered.
 fn to_io(err: Errno) -> io::Error {
-    io::Error::other(Carried(err))
+    io::Error::other(CarriedErrno(err))
 }
 
 impl AsyncRead for Transport {
