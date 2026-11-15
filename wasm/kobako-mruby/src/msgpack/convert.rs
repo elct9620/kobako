@@ -208,7 +208,7 @@ impl Kobako {
         // dispatch seam asks it of a receiver; id 0 means a missing or forged
         // ivar, so it is unrepresentable rather than a wire-violation Handle.
         if self.is_handle(val) {
-            return match self.extract_handle_id(val) {
+            return match self.handle_id_of(val) {
                 0 => None,
                 id => Some(CodecValue::Handle(id)),
             };

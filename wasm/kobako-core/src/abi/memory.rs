@@ -9,7 +9,7 @@
 /// host grows a list. An empty list takes no room and answers `align`, as
 /// wit-bindgen's runtime does, since the bindings never free one; with no
 /// room left it traps, so the host never writes at 0. The old buffer stays.
-pub fn realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {
+pub fn cabi_realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {
     #[cfg(target_arch = "wasm32")]
     {
         extern "C" {

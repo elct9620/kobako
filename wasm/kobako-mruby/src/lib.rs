@@ -87,11 +87,11 @@ pub trait MrbGuest {
 
     /// The `yield` operation — host-initiated re-entry into the block of
     /// the open Call `frame` counts to.
-    fn yield_to_block(frame: u32, req: &[u8]) -> YieldReply
+    fn yield_to_block(frame: u32, args: &[u8]) -> YieldReply
     where
         Self: Sized,
     {
-        flows::yield_to_block::<Self>(frame, req)
+        flows::yield_to_block::<Self>(frame, args)
     }
 
     /// The `compile` operation — compiles the Preamble's source snippets

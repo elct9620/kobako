@@ -24,7 +24,7 @@ pub enum InstallError {
     Rejected(String),
     /// A segment names a constant the Guest Binary already defines in a
     /// shape the binding cannot reopen; carries the segment.
-    Defined(String),
+    AlreadyDefined(String),
 }
 
 impl std::fmt::Display for InstallError {
@@ -36,7 +36,7 @@ impl std::fmt::Display for InstallError {
             InstallError::Rejected(msg) => {
                 write!(f, "bind path registration rejected: {msg}")
             }
-            InstallError::Defined(segment) => {
+            InstallError::AlreadyDefined(segment) => {
                 write!(
                     f,
                     "bind path segment {segment} is defined by the Guest Binary"
@@ -132,7 +132,7 @@ fn install_error(
     err: beni::Error,
 ) -> InstallError {
     if parent.const_defined_at(mrb, name) {
-        InstallError::Defined(name.to_string_lossy().into_owned())
+        InstallError::AlreadyDefined(name.to_string_lossy().into_owned())
     } else {
         InstallError::Rejected(err.message(mrb))
     }

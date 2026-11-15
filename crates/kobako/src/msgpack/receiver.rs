@@ -81,8 +81,8 @@ impl<V: ValueReceiver> Receiver for IntoReceiver<V> {
         block: Option<&mut Yielder<'_>>,
         handles: &Handles<'_>,
     ) -> Result<Vec<u8>, Fault> {
-        let arguments =
-            Arguments::decode_within(payload, super::budget::current()).map_err(|err| {
+        let arguments = Arguments::decode_with_value_budget(payload, super::budget::current())
+            .map_err(|err| {
                 Fault::new(
                     FaultKind::Internal,
                     format!("Sandbox could not read the request: {err}"),

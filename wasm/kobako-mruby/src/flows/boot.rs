@@ -105,7 +105,7 @@ fn acquire_vm<G: crate::MrbGuest>() -> Result<Kobako, Panic> {
         .expect("slot populated by the baked image or boot_vm above");
     // SAFETY: the slot only ever holds a VM that passed `Kobako::init`
     // — baked at build time (`bake_boot`) or booted by `boot_vm` above.
-    Ok(unsafe { Kobako::resolve_raw(mrb) })
+    Ok(unsafe { Kobako::from_mrb_unchecked(mrb) })
 }
 
 /// Panics on failure, so a bake aborts loudly instead of shipping a

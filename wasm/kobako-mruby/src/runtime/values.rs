@@ -19,7 +19,7 @@ use kobako_transport::envelope::MAX_HANDLE_ID;
 use super::Kobako;
 
 /// Mangled instance-variable name that `Kobako::mint_handle`
-/// stores the Handle id under. Read back through `Kobako::extract_handle_id`
+/// stores the Handle id under. Read back through `Kobako::handle_id_of`
 /// at every method dispatch — keeping the literal in a single
 /// `const` makes the writer / reader pairing impossible to drift
 /// silently when the ivar layout changes.
@@ -57,7 +57,7 @@ impl Kobako {
 
     /// The exception's backtrace, or empty for a runtime built without
     /// backtrace keep-mode.
-    pub fn extract_backtrace(&self, exc_val: Value) -> Vec<String> {
+    pub fn backtrace_of(&self, exc_val: Value) -> Vec<String> {
         self.strings_from_funcall(exc_val, c"backtrace")
     }
 
@@ -83,7 +83,7 @@ impl Kobako {
     /// the ivar is missing or not a non-negative Fixnum. Unboxed rather than
     /// round-tripped through a string, which would truncate above
     /// `i32::MAX`.
-    pub fn extract_handle_id(&self, handle_val: Value) -> u32 {
+    pub fn handle_id_of(&self, handle_val: Value) -> u32 {
         use beni::{FromValue, Object, RObject};
         let Some(id) = RObject::from_value(handle_val)
             .and_then(|handle| handle.ivar_get::<_, Value>(self.mrb(), HANDLE_ID_IVAR).ok())

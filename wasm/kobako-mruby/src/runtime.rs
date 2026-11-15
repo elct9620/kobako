@@ -32,7 +32,7 @@ use beni::ReprValue;
 ///   * `Kobako::init` — register every boot-time entity then
 ///     return a fully populated handle. Takes an `Mrb` borrow so the
 ///     pipeline below it stays in safe Rust.
-///   * `Kobako::resolve_raw` — re-resolve class handles produced by
+///   * `Kobako::from_mrb_unchecked` — re-resolve class handles produced by
 ///     a prior init, taking the `&Mrb` that `beni::method!` hands a
 ///     C-bridge body. Stays `unsafe`: the returned token keeps a raw
 ///     pointer the caller must keep live past the borrow.
@@ -43,11 +43,11 @@ use beni::ReprValue;
 /// which group a method belongs to says who it is for:
 ///
 ///   * **The payload codec seam** (`PayloadCodec`) — `mrb`, `is_handle`,
-///     `mint_handle`, `extract_handle_id`. A codec walking its own value
+///     `mint_handle`, `handle_id_of`. A codec walking its own value
 ///     tree needs all four: VM access and the Handle spelling.
 ///   * **The invocation flow seam** (`MrbGuest::run` and friends) —
-///     `init`, `resolve_raw`, `install_bindings`, `top_level_constants`,
-///     `extract_backtrace`, `transport_error`.
+///     `init`, `from_mrb_unchecked`, `install_bindings`, `top_level_constants`,
+///     `backtrace_of`, `transport_error`.
 ///     These look internal to the bundled flows, and are exactly what
 ///     someone writing their own flow reaches for.
 pub struct Kobako {
@@ -75,8 +75,8 @@ pub struct Kobako {
 ///
 /// These handles name objects in one `mrb_state`, so the cache is only
 /// sound while the slot holds that same VM. What keeps it so is where it
-/// is filled: `resolve_raw` sets it, and `Kobako::init` reaches
-/// `resolve_raw` only once every registration succeeded — a boot that
+/// is filled: `from_mrb_unchecked` sets it, and `Kobako::init` reaches
+/// `from_mrb_unchecked` only once every registration succeeded — a boot that
 /// fails returns before the cache is touched, having cleared the slot. A
 /// path that discarded a *booted* VM and opened another would break that,
 /// leaving these handles naming objects the new VM never had.
@@ -134,9 +134,9 @@ impl Kobako {
         G::init_gems(mrb)?;
 
         // SAFETY: `KobakoBridge::init` just registered every entity
-        // `resolve_raw` looks up, satisfying its init precondition; the
+        // `from_mrb_unchecked` looks up, satisfying its init precondition; the
         // invocation VM behind `mrb` outlives the returned token.
-        Ok(unsafe { Self::resolve_raw(mrb) })
+        Ok(unsafe { Self::from_mrb_unchecked(mrb) })
     }
 
     /// Resolve the class handles produced by a prior init, from the
@@ -151,7 +151,7 @@ impl Kobako {
     /// points uphold both by construction — they run on the live
     /// invocation VM through registrations done at init time. (Missing
     /// init does not corrupt: each `expect` below panics instead.)
-    pub unsafe fn resolve_raw(mrb: &Mrb) -> Self {
+    pub unsafe fn from_mrb_unchecked(mrb: &Mrb) -> Self {
         Self {
             mrb: mrb.as_ptr(),
             registrations: *REGISTRATIONS.get_or_init(|| Registrations::resolve(mrb)),
@@ -236,7 +236,7 @@ impl Kobako {
     #[inline]
     pub fn mrb(&self) -> &Mrb {
         // SAFETY: `Kobako` is only constructed against a live
-        // `mrb_state` (via `init` / `resolve_raw`), and the caller
+        // `mrb_state` (via `init` / `from_mrb_unchecked`), and the caller
         // upholds liveness for the duration of any method call on it.
         unsafe { Mrb::borrow_raw(&self.mrb) }
     }

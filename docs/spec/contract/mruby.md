@@ -34,14 +34,14 @@ impl Kobako {
 }
 ```
 
-## `Kobako::resolve_raw`
+## `Kobako::from_mrb_unchecked`
 
 Recover the registrations from a VM, which the caller guarantees `Kobako::init`
 already prepared.
 
 ```rust
 impl Kobako {
-    pub unsafe fn resolve_raw(mrb: &Mrb) -> Self {}
+    pub unsafe fn from_mrb_unchecked(mrb: &Mrb) -> Self {}
 }
 ```
 
@@ -74,13 +74,13 @@ impl Kobako {
 }
 ```
 
-## `Kobako::extract_backtrace`
+## `Kobako::backtrace_of`
 
 The backtrace a guest exception carries, as its lines.
 
 ```rust
 impl Kobako {
-    pub fn extract_backtrace(&self, exc_val: Value) -> Vec<String> {}
+    pub fn backtrace_of(&self, exc_val: Value) -> Vec<String> {}
 }
 ```
 
@@ -94,13 +94,13 @@ impl Kobako {
 }
 ```
 
-## `Kobako::extract_handle_id`
+## `Kobako::handle_id_of`
 
 Read the id a guest Handle stands for.
 
 ```rust
 impl Kobako {
-    pub fn extract_handle_id(&self, handle_val: Value) -> u32 {}
+    pub fn handle_id_of(&self, handle_val: Value) -> u32 {}
 }
 ```
 
@@ -216,7 +216,7 @@ The flow that re-enters the guest to run the block of the open Call `frame` name
 
 ```rust
 pub trait MrbGuest {
-    fn yield_to_block(frame: u32, req: &[u8]) -> YieldReply;
+    fn yield_to_block(frame: u32, args: &[u8]) -> YieldReply;
 }
 ```
 

@@ -147,13 +147,13 @@ impl Arguments {
 }
 ```
 
-## `Arguments::decode_within`
+## `Arguments::decode_with_value_budget`
 
 Decode a Run's or a Call's arguments, refusing a payload past a value budget.
 
 ```rust
 impl Arguments {
-    pub fn decode_within(bytes: &[u8], budget: Option<usize>) -> Result<Self, Error> {}
+    pub fn decode_with_value_budget(bytes: &[u8], budget: Option<usize>) -> Result<Self, Error> {}
 }
 ```
 

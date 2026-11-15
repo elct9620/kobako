@@ -12,7 +12,7 @@ use super::bridges;
 /// The Kobako module / class hierarchy and its C bridges — the unit
 /// the published `kobako-mruby` crate ships as its one built-in gem.
 /// `super::Kobako` re-resolves the registered handles afterwards
-/// via `resolve_raw`; `init` itself stays stateless per the `Gem`
+/// via `from_mrb_unchecked`; `init` itself stays stateless per the `Gem`
 /// contract.
 ///
 /// The gem carries no codec: `mrb_func_t` is a bare function pointer,
@@ -101,7 +101,7 @@ impl Gem for KobakoBridge {
         kobako_mod.define_error(mrb, c"UnsupportedError", runtime_error_class)?;
         // `Kobako::BytecodeError` is registered here so guest code can
         // raise it by name; like every handle this gem registers, call
-        // sites re-resolve it lazily (`super::Kobako::resolve_raw`, the
+        // sites re-resolve it lazily (`super::Kobako::from_mrb_unchecked`, the
         // snippet-replay bytecode structural-failure path).
         kobako_mod.define_error(mrb, c"BytecodeError", runtime_error_class)?;
 

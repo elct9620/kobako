@@ -39,9 +39,9 @@ pub(crate) fn yield_to_block<G: crate::MrbGuest>(frame: u32, req: &[u8]) -> Yiel
         );
     };
     // SAFETY: MRB is `Some` only after `Kobako::init` ran for the
-    // current invocation, satisfying `resolve_raw`'s precondition; the
+    // current invocation, satisfying `from_mrb_unchecked`'s precondition; the
     // active VM behind `mrb` outlives the returned token.
-    let kobako = unsafe { Kobako::resolve_raw(mrb) };
+    let kobako = unsafe { Kobako::from_mrb_unchecked(mrb) };
     // Re-entering a block means the Service continued past whatever the
     // last one raised, which is what rescuing it means. Cleared before the
     // arguments are read so a refusal there — which holds no exception of

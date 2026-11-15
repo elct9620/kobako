@@ -1,7 +1,7 @@
 //! Method bodies the Kobako surface registers with mruby, and the helpers
 //! they share. Each `beni::method!` body reports failure as `Err` for the
 //! macro to raise, so nothing long-jumps over a Rust frame and
-//! `resolve_raw` is the one `unsafe` left here.
+//! `from_mrb_unchecked` is the one `unsafe` left here.
 //!
 //! The proxy reaches the host through `crate::dispatch`, the same seam a
 //! capability gem uses, so the built-in proxy holds no privilege over one.
@@ -195,7 +195,7 @@ pub(crate) fn proxy_method_missing(
 
     // SAFETY: `mrb` is live for this bridge frame and install has run
     // (the module was registered by it).
-    let kobako = unsafe { super::Kobako::resolve_raw(mrb) };
+    let kobako = unsafe { super::Kobako::from_mrb_unchecked(mrb) };
 
     // A path target borrows the name for the Call it rides in, so the
     // name outlives the target rather than the branch that read it.
@@ -204,7 +204,7 @@ pub(crate) fn proxy_method_missing(
         // An exact `Kobako::Handle` instance carrying its id ivar. Exact,
         // not `is_kind_of`: the decoder mints only `Kobako::Handle`, so a
         // guest subclass of it is a fabrication and derives no target.
-        Target::Handle(kobako.extract_handle_id(self_))
+        Target::Handle(kobako.handle_id_of(self_))
     } else if let Some(class) = beni::RClass::from_value(self_) {
         // A bound-Service constant, reached through `Kobako::Proxy`
         // extended onto its singleton class.
