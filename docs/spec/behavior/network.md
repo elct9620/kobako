@@ -2738,3 +2738,16 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint, and a Wasm Driver handing the runtime a request |
 | When | the request's method is empty or holds a space |
 | Then | it answers `Denied` and nothing is sent, since no request policy is asked about a method HTTP cannot carry |
+
+## `NW-220` A request carrying a credential's placeholder more than once is refused
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-050` |
+| relates | `NW-051`, `NW-156` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an entry binding a credential to an exact host over HTTPS |
+| When | a bound request's credential header carries the placeholder twice: in one value, across two, or inside a `Basic` pair |
+| Then | it answers `Denied` and nothing is sent, as OpenShell leaves no second placeholder resolved. A swap therefore grows a request by one secret at most, whatever the guest repeats |

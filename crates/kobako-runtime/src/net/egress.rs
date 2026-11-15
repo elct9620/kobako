@@ -6,7 +6,7 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use super::credential::{carries, Swap};
+use super::credential::{occurrences_of, Swap};
 use super::http::{
     is_token, join_authority, split_authority, to_field_name, to_field_value, to_origin_form,
     Exchange, HttpError, OutgoingRequest, Scheme,
@@ -27,8 +27,9 @@ use crate::Errno;
 /// reaches nothing. A header the guest may not set is refused too, so the
 /// seam frames every request itself. So is a method that is not a token,
 /// which HTTP cannot carry, and a target not in origin form, which a proxy
-/// would forward past the judged authority. Any refusal answers `Denied`,
-/// and nothing is sent.
+/// would forward past the judged authority, and a bound credential's header
+/// carrying its placeholder more than once. Any refusal answers `Denied`, and
+/// nothing is sent.
 pub fn send(
     net: &Namespace,
     cred: &Arc<Cred>,
@@ -79,7 +80,9 @@ pub fn send(
         return Err(HttpError::Denied);
     }
     let swaps = match request.scheme {
-        Scheme::Https => proxy.swaps_of(&policy_request, &request.headers),
+        Scheme::Https => proxy
+            .swaps_of(&policy_request, &request.headers)
+            .ok_or(HttpError::Denied)?,
         Scheme::Http => Vec::new(),
     };
     let mut request = request;
@@ -121,13 +124,16 @@ impl EgressProxy {
 
     /// The credentials bound to `request`, one over `https`: an entry's own
     /// endpoint names its exact host and allows it, and the placement's header
-    /// carries the placeholder. Each source answers here, on the guest thread,
-    /// so its time counts against the deadline.
+    /// carries the placeholder once. `None` is a request whose header carries
+    /// one more than once, which is refused, as OpenShell's leaves no second
+    /// placeholder resolved: a swap then grows a request by one secret at
+    /// most. Each source answers here, on the guest thread, so its time counts
+    /// against the deadline.
     pub(crate) fn swaps_of(
         &self,
         request: &Request<'_>,
         headers: &[(String, Vec<u8>)],
-    ) -> Vec<Swap> {
+    ) -> Option<Vec<Swap>> {
         let (host, port) = request.authority;
         let mut swaps = Vec::new();
         for (rules, credentials) in &self.bindings {
@@ -137,11 +143,15 @@ impl EgressProxy {
             for credential in credentials {
                 let header = credential.placement.header();
                 let placeholder = credential.placeholder.as_bytes();
-                let carried = headers.iter().any(|(name, value)| {
-                    name.eq_ignore_ascii_case(header) && carries(value, placeholder)
-                });
-                if !carried {
-                    continue;
+                let carried = headers
+                    .iter()
+                    .filter(|(name, _)| name.eq_ignore_ascii_case(header))
+                    .map(|(_, value)| occurrences_of(placeholder, value))
+                    .sum::<usize>();
+                match carried {
+                    0 => continue,
+                    1 => {}
+                    _ => return None,
                 }
                 if let Some(secret) = credential.source.value_of(request) {
                     swaps.push(Swap {
@@ -152,6 +162,6 @@ impl EgressProxy {
                 }
             }
         }
-        swaps
+        Some(swaps)
     }
 }

@@ -1822,6 +1822,20 @@ mod tests {
     /// credential to `exact.example.com` and `*.example.com` on 443, allowing
     /// GET on `/api/**`.
     fn swaps_of(scheme: Scheme, host: &str, path: &str, header: &str, value: &[u8]) -> Vec<Swap> {
+        send_bound(scheme, host, path, &[(header, value)])
+            .expect("an endpoint names the authority")
+            .unwrap_or_default()
+    }
+
+    /// What `send` answers a request with `headers` under the entry `swaps_of`
+    /// describes: the swaps the seam was handed, `None` when it was handed no
+    /// request.
+    fn send_bound(
+        scheme: Scheme,
+        host: &str,
+        path: &str,
+        headers: &[(&str, &[u8])],
+    ) -> Result<Option<Vec<Swap>>, HttpError> {
         let mut entry = Builder::default();
         entry
             .endpoint(
@@ -1847,12 +1861,64 @@ mod tests {
         let namespace = Namespace::for_network(&network, family, seam.clone());
         let mut request = OutgoingRequest::new("GET", scheme, format!("{host}:443"));
         request.path_with_query = path.to_string();
-        request.headers.push((header.to_string(), value.to_vec()));
-        let exchange = crate::net::send(&namespace, &prepare_creds(&[], None), request)
-            .expect("an endpoint names the authority");
-        let _ = read_response(&exchange);
-        let recorded = seam.0.lock().unwrap().pop().unwrap_or_default();
-        recorded
+        request.headers = headers
+            .iter()
+            .map(|(name, value)| (name.to_string(), value.to_vec()))
+            .collect();
+        let sent = crate::net::send(&namespace, &prepare_creds(&[], None), request);
+        if let Ok(exchange) = &sent {
+            let _ = read_response(exchange);
+        }
+        let recorded = seam.0.lock().unwrap().pop();
+        sent.map(|_| recorded)
+    }
+
+    // @behavior NW-220
+    #[test]
+    fn a_request_carrying_a_credentials_placeholder_more_than_once_is_refused_unsent() {
+        let answer = |scheme, headers: &[(&str, &[u8])]| {
+            send_bound(scheme, "exact.example.com", "/api/repos", headers)
+                .map(|handed| handed.map(|swaps| swaps.len()))
+        };
+        assert_eq!(
+            [
+                answer(
+                    Scheme::Https,
+                    &[("authorization", b"Bearer kobako-token kobako-token")]
+                ),
+                answer(
+                    Scheme::Https,
+                    &[
+                        ("authorization", b"Bearer kobako-token"),
+                        ("Authorization", b"Bearer kobako-token"),
+                    ]
+                ),
+                // `a:kobako-tokenkobako-token`, encoded.
+                answer(
+                    Scheme::Https,
+                    &[(
+                        "authorization",
+                        b"Basic YTprb2Jha28tdG9rZW5rb2Jha28tdG9rZW4="
+                    )]
+                ),
+                answer(
+                    Scheme::Https,
+                    &[
+                        ("authorization", b"Bearer kobako-token"),
+                        ("x-echo", b"kobako-token kobako-token"),
+                    ]
+                ),
+            ],
+            [
+                Err(HttpError::Denied),
+                Err(HttpError::Denied),
+                Err(HttpError::Denied),
+                Ok(Some(1)),
+            ],
+            "a request whose credential header carries the placeholder more than once, in one \
+             value, across two, or inside a Basic pair, must answer Denied with nothing sent, \
+             and one carrying it once must go with its one swap whatever another header holds"
+        );
     }
 
     // @behavior NW-050
