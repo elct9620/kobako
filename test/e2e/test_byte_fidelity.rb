@@ -73,7 +73,7 @@ class TestE2EByteFidelity < Minitest::Test
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval('Probe::Sink.call("s\xFFy".to_sym)') }
 
-    assert_equal "TypeError", err.klass,
+    assert_equal "TypeError", err.class_name,
                  "a Symbol whose name is not UTF-8 through a dispatch argument must be " \
                  "refused as the script's own type error at the call site, not renamed"
     assert_match(/argument of type Symbol/, err.message,
@@ -89,7 +89,7 @@ class TestE2EByteFidelity < Minitest::Test
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval('Probe::Sink.call(**{"k\xFFy" => 1})') }
 
-    assert_equal "TypeError", err.klass,
+    assert_equal "TypeError", err.class_name,
                  "a keyword name whose bytes are not UTF-8 through a dispatch must be " \
                  "refused as the script's own type error at the call site, not renamed"
   end
@@ -100,7 +100,7 @@ class TestE2EByteFidelity < Minitest::Test
 
     %w[Probe::Sink.call(**{1=>2}) Probe::Sink.call(**{nil=>2}) Probe::Sink.call(**{[1]=>2})].each do |script|
       err = assert_raises(Kobako::SandboxError) { sandbox.eval(script) }
-      assert_equal "TypeError", err.klass,
+      assert_equal "TypeError", err.class_name,
                    "#{script} must refuse its keyword name as the script's own type error at the " \
                    "call site, not rename it through to_s"
     end

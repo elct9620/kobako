@@ -26,7 +26,7 @@ class TestOutcomeDecoding < Minitest::Test
     assert_kind_of Kobako::SandboxError, err,
                    "Transport::Error must remain rescuable as SandboxError for callers " \
                    "that don't distinguish wire-violation from script failure"
-    assert_equal "Kobako::Transport::Error", err.klass
+    assert_equal "Kobako::Transport::Error", err.class_name
     assert_equal "sandbox", err.origin
   end
 
@@ -60,7 +60,7 @@ class TestOutcomeDecoding < Minitest::Test
     assert_kind_of Kobako::SandboxError, err,
                    "BytecodeError must remain a SandboxError subclass"
     assert_equal "sandbox", err.origin
-    assert_equal "Kobako::BytecodeError", err.klass
+    assert_equal "Kobako::BytecodeError", err.class_name
   end
 
   # @behavior OC-015

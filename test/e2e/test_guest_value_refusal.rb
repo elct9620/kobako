@@ -85,7 +85,7 @@ class TestE2EGuestValueRefusal < Minitest::Test
       blk.call
       :carried
     rescue Kobako::BlockError => e
-      e.klass
+      e.class_name
     end)
     sandbox.eval(script).value
   end

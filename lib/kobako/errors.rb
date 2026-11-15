@@ -43,19 +43,19 @@ module Kobako
   class ModuleNotBuiltError < SetupError; end
 
   module Diagnosable # :nodoc:
-    attr_reader :origin, :klass, :backtrace_lines
+    attr_reader :origin, :class_name, :backtrace_lines
 
-    def initialize(message, origin: nil, klass: nil, backtrace_lines: nil) # :nodoc:
+    def initialize(message, origin: nil, class_name: nil, backtrace_lines: nil) # :nodoc:
       super(message)
       @origin = origin
-      @klass = klass
+      @class_name = class_name
       @backtrace_lines = backtrace_lines
     end
   end
 
   # The guest failed: the script raised or did not compile, the Guest Binary
   # could not start the run, or what it produced could not be read.
-  # +origin+ (<tt>"sandbox"</tt> or <tt>"service"</tt>), +klass+ and
+  # +origin+ (<tt>"sandbox"</tt> or <tt>"service"</tt>), +class_name+ and
   # +backtrace_lines+ say where it came from, which class raised it, and its
   # backtrace. +execution+ is the failed run's Execution, as on TrapError.
   class SandboxError < Error
@@ -64,7 +64,7 @@ module Kobako
   end
 
   # A Service call failed and the guest left it unrescued. It carries
-  # +origin+, +klass+, +backtrace_lines+ and +execution+ as SandboxError does.
+  # +origin+, +class_name+, +backtrace_lines+ and +execution+ as SandboxError does.
   class ServiceError < Error
     include Diagnosable
     include Recorded

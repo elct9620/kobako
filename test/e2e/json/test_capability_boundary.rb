@@ -42,7 +42,7 @@ class TestJsonCapabilityBoundary < Minitest::Test
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval("h = Source::Get.call; JSON.generate(h)") }
 
-    assert_equal "JSON::GeneratorError", err.klass,
+    assert_equal "JSON::GeneratorError", err.class_name,
                  "JSON.generate of a Handle through the json guest must raise GeneratorError, not dispatch to the host"
   end
 
@@ -55,7 +55,7 @@ class TestJsonCapabilityBoundary < Minitest::Test
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval(NESTED_HANDLE) }
 
-    assert_equal "JSON::GeneratorError", err.klass,
+    assert_equal "JSON::GeneratorError", err.class_name,
                  "JSON.generate must refuse a Handle nested in an as_json result, not dispatch it to the host"
   end
 
@@ -68,7 +68,7 @@ class TestJsonCapabilityBoundary < Minitest::Test
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval("h = Source::Get.call; JSON.generate({ h => 1 })") }
 
-    assert_equal "JSON::GeneratorError", err.klass,
+    assert_equal "JSON::GeneratorError", err.class_name,
                  "a Handle Hash key through JSON.generate must be refused at the key boundary, not host-dispatched"
   end
 
@@ -82,7 +82,7 @@ class TestJsonCapabilityBoundary < Minitest::Test
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval("h = Source::Get.call; h.as_json") }
 
-    assert_equal "JSON::GeneratorError", err.klass,
+    assert_equal "JSON::GeneratorError", err.class_name,
                  "as_json on a Handle must raise the Object-rooted default locally, not dispatch to the host"
   end
 
@@ -115,7 +115,7 @@ class TestJsonCapabilityBoundary < Minitest::Test
 
       err = assert_raises(Kobako::SandboxError) { sandbox.eval(source) }
 
-      assert_equal "JSON::GeneratorError", err.klass,
+      assert_equal "JSON::GeneratorError", err.class_name,
                    "#{source} through the json guest must raise GeneratorError in the guest"
       assert_equal 0, service.calls,
                    "#{source} through the json guest must not dispatch any serialization name to the host"

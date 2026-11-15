@@ -25,7 +25,7 @@ class TestE2EProxyTarget < Minitest::Test
     err = assert_raises(Kobako::SandboxError) do
       sandbox.eval("class Rogue; include Kobako::Proxy; end; Rogue.new.lookup(:x)")
     end
-    assert_equal "NoMethodError", err.klass,
+    assert_equal "NoMethodError", err.class_name,
                  "a guest object that mixed in Kobako::Proxy without being a Handle must be refused in-guest"
     assert_match(/not a Kobako dispatch target/, err.message,
                  "the in-guest refusal must name the missing-target reason")
@@ -51,7 +51,7 @@ class TestE2EProxyTarget < Minitest::Test
     FORWARDING_IMPOSTORS.each do |shape, script|
       err, = run_impostor(script)
 
-      assert_equal "NoMethodError", err.klass, "#{shape} through #eval must be refused in the guest"
+      assert_equal "NoMethodError", err.class_name, "#{shape} through #eval must be refused in the guest"
     end
   end
 
@@ -81,7 +81,7 @@ class TestE2EProxyTarget < Minitest::Test
   def test_look_alike_reference_carries_nothing_across_as_a_value
     err = assert_raises(Kobako::SandboxError) { look_alike_sandbox.eval(LOOK_ALIKE_REFERENCE) }
 
-    assert_equal "TypeError", err.klass,
+    assert_equal "TypeError", err.class_name,
                  "an object bearing a capability reference's name passed as a dispatch " \
                  "argument must be refused as the script's own type error"
   end

@@ -26,13 +26,13 @@ module Kobako
 
   module Diagnosable : Error
     attr_reader origin: String?
-    attr_reader klass: String?
+    attr_reader class_name: String?
     attr_reader backtrace_lines: Array[String]?
 
     def initialize: (
       String message,
       ?origin: String?,
-      ?klass: String?,
+      ?class_name: String?,
       ?backtrace_lines: Array[String]?
     ) -> void
   end
@@ -81,7 +81,7 @@ module Kobako
       ?name: Symbol?,
       ?available: Array[Symbol],
       ?origin: String?,
-      ?klass: String?,
+      ?class_name: String?,
       ?backtrace_lines: Array[String]?
     ) -> void
   end

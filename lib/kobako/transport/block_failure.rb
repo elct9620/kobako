@@ -28,7 +28,7 @@ module Kobako
         raised = @raised
         return if raised.nil? || !error.equal?(raised)
 
-        "#{raised.klass}: #{raised.message}"
+        "#{raised.class_name}: #{raised.message}"
       end
     end
   end

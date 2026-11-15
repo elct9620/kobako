@@ -24,7 +24,7 @@ module JsonGuestHelper
   # raise), and return the error so the caller can probe further.
   def assert_guest_raises(expected, code)
     err = assert_raises(Kobako::SandboxError) { eval_json(code) }
-    assert_equal expected, err.klass,
+    assert_equal expected, err.class_name,
                  "#{code.inspect} through the json guest must raise #{expected}"
     err
   end

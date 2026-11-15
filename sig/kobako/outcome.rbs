@@ -12,7 +12,7 @@ module Kobako
 
     def self.panic_error: (panic_fields panic, Symbol? entrypoint) -> (SandboxError | ServiceError)
 
-    def self.error_class: (String origin, String klass) -> (singleton(SandboxError) | singleton(ServiceError))
+    def self.error_class: (String origin, String class_name) -> (singleton(SandboxError) | singleton(ServiceError))
 
     def self.decode_value: (String payload) -> Kobako::Codec::wire_value
 

@@ -59,7 +59,7 @@ class TestE2EPreloadCompile < Minitest::Test
     sandbox.preload(code: "raise ScriptError, 'config missing'", name: :Boom)
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval("1") }
-    assert_equal "ScriptError", err.klass,
+    assert_equal "ScriptError", err.class_name,
                  "preloaded source raising ScriptError itself through the first #eval must " \
                  "fail carrying ScriptError, as it did before it was compiled"
   end

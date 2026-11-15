@@ -45,7 +45,7 @@ class TestE2EOutcomeValues < Minitest::Test
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval('raise "a\x00b"') }
 
-    assert_equal "RuntimeError", err.klass,
+    assert_equal "RuntimeError", err.class_name,
                  "a NUL in a raised message must reach the host as a clean SandboxError, not a trap"
     assert_match(/a\x00b/, err.message,
                  "the NUL-bearing message must survive the length-based read intact")

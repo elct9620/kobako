@@ -51,7 +51,7 @@ class TestE2EFillable < Minitest::Test
                         "SandboxError, distinct from a declared-but-unfilled fillable's ServiceError") do
       sandbox.eval("Undeclared.get(1)")
     end
-    assert_equal "NameError", err.klass,
+    assert_equal "NameError", err.class_name,
                  "a never-declared constant through #eval must fail in the guest as NameError"
   end
 

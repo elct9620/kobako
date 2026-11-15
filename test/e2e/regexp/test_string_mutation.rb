@@ -36,7 +36,7 @@ class TestRegexpStringMutation < Minitest::Test
   def test_aset_raises_when_regexp_does_not_match
     err = assert_raises(Kobako::SandboxError) { eval_regexp('s = "abc"; s[/\d/] = "x"') }
 
-    assert_equal "IndexError", err.klass,
+    assert_equal "IndexError", err.class_name,
                  "String#[]= on a non-matching Regexp must surface the same IndexError Ruby " \
                  "raises, since every guest raise reaches the host as one SandboxError"
   end

@@ -53,7 +53,7 @@ class TestE2EContainerForgery < Minitest::Test
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval(FORGED_MAP_ARGUMENT) }
 
-    assert_equal "TypeError", err.klass,
+    assert_equal "TypeError", err.class_name,
                  "an object whose class carries a map's name without being one through a " \
                  "dispatch argument must be refused as the script's own type error"
     refute reached,

@@ -7,7 +7,7 @@ module Kobako
         String message,
         ?diagnostic: String?,
         ?origin: String?,
-        ?klass: String?,
+        ?class_name: String?,
         ?backtrace_lines: Array[String]?
       ) -> void
 

@@ -41,9 +41,9 @@ module Kobako
       # The fields land on the exception verbatim — it carries the record
       # rather than a translation of one.
       def panic_error(panic, entrypoint)
-        origin, klass, message, backtrace, available = panic
-        selected = error_class(origin, klass)
-        attribution = { origin: origin, klass: klass, backtrace_lines: backtrace }
+        origin, class_name, message, backtrace, available = panic
+        selected = error_class(origin, class_name)
+        attribution = { origin: origin, class_name: class_name, backtrace_lines: backtrace }
         return selected.new(message, **attribution) unless selected == UndefinedEntrypointError
 
         UndefinedEntrypointError.new(message, name: entrypoint, available: available.map(&:to_sym), **attribution)
@@ -54,9 +54,9 @@ module Kobako
       # naming a class outside the branch its origin chose is ignored rather
       # than honoured: what a guest calls its exception must not move the
       # failure to a layer the attribution did not put it in.
-      def error_class(origin, klass)
+      def error_class(origin, class_name)
         base = origin == ORIGIN_SERVICE ? ServiceError : SandboxError
-        selected = SUBCLASSES.fetch(klass, base)
+        selected = SUBCLASSES.fetch(class_name, base)
         return base unless selected <= base
 
         selected
@@ -71,12 +71,12 @@ module Kobako
       end
 
       # No guest class stands behind a result kobako cannot decode, so
-      # +klass+ names the host class raised.
+      # +class_name+ names the host class raised.
       def wire_error(message, diagnostic: nil)
         Kobako::Transport::Error.new(
           message,
           origin: ORIGIN_SANDBOX,
-          klass: "Kobako::Transport::Error",
+          class_name: "Kobako::Transport::Error",
           diagnostic: diagnostic
         )
       end

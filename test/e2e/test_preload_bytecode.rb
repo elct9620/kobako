@@ -49,7 +49,7 @@ class TestE2EPreloadBytecode < Minitest::Test
     assert_kind_of Kobako::SandboxError, err,
                    "BytecodeError must remain a SandboxError subclass"
     assert_equal "sandbox", err.origin
-    assert_equal "Kobako::BytecodeError", err.klass
+    assert_equal "Kobako::BytecodeError", err.class_name
   end
 
   # The corrupt fixture is a header-prefix truncation of the valid
@@ -64,7 +64,7 @@ class TestE2EPreloadBytecode < Minitest::Test
 
     err = assert_raises(Kobako::BytecodeError) { sandbox.eval("nil") }
     assert_kind_of Kobako::SandboxError, err
-    assert_equal "Kobako::BytecodeError", err.klass
+    assert_equal "Kobako::BytecodeError", err.class_name
   end
 
   # The regression risk is a silent unconditional promotion to
@@ -88,7 +88,7 @@ class TestE2EPreloadBytecode < Minitest::Test
     refute_kind_of Kobako::BytecodeError, err,
                    "a binary-form snippet that raises at top level is " \
                    "a replay failure, not a bytecode structural failure"
-    assert_equal "RuntimeError", err.klass,
+    assert_equal "RuntimeError", err.class_name,
                  "the natural mruby exception class must survive replay"
     assert_equal "sandbox", err.origin
     assert_match(/boom from snippet/, err.message)
@@ -108,7 +108,7 @@ class TestE2EPreloadBytecode < Minitest::Test
     sandbox.preload(binary: File.binread(SCRIPT_ERROR_FIXTURE_PATH))
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval("nil") }
-    assert_equal "ScriptError", err.klass,
+    assert_equal "ScriptError", err.class_name,
                  "bytecode raising ScriptError itself through the first #eval must " \
                  "fail carrying ScriptError, since it loaded before it raised"
   end
@@ -119,7 +119,7 @@ class TestE2EPreloadBytecode < Minitest::Test
     sandbox.preload(binary: File.binread(SCRIPT_ERROR_SUBCLASS_FIXTURE_PATH))
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval("nil") }
-    assert_equal "NotImplementedError", err.klass,
+    assert_equal "NotImplementedError", err.class_name,
                  "bytecode raising a ScriptError subclass through the first #eval must " \
                  "fail carrying that subclass, not as a structural failure"
   end

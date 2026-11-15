@@ -80,7 +80,7 @@ class TestE2EIoKernel < Minitest::Test
 
     err = assert_raises(Kobako::SandboxError) { sandbox.eval('42.puts("x")') }
 
-    assert_equal "NoMethodError", err.klass,
+    assert_equal "NoMethodError", err.class_name,
                  "explicit-receiver dispatch of a Kernel delegator through the guest must " \
                  "raise NoMethodError (private visibility), not write to the capture pipe"
     assert_empty err.execution.stdout,

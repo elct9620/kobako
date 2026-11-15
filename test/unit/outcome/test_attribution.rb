@@ -49,7 +49,7 @@ class TestOutcomeAttributionEdgeCases < Minitest::Test
 
     refute_kind_of Kobako::TrapError, err
     assert_kind_of Kobako::SandboxError, err
-    assert_equal "Kobako::Transport::Error", err.klass
+    assert_equal "Kobako::Transport::Error", err.class_name
     assert_match(/Sandbox produced an invalid result value/, err.message)
     refute_match(/envelope|decode failed/, err.message,
                  "internal codec vocabulary must not leak into the user-facing message")

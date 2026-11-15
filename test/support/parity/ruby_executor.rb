@@ -118,7 +118,7 @@ module Parity
     end
 
     def failure(status, error)
-      { "status" => status, "class" => error.klass, "message" => error.message }
+      { "status" => status, "class" => error.class_name, "message" => error.message }
     end
 
     # The run's observables, read off its Execution; a verb that ran no

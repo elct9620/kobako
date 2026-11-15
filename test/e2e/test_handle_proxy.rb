@@ -124,7 +124,7 @@ class TestE2EHandleProxy < Minitest::Test
 
       err = assert_raises(Kobako::SandboxError) { sandbox.eval(code) }
 
-      assert_equal "NoMethodError", err.klass,
+      assert_equal "NoMethodError", err.class_name,
                    "fabricating a Handle (#{code}) through the guest must raise " \
                    "NoMethodError, not mint a proxy from a bare id"
       assert_match(/Kobako::Handle/, err.message,

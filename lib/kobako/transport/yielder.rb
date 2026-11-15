@@ -17,9 +17,9 @@ module Kobako
       # in it is restored. A block exit stays in the guest, so the Service
       # is only unwound.
       def yield(*args)
-        arm, body, klass = @guest_yielder.call(encode_args(args))
+        arm, body, class_name = @guest_yielder.call(encode_args(args))
         raise UnsupportedError, "the Sandbox runtime does not support yielding to a block" if arm == :unsupported
-        raise @failure.remember(BlockError.new(body, klass: klass)) if arm == :error
+        raise @failure.remember(BlockError.new(body, class_name: class_name)) if arm == :error
 
         throw @break_tag if arm == :break
 

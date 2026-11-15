@@ -64,7 +64,7 @@ class TestE2EDispatchArgs < Minitest::Test
   #
   # The guest class is pinned alongside the host class because the two do not
   # move together: every sandbox-origin failure maps to +Kobako::SandboxError+
-  # whatever raised it, so only +klass+ can say the script was told it handed
+  # whatever raised it, so only +class_name+ can say the script was told it handed
   # over the wrong type rather than that the wire broke.
   UNREPRESENTABLE_DISPATCH_CALLS = {
     "positional argument" => "Sym::Echo.call(RpcProbe.new)",
@@ -82,7 +82,7 @@ class TestE2EDispatchArgs < Minitest::Test
       assert_match(/not a supported sandbox value type/, err.message,
                    "an unrepresentable #{position} must be rejected at the guest " \
                    "call site as Kobako::SandboxError, never coerced to an Object#to_s String")
-      assert_equal "TypeError", err.klass,
+      assert_equal "TypeError", err.class_name,
                    "an unrepresentable #{position} must reach the script as TypeError, " \
                    "the same class the yield position raises for the same refusal, rather " \
                    "than reporting a transport fault for a value the script chose"

@@ -55,7 +55,7 @@ class TestE2EPreloadFailureFrames < Minitest::Test
     err = replay_failure(binary: File.binread(RAISE_BOOM_NO_DEBUG))
 
     assert_equal ["RuntimeError", "boom from snippet", "sandbox"],
-                 [err.klass, err.message[/boom from snippet/], err.origin],
+                 [err.class_name, err.message[/boom from snippet/], err.origin],
                  "a raise from bytecode with no debug information through #eval must keep its " \
                  "class, message and origin"
   end

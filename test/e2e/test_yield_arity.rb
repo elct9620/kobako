@@ -30,7 +30,7 @@ class TestE2EYieldArity < Minitest::Test
     sandbox.bind("Probe::Yields", lambda do |*args, &blk|
       blk.call(*args)
     rescue Kobako::BlockError => e
-      e.klass
+      e.class_name
     end)
 
     result = sandbox.eval("Probe::Yields.call(1, 2, &->(a) { a })").value

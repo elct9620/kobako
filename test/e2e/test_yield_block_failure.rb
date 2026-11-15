@@ -21,7 +21,7 @@ class TestE2EYieldBlockFailure < Minitest::Test
       yielding_sandbox.eval('Probe::Boom.call { raise "from guest block" }')
     end
 
-    assert_equal "RuntimeError", err.klass,
+    assert_equal "RuntimeError", err.class_name,
                  "a block raise left unrescued by the Service must reach the Host App under " \
                  "the class the guest raised, not the class a failed Service call raises"
     assert_equal "from guest block", err.message,

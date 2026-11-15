@@ -76,7 +76,7 @@ class TestE2EGvlScheduling < Minitest::Test
       err = assert_raises(Kobako::SandboxError) do
         Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode).eval("raise ArgumentError, 'bad input'")
       end
-      [err.class, err.klass, err.message]
+      [err.class, err.class_name, err.message]
     end
 
     assert_equal failures.first, failures.last,

@@ -109,7 +109,7 @@ A `SandboxError` or `ServiceError` from the guest carries where it happened.
 | Reader | Holds |
 |---|---|
 | `#origin` | which side the failure came from |
-| `#klass` | the guest exception's class name |
+| `#class_name` | the guest exception's class name |
 | `#backtrace_lines` | the guest backtrace |
 
 ### Host Exceptions
