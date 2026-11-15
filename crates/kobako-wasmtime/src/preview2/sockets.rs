@@ -3,7 +3,6 @@
 //! name maps to, as the WIT's "typical errors" lists pair them.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
-
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 

@@ -151,7 +151,7 @@ impl Descriptors {
     pub(crate) fn file<'a>(&self, fd: u32, table: &'a Table) -> Option<FileRef<'a>> {
         let resource = self.get(fd)?.resource;
         Some(match resource {
-            Resource::File(handle) => FileRef::Held(table.get(handle).ok()?),
+            Resource::File(handle) => FileRef::Table(table.get(handle).ok()?),
             stream => FileRef::Stream(stream.stream(table)?.lock()),
         })
     }
@@ -160,7 +160,7 @@ impl Descriptors {
     pub(crate) fn file_mut<'a>(&self, fd: u32, table: &'a mut Table) -> Option<FileRefMut<'a>> {
         let resource = self.get(fd)?.resource;
         Some(match resource {
-            Resource::File(handle) => FileRefMut::Held(table.get_mut(handle).ok()?),
+            Resource::File(handle) => FileRefMut::Table(table.get_mut(handle).ok()?),
             stream => FileRefMut::Stream(stream.stream(table)?.lock()),
         })
     }
@@ -211,7 +211,7 @@ fn lend_inherited<H: Handle>(table: &mut Table, stream: H::Host) -> Result<H, Er
 
 /// A file a descriptor stands for, as `Descriptors::file` finds it.
 pub(crate) enum FileRef<'a> {
-    Held(&'a File),
+    Table(&'a File),
     /// The pipe's end behind a standard stream, which its stream shares.
     Stream(MutexGuard<'a, File>),
 }
@@ -221,7 +221,7 @@ impl Deref for FileRef<'_> {
 
     fn deref(&self) -> &File {
         match self {
-            FileRef::Held(file) => file,
+            FileRef::Table(file) => file,
             FileRef::Stream(file) => file,
         }
     }
@@ -230,7 +230,7 @@ impl Deref for FileRef<'_> {
 /// A file a descriptor stands for, to change, as `Descriptors::file_mut`
 /// finds it.
 pub(crate) enum FileRefMut<'a> {
-    Held(&'a mut File),
+    Table(&'a mut File),
     Stream(MutexGuard<'a, File>),
 }
 
@@ -239,7 +239,7 @@ impl Deref for FileRefMut<'_> {
 
     fn deref(&self) -> &File {
         match self {
-            FileRefMut::Held(file) => file,
+            FileRefMut::Table(file) => file,
             FileRefMut::Stream(file) => file,
         }
     }
@@ -248,7 +248,7 @@ impl Deref for FileRefMut<'_> {
 impl DerefMut for FileRefMut<'_> {
     fn deref_mut(&mut self) -> &mut File {
         match self {
-            FileRefMut::Held(file) => file,
+            FileRefMut::Table(file) => file,
             FileRefMut::Stream(file) => file,
         }
     }

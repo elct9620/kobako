@@ -24,8 +24,7 @@ pub(crate) trait Handle: Copy {
     fn index(self) -> u32;
 }
 
-/// The most entries the resource table holds, every file preview1's
-/// descriptors stand over included, as wasmtime's
+/// The most entries the resource table holds, as wasmtime's
 /// `ResourceTable::max_capacity` bounds a table.
 pub(crate) const MAX_TABLE_ENTRIES: usize = 1_000_000;
 
@@ -35,8 +34,8 @@ struct Entry {
     resource: Box<dyn Any + Send>,
     parent: Option<u32>,
     children: usize,
-    /// The preview1 descriptors standing over it, as the Canonical ABI
-    /// counts a handle's lends; its drop traps while any stands.
+    /// The lends out on it, as the Canonical ABI counts a handle's lends;
+    /// its drop traps while any is out.
     lends: usize,
     /// Whether it counts against the open files, as a host-side producer
     /// does and a view does not.
@@ -235,14 +234,13 @@ impl Table {
             .ok_or_else(|| wasmtime::Error::msg("the guest named a handle of another kind"))
     }
 
-    /// Lend `handle` to a preview1 descriptor standing over it, so the guest
-    /// cannot drop it while the descriptor stands, as the Canonical ABI
-    /// lends a handle.
+    /// Lend `handle` out, so the guest cannot drop it until the lend ends,
+    /// as the Canonical ABI lends a handle.
     pub(crate) fn lend(&mut self, handle: impl Handle) {
         self.lent(handle).lends += 1;
     }
 
-    /// End the lend a preview1 descriptor held on `handle`, once it closes.
+    /// End one lend out on `handle`.
     pub(crate) fn end_lend(&mut self, handle: impl Handle) {
         self.lent(handle).lends -= 1;
     }
@@ -250,12 +248,13 @@ impl Table {
     fn lent(&mut self, handle: impl Handle) -> &mut Entry {
         self.entries
             .get_mut(&handle.index())
-            .expect("a handle a descriptor stands over stays in the table")
+            .expect("a handle lent out stays in the table")
     }
 
-    /// Take `handle` out of the table. A handle of another kind, or one whose
-    /// children still live or a descriptor still stands over, traps, as the Canonical ABI traps on a handle of
-    /// the wrong type and the WIT on a parent dropped first.
+    /// Take `handle` out of the table. A handle of another kind, one whose
+    /// children still live, or one lent out traps, as the Canonical ABI traps
+    /// on a handle of the wrong type or with lends out, and the WIT on a
+    /// parent dropped first.
     pub(crate) fn delete<H: Handle>(&mut self, handle: H) -> wasmtime::Result<H::Host> {
         let index = handle.index();
         let entry = self.entry(index)?;
@@ -271,7 +270,7 @@ impl Table {
         }
         if entry.lends > 0 {
             return Err(wasmtime::Error::msg(
-                "the guest dropped or gave up a resource a descriptor stands over",
+                "the guest dropped or gave up a resource while it is lent out",
             ));
         }
         let entry = self
