@@ -496,14 +496,13 @@ impl Table {
     /// file, as a socket, a lookup, or an exchange does; refused past the
     /// Invocation's open file limit.
     pub(crate) fn push_file<H: Handle>(&mut self, resource: H::Host) -> wasmtime::Result<H> {
-        if self.open_files.open().is_err() {
-            return Err(wasmtime::Error::msg(
-                "the guest holds as many files as its limit allows",
-            ));
-        }
-        self.insert::<H>(resource, None, true)
-            .inspect_err(|_| self.open_files.close())
-            .map(H::new)
+        let room = self.reserve_file::<H>().map_err(|err| {
+            wasmtime::Error::msg(match err {
+                Errno::OutOfMemory => "the guest's resources outgrow its memory",
+                _ => "the guest holds as many files as its limit allows",
+            })
+        })?;
+        Ok(self.install(room, resource))
     }
 
     /// The room a file of kind `H` takes, refused as EMFILE past the open
@@ -540,7 +539,7 @@ impl Table {
     /// Hand out a handle for `resource`, a view that holds no file of its
     /// own; refused past `MAX_TABLE_ENTRIES`.
     pub(crate) fn push<H: Handle>(&mut self, resource: H::Host) -> wasmtime::Result<H> {
-        self.insert::<H>(resource, None, false).map(H::new)
+        self.insert::<H>(resource, None).map(H::new)
     }
 
     /// Hand out a handle for `resource` as a child of `parent`, which cannot
@@ -552,7 +551,7 @@ impl Table {
     ) -> wasmtime::Result<H> {
         let parent = parent.index();
         self.entry(parent)?;
-        let handle = self.insert::<H>(resource, Some(parent), false)?;
+        let handle = self.insert::<H>(resource, Some(parent))?;
         self.entries
             .get_mut(&parent)
             .expect("the parent was just found")
@@ -567,7 +566,6 @@ impl Table {
         &mut self,
         resource: H::Host,
         parent: Option<u32>,
-        counted: bool,
     ) -> wasmtime::Result<u32> {
         if self.entries.len() >= MAX_TABLE_ENTRIES {
             return Err(wasmtime::Error::msg(
@@ -576,7 +574,7 @@ impl Table {
         }
         let memory = MemoryCharge::new(&self.memory, size_of::<Entry>() + size_of::<H::Host>())
             .map_err(|_| wasmtime::Error::msg("the guest's resources outgrow its memory"))?;
-        Ok(self.place(Box::new(resource), parent, counted, memory))
+        Ok(self.place(Box::new(resource), parent, false, memory))
     }
 
     /// Number `resource` from the free list, else past every number handed
