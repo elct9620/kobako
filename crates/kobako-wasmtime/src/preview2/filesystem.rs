@@ -1,7 +1,8 @@
 //! The `wasi:filesystem` host: what every encoding judges once a call walks
-//! from a descriptor, so preview1 adapts to it today and a guest built for
-//! preview2 inherits it. A call on an open file needs none of it and asks the
-//! Open File itself.
+//! from a descriptor. preview1 adapts to it today, and a guest built for
+//! preview2 inherits it. A call on an open file asks the Open File itself.
+//! Setting its times is the exception: Linux's `do_utimes_fd` makes it
+//! through the file's path, so the guard judges that path first.
 
 use std::ops::Deref;
 use std::sync::Arc;
