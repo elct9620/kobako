@@ -31,25 +31,39 @@ class TestE2ENetworkMock < Minitest::Test
 
   # A Mock answering +name+ with PUBLIC, routed to the loopback +port+.
   def routed_mock(name, port)
-    mock_answering({ name => PUBLIC }).tap { |mock| mock.route(PUBLIC, 80, to: ["127.0.0.1", port]) }
+    mock_resolving({ name => PUBLIC }).tap { |mock| mock.route(PUBLIC, 80, to: ["127.0.0.1", port]) }
   end
 
   # @behavior NW-212
   def test_a_mock_answers_names_from_its_table_and_dials_only_its_routes
     with_upcase_server do |port|
       mock = routed_mock("app.test", port)
-      mock.answer("unrouted.test", OTHER_PUBLIC)
+      mock.resolve("unrouted.test", to: OTHER_PUBLIC)
 
       assert_equal [%w[PING Errno::ECONNREFUSED], %w[app.test unrouted.test], [[PUBLIC, 80], [OTHER_PUBLIC, 80]]],
-                   [connect_each(mock, "app.test", "unrouted.test"), mock.lookups, mock.dials],
+                   [connect_each(mock, "app.test", "unrouted.test"), mock.lookups, mock.dialed_addresses],
                    "a Sandbox built with network: a Mock must answer each name from the Mock's table, reach the " \
                    "server a routed address leads to, refuse an unrouted one, and read back each name and dial"
     end
   end
 
+  # @behavior NW-212
+  def test_a_mock_resolves_a_name_to_each_address_it_was_given
+    with_upcase_server do |port|
+      mock = Kobako::Network::Mock.new
+      mock.resolve("multi.test", to: [OTHER_PUBLIC, PUBLIC])
+      mock.route(PUBLIC, 80, to: ["127.0.0.1", port])
+
+      assert_equal [["PING"], [[OTHER_PUBLIC, 80], [PUBLIC, 80]]],
+                   [connect_each(mock, "multi.test"), mock.dialed_addresses],
+                   "Mock#resolve given an Array of addresses must answer the guest's lookup with each, so its " \
+                   "connect tries the unrouted one first and reaches the server through the routed one"
+    end
+  end
+
   # @behavior NW-213
   def test_a_mock_refuses_a_dial_with_the_error_it_was_given
-    mock = mock_answering({ "app.test" => PUBLIC })
+    mock = mock_resolving({ "app.test" => PUBLIC })
     mock.refuse(PUBLIC, 80, Errno::ECONNRESET)
 
     assert_equal ["Errno::ECONNRESET"], connect_each(mock, "app.test"),
@@ -85,7 +99,7 @@ class TestE2ENetworkMock < Minitest::Test
 
   # @behavior NW-213
   def test_a_mock_refuses_with_the_errno_a_subclass_stands_for
-    mock = mock_answering({ "app.test" => PUBLIC })
+    mock = mock_resolving({ "app.test" => PUBLIC })
     mock.refuse(PUBLIC, 80, Class.new(Errno::ECONNRESET))
 
     assert_equal ["Errno::ECONNRESET"], connect_each(mock, "app.test"),

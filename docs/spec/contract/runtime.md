@@ -139,31 +139,22 @@ pub struct Mock {}
 
 ## `Mock::with_local_addresses`
 
-The host's own addresses, which the rules count as local.
+The host's own addresses, which the rules count as local, or none for a host
+that cannot say them.
 
 ```rust
 impl Mock {
-    pub fn with_local_addresses(self, addresses: Vec<IpAddr>) -> Self {}
+    pub fn with_local_addresses(self, addresses: Option<Vec<IpAddr>>) -> Self {}
 }
 ```
 
-## `Mock::without_local_addresses`
-
-A host that cannot say its own addresses.
-
-```rust
-impl Mock {
-    pub fn without_local_addresses(self) -> Self {}
-}
-```
-
-## `Mock::answer`
+## `Mock::resolve_to_addrs`
 
 The addresses a name answers from now on.
 
 ```rust
 impl Mock {
-    pub fn answer(&self, name: &str, addresses: Vec<IpAddr>) -> Result<(), LookupError> {}
+    pub fn resolve_to_addrs(&self, name: &str, addresses: Vec<IpAddr>) -> Result<(), LookupError> {}
 }
 ```
 
@@ -207,13 +198,13 @@ impl Mock {
 }
 ```
 
-## `Mock::dials`
+## `Mock::dialed_addresses`
 
 Each address dialed, in order.
 
 ```rust
 impl Mock {
-    pub fn dials(&self) -> Vec<SocketAddr> {}
+    pub fn dialed_addresses(&self) -> Vec<SocketAddr> {}
 }
 ```
 

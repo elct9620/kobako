@@ -120,8 +120,9 @@ fn a_mock_answers_names_from_its_table_and_dials_only_its_routes() {
     // reads as no connection rather than a wait without end.
     server.set_nonblocking(true).unwrap();
     let mock = Arc::new(Mock::default());
-    mock.answer("app.test", vec![IpAddr::from(PUBLIC)]).unwrap();
-    mock.answer("unrouted.test", vec![IpAddr::from(OTHER_PUBLIC)])
+    mock.resolve_to_addrs("app.test", vec![IpAddr::from(PUBLIC)])
+        .unwrap();
+    mock.resolve_to_addrs("unrouted.test", vec![IpAddr::from(OTHER_PUBLIC)])
         .unwrap();
     mock.route(SocketAddr::from((PUBLIC, 80)), server.local_addr().unwrap());
     if support::bundled_driver().is_none() {
@@ -131,7 +132,7 @@ fn a_mock_answers_names_from_its_table_and_dials_only_its_routes() {
         (
             connect_each(&mock, &["app.test", "unrouted.test"]),
             mock.lookups(),
-            mock.dials(),
+            mock.dialed_addresses(),
             server.accept().is_ok(),
         ),
         (
@@ -152,7 +153,8 @@ fn a_mock_answers_names_from_its_table_and_dials_only_its_routes() {
 #[test]
 fn a_mock_refuses_a_dial_with_the_error_it_was_given() {
     let mock = Arc::new(Mock::default());
-    mock.answer("app.test", vec![IpAddr::from(PUBLIC)]).unwrap();
+    mock.resolve_to_addrs("app.test", vec![IpAddr::from(PUBLIC)])
+        .unwrap();
     mock.refuse(SocketAddr::from((PUBLIC, 80)), Errno::ConnectionReset);
     if support::bundled_driver().is_none() {
         return;
@@ -170,7 +172,7 @@ fn a_mock_refuses_a_dial_with_the_error_it_was_given() {
 fn a_mocks_held_name_answers_once_its_hold_ends() {
     let server = TcpListener::bind("127.0.0.1:0").unwrap();
     let mock = Arc::new(Mock::default());
-    mock.answer("held.test", vec![IpAddr::from(PUBLIC)])
+    mock.resolve_to_addrs("held.test", vec![IpAddr::from(PUBLIC)])
         .unwrap();
     mock.route(SocketAddr::from((PUBLIC, 80)), server.local_addr().unwrap());
     if support::bundled_driver().is_none() {

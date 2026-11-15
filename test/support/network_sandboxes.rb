@@ -34,9 +34,9 @@ module NetworkSandboxes
 
   # A Kobako::Network::Mock built with +options+, answering each name of
   # +answers+ with its address.
-  def mock_answering(answers, **)
+  def mock_resolving(answers, **)
     Kobako::Network::Mock.new(**).tap do |mock|
-      answers.each { |name, address| mock.answer(name, address) }
+      answers.each { |name, address| mock.resolve(name, to: address) }
     end
   end
 

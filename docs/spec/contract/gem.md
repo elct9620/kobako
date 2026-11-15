@@ -266,7 +266,7 @@ module Kobako
 end
 ```
 
-## `Kobako::Network::Mock#answer`
+## `Kobako::Network::Mock#resolve`
 
 What a lookup of a name answers from now on.
 
@@ -278,7 +278,7 @@ What a lookup of a name answers from now on.
 module Kobako
   module Network
     class Mock
-      def answer(name, *addresses)
+      def resolve(name, to:)
       end
     end
   end
@@ -361,7 +361,7 @@ module Kobako
 end
 ```
 
-## `Kobako::Network::Mock#dials`
+## `Kobako::Network::Mock#dialed_addresses`
 
 Each address dialed, in order.
 
@@ -373,7 +373,7 @@ Each address dialed, in order.
 module Kobako
   module Network
     class Mock
-      def dials
+      def dialed_addresses
       end
     end
   end

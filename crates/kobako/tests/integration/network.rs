@@ -308,7 +308,8 @@ fn a_mock_handed_through_options_answers_the_guests_names() {
     let public = IpAddr::from([93, 184, 216, 34]);
     let server = TcpListener::bind("127.0.0.1:0").expect("a loopback port");
     let mock = Arc::new(Mock::default());
-    mock.answer("app.test", vec![public]).expect("a name");
+    mock.resolve_to_addrs("app.test", vec![public])
+        .expect("a name");
     mock.route(
         SocketAddr::new(public, 80),
         server.local_addr().expect("the server's address"),
@@ -333,7 +334,7 @@ fn a_mock_handed_through_options_answers_the_guests_names() {
         .expect("the invocation runs");
 
     assert_eq!(
-        (execution.stdout(), mock.dials()),
+        (execution.stdout(), mock.dialed_addresses()),
         (&b"connected"[..], vec![SocketAddr::new(public, 80)]),
         "a Sandbox built with Options::network as a Mock must answer the guest's name from \
          the Mock and dial its route, got stdout {:?}",

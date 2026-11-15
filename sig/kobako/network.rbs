@@ -16,7 +16,7 @@ module Kobako
     class Mock
       def initialize: (?local_addresses: Array[String]?) -> void
 
-      def answer: (String name, *String addresses) -> nil
+      def resolve: (String name, to: String | Array[String]) -> nil
 
       def route: (String address, Integer port, to: [String, Integer]) -> nil
 
@@ -26,7 +26,7 @@ module Kobako
 
       def lookups: () -> Array[String]
 
-      def dials: () -> Array[[String, Integer]]
+      def dialed_addresses: () -> Array[[String, Integer]]
     end
 
     class Endpoint < Data

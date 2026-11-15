@@ -121,6 +121,20 @@ RUBY
 | `protocol:` | `:http`; `:tcp` or `:udp` only when written |
 | `addresses:` | `[:public]`; `:private`, `:local`, or a CIDR only when written |
 
+A test hands `Sandbox.new` a `Kobako::Network::Mock` as `network:`, so names
+resolve from a table and dials reach a server the test runs. The rules judge
+the Mock as they judge the host network.
+
+```ruby
+mock = Kobako::Network::Mock.new
+mock.resolve("api.example.com", to: "93.184.216.34")
+mock.route("93.184.216.34", 80, to: ["127.0.0.1", server.addr[1]])
+sandbox = Kobako::Sandbox.new(network: mock)
+sandbox.network(:api) { |net| net.endpoint("api.example.com", port: 80, protocol: :tcp) }
+mock.hold("slow.example") { sandbox.eval(script) }   # lookups of the name wait for the block
+mock.lookups; mock.dialed_addresses                  # what the guest asked, in order
+```
+
 ### Execution Records
 
 An Execution carries the value, the output, and the usage. A failed run raises

@@ -29,12 +29,12 @@ pub(super) fn register(network: RModule) -> Result<(), MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
     let mock = network.define_class("Mock", ruby.class_object())?;
     mock.define_singleton_method("new", function!(mock_new, -1))?;
-    mock.define_method("answer", method!(answer, -1))?;
+    mock.define_method("resolve", method!(resolve, -1))?;
     mock.define_method("route", method!(route, -1))?;
     mock.define_method("refuse", method!(refuse, 3))?;
     mock.define_method("hold", method!(hold, 1))?;
     mock.define_method("lookups", method!(lookups, 0))?;
-    mock.define_method("dials", method!(dials, 0))?;
+    mock.define_method("dialed_addresses", method!(dialed_addresses, 0))?;
     Ok(())
 }
 
@@ -49,19 +49,24 @@ fn mock_new(args: &[Value]) -> Result<MockNet, MagnusError> {
     )?;
     let mock = match kwargs.optional.0 {
         None => Mock::default(),
-        Some(None) => Mock::default().without_local_addresses(),
-        Some(Some(addresses)) => Mock::default().with_local_addresses(to_ips(addresses)?),
+        Some(addresses) => Mock::default().with_local_addresses(addresses.map(to_ips).transpose()?),
     };
     Ok(MockNet(Arc::new(mock)))
 }
 
-/// `answer(name, *addresses)`.
-fn answer(rb_self: &MockNet, args: &[Value]) -> Result<(), MagnusError> {
-    let args = scan_args::<(String,), (), RArray, (), (), ()>(args)?;
+/// `resolve(name, to: address)`, or `to: [address, ...]`.
+fn resolve(rb_self: &MockNet, args: &[Value]) -> Result<(), MagnusError> {
+    let args = scan_args::<(String,), (), (), (), RHash, ()>(args)?;
     let (name,) = args.required;
+    let kwargs = get_kwargs::<_, (Value,), (), ()>(args.keywords, &["to"], &[])?;
+    let to = kwargs.required.0;
+    let addresses = match RArray::from_value(to) {
+        Some(addresses) => to_ips(addresses)?,
+        None => vec![to_ip(&String::try_convert(to)?)?],
+    };
     rb_self
         .0
-        .answer(&name, to_ips(args.splat)?)
+        .resolve_to_addrs(&name, addresses)
         .map_err(|_| to_name_error(&name))
 }
 
@@ -122,10 +127,10 @@ fn lookups(rb_self: &MockNet) -> Vec<String> {
 }
 
 /// Each address dialed, in order, as `[address, port]`.
-fn dials(rb_self: &MockNet) -> Vec<(String, u16)> {
+fn dialed_addresses(rb_self: &MockNet) -> Vec<(String, u16)> {
     rb_self
         .0
-        .dials()
+        .dialed_addresses()
         .into_iter()
         .map(|addr| (addr.ip().to_string(), addr.port()))
         .collect()

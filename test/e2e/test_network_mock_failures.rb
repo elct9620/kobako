@@ -33,7 +33,7 @@ class TestE2ENetworkMockFailures < Minitest::Test
   # What the guest's connect to `app.test` raises when the host fails it
   # with the errno +name+.
   def raised_for(name)
-    mock = mock_answering({ "app.test" => PUBLIC })
+    mock = mock_resolving({ "app.test" => PUBLIC })
     mock.refuse(PUBLIC, 80, Errno.const_get(name))
     mock_sandbox(mock) { |net| add_tcp_hosts(net, "app.test") }.eval(CONNECT).value
   end
@@ -69,7 +69,7 @@ class TestE2ENetworkMockFailures < Minitest::Test
 
   # @behavior NW-077
   def test_a_request_is_judged_once_in_order_and_never_over_ipv6
-    mock = mock_answering({ "refused.test" => PUBLIC })
+    mock = mock_resolving({ "refused.test" => PUBLIC })
     seen = { reads: [], resolved: [], judged: [] }
     sandbox = Kobako::Sandbox.new(wasm_path: E2eGuestHelper::REAL_WASM, network: mock)
                              .network(:watched, watched_entry(seen))
@@ -91,7 +91,7 @@ class TestE2ENetworkMockFailures < Minitest::Test
 
   # @behavior NW-085
   def test_a_requests_lookup_holds_its_place_until_the_resolver_returns
-    mock = mock_answering({ "slow.test" => PUBLIC, "next.test" => PUBLIC })
+    mock = mock_resolving({ "slow.test" => PUBLIC, "next.test" => PUBLIC })
     sandbox = mock_sandbox(mock, open_connection_limit: 1) do |net|
       %w[slow.test next.test].each { |host| net.endpoint host, port: 80 }
     end
@@ -105,14 +105,14 @@ class TestE2ENetworkMockFailures < Minitest::Test
 
   # @behavior NW-154
   def test_a_connect_or_a_request_is_refused_when_the_hosts_own_addresses_cannot_be_read
-    mock = mock_answering({ "app.test" => PUBLIC, "web.test" => PUBLIC }, local_addresses: nil)
+    mock = mock_resolving({ "app.test" => PUBLIC, "web.test" => PUBLIC }, local_addresses: nil)
     sandbox = mock_sandbox(mock) do |net|
       add_tcp_hosts(net, "app.test")
       net.endpoint "web.test", port: 80
     end
     answers = [sandbox.eval(CONNECT).value, sandbox.eval(format(HTTP_EACH, hosts: ["web.test"])).value]
 
-    assert_equal ["Errno::EACCES", ["Errno::EACCES"], []], [*answers, mock.dials],
+    assert_equal ["Errno::EACCES", ["Errno::EACCES"], []], [*answers, mock.dialed_addresses],
                  "with a network that cannot say the host's own addresses, a connect to a name and an HTTP request " \
                  "to one must each be refused, dialing nothing"
   end

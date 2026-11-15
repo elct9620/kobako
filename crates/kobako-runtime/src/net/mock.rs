@@ -55,26 +55,18 @@ impl Default for Mock {
 
 impl Mock {
     /// A table whose host holds `addresses` as its own, which the rules
-    /// count as local.
-    pub fn with_local_addresses(self, addresses: Vec<IpAddr>) -> Self {
+    /// count as local; `None` for a host that cannot say them, so the rules
+    /// refuse every connect to a name.
+    pub fn with_local_addresses(self, addresses: Option<Vec<IpAddr>>) -> Self {
         Self {
-            local_addresses: Some(addresses),
+            local_addresses: addresses,
             ..self
         }
     }
 
-    /// A table that cannot say the host's own addresses, so the rules refuse
-    /// every connect to a name.
-    pub fn without_local_addresses(self) -> Self {
-        Self {
-            local_addresses: None,
-            ..self
-        }
-    }
-
-    /// Answer `name` with `addresses` from now on; `InvalidName` for a host
+    /// Resolve `name` to `addresses` from now on; `InvalidName` for a host
     /// that is no name a guest's lookup asks.
-    pub fn answer(&self, name: &str, addresses: Vec<IpAddr>) -> Result<(), LookupError> {
+    pub fn resolve_to_addrs(&self, name: &str, addresses: Vec<IpAddr>) -> Result<(), LookupError> {
         let name = to_key(name)?;
         self.state().answers.insert(name, addresses);
         Ok(())
@@ -106,7 +98,7 @@ impl Mock {
     }
 
     /// Each address dialed, in order, routed or not.
-    pub fn dials(&self) -> Vec<SocketAddr> {
+    pub fn dialed_addresses(&self) -> Vec<SocketAddr> {
         self.state().dials.clone()
     }
 
@@ -198,7 +190,7 @@ mod tests {
     #[test]
     fn a_name_held_twice_waits_until_both_holds_drop() {
         let mock = Arc::new(Mock::default());
-        mock.answer("held.test", vec![IpAddr::from([93, 184, 216, 34])])
+        mock.resolve_to_addrs("held.test", vec![IpAddr::from([93, 184, 216, 34])])
             .unwrap();
         let outer = mock.hold("held.test").unwrap();
         let inner = mock.hold("held.test").unwrap();

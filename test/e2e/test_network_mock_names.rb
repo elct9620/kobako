@@ -59,12 +59,12 @@ class TestE2ENetworkMockNames < Minitest::Test
   # @behavior NW-025
   def test_a_name_connects_through_its_virtual_address_to_where_its_endpoint_leads
     with_upcase_server do |port|
-      mock = mock_answering({ "public.test" => PUBLIC, "local.test" => "127.0.0.1", "cache.test" => "127.0.0.1" })
+      mock = mock_resolving({ "public.test" => PUBLIC, "local.test" => "127.0.0.1", "cache.test" => "127.0.0.1" })
       mock.route(PUBLIC, 80, to: ["127.0.0.1", port])
       connected = connect_each(public_and_local_sandbox(mock), "public.test", "local.test", "cache.test")
 
       assert_equal [[%w[PING 198.18.0.0], "Errno::EACCES", "Errno::ECONNREFUSED"], [[PUBLIC, 80], ["127.0.0.1", 80]]],
-                   [connected, mock.dials],
+                   [connected, mock.dialed_addresses],
                    "a connect to a name must dial the one real address its virtual address stands for, and an " \
                    "endpoint leading only to public addresses must refuse a local one an endpoint naming :local admits"
     end
@@ -75,11 +75,12 @@ class TestE2ENetworkMockNames < Minitest::Test
   # @behavior NW-025
   def test_a_name_whose_real_address_is_ipv6_connects_through_a_virtual_ipv4_one
     with_upcase_server do |port|
-      mock = mock_answering({ "v6.test" => PUBLIC_V6 })
+      mock = mock_resolving({ "v6.test" => PUBLIC_V6 })
       mock.route(PUBLIC_V6, 80, to: ["127.0.0.1", port])
       sandbox = mock_sandbox(mock) { |net| add_tcp_hosts(net, "v6.test") }
 
-      assert_equal [[%w[PING 198.18.0.0]], [[PUBLIC_V6, 80]]], [connect_each(sandbox, "v6.test"), mock.dials],
+      assert_equal [[%w[PING 198.18.0.0]], [[PUBLIC_V6, 80]]],
+                   [connect_each(sandbox, "v6.test"), mock.dialed_addresses],
                    "a connect to a name whose only real address is IPv6 must reach it through a virtual IPv4 " \
                    "address, as the guest has no IPv6, and dial that IPv6 address"
     end
@@ -87,32 +88,32 @@ class TestE2ENetworkMockNames < Minitest::Test
 
   # @behavior NW-026
   def test_a_virtual_address_no_lookup_handed_out_is_refused
-    mock = mock_answering({ "app.test" => PUBLIC })
+    mock = mock_resolving({ "app.test" => PUBLIC })
     sandbox = mock_sandbox(mock) { |net| add_tcp_hosts(net, "app.test") }
 
-    assert_equal [["Errno::EACCES"], []], [connect_each(sandbox, "198.18.0.7"), mock.dials],
+    assert_equal [["Errno::EACCES"], []], [connect_each(sandbox, "198.18.0.7"), mock.dialed_addresses],
                  "TCPSocket to a virtual address no lookup handed out must raise Errno::EACCES and dial nothing"
   end
 
   # @behavior NW-028
   def test_the_hosts_own_address_is_local
-    mock = mock_answering({ "own.test" => PUBLIC }, local_addresses: [PUBLIC])
+    mock = mock_resolving({ "own.test" => PUBLIC }, local_addresses: [PUBLIC])
     sandbox = mock_sandbox(mock) { |net| add_tcp_hosts(net, "own.test") }
 
-    assert_equal [["Errno::EACCES"], []], [connect_each(sandbox, "own.test"), mock.dials],
+    assert_equal [["Errno::EACCES"], []], [connect_each(sandbox, "own.test"), mock.dialed_addresses],
                  "a name resolving to one of the host's own addresses must be refused by an endpoint leading only " \
                  "to public addresses, whatever registry classes the address, and dial nothing"
   end
 
   # @behavior NW-215
   def test_a_mock_reads_a_name_as_a_guests_lookup_reads_it
-    mock = mock_answering({ "Bücher.Example." => PUBLIC, "CAPS.test" => PUBLIC })
+    mock = mock_resolving({ "Bücher.Example." => PUBLIC, "CAPS.test" => PUBLIC })
     sandbox = mock_sandbox(mock) { |net| add_tcp_hosts(net, "bücher.example", "caps.test") }
     script = "%w[bücher.example caps.test.].map { |name| Addrinfo.getaddrinfo(name, 80)[0].ip_address }"
     value = sandbox.eval(script).value
 
     assert_equal [%w[198.18.0.0 198.18.0.1], %w[xn--bcher-kva.example caps.test]], [value, mock.lookups],
-                 "Mock#answer of an IDN with its root's dot, or of a name in capitals, must answer the guest's " \
+                 "Mock#resolve of an IDN with its root's dot, or of a name in capitals, must answer the guest's " \
                  "lookup of the same name in any spelling"
   end
 
@@ -120,11 +121,12 @@ class TestE2ENetworkMockNames < Minitest::Test
   def test_a_mock_refuses_a_host_no_lookup_asks
     mock = Kobako::Network::Mock.new
     refused = ["93.184.216.34", "empty.test..", ""].map do |host|
-      assert_raises(ArgumentError) { mock.answer(host, PUBLIC) }.class
+      assert_raises(ArgumentError) { mock.resolve(host, to: PUBLIC) }.class
     end
 
     assert_equal [ArgumentError] * 3, refused,
-                 "Mock#answer of an address, a name ending in an empty label, or an empty host must raise ArgumentError"
+                 "Mock#resolve of an address, a name ending in an empty label, or an empty host must raise " \
+                 "ArgumentError"
   end
 
   # @behavior NW-215

@@ -16,14 +16,14 @@ module Kobako
   # rules judge the Mock's answers as they judge the host's:
   #
   #   mock = Kobako::Network::Mock.new
-  #   mock.answer("api.example.com", "93.184.216.34")
+  #   mock.resolve("api.example.com", to: "93.184.216.34")
   #   mock.route("93.184.216.34", 443, to: ["127.0.0.1", server.addr[1]])
   #   sandbox = Kobako::Sandbox.new(network: mock)
   #
   # [<tt>Mock.new(local_addresses: [])</tt>]
   #   The host's own addresses, which the rules count as local; +nil+ for a
   #   host that cannot say them, so every connect to a name is refused.
-  # [<tt>answer(name, *addresses)</tt>]
+  # [<tt>resolve(name, to: address)</tt>, <tt>resolve(name, to: [address, ...])</tt>]
   #   What a lookup of +name+ answers from now on; a name with no answer
   #   resolves to nothing. The name reads as a guest's lookup reads it, so
   #   case, the root's dot, and an IDN's spelling do not matter. Raises
@@ -38,8 +38,8 @@ module Kobako
   #   class is behind, or an errno kobako never answers.
   # [<tt>hold(name) { ... }</tt>]
   #   Keeps each lookup of +name+ waiting until the block returns or raises,
-  #   +name+ read as +answer+ reads it.
-  # [+lookups+, +dials+]
+  #   +name+ read as +resolve+ reads it.
+  # [+lookups+, +dialed_addresses+]
   #   Each name asked, and each <tt>[address, port]</tt> dialed, in order.
   module Network
     # What a keyword nobody wrote reads as, so the runtime's contract alone

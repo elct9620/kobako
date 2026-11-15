@@ -32,22 +32,22 @@ class TestE2ENetworkMockRebinding < Minitest::Test
       add_tcp_hosts(net, "app.test")
       net.policy(:resolve) { |name| asked << name }
     end
-    sandbox.bind("Rebind", -> { mock.answer("app.test", OTHER_PUBLIC) })
+    sandbox.bind("Rebind", -> { mock.resolve("app.test", to: OTHER_PUBLIC) })
   end
 
   # @behavior NW-027
   def test_a_connect_dials_what_the_lookup_answered
-    mock = mock_answering({ "app.test" => PUBLIC })
+    mock = mock_resolving({ "app.test" => PUBLIC })
     _, _, dialed = rebinding_sandbox(mock, []).eval(REBOUND).value
 
-    assert_equal ["Errno::ECONNREFUSED", [[PUBLIC, 80]]], [dialed, mock.dials],
+    assert_equal ["Errno::ECONNREFUSED", [[PUBLIC, 80]]], [dialed, mock.dialed_addresses],
                  "a connect to a name's virtual address must dial what its lookup answered, even after the " \
                  "resolver answers otherwise"
   end
 
   # @behavior NW-175
   def test_a_name_keeps_its_virtual_address_for_the_invocation
-    mock = mock_answering({ "app.test" => PUBLIC })
+    mock = mock_resolving({ "app.test" => PUBLIC })
     asked = []
     first, again, = rebinding_sandbox(mock, asked).eval(REBOUND).value
 
