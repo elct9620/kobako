@@ -895,7 +895,7 @@ mod tests {
             Arc::new(super::super::family::testing::CountsDials::default()),
             Arc::new(super::super::HyperOutbound::new()),
         );
-        let cred = crate::security::prepare_creds_within(&[], None);
+        let cred = crate::security::prepare_creds(&[], None);
         let answers = (
             TcpSock::create(&net, &cred, AddressFamily::Inet6).err(),
             UdpSock::create(&net, &cred, AddressFamily::Inet6).err(),

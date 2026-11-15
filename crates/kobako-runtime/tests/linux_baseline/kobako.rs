@@ -10,7 +10,7 @@ use kobako_runtime::filesystem::{Filesystem, Iattr, SetTime};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::mount::{Access, Mount, MountRequest};
 use kobako_runtime::policy::Policy;
-use kobako_runtime::security::{prepare_creds_within, restrict_self};
+use kobako_runtime::security::{prepare_creds, restrict_self};
 use kobako_runtime::vfs::{
     self, DirContext, DirEmit, File, FileType, OpenFlags, OpenHow, VfsMount, Whence,
 };
@@ -77,10 +77,7 @@ impl Kobako {
     /// an Overlay and overlayfs each count of a directory their own way.
     pub fn new(filesystem: Arc<Filesystem>, access: Access, merged: bool) -> Self {
         let mount = Mount::new("/baseline", filesystem, access).expect("/baseline is a guest path");
-        let cred = restrict_self(
-            &prepare_creds_within(&[], None),
-            [&Grant::Mount(mount.clone())],
-        );
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(mount.clone())]);
         let root = File::root(mount.mnt(), &cred)
             .unwrap_or_else(|error| panic!("the root must open: {error:?}"));
         Self {
@@ -100,10 +97,7 @@ impl Kobako {
         let mount = Mount::new("/baseline", filesystem, Access::ReadWrite)
             .expect("/baseline is a guest path")
             .with_policy(policy);
-        let cred = restrict_self(
-            &prepare_creds_within(&[], None),
-            [&Grant::Mount(mount.clone())],
-        );
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(mount.clone())]);
         let root = File::root(mount.mnt(), &cred)
             .unwrap_or_else(|error| panic!("the root must open: {error:?}"));
         Self {

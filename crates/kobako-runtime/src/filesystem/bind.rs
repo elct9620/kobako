@@ -1248,7 +1248,7 @@ mod tests {
         .expect("/data is a guest path");
         let root = VfsPath::root(mount.mnt());
         let cred = crate::security::restrict_self(
-            &crate::security::prepare_creds_within(&[], None),
+            &crate::security::prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
         );
         let read = OpenHow {
@@ -1317,7 +1317,7 @@ mod tests {
         };
         let opened = vfs::kern_path::filp_open(
             &crate::security::restrict_self(
-                &crate::security::prepare_creds_within(&[], None),
+                &crate::security::prepare_creds(&[], None),
                 [&crate::grant::Grant::Mount(mount.clone())],
             ),
             &VfsPath::root(mount.mnt()),
@@ -1451,7 +1451,7 @@ mod tests {
             .with_policy(Arc::new(RefusesRefused));
         let root = vfs::Path::root(mount.mnt());
         let cred = crate::security::restrict_self(
-            &crate::security::prepare_creds_within(&[], None),
+            &crate::security::prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
         );
         let directory = OpenHow {

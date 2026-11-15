@@ -417,12 +417,11 @@ mod tests {
 
     use crate::net::socket::testing::wait_for;
     use crate::net::HostInet;
-    use crate::security::prepare_creds_within;
+    use crate::security::prepare_creds;
 
     /// A socket connected to `addr` through the host.
     fn connected_socket(addr: SocketAddr) -> Arc<UdpSock> {
-        let sock =
-            UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
+        let sock = UdpSock::new(&prepare_creds(&[], None)).expect("an unbounded socket is made");
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         sock.dial(&family, addr, addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
@@ -448,8 +447,7 @@ mod tests {
     fn a_udp_socket_holds_its_hop_limit_and_receive_buffer() {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         let addr = peer.local_addr().unwrap();
-        let sock =
-            UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
+        let sock = UdpSock::new(&prepare_creds(&[], None)).expect("an unbounded socket is made");
         let get = |opt| sock.getsockopt(opt).unwrap() as usize;
         let defaults = (
             get(SockOpt::Ttl),
@@ -511,8 +509,7 @@ mod tests {
     fn empty_datagrams_fill_the_receive_buffer_too() {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         let addr = peer.local_addr().unwrap();
-        let sock =
-            UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
+        let sock = UdpSock::new(&prepare_creds(&[], None)).expect("an unbounded socket is made");
         sock.setsockopt(SockOpt::RcvBuf, 1000).unwrap();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         sock.dial(&family, addr, addr, &OpenConnections::new(None))
@@ -547,8 +544,7 @@ mod tests {
     fn an_empty_queue_takes_a_datagram_past_the_receive_buffer() {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         let addr = peer.local_addr().unwrap();
-        let sock =
-            UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
+        let sock = UdpSock::new(&prepare_creds(&[], None)).expect("an unbounded socket is made");
         sock.setsockopt(SockOpt::RcvBuf, 1000).unwrap();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         sock.dial(&family, addr, addr, &OpenConnections::new(None))
@@ -590,7 +586,7 @@ mod tests {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         let sock = connected_socket(peer.local_addr().unwrap());
         let unconnected =
-            UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
+            UdpSock::new(&prepare_creds(&[], None)).expect("an unbounded socket is made");
         let before = sock.recvmsg(&mut [0; 4]);
         sock.shutdown(Shutdown::Read)
             .expect("a connected socket shuts down");
@@ -815,8 +811,7 @@ mod tests {
         let second = UdpSocket::bind("127.0.0.1:0").unwrap();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         let cap = OpenConnections::new(Some(1));
-        let sock =
-            UdpSock::new(&prepare_creds_within(&[], None)).expect("an unbounded socket is made");
+        let sock = UdpSock::new(&prepare_creds(&[], None)).expect("an unbounded socket is made");
         let at = |peer: &UdpSocket| peer.local_addr().unwrap();
         let heard_by = |peer: &UdpSocket| {
             wait_for(|table| sock.poll(table), PollMask::OUT);

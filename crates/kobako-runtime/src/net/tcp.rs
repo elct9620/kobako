@@ -711,12 +711,12 @@ mod tests {
     use super::*;
     use crate::net::socket::testing::wait_for;
     use crate::net::{sock_alloc_file, HostInet};
-    use crate::security::prepare_creds_within;
+    use crate::security::prepare_creds;
     use crate::vfs::File;
 
     /// A socket connecting to `addr` through the host.
     fn dial(addr: SocketAddr) -> Arc<TcpSock> {
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds(&[], None))
             .expect("an unbounded socket is made");
         sock.dial(addr, addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
@@ -815,7 +815,7 @@ mod tests {
     fn a_socket_holds_its_options_and_gives_them_to_the_host_socket() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let addr = listener.local_addr().unwrap();
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds(&[], None))
             .expect("an unbounded socket is made");
         sock.setsockopt(SockOpt::KeepAlive, 1)
             .expect("an unconnected socket takes an option");
@@ -844,7 +844,7 @@ mod tests {
     fn a_socket_bounds_its_keepalive_probes_as_linux_and_dials_with_them() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let addr = listener.local_addr().unwrap();
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds(&[], None))
             .expect("an unbounded socket is made");
         let get = |opt| sock.getsockopt(opt).unwrap();
         let defaults = (
@@ -892,7 +892,7 @@ mod tests {
     fn a_socket_holds_its_hop_limit_for_the_host_socket() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let addr = listener.local_addr().unwrap();
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds(&[], None))
             .expect("an unbounded socket is made");
         let host_ttl = |sock: &TcpSock| {
             sock.state()
@@ -966,7 +966,7 @@ mod tests {
     fn a_socket_binds_once_and_not_after_its_connect() {
         let any: SocketAddr = "0.0.0.0:0".parse().unwrap();
         let net = loopback(&[], OpenConnections::new(None));
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let fresh = TcpSock::new(Arc::new(HostInet), &cred).expect("an unbounded socket is made");
         let (first, second) = (fresh.bind(&net, any), fresh.bind(&net, any));
         let ipv6 = TcpSock::new(Arc::new(HostInet), &cred)
@@ -1006,7 +1006,7 @@ mod tests {
         // A privileged port no test can bind, so every connect to it is
         // refused and no other socket is handed it meanwhile.
         let closed = SocketAddr::from(([127, 0, 0, 1], 1));
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let net = loopback(&[], OpenConnections::new(None));
         let failed_after = |own: &str| {
             let sock =
@@ -1032,7 +1032,7 @@ mod tests {
     #[test]
     fn a_port_one_socket_holds_is_no_other_sockets() {
         let net = loopback(&[], OpenConnections::new(None));
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let socket =
             || TcpSock::new(Arc::new(HostInet), &cred).expect("an unbounded socket is made");
         let (named, free, again) = (socket(), socket(), socket());
@@ -1061,7 +1061,7 @@ mod tests {
     fn a_connect_refused_for_a_full_count_or_by_the_ruleset_gives_back_its_port() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let at = listener.local_addr().unwrap();
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let refused_after = |net: &Namespace, to: SocketAddr| {
             let sock =
                 TcpSock::new(Arc::new(HostInet), &cred).expect("an unbounded socket is made");
@@ -1162,7 +1162,7 @@ mod tests {
             &[refused_at.port(), open_at.port()],
             OpenConnections::new(Some(1)),
         );
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds(&[], None))
             .expect("an unbounded socket is made");
         ProtoOps::connect(&*sock, &net, refused_at).expect("a socket under a cap of one connects");
         let file = sock_alloc_file(sock.clone(), &Arc::default());
@@ -1192,7 +1192,7 @@ mod tests {
     #[test]
     fn a_socket_whose_connect_failed_takes_a_fresh_virtual_port() {
         let closed = SocketAddr::from(([127, 0, 0, 1], 1));
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds_within(&[], None))
+        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds(&[], None))
             .expect("an unbounded socket is made");
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         let ports = BindHash::new();

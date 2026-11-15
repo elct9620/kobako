@@ -529,7 +529,7 @@ pub struct VfsMount {}
 ## `Cred`
 
 Who a call is made for, one per Invocation, holding its registered security modules.
-A Wasm Driver gets one only from `prepare_creds_within`, so kobako's own rules always come first.
+A Wasm Driver gets one only from `prepare_creds`, so kobako's own rules always come first.
 
 ```rust
 pub struct Cred {}

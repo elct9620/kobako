@@ -367,7 +367,7 @@ mod tests {
     use crate::grant::Grant;
     use crate::network::Connection;
     use crate::network::{Addresses, Endpoint, Entry, Policies};
-    use crate::security::{prepare_creds_within, restrict_self, SecurityOperations};
+    use crate::security::{prepare_creds, restrict_self, SecurityOperations};
     use crate::Errno;
 
     /// Each connection a policy was asked about.
@@ -437,7 +437,7 @@ mod tests {
         )
         .expect("the endpoints compile");
         let grants = networks.into_iter().map(Grant::Network).collect::<Vec<_>>();
-        let cred = restrict_self(&prepare_creds_within(modules, None), &grants);
+        let cred = restrict_self(&prepare_creds(modules, None), &grants);
         (namespace, cred, family, seen)
     }
 
@@ -497,7 +497,7 @@ mod tests {
             Arc::new(CountsDials::default()),
             Arc::new(crate::net::HyperOutbound::new()),
         );
-        let cred = restrict_self(&prepare_creds_within(&[], None), [&Grant::Network(network)]);
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Network(network)]);
         let get = |authority: &str| OutgoingRequest::new("GET", Scheme::Http, authority);
         let hooked = crate::net::send(&namespace, &cred, get("refused.example:4567")).err();
         let ipv6 = crate::net::send(&namespace, &cred, get("[::1]:4567")).err();
@@ -551,7 +551,7 @@ mod tests {
             Some(2),
         )
         .unwrap();
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let addr = listener.local_addr().unwrap();
         let made = [dial(&namespace, &cred, addr), dial(&namespace, &cred, addr)];
         drop(made);
@@ -581,7 +581,7 @@ mod tests {
             None,
         )
         .unwrap();
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let mut peers = Vec::new();
         // The host may still take what was queued before the release, under
         // load; each try releases a socket filled again until one holds bytes.
@@ -828,7 +828,7 @@ mod tests {
         let lookup = resolve(namespace, name).expect("the lookup starts");
         wait_for_answer(&lookup).expect("the name resolves");
         namespace
-            .alloc_virtual_addresses(&prepare_creds_within(&[], None), &lookup)
+            .alloc_virtual_addresses(&prepare_creds(&[], None), &lookup)
             .expect("the lookup settled")
             .expect("the range has room")
             .into_iter()
@@ -876,7 +876,7 @@ mod tests {
             ..ResolvesNames::default()
         });
         let namespace = resolving_namespace(vec![tcp("api.example.com", 443)], "", family.clone());
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let mut at = resolve_virtual_address(&namespace, "api.example.com");
         at.set_port(443);
         let answer = dial(&namespace, &cred, at).err();
@@ -919,7 +919,7 @@ mod tests {
             family.clone(),
             Arc::new(crate::net::HyperOutbound::new()),
         );
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let mut at = resolve_virtual_address(&namespace, "api.example.com");
         at.set_port(443);
         let answer = dial(&namespace, &cred, at).err();
@@ -941,7 +941,7 @@ mod tests {
         });
         let endpoint = Endpoint::new("api.example.com", 80).unwrap();
         let namespace = resolving_namespace(vec![endpoint], "", family.clone());
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let exchange = crate::net::send(
             &namespace,
             &cred,
@@ -977,8 +977,8 @@ mod tests {
         let namespace = resolving_namespace(vec![tcp("cache.internal", 6379)], "", family);
         let lookup = resolve(&namespace, "cache.internal").expect("the lookup starts");
         wait_for_answer(&lookup).expect("the name resolves");
-        let full = namespace.alloc_virtual_addresses(&prepare_creds_within(&[], Some(0)), &lookup);
-        let roomy = namespace.alloc_virtual_addresses(&prepare_creds_within(&[], None), &lookup);
+        let full = namespace.alloc_virtual_addresses(&prepare_creds(&[], Some(0)), &lookup);
+        let roomy = namespace.alloc_virtual_addresses(&prepare_creds(&[], None), &lookup);
         assert_eq!(
             (full, roomy),
             (
@@ -1016,7 +1016,7 @@ mod tests {
         let again = resolve(&namespace, "Cache.Internal.").expect("the lookup starts");
         let answer = wait_for_answer(&again);
         let second = resolve_virtual_addresses(&namespace, "cache.internal");
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let sock = dial(&namespace, &cred, second[1]).expect("the endpoint leads there");
         while matches!(sock.connect_outcome(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
@@ -1071,7 +1071,7 @@ mod tests {
         let local = tcp("cache.internal", 6379).with_addresses(vec![Addresses::Local]);
         let namespace =
             resolving_namespace(vec![local, tcp("api.internal", 6379)], "", family.clone());
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let at = resolve_virtual_addresses(&namespace, "Cache.Internal.");
         let sock = dial(&namespace, &cred, at[0]).expect("the endpoint leads there");
         while matches!(sock.connect_outcome(), Err(Errno::WouldBlock)) {
@@ -1107,7 +1107,7 @@ mod tests {
     #[test]
     fn a_virtual_address_no_lookup_handed_out_is_refused() {
         let namespace = resolving_namespace(vec![tcp("cache.internal", 6379)], "", Arc::default());
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         assert!(
             matches!(
                 dial(&namespace, &cred, "198.18.0.9:6379".parse().unwrap()),
@@ -1128,7 +1128,7 @@ mod tests {
         let namespace = resolving_namespace(vec![private], "", family.clone());
         let at = resolve_virtual_address(&namespace, "cache.internal");
         *family.answers.lock().unwrap() = vec!["127.0.0.1".parse().unwrap()];
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let sock = dial(&namespace, &cred, at).expect("the endpoint leads there");
         while matches!(sock.connect_outcome(), Err(Errno::WouldBlock)) {
             std::thread::sleep(Duration::from_millis(1));
@@ -1155,7 +1155,7 @@ mod tests {
         });
         let namespace = resolving_namespace(vec![tcp("api.example.com", 6379)], "", family.clone());
         let at = resolve_virtual_address(&namespace, "api.example.com");
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         assert!(
             matches!(dial(&namespace, &cred, at), Err(Errno::PermissionDenied))
                 && family.dials.lock().unwrap().is_empty(),
@@ -1187,7 +1187,7 @@ mod tests {
             Arc::new(crate::net::HostInet),
             Arc::new(crate::net::HyperOutbound::new()),
         );
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let admitted = dial_datagram(&namespace, &cred, Some(peer.local_addr().unwrap()));
         let refused = dial_datagram(
             &namespace,

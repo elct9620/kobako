@@ -561,7 +561,7 @@ mod tests {
         FileOperations, FileType, Filesystem, InodeOperations, Kstat, Lookup,
     };
     use kobako_runtime::mount::{Access, Mount};
-    use kobako_runtime::security::prepare_creds_within;
+    use kobako_runtime::security::prepare_creds;
     use kobako_runtime::vfs::{self, Dentry, File, Inode, OpenHow, Path, PATH_MAX};
     use wiggle::{GuestPtr, GuestType};
 
@@ -702,13 +702,8 @@ mod tests {
         )
         .expect("/data is a guest path");
         let start = Path::root(mount.mnt());
-        vfs::do_file_open(
-            &prepare_creds_within(&[], None),
-            &start,
-            "file",
-            &flags_of(how),
-        )
-        .unwrap_or_else(|_| panic!("the file must open"))
+        vfs::do_file_open(&prepare_creds(&[], None), &start, "file", &flags_of(how))
+            .unwrap_or_else(|_| panic!("the file must open"))
     }
 
     fn open_file() -> File {

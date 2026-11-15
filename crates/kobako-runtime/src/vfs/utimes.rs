@@ -53,7 +53,7 @@ mod tests {
     };
     use crate::mount::{Access as MountAccess, Mount, MountRequest};
     use crate::policy::Policy;
-    use crate::security::{prepare_creds_within, restrict_self};
+    use crate::security::{prepare_creds, restrict_self};
     use crate::vfs::Dentry;
 
     fn times() -> Iattr<'static> {
@@ -238,7 +238,7 @@ mod tests {
         let policy = Arc::new(RecordsPaths::default());
         let mount = mount_of(tmpfs(), MountAccess::ReadWrite).with_policy(policy.clone());
         let cred = restrict_self(
-            &prepare_creds_within(&[], None),
+            &prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
         );
         let root = Path::root(mount.mnt());
@@ -281,7 +281,7 @@ mod tests {
             (
                 vfs_utimes(
                     &restrict_self(
-                        &prepare_creds_within(&[], None),
+                        &prepare_creds(&[], None),
                         [&crate::grant::Grant::Mount(mount.clone())],
                     ),
                     &Path::root(mount.mnt()),

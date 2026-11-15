@@ -259,11 +259,11 @@ mod tests {
     use super::*;
     use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
     use kobako_runtime::memcg::MemoryBudget;
-    use kobako_runtime::security::prepare_creds_within;
+    use kobako_runtime::security::prepare_creds;
     use kobako_runtime::vfs::OpenFiles;
 
     fn pipe_end() -> File {
-        create_pipe_files(&PipeInodeInfo::new(1), &prepare_creds_within(&[], None)).1
+        create_pipe_files(&PipeInodeInfo::new(1), &prepare_creds(&[], None)).1
     }
 
     // @behavior RT-189
@@ -276,7 +276,7 @@ mod tests {
             pipe_end(),
             &[],
             &mut table,
-            &prepare_creds_within(&[], None),
+            &prepare_creds(&[], None),
         )
         .unwrap_or_else(|_| panic!("a table holding no Mount must make"));
         let mut open = |descriptors: &mut Descriptors| {

@@ -22,15 +22,15 @@ use kobako_runtime::limits::Limits;
 use kobako_runtime::net::{Backends, Namespace, OpenConnections};
 use kobako_runtime::network::EntryError;
 use kobako_runtime::profile::Profile;
-use kobako_runtime::security::{prepare_creds_within, restrict_self, WalkGuard};
+use kobako_runtime::security::{prepare_creds, restrict_self, WalkGuard};
 use kobako_runtime::vfs::{File, OpenFiles};
 
 /// The Cred an invocation's Mounts open as: kobako's own rules, then each
 /// module the Driver was built with, its Filesystems holding at most the
 /// memory the Driver allots, as Linux's `prepare_creds` gives a task the
 /// LSMs it booted with.
-fn prepare_creds(config: &Config) -> Arc<Cred> {
-    prepare_creds_within(&config.security, config.limits.memory_limit)
+fn prepare_creds_for(config: &Config) -> Arc<Cred> {
+    prepare_creds(&config.security, config.limits.memory_limit)
 }
 
 /// One instance's WASI context: who its calls are made for, each encoding's
@@ -67,7 +67,7 @@ impl Wasi {
             config.limits.stdout_limit,
             config.limits.stderr_limit,
             config.limits.open_file_limit,
-            prepare_creds(config),
+            prepare_creds_for(config),
             config.profile,
             grants,
         )?;
@@ -84,7 +84,7 @@ impl Wasi {
             config.limits.stdout_limit,
             config.limits.stderr_limit,
             config.limits.open_file_limit,
-            prepare_creds(config),
+            prepare_creds_for(config),
             config.profile,
             &[],
         )
@@ -100,7 +100,7 @@ impl Wasi {
             config.limits.stdout_limit,
             config.limits.stderr_limit,
             config.limits.open_file_limit,
-            prepare_creds(config),
+            prepare_creds_for(config),
             Profile::Hermetic,
             &[],
         )
@@ -116,7 +116,7 @@ impl Wasi {
             Some(0),
             Some(0),
             None,
-            prepare_creds_within(&[], None),
+            prepare_creds(&[], None),
             Profile::Hermetic,
             &[],
         )
@@ -136,7 +136,7 @@ impl Wasi {
             None,
             None,
             open_file_limit,
-            prepare_creds_within(&[], None),
+            prepare_creds(&[], None),
             Profile::Hermetic,
             &grants,
         )

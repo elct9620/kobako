@@ -134,7 +134,7 @@ impl WalkGuard {
 /// as a Linux task opens the files it keeps before `landlock_restrict_self`.
 /// The modules are those the Wasm Driver was built with, as Linux stacks the LSMs
 /// `lsm=` names at boot after the capability module.
-pub fn prepare_creds_within(
+pub fn prepare_creds(
     modules: &[Arc<dyn SecurityOperations>],
     memory_limit: Option<usize>,
 ) -> Arc<Cred> {
@@ -221,10 +221,7 @@ mod tests {
             .with_policy(Arc::new(RefusesChangesInQ));
         let plain =
             Mount::new("/plain", filesystem, Access::ReadWrite).expect("/plain is a guest path");
-        let cred = restrict_self(
-            &prepare_creds_within(&[], None),
-            [&Grant::Mount(guarded.clone())],
-        );
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(guarded.clone())]);
         let write = OpenHow {
             write: true,
             ..Default::default()
@@ -234,7 +231,7 @@ mod tests {
                 .unwrap_or_else(|_| panic!("the file must open"));
         let root = Path::root(plain.mnt());
         crate::vfs::filename_renameat2(
-            &restrict_self(&prepare_creds_within(&[], None), []),
+            &restrict_self(&prepare_creds(&[], None), []),
             &root,
             "p/f",
             &root,
@@ -260,10 +257,7 @@ mod tests {
         let mount = Mount::new("/data", filesystem, Access::ReadWrite)
             .expect("/data is a guest path")
             .with_policy(policy.clone());
-        let cred = restrict_self(
-            &prepare_creds_within(&[], None),
-            [&Grant::Mount(mount.clone())],
-        );
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(mount.clone())]);
         let opened = crate::vfs::kern_path::filp_open(
             &cred,
             &Path::root(mount.mnt()),
@@ -299,10 +293,7 @@ mod tests {
         )
         .expect("/data is a guest path");
         let mount = prepare(mount);
-        let cred = restrict_self(
-            &prepare_creds_within(&[], None),
-            [&Grant::Mount(mount.clone())],
-        );
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(mount.clone())]);
         let root = Path::root(mount.mnt());
         let how = crate::vfs::OpenHow {
             read: true,
@@ -384,10 +375,7 @@ mod tests {
             .with_policy(Arc::new(Counts::default()));
         let plain =
             Mount::new("/plain", filesystem, Access::ReadWrite).expect("/plain is a guest path");
-        let cred = restrict_self(
-            &prepare_creds_within(&[], None),
-            [&Grant::Mount(guarded.clone())],
-        );
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(guarded.clone())]);
         let how = crate::vfs::OpenHow {
             read: true,
             directory: true,
@@ -420,7 +408,7 @@ mod tests {
                 .expect("the call must ask revalidate");
             let root = Path::root(plain.mnt());
             crate::vfs::filename_renameat2(
-                &restrict_self(&prepare_creds_within(&[], None), []),
+                &restrict_self(&prepare_creds(&[], None), []),
                 &root,
                 "p/d",
                 &root,
@@ -470,7 +458,7 @@ mod tests {
                 let root = self.plain.get().expect("the plain Mount stands").clone();
                 std::thread::spawn(move || {
                     crate::vfs::filename_renameat2(
-                        &restrict_self(&prepare_creds_within(&[], None), []),
+                        &restrict_self(&prepare_creds(&[], None), []),
                         &root,
                         &format!("{from}/d"),
                         &root,
@@ -535,7 +523,7 @@ mod tests {
                 scope.spawn(|| {
                     let (root, cred) = (
                         Path::root(plain.mnt()),
-                        restrict_self(&prepare_creds_within(&[], None), []),
+                        restrict_self(&prepare_creds(&[], None), []),
                     );
                     while !stop.load(Ordering::SeqCst) {
                         for (from, to) in [("p/d", "q/d"), ("q/d", "p/d")] {

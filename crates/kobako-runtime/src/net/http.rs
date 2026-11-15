@@ -1075,7 +1075,7 @@ mod tests {
     use crate::net::{HostInet, Namespace, OpenConnections, ProtocolFamily};
     use crate::network::Protocol;
     use crate::network::{Builder, Endpoint, Network};
-    use crate::security::prepare_creds_within;
+    use crate::security::prepare_creds;
 
     #[test]
     fn a_failed_dial_answers_the_code_its_host_error_names() {
@@ -1196,7 +1196,7 @@ mod tests {
             family.clone(),
             Arc::new(HyperOutbound { tls: None }),
         );
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let mut request = OutgoingRequest::new("GET", Scheme::Https, "127.0.0.1:443");
         request.path_with_query = "/".to_string();
         let exchange =
@@ -1235,7 +1235,7 @@ mod tests {
             None,
         )
         .expect("the endpoints compile");
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let first = crate::net::send(&namespace, &cred, greeting_request("api.example.com"))
             .expect("the first request has a place");
         resolving
@@ -1285,7 +1285,7 @@ mod tests {
             Namespace::for_network(&network, Arc::new(HostInet), Arc::new(HyperOutbound::new()));
         let cred_within = |limit| {
             crate::security::restrict_self(
-                &prepare_creds_within(&[], limit),
+                &prepare_creds(&[], limit),
                 [&crate::grant::Grant::Network(network.clone())],
             )
         };
@@ -1319,7 +1319,7 @@ mod tests {
         let namespace = namespace(vec![Endpoint::new("localhost", port)
             .unwrap()
             .with_addresses(vec![crate::network::Addresses::Local])]);
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let exchange = crate::net::send(
             &namespace,
             &cred,
@@ -1359,7 +1359,7 @@ mod tests {
         let namespace = namespace(vec![Endpoint::new("localhost", port)
             .unwrap()
             .with_addresses(vec![crate::network::Addresses::Local])]);
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let exchange = crate::net::send(
             &namespace,
             &cred,
@@ -1414,14 +1414,14 @@ mod tests {
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port)
             .unwrap()
             .with_addresses(vec![crate::network::Addresses::Local])]);
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let answer = crate::net::send(
             &namespace,
             &cred,
             greeting_request(&format!("127.0.0.1:{port}")),
         )
         .expect("the endpoint names the authority");
-        let tight = prepare_creds_within(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER));
+        let tight = prepare_creds(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER));
         let unheld = crate::net::send(
             &namespace,
             &tight,
@@ -1471,7 +1471,7 @@ mod tests {
             Arc::new(HostInet),
             Arc::new(RecordsAuthority::default()),
         );
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let send = |method: &str, authority: &str| {
             let mut request = greeting_request(authority);
             request.method = method.to_string();
@@ -1506,7 +1506,7 @@ mod tests {
         let network = Network::new("web", Arc::new(entry)).unwrap();
         let recorded = Arc::new(RecordsAuthority::default());
         let namespace = Namespace::for_network(&network, Arc::new(HostInet), recorded.clone());
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let sent = crate::net::send(&namespace, &cred, greeting_request("127.1")).is_ok();
         assert_eq!(
             (sent, recorded.0.lock().unwrap().clone()),
@@ -1545,7 +1545,7 @@ mod tests {
         let family = Arc::new(KeepsStreams::default());
         let namespace =
             Namespace::for_network(&network, family.clone(), Arc::new(HyperOutbound::new()));
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let exchange = crate::net::send(
             &namespace,
             &cred,
@@ -1585,7 +1585,7 @@ mod tests {
             stream.write_all(&body).unwrap();
         });
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let exchange = crate::net::send(
             &namespace,
             &cred,
@@ -1624,7 +1624,7 @@ mod tests {
             .unwrap()
             .with_protocol(Protocol::Tcp);
         let namespace = namespace(vec![raw]);
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let answers = [
             format!("127.0.0.1:{port}"),
             format!("elsewhere.example:{port}"),
@@ -1649,7 +1649,7 @@ mod tests {
         listener.set_nonblocking(true).unwrap();
         let port = listener.local_addr().unwrap().port();
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let answers = ["Host", "content-length", "bad name"].map(|name| {
             let mut request = greeting_request(&format!("127.0.0.1:{port}"));
             request.headers.push((name.to_string(), b"x".to_vec()));
@@ -1673,7 +1673,7 @@ mod tests {
         listener.set_nonblocking(true).unwrap();
         let port = listener.local_addr().unwrap().port();
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let answers = ["http://other.example/x", "*", "", "/a#b"].map(|target| {
             let mut request = greeting_request(&format!("127.0.0.1:{port}"));
             request.path_with_query = target.to_string();
@@ -1712,7 +1712,7 @@ mod tests {
             header[0]
         });
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let mut request = greeting_request(&format!("127.0.0.1:{port}"));
         request.scheme = Scheme::Https;
         let exchange =
@@ -1757,7 +1757,7 @@ mod tests {
         request
             .headers
             .push(("x-probe".to_string(), b"secret".to_vec()));
-        let cred = prepare_creds_within(&[], None);
+        let cred = prepare_creds(&[], None);
         let answer = crate::net::send(&namespace, &cred, request).err();
         thread::sleep(Duration::from_millis(20));
         assert_eq!(
@@ -1824,7 +1824,7 @@ mod tests {
         let mut request = OutgoingRequest::new("GET", scheme, format!("{host}:443"));
         request.path_with_query = path.to_string();
         request.headers.push((header.to_string(), value.to_vec()));
-        let exchange = crate::net::send(&namespace, &prepare_creds_within(&[], None), request)
+        let exchange = crate::net::send(&namespace, &prepare_creds(&[], None), request)
             .expect("an endpoint names the authority");
         let _ = read_response(&exchange);
         let recorded = seam.0.lock().unwrap().pop().unwrap_or_default();
@@ -1937,7 +1937,7 @@ mod tests {
             Arc::new(CountsDials::default()),
             Arc::new(RecordsSwaps::default()),
         );
-        let cred = prepare_creds_within(&[], Some(2 * MAX_SOCKET_BUFFER));
+        let cred = prepare_creds(&[], Some(2 * MAX_SOCKET_BUFFER));
         let tcp = crate::net::TcpSock::create(&namespace, &cred, crate::net::AddressFamily::Inet);
         let udp =
             crate::net::UdpSock::create(&namespace, &cred, crate::net::AddressFamily::Inet).err();
@@ -1998,8 +1998,7 @@ mod tests {
                 Arc::new(CountsDials::default()),
                 Arc::new(AnswersHeader(size)),
             );
-            let cred =
-                prepare_creds_within(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER + 16 * 1024));
+            let cred = prepare_creds(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER + 16 * 1024));
             let exchange = crate::net::send(
                 &namespace,
                 &cred,
@@ -2076,7 +2075,7 @@ mod tests {
             let namespace = Namespace::for_network(&network, Arc::new(HostInet), seam);
             let mut request = greeting_request(&format!("127.0.0.1:{port}"));
             request.timeouts = timeouts;
-            crate::net::send(&namespace, &prepare_creds_within(&[], None), request)
+            crate::net::send(&namespace, &prepare_creds(&[], None), request)
                 .expect("the endpoint names the authority")
         };
         let at_once = Some(Duration::ZERO);
@@ -2142,7 +2141,7 @@ mod tests {
             .with_addresses(vec![crate::network::Addresses::Local])]);
         let mut request = greeting_request(&format!("127.0.0.1:{port}"));
         request.timeouts.between_bytes = Some(Duration::ZERO);
-        let exchange = crate::net::send(&namespace, &prepare_creds_within(&[], None), request)
+        let exchange = crate::net::send(&namespace, &prepare_creds(&[], None), request)
             .expect("the endpoint names the authority");
         let head = settled(&exchange).map(|head| head.status);
         let mut buf = [0; 8];
@@ -2168,7 +2167,7 @@ mod tests {
             Arc::new(CountsDials::default()),
             Arc::new(NeverAnswers),
         );
-        let cred = prepare_creds_within(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER + 40 * 1024));
+        let cred = prepare_creds(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER + 40 * 1024));
         let mut request = OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80");
         request.path_with_query = format!("/{}", "p".repeat(30 * 1024));
         let exchange =
@@ -2239,7 +2238,7 @@ mod tests {
                 Arc::new(CountsDials::default()),
                 Arc::new(StreamsEndlessly),
             );
-            let cred = prepare_creds_within(&[], None);
+            let cred = prepare_creds(&[], None);
             let send = || {
                 crate::net::send(
                     &namespace,
