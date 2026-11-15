@@ -238,11 +238,8 @@ impl Invocation {
         // The exchange reserves the request's parts itself, so the guest's
         // copies give theirs back before it does.
         drop((request.headers, request.memory));
-        let Some(namespace) = self.wasi().network() else {
-            return FutureState::Refused(ErrorCode::HTTPRequestDenied);
-        };
         let cred = self.wasi().cred();
-        match net::send(namespace, cred, outgoing) {
+        match net::send(self.network(), cred, outgoing) {
             Ok(exchange) => {
                 let file = Arc::new(Mutex::new(exchange.alloc_response_file(cred)));
                 FutureState::Sent(exchange, file)

@@ -181,11 +181,12 @@ impl Invocation {
         }
     }
 
-    /// The Invocation's network, which every socket and lookup is made in.
-    fn network(&self) -> &Namespace {
+    /// The Invocation's network, which every socket, lookup, and request is
+    /// made in once its entry found one.
+    pub(super) fn network(&self) -> &Namespace {
         self.wasi()
             .network()
-            .expect("a socket or a lookup is only made with a network")
+            .expect("a socket, a lookup, or a request is only made with a network")
     }
 
     /// A socket `create` makes in the Invocation's network, with its file,
