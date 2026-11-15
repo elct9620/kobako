@@ -112,7 +112,7 @@ The table is specified with the wire format, and its scenarios are the payload e
 | --- | --- |
 | Given | a value nested one level past what the wire encodes |
 | When | the wrap walk carries it |
-| Then | it fails as a Sandbox failure naming the depth bound |
+| Then | it raises `ArgumentError` naming the depth bound |
 
 ## `CD-013` A value that refers to itself is refused rather than followed
 
@@ -120,7 +120,7 @@ The table is specified with the wire format, and its scenarios are the payload e
 | --- | --- |
 | Given | a value holding a reference to itself |
 | When | the wrap walk carries it |
-| Then | it fails as a Sandbox failure |
+| Then | it raises `ArgumentError` |
 
 ## `CD-014` A value that refers to itself through a key is refused
 
@@ -128,7 +128,7 @@ The table is specified with the wire format, and its scenarios are the payload e
 | --- | --- |
 | Given | a Hash whose key holds a reference to itself |
 | When | the wrap walk carries it |
-| Then | it fails as a Sandbox failure |
+| Then | it raises `TypeError`, as a key the wire cannot carry |
 
 ## `CD-015` A value outside the type mapping is refused, not probed
 

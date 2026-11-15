@@ -273,13 +273,13 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | the walk runs over it |
 | Then | the values are referenced and the keys pass through |
 
-## `T-029` A key the wire cannot carry fails the invocation
+## `T-029` A key the wire cannot carry raises TypeError
 
 | Step | Statement |
 | --- | --- |
 | Given | a Hash keyed by a value the wire cannot carry |
 | When | the walk runs over it |
-| Then | it fails as a Sandbox failure |
+| Then | it raises `TypeError` |
 
 ## `T-030` A reference is not referenced again
 
@@ -583,7 +583,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a Sandbox carrying a preloaded entrypoint |
 | When | it runs with a Hash argument keyed by a value that cannot be referenced |
-| Then | it fails as a Sandbox failure |
+| Then | it raises `TypeError` before the guest runs |
 
 ## `T-069` An argument that refers to itself is refused
 
@@ -591,7 +591,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a Sandbox carrying a preloaded entrypoint |
 | When | it runs with an argument containing itself |
-| Then | it fails as a Sandbox failure |
+| Then | it raises `ArgumentError` before the guest runs |
 
 ## `T-070` Dispatching survives collection pressure
 
@@ -983,7 +983,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a Sandbox carrying a preloaded entrypoint |
 | When | it runs with an argument or keyword value nested one level past what the Run payload can carry |
-| Then | it fails as a Sandbox failure before the guest runs |
+| Then | it raises `ArgumentError` before the guest runs |
 
 ## `T-222` A reflective gadget in an entrypoint's arguments is refused before the guest runs
 
@@ -991,7 +991,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | --- | --- |
 | Given | a Sandbox carrying a preloaded entrypoint |
 | When | it runs with a reflective gadget among its arguments |
-| Then | it fails as a Sandbox failure before the guest runs |
+| Then | it raises `TypeError` before the guest runs |
 
 ## `T-229` A stale reference fails only its own call
 

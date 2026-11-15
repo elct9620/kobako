@@ -615,6 +615,10 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 ## `S-068` A failure before any run produces no Execution to carry
 
+| Attribute | Value |
+| --- | --- |
+| unverifiable | only a full Handle table fails before a run, and filling it takes every id the wire allows |
+
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox given an input refused before the guest runs |
