@@ -10,7 +10,6 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 use std::time::Duration;
 
 use kobako_runtime::filesystem::Bind;
@@ -55,7 +54,7 @@ fn copy_tree(from: &Path, to: &Path) {
 fn run(wasm: &Path, root: &Path) -> Result<i32, String> {
     let engine = load_engine().map_err(|err| err.to_string())?;
     let bind = Bind::new(root).map_err(|err| err.to_string())?;
-    let filesystem = Filesystem::new(Arc::new(bind)).map_err(|err| format!("{err:?}"))?;
+    let filesystem = Filesystem::new(bind).map_err(|err| format!("{err:?}"))?;
     let mount = Mount::new("/", filesystem, Access::ReadWrite).map_err(|err| err.to_string())?;
     let config = Config::for_profile(Profile::Permissive);
     let wasi =

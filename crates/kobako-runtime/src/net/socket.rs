@@ -574,7 +574,7 @@ pub(crate) fn to_error(err: &io::Error) -> Errno {
 /// The one Filesystem every socket stands on, as Linux's `sock_mnt`. No path
 /// reaches it: a socket is only ever open.
 static SOCK_MNT: LazyLock<Arc<VfsMount>> = LazyLock::new(|| {
-    let sb = SuperBlock::new(Arc::new(SockFs)).expect("sockfs fills in nothing that can fail");
+    let sb = SuperBlock::new(SockFs).expect("sockfs fills in nothing that can fail");
     VfsMount::kern_mount(sb)
 });
 

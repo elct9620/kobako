@@ -16,8 +16,7 @@ use crate::Errno;
 /// The one Filesystem every anonymous file stands on, as Linux's
 /// `anon_inode_mnt`.
 static ANON_INODE_MNT: LazyLock<Arc<VfsMount>> = LazyLock::new(|| {
-    let sb = SuperBlock::new(Arc::new(AnonInodeFs))
-        .expect("anon_inodefs fills in nothing that can fail");
+    let sb = SuperBlock::new(AnonInodeFs).expect("anon_inodefs fills in nothing that can fail");
     VfsMount::kern_mount(sb)
 });
 

@@ -16,7 +16,7 @@ use crate::Errno;
 /// The one Filesystem every pipe stands on, as Linux's `pipe_mnt`. No path
 /// reaches it: a pipe is only ever open.
 static PIPE_MNT: LazyLock<Arc<VfsMount>> = LazyLock::new(|| {
-    let sb = SuperBlock::new(Arc::new(PipeFs)).expect("pipefs fills in nothing that can fail");
+    let sb = SuperBlock::new(PipeFs).expect("pipefs fills in nothing that can fail");
     VfsMount::kern_mount(sb)
 });
 

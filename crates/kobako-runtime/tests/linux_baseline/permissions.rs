@@ -134,8 +134,7 @@ fn a_policy_answers_as_the_same_rules_under_landlock() {
         let (root, kobako_dir) = (setup.dir("linux"), setup.dir("kobako"));
         seed_directory(&kobako_dir);
         seed_directory(&root);
-        let filesystem =
-            Filesystem::new(Arc::new(bind(&kobako_dir))).expect("the instance must stand");
+        let filesystem = Filesystem::new(bind(&kobako_dir)).expect("the instance must stand");
         let kobako = Kobako::with_policy(filesystem, Arc::new(WritesBeneathD));
         let linux = Linux::new(&root, false);
         let calls = sequence(seed, 30, &paths);
@@ -208,8 +207,7 @@ fn a_bind_refuses_another_user_as_its_host_does() {
         let (root, kobako_dir) = (setup.dir("linux"), setup.dir("kobako"));
         seed_permissions(&kobako_dir);
         seed_permissions(&root);
-        let filesystem =
-            Filesystem::new(Arc::new(bind(&kobako_dir))).expect("the instance must stand");
+        let filesystem = Filesystem::new(bind(&kobako_dir)).expect("the instance must stand");
         let calls = sequence(seed, 20, &paths);
         let found = &mut found;
         thread::scope(|scope| {

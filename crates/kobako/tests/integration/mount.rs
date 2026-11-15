@@ -25,10 +25,8 @@ const RESCUE_DENIED: &str =
     r#"begin; File.read("/data/note.txt"); rescue Errno::EACCES; "denied"; end"#;
 
 fn tmpfs(contents: &str) -> Arc<Filesystem> {
-    Filesystem::new(Arc::new(
-        [("note.txt", contents)].into_iter().collect::<Tmpfs>(),
-    ))
-    .expect("the instance must stand")
+    Filesystem::new([("note.txt", contents)].into_iter().collect::<Tmpfs>())
+        .expect("the instance must stand")
 }
 
 fn sandbox_with_note() -> Option<Sandbox> {
@@ -143,10 +141,8 @@ fn a_mount_nested_inside_another_reaches_its_own_filesystem() {
     let Some(mut sandbox) = real_sandbox() else {
         return;
     };
-    let outer = Filesystem::new(Arc::new(
-        [("inner/note.txt", "outer")].into_iter().collect::<Tmpfs>(),
-    ))
-    .expect("the instance must stand");
+    let outer = Filesystem::new([("inner/note.txt", "outer")].into_iter().collect::<Tmpfs>())
+        .expect("the instance must stand");
     sandbox
         .mount("/data", outer, Access::Read)
         .expect("mount a Tmpfs at /data");
@@ -347,8 +343,7 @@ fn a_filesystem_a_rust_host_app_writes_mounts_like_the_kinds_kobako_ships() {
     sandbox
         .mount(
             "/data",
-            Filesystem::new(Arc::new(OneNote(b"written in rust")))
-                .expect("the instance must stand"),
+            Filesystem::new(OneNote(b"written in rust")).expect("the instance must stand"),
             Access::Read,
         )
         .unwrap();

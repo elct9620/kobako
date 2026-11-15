@@ -946,7 +946,7 @@ mod tests {
         let tmpfs: Tmpfs = [("a", ""), ("b", ""), ("c", "")].into_iter().collect();
         let mount = crate::mount::Mount::new(
             "/data",
-            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Filesystem::new(tmpfs).expect("the instance must stand"),
             crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -999,7 +999,7 @@ mod tests {
         let wrapped = crate::filesystem::wrap::Wrap::new(Arc::new(tmpfs), counts.clone());
         let mount = crate::mount::Mount::new(
             "/data",
-            Filesystem::new(Arc::new(wrapped)).expect("the instance must stand"),
+            Filesystem::new(wrapped).expect("the instance must stand"),
             crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1021,11 +1021,11 @@ mod tests {
     // @behavior FS-168
     #[test]
     fn an_exchange_leaves_both_files_named() {
-        let filesystem = crate::filesystem::Filesystem::new(Arc::new(
+        let filesystem = crate::filesystem::Filesystem::new(
             [("a", "first"), ("b", "second")]
                 .into_iter()
                 .collect::<Tmpfs>(),
-        ))
+        )
         .expect("the instance must stand");
         let dentries = filesystem.dentries();
         let root = filesystem.root().expect(crate::vfs::MADE_ROOT).clone();
@@ -1725,8 +1725,7 @@ mod tests {
     fn a_removed_directory_something_holds_keeps_its_inode() {
         let mount = crate::mount::Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Tmpfs::new().with_nr_inodes(Some(2))))
-                .expect("the instance must stand"),
+            Filesystem::new(Tmpfs::new().with_nr_inodes(Some(2))).expect("the instance must stand"),
             crate::mount::Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1760,7 +1759,7 @@ mod tests {
         let mount = |tmpfs: Tmpfs| {
             crate::mount::Mount::new(
                 "/data",
-                Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+                Filesystem::new(tmpfs).expect("the instance must stand"),
                 crate::mount::Access::ReadWrite,
             )
             .expect("/data is a guest path")
@@ -1916,7 +1915,7 @@ mod tests {
         fn a_moved_file_keeps_its_names_through_the_move() {
             let mount = crate::mount::Mount::new(
                 "/data",
-                Filesystem::new(Arc::new([("a", "x")].into_iter().collect::<Tmpfs>()))
+                Filesystem::new([("a", "x")].into_iter().collect::<Tmpfs>())
                     .expect("the instance must stand"),
                 crate::mount::Access::ReadWrite,
             )

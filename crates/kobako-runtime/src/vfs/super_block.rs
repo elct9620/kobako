@@ -24,6 +24,14 @@ pub trait FileSystemType: Send + Sync + 'static {
     fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), Errno>;
 }
 
+/// A shared kind sets up an instance as the kind it shares, so a caller that
+/// keeps its own `Arc` hands that `Arc` to `SuperBlock::new`.
+impl<T: FileSystemType + ?Sized> FileSystemType for Arc<T> {
+    fn fill_super(self: Arc<Self>, sb: &mut SuperBlock) -> Result<(), Errno> {
+        T::fill_super(Arc::clone(&*self), sb)
+    }
+}
+
 /// One Filesystem instance, with the directories of it a walk reaches. Every
 /// mount of the same instance shares them, as a bind mount shares its super
 /// block, so a directory moved or removed beneath one is moved or removed
@@ -47,7 +55,7 @@ pub struct SuperBlock {
 impl SuperBlock {
     /// The instance `fs` makes, set up as its `fill_super` asks, or why it cannot
     /// stand. One whose `fill_super` made no root answers EINVAL.
-    pub fn new(fs: Arc<dyn FileSystemType>) -> Result<Arc<Self>, Errno> {
+    pub fn new(fs: impl FileSystemType) -> Result<Arc<Self>, Errno> {
         let mut sb = Self {
             root: None,
             dentries: Dentries::new(None),
@@ -55,7 +63,7 @@ impl SuperBlock {
             rdonly: false,
             dontcache: false,
         };
-        fs.fill_super(&mut sb)?;
+        Arc::new(fs).fill_super(&mut sb)?;
         sb.root.as_ref().ok_or(Errno::InvalidInput)?;
         Ok(Arc::new(sb))
     }

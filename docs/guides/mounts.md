@@ -354,7 +354,7 @@ object.
 
 ```rust
 let tmpfs = [("app.yml", yaml)].into_iter().collect::<Tmpfs>();
-let fs = Filesystem::new(Arc::new(tmpfs)).expect("a seeded Tmpfs stands");
+let fs = Filesystem::new(tmpfs).expect("a seeded Tmpfs stands");
 sandbox.mount("/config", fs, Access::Read)?;
 ```
 

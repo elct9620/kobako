@@ -2642,7 +2642,7 @@ fn bind_root(host: &std::path::Path) -> Path {
     let directory = Bind::new(host).expect("the host directory must open");
     let mount = Mount::new(
         "/data",
-        Filesystem::new(Arc::new(directory)).expect("the instance must stand"),
+        Filesystem::new(directory).expect("the instance must stand"),
         Access::ReadWrite,
     )
     .expect("/data is a guest path");
@@ -3508,7 +3508,7 @@ impl LinkedBeneath {
             Arc::new(
                 Overlay::new(
                     vec![Filesystem::new(directory).expect("the instance must stand")],
-                    Some(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand")),
+                    Some(Filesystem::new(Tmpfs::new()).expect("the instance must stand")),
                 )
                 .expect("an upper over a lower Layer must make a view"),
             )

@@ -823,7 +823,7 @@ mod tests {
     fn open_one(opens: fn() -> Box<dyn FileOperations>) -> File {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Opens(opens))).expect("the instance must stand"),
+            Filesystem::new(Opens(opens)).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -965,7 +965,7 @@ mod tests {
         let tmpfs: Tmpfs = [("d/f", "x")].into_iter().collect();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Filesystem::new(tmpfs).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -991,7 +991,7 @@ mod tests {
     fn a_write_of_nothing_leaves_an_appending_file_where_it_stands() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand"),
+            Filesystem::new(Tmpfs::new()).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1021,7 +1021,7 @@ mod tests {
     fn an_entry_without_open_opens_with_no_operations() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(OpensNothing)).expect("the instance must stand"),
+            Filesystem::new(OpensNothing).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -1046,7 +1046,7 @@ mod tests {
         let tmpfs = Tmpfs::try_from_iter([("file.txt", "granted")]).expect("the seed must fit");
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Filesystem::new(tmpfs).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1067,7 +1067,7 @@ mod tests {
         let tmpfs = Tmpfs::try_from_iter([("file.txt", "granted")]).expect("the seed must fit");
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Filesystem::new(tmpfs).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -1252,7 +1252,7 @@ mod tests {
     fn a_listing_read_whole_names_its_dots_as_a_stat_does() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(StatsAsOne)).expect("the instance must stand"),
+            Filesystem::new(StatsAsOne).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -1274,7 +1274,7 @@ mod tests {
         let tmpfs: Tmpfs = [("d/f", "x")].into_iter().collect();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Filesystem::new(tmpfs).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -1307,7 +1307,7 @@ mod tests {
     fn a_listing_whose_directory_cannot_be_stated_hands_nothing() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(CannotStat)).expect("the instance must stand"),
+            Filesystem::new(CannotStat).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -1362,7 +1362,7 @@ mod tests {
     fn opening_a_mounts_root_asks_the_security_modules() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Tmpfs::default())).expect("the instance must stand"),
+            Filesystem::new(Tmpfs::default()).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -1382,7 +1382,7 @@ mod tests {
     fn listings_held_between_calls_count_against_their_limit() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(ReadsWhole)).expect("the instance must stand"),
+            Filesystem::new(ReadsWhole).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -1423,7 +1423,7 @@ mod tests {
     ) -> Vec<(String, Option<Identity>, Option<Identity>)> {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(filesystem)).expect("the instance must stand"),
+            Filesystem::new(filesystem).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1472,8 +1472,8 @@ mod tests {
         let lower: Tmpfs = [("a", "x"), ("d/b", "y")].into_iter().collect();
         let upper = Tmpfs::new();
         let overlay = Overlay::new(
-            vec![Filesystem::new(Arc::new(lower)).expect("the instance must stand")],
-            Some(Filesystem::new(Arc::new(upper)).expect("the instance must stand")),
+            vec![Filesystem::new(lower).expect("the instance must stand")],
+            Some(Filesystem::new(upper).expect("the instance must stand")),
         )
         .unwrap_or_else(|_| panic!("the Overlay must make"));
         assert_named_alike("Overlay", identities(overlay));
@@ -1522,7 +1522,7 @@ mod tests {
     fn a_listing_read_whole_goes_on_past_the_last_entry_taken() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(ReadsWhole)).expect("the instance must stand"),
+            Filesystem::new(ReadsWhole).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -1612,7 +1612,7 @@ mod tests {
     fn open_recording(calls: &RecordsCalls, how: OpenHow) -> File {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(calls.clone())).expect("the instance must stand"),
+            Filesystem::new(calls.clone()).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1716,8 +1716,7 @@ mod tests {
         let syncs = Arc::new(AtomicUsize::new(0));
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(HoldsCountsSyncs(syncs.clone())))
-                .expect("the instance must stand"),
+            Filesystem::new(HoldsCountsSyncs(syncs.clone())).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");

@@ -106,10 +106,10 @@ fn tmpfs_new(args: &[Value]) -> Result<TmpfsFs, MagnusError> {
     let tmpfs = Tmpfs::try_from_iter(files)
         .map_err(|error| MagnusError::new(ruby.exception_arg_error(), error.to_string()))?
         .with_size(size);
-    let filesystem = Filesystem::new(Arc::new(match nr_inodes {
+    let filesystem = Filesystem::new(match nr_inodes {
         Some(nr_inodes) => tmpfs.with_nr_inodes(nr_inodes),
         None => tmpfs,
-    }));
+    });
     filesystem.map(TmpfsFs).map_err(to_instance_error)
 }
 
@@ -141,9 +141,7 @@ fn bind_new(args: &[Value]) -> Result<BindFs, MagnusError> {
             format!("cannot open host directory {path}: {err}"),
         )
     })?;
-    Filesystem::new(Arc::new(
-        directory.with_exclusive(exclusive.unwrap_or(false)),
-    ))
+    Filesystem::new(directory.with_exclusive(exclusive.unwrap_or(false)),)
     .map(BindFs)
     .map_err(to_instance_error)
 }
@@ -187,7 +185,7 @@ fn overlay_new(args: &[Value]) -> Result<OverlayFs, MagnusError> {
         )
     })?;
     Ok(OverlayFs {
-        filesystem: Filesystem::new(Arc::new(overlay)).map_err(to_instance_error)?,
+        filesystem: Filesystem::new(overlay).map_err(to_instance_error)?,
         layers: lower.into_iter().chain(upper).map(Opaque::from).collect(),
     })
 }
@@ -206,7 +204,7 @@ fn to_filesystem(value: Value) -> Result<Arc<Filesystem>, MagnusError> {
         return Ok(fs.filesystem.clone());
     }
     if let Some(fs) = RubyFilesystem::from_value(value)? {
-        return Filesystem::new(Arc::new(fs)).map_err(to_instance_error);
+        return Filesystem::new(fs).map_err(to_instance_error);
     }
     let ruby = Ruby::get().expect("Ruby thread");
     Err(MagnusError::new(

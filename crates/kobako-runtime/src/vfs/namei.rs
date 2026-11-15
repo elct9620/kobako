@@ -1571,7 +1571,7 @@ mod tests {
         };
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(ops)).expect("the instance must stand"),
+            Filesystem::new(ops).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1764,7 +1764,7 @@ mod tests {
         let cred = crate::cred::Cred::new(vec![hooks.clone()]);
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand"),
+            Filesystem::new(Tmpfs::new()).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -1848,7 +1848,7 @@ mod tests {
         let hooks = Arc::new(MovesBeforeOpen::default());
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new([("f", "x")].into_iter().collect::<Tmpfs>()))
+            Filesystem::new([("f", "x")].into_iter().collect::<Tmpfs>())
                 .expect("the instance must stand"),
             Access::ReadWrite,
         )
@@ -1888,7 +1888,7 @@ mod tests {
         let tmpfs: Tmpfs = [("d/f", "x")].into_iter().collect();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Filesystem::new(tmpfs).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -1928,7 +1928,7 @@ mod tests {
     // @behavior RT-254
     #[test]
     fn an_instance_that_cannot_stand_answers_why() {
-        let answer = |fs: NeverStands| Filesystem::new(Arc::new(fs)).err();
+        let answer = |fs: NeverStands| Filesystem::new(fs).err();
         assert_eq!(
             (
                 answer(NeverStands(Some(Errno::PermissionDenied))),
@@ -2004,8 +2004,7 @@ mod tests {
     fn a_filesystem_handing_one_inode_for_two_names_shares_it() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(SharesInode(Arc::default())))
-                .expect("the instance must stand"),
+            Filesystem::new(SharesInode(Arc::default())).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2072,9 +2071,8 @@ mod tests {
     // @behavior RT-315
     #[test]
     fn a_directory_found_under_a_second_name_moves_its_dentry_there() {
-        let root = root_of(
-            Filesystem::new(Arc::new(SharesDirectory::default())).expect("the instance must stand"),
-        );
+        let root =
+            root_of(Filesystem::new(SharesDirectory::default()).expect("the instance must stand"));
         let first = reach(&root, "a").expect("a is reached");
         let second = reach(&root, "b").expect("b is reached");
         assert_eq!(
@@ -2088,9 +2086,8 @@ mod tests {
     // @behavior RT-316
     #[test]
     fn a_directory_found_beneath_itself_answers_eloop() {
-        let root = root_of(
-            Filesystem::new(Arc::new(SharesDirectory::default())).expect("the instance must stand"),
-        );
+        let root =
+            root_of(Filesystem::new(SharesDirectory::default()).expect("the instance must stand"));
         let (answered, answer) = mpsc::channel();
         thread::spawn(move || answered.send(reach(&root, "a/loop").err()).ok());
         let answer = answer
@@ -2109,9 +2106,8 @@ mod tests {
     // @behavior RT-317
     #[test]
     fn a_directory_whose_move_another_call_holds_up_answers_estale() {
-        let root = root_of(
-            Filesystem::new(Arc::new(SharesDirectory::default())).expect("the instance must stand"),
-        );
+        let root =
+            root_of(Filesystem::new(SharesDirectory::default()).expect("the instance must stand"));
         reach(&root, "a").expect("a is reached");
         let _renaming = root
             .mnt()
@@ -2158,8 +2154,7 @@ mod tests {
     // @behavior RT-393
     #[test]
     fn a_directory_a_filesystem_answers_anew_keeps_its_one_dentry() {
-        let root =
-            root_of(Filesystem::new(Arc::new(AnswersAnew)).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(AnswersAnew).expect("the instance must stand"));
         let first = reach(&root, "d").expect("d is reached");
         root.mnt().sb().dentries().unhash(&first);
         let second = reach(&root, "d").expect("d is reached again");
@@ -2245,7 +2240,7 @@ mod tests {
         second: fn(&Path, &str) -> Result<Arc<Dentry>, Errno>,
     ) {
         let fs = HoldsSharedLookup::default();
-        let root = root_of(Filesystem::new(Arc::new(fs.clone())).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(fs.clone()).expect("the instance must stand"));
         let first = reach(&root, "a").expect("a is reached");
         let looking = {
             let root = root.clone();
@@ -2503,7 +2498,7 @@ mod tests {
     // entry has is refused before any directory is searched.
     #[test]
     fn a_stacked_lookup_refuses_a_name_no_single_entry_has() {
-        let filesystem = Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand");
+        let filesystem = Filesystem::new(Tmpfs::new()).expect("the instance must stand");
         let root = filesystem.root().expect(crate::vfs::MADE_ROOT).clone();
         for name in ["", ".", "..", "a/b", "a\0b"] {
             assert_eq!(
@@ -2566,7 +2561,7 @@ mod tests {
         let filesystem = CreatesOnly::default();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(filesystem.clone())).expect("the instance must stand"),
+            Filesystem::new(filesystem.clone()).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2613,7 +2608,7 @@ mod tests {
         let filesystem = CreatesOnly::default();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(filesystem.clone())).expect("the instance must stand"),
+            Filesystem::new(filesystem.clone()).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2640,7 +2635,7 @@ mod tests {
         let made = holds.made.clone();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(holds)).expect("the instance must stand"),
+            Filesystem::new(holds).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2702,7 +2697,7 @@ mod tests {
         let filesystem = OpensWithinItsDirectory::default();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(filesystem)).expect("the instance must stand"),
+            Filesystem::new(filesystem).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2758,8 +2753,7 @@ mod tests {
     fn a_file_atomic_open_found_standing_opens_as_one_that_stood() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(FindsAFileStanding::default()))
-                .expect("the instance must stand"),
+            Filesystem::new(FindsAFileStanding::default()).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -2871,7 +2865,7 @@ mod tests {
         let fs = RecordsTruncate::default();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(fs.clone())).expect("the instance must stand"),
+            Filesystem::new(fs.clone()).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -2901,7 +2895,7 @@ mod tests {
     #[test]
     fn an_exclusive_create_asks_no_truncation() {
         let fs = RecordsTruncate::default();
-        let root = root_of(Filesystem::new(Arc::new(fs.clone())).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(fs.clone()).expect("the instance must stand"));
         let making = OpenHow {
             write: true,
             create: true,
@@ -2925,7 +2919,7 @@ mod tests {
     #[test]
     fn an_open_of_a_name_no_walk_looked_up_asks_atomic_open() {
         let fs = OpensAtOnce::default();
-        let root = root_of(Filesystem::new(Arc::new(fs.clone())).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(fs.clone()).expect("the instance must stand"));
         let read = OpenHow {
             read: true,
             ..OpenHow::default()
@@ -2949,7 +2943,7 @@ mod tests {
     #[test]
     fn a_name_with_a_trailing_slash_asks_atomic_open_for_a_directory() {
         let fs = OpensAtOnce::default();
-        let root = root_of(Filesystem::new(Arc::new(fs.clone())).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(fs.clone()).expect("the instance must stand"));
         let read = OpenHow {
             read: true,
             ..OpenHow::default()
@@ -3005,7 +2999,7 @@ mod tests {
     #[test]
     fn a_file_atomic_open_opens_under_another_spelling_opens_as_that_spelling() {
         let fs = OpensSpelled::default();
-        let root = root_of(Filesystem::new(Arc::new(fs.clone())).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(fs.clone()).expect("the instance must stand"));
         let read = OpenHow {
             read: true,
             ..OpenHow::default()
@@ -3039,7 +3033,7 @@ mod tests {
             root: kern_path(Arc::new(tmpfs)),
             renaming: Arc::new(Box::new(|| Ok(()))),
         };
-        let root = root_of(Filesystem::new(Arc::new(folds)).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(folds).expect("the instance must stand"));
         let read = OpenHow {
             read: true,
             ..OpenHow::default()
@@ -3133,7 +3127,7 @@ mod tests {
         let wrapped = Wrap::new(Arc::new(tmpfs), hook.clone());
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(wrapped)).expect("the instance must stand"),
+            Filesystem::new(wrapped).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -3275,7 +3269,7 @@ mod tests {
     fn a_read_only_filesystem_refuses_a_write_before_its_permission_is_asked() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(ReadOnlyRefusingWrites)).expect("the instance must stand"),
+            Filesystem::new(ReadOnlyRefusingWrites).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -3369,7 +3363,7 @@ mod tests {
         let wrapped = Wrap::new(Arc::new(tmpfs), Arc::new(LinkAtL(Arc::new(link))));
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(wrapped)).expect("the instance must stand"),
+            Filesystem::new(wrapped).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -3459,10 +3453,10 @@ mod tests {
     fn a_link_to_what_has_no_name_left_answers_enoent() {
         let answers = |names| {
             let linked = Arc::new(AtomicUsize::new(0));
-            let filesystem = Filesystem::new(Arc::new(LinksFile {
+            let filesystem = Filesystem::new(LinksFile {
                 names,
                 linked: linked.clone(),
-            }))
+            })
             .expect("the instance must stand");
             let root = root_of(filesystem);
             let answer =
@@ -3484,9 +3478,8 @@ mod tests {
     #[test]
     fn a_change_asks_a_filesystem_once_for_the_name_it_makes() {
         let counts = Arc::new(CountsAsks::default());
-        let filesystem =
-            Filesystem::new(Arc::new(Wrap::new(Arc::new(Tmpfs::new()), counts.clone())))
-                .expect("the instance must stand");
+        let filesystem = Filesystem::new(Wrap::new(Arc::new(Tmpfs::new()), counts.clone()))
+            .expect("the instance must stand");
         let root = root_of(filesystem);
         let cred = Arc::default();
         let how = OpenHow {
@@ -3764,7 +3757,7 @@ mod tests {
         let mount = prepare(
             Mount::new(
                 "/data",
-                Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+                Filesystem::new(tmpfs).expect("the instance must stand"),
                 access,
             )
             .expect("/data is a guest path"),
@@ -3831,7 +3824,7 @@ mod tests {
         let mount = |tmpfs: Tmpfs| {
             Mount::new(
                 "/data",
-                Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+                Filesystem::new(tmpfs).expect("the instance must stand"),
                 Access::ReadWrite,
             )
             .expect("/data is a guest path")
@@ -3894,9 +3887,8 @@ mod tests {
     #[test]
     fn a_move_between_two_names_of_one_entry_changes_nothing() {
         let moves = Arc::new(AtomicUsize::new(0));
-        let root = root_of(
-            Filesystem::new(Arc::new(OneEntry(moves.clone()))).expect("the instance must stand"),
-        );
+        let root =
+            root_of(Filesystem::new(OneEntry(moves.clone())).expect("the instance must stand"));
         assert_eq!(
             (
                 vfs::filename_renameat2(&Arc::default(), &root, "a", &root, "b"),
@@ -3916,14 +3908,13 @@ mod tests {
         let tmpfs: Tmpfs = [("file", "x")].into_iter().collect();
         let plain = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Filesystem::new(tmpfs).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
         let links = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(OpensItsLinks(Arc::default())))
-                .expect("the instance must stand"),
+            Filesystem::new(OpensItsLinks(Arc::default())).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -3956,8 +3947,7 @@ mod tests {
     fn an_open_refuses_a_link_before_its_filesystem_is_asked() {
         let asked = Arc::new(AtomicUsize::new(0));
         let root = root_of(
-            Filesystem::new(Arc::new(OpensItsLinks(asked.clone())))
-                .expect("the instance must stand"),
+            Filesystem::new(OpensItsLinks(asked.clone())).expect("the instance must stand"),
         );
         let read = OpenHow {
             read: true,
@@ -3977,8 +3967,7 @@ mod tests {
     fn an_open_standing_for_a_path_opens_nothing() {
         let asked = Arc::new(AtomicUsize::new(0));
         let root = root_of(
-            Filesystem::new(Arc::new(OpensItsLinks(asked.clone())))
-                .expect("the instance must stand"),
+            Filesystem::new(OpensItsLinks(asked.clone())).expect("the instance must stand"),
         );
         let answer = vfs::kern_path::filp_open(&Arc::default(), &root, "link", &OpenHow::default());
         assert_eq!(
@@ -4022,7 +4011,7 @@ mod tests {
     fn an_entry_neither_file_nor_directory_opens_as_access_denied() {
         let tmpfs = Tmpfs::new();
         tmpfs.whiteout("w").expect("the whiteout must be made");
-        let root = root_of(Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(tmpfs).expect("the instance must stand"));
         let how = OpenHow {
             read: true,
             ..OpenHow::default()
@@ -4080,7 +4069,7 @@ mod tests {
             })),
             ..HookedTmpfs::default()
         };
-        let root = root_of(Filesystem::new(Arc::new(hooked)).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(hooked).expect("the instance must stand"));
         vfs::filename_mkdirat(&Arc::default(), &root, "d").expect("the directory must be made");
         let remover = {
             let root = root.clone();
@@ -4140,7 +4129,7 @@ mod tests {
         let tmpfs: Tmpfs = [("f", "x")].into_iter().collect();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Filesystem::new(tmpfs).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path")
@@ -4221,7 +4210,7 @@ mod tests {
             })),
             ..HookedTmpfs::default()
         };
-        let path = root_of(Filesystem::new(Arc::new(hooked)).expect("the instance must stand"));
+        let path = root_of(Filesystem::new(hooked).expect("the instance must stand"));
         root.set(path.clone()).ok();
         assert_eq!(
             vfs::filename_mkdirat(&Arc::default(), &path, "made"),
@@ -4247,7 +4236,7 @@ mod tests {
             })),
             ..HookedTmpfs::default()
         };
-        let path = root_of(Filesystem::new(Arc::new(hooked)).expect("the instance must stand"));
+        let path = root_of(Filesystem::new(hooked).expect("the instance must stand"));
         root.set(path.clone()).ok();
         assert_eq!(
             vfs::filename_mkdirat(&Arc::default(), &path, "made"),
@@ -4275,7 +4264,7 @@ mod tests {
             })),
             ..HookedTmpfs::default()
         };
-        let path = root_of(Filesystem::new(Arc::new(hooked)).expect("the instance must stand"));
+        let path = root_of(Filesystem::new(hooked).expect("the instance must stand"));
         let kept = open_dir(&path, "kept");
         root.set(path.clone()).ok();
         assert_eq!(
@@ -4316,7 +4305,7 @@ mod tests {
             })),
             ..HookedTmpfs::default()
         };
-        let root = root_of(Filesystem::new(Arc::new(hooked)).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(hooked).expect("the instance must stand"));
         vfs::filename_mkdirat(&Arc::default(), &root, "b").expect("the directory must be made");
         let replaced = open_dir(&root, "b");
         let mover = {
@@ -4362,7 +4351,7 @@ mod tests {
             })),
             ..HookedTmpfs::default()
         };
-        let root = root_of(Filesystem::new(Arc::new(hooked)).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(hooked).expect("the instance must stand"));
         vfs::filename_mkdirat(&Arc::default(), &root, "d").expect("the directory must be made");
         let remover = {
             let root = root.clone();
@@ -4410,7 +4399,7 @@ mod tests {
             root: kern_path(Arc::new(tmpfs)),
             renaming,
         };
-        let root = root_of(Filesystem::new(Arc::new(folds)).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(folds).expect("the instance must stand"));
         let mover = {
             let root = root.clone();
             thread::spawn(move || {
@@ -4477,7 +4466,7 @@ mod tests {
         let tmpfs: Tmpfs = [("f", "x")].into_iter().collect();
         let hook = Arc::new(ReportsUpperCase::default());
         let wrapped = Wrap::new(Arc::new(tmpfs), hook.clone());
-        let root = root_of(Filesystem::new(Arc::new(wrapped)).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(wrapped).expect("the instance must stand"));
         let walked = super::filename_lookup(&Arc::default(), &root, "f", false)
             .and_then(|nd| Ok((nd.path()?.name(), nd.kind()?)));
         assert_eq!(
@@ -4496,7 +4485,7 @@ mod tests {
         let tmpfs: Tmpfs = [("f", "x")].into_iter().collect();
         let hook = Arc::new(ReportsUpperCase::default());
         let wrapped = Wrap::new(Arc::new(tmpfs), hook.clone());
-        let root = root_of(Filesystem::new(Arc::new(wrapped)).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(wrapped).expect("the instance must stand"));
         let first = reach(&root, "f").expect("f is reached");
         hook.revalidated.store(0, Ordering::SeqCst);
         let second = reach(&root, "f").expect("f is reached again");
@@ -4547,7 +4536,7 @@ mod tests {
         let tmpfs: Tmpfs = [("d/.keep", "")].into_iter().collect();
         let hook = Arc::new(MovesWhileAsked::default());
         let wrapped = Wrap::new(Arc::new(tmpfs), hook.clone());
-        let root = root_of(Filesystem::new(Arc::new(wrapped)).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(wrapped).expect("the instance must stand"));
         let _ = hook.root.set(root.clone());
         let held = reach(&root, "d").expect("d is reached");
         let stale = reach(&root, "d").map(|_| ());
@@ -4566,7 +4555,7 @@ mod tests {
     fn a_path_no_call_can_take_is_refused_before_a_filesystem_is_asked() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand"),
+            Filesystem::new(Tmpfs::new()).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -4643,10 +4632,10 @@ mod tests {
     fn lookups_of_two_stats(deleted: bool) -> usize {
         let looked_up = Arc::new(AtomicUsize::new(0));
         let root = root_of(
-            Filesystem::new(Arc::new(CountsLookups {
+            Filesystem::new(CountsLookups {
                 looked_up: looked_up.clone(),
                 deleted,
-            }))
+            })
             .expect("the instance must stand"),
         );
         for _ in 0..2 {
@@ -4737,8 +4726,7 @@ mod tests {
     #[test]
     fn an_open_empties_what_stood_through_setattr_once_it_is_open() {
         let calls = RecordsCalls::default();
-        let root =
-            root_of(Filesystem::new(Arc::new(calls.clone())).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(calls.clone()).expect("the instance must stand"));
         let cred = Arc::default();
         let truncate = OpenHow {
             write: true,
@@ -4773,7 +4761,7 @@ mod tests {
         let calls = RecordsCalls::default();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(calls.clone())).expect("the instance must stand"),
+            Filesystem::new(calls.clone()).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -4851,8 +4839,7 @@ mod tests {
     fn a_truncate_asks_setattr_to_move_the_modification_time_too() {
         use crate::filesystem::SetTime;
         let changes = KeepsChanges::default();
-        let root =
-            root_of(Filesystem::new(Arc::new(changes.clone())).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(changes.clone()).expect("the instance must stand"));
         let cred = Arc::default();
         let write = OpenHow {
             write: true,
@@ -4887,8 +4874,7 @@ mod tests {
     #[test]
     fn a_truncate_made_through_an_open_hands_setattr_that_open() {
         let changes = KeepsChanges::default();
-        let root =
-            root_of(Filesystem::new(Arc::new(changes.clone())).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(changes.clone()).expect("the instance must stand"));
         let cred = Arc::default();
         let write = OpenHow {
             write: true,
@@ -4997,7 +4983,7 @@ mod tests {
     fn open_beneath(holds: Holds, access: Access, path: &str, how: &OpenHow) -> Option<Errno> {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(holds)).expect("the instance must stand"),
+            Filesystem::new(holds).expect("the instance must stand"),
             access,
         )
         .expect("/data is a guest path");
@@ -5016,11 +5002,8 @@ mod tests {
     fn an_allocation_or_advice_on_a_fifo_answers_espipe() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Holds::of(
-                crate::filesystem::FileType::Fifo,
-                Mask::EXEC,
-            )))
-            .expect("the instance must stand"),
+            Filesystem::new(Holds::of(crate::filesystem::FileType::Fifo, Mask::EXEC))
+                .expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -5046,11 +5029,8 @@ mod tests {
     fn an_allocation_on_a_character_device_answers_enodev() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Holds::of(
-                crate::filesystem::FileType::Chrdev,
-                Mask::EXEC,
-            )))
-            .expect("the instance must stand"),
+            Filesystem::new(Holds::of(crate::filesystem::FileType::Chrdev, Mask::EXEC))
+                .expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -5075,11 +5055,8 @@ mod tests {
     fn sizing_a_character_device_answers_einval() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Holds::of(
-                crate::filesystem::FileType::Chrdev,
-                Mask::EXEC,
-            )))
-            .expect("the instance must stand"),
+            Filesystem::new(Holds::of(crate::filesystem::FileType::Chrdev, Mask::EXEC))
+                .expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -5461,10 +5438,8 @@ mod tests {
     // @behavior RT-327
     #[test]
     fn a_walk_made_again_for_estale_counts_the_links_the_first_followed() {
-        let root = root_of(
-            Filesystem::new(Arc::new(StaleBehindLinks::default()))
-                .expect("the instance must stand"),
-        );
+        let root =
+            root_of(Filesystem::new(StaleBehindLinks::default()).expect("the instance must stand"));
         assert_eq!(
             vfs::vfs_fstatat(&Arc::default(), &root, "l0", true).map(|found| found.file_type),
             Err(Errno::FilesystemLoop),
@@ -5481,8 +5456,7 @@ mod tests {
     fn a_link_pointing_nowhere_leaves_the_walk_where_it_stands() {
         use crate::filesystem::FileType;
         let root = root_of(
-            Filesystem::new(Arc::new(PointsNowhere(FileType::Dir)))
-                .expect("the instance must stand"),
+            Filesystem::new(PointsNowhere(FileType::Dir)).expect("the instance must stand"),
         );
         let kind = |path: &str| {
             vfs::vfs_fstatat(&Arc::default(), &root, path, true).map(|found| found.file_type)
@@ -5504,8 +5478,7 @@ mod tests {
         use crate::sched::{run_task, Task};
         use std::time::Instant;
 
-        let root =
-            root_of(Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand"));
+        let root = root_of(Filesystem::new(Tmpfs::new()).expect("the instance must stand"));
         let held = root.dentry().inode_lock().expect("the test holds the root");
         let past_deadline = {
             let root = root.clone();
@@ -5635,8 +5608,7 @@ mod tests {
         });
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(Wrap::new(Arc::new(tmpfs), hook)))
-                .expect("the instance must stand"),
+            Filesystem::new(Wrap::new(Arc::new(tmpfs), hook)).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path")
@@ -5739,8 +5711,7 @@ mod tests {
             let split = (0..20_000)
                 .filter(|_| {
                     let root = root_of(
-                        Filesystem::new(Arc::new(AnswersAtOnce::default()))
-                            .expect("the instance must stand"),
+                        Filesystem::new(AnswersAtOnce::default()).expect("the instance must stand"),
                     );
                     reach(&root, "c").expect("c is reached");
                     let walks = ["a", "c/d"].map(|path| {

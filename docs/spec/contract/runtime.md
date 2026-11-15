@@ -256,7 +256,7 @@ The instance a Filesystem makes, set up as its `fill_super` asks, or why it cann
 
 ```rust
 impl SuperBlock {
-    pub fn new(fs: Arc<dyn FileSystemType>) -> Result<Arc<Self>, Errno> {}
+    pub fn new(fs: impl FileSystemType) -> Result<Arc<Self>, Errno> {}
 }
 ```
 

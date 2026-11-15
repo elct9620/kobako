@@ -1071,9 +1071,9 @@ mod tests {
     }
 
     fn by_path(tmpfs: &Arc<Tmpfs>) -> Arc<Filesystem> {
-        Filesystem::new(Arc::new(ByPath {
+        Filesystem::new(ByPath {
             root: kern_path(tmpfs.clone()),
-        }))
+        })
         .expect("the instance must stand")
     }
 

@@ -210,11 +210,11 @@ mod tests {
     // @behavior RT-272
     #[test]
     fn a_truncate_follows_what_the_policy_allowed_as_the_file_opened() {
-        let filesystem = Filesystem::new(Arc::new(
+        let filesystem = Filesystem::new(
             [("p/f", "x"), ("q/keep", "x")]
                 .into_iter()
                 .collect::<Tmpfs>(),
-        ))
+        )
         .expect("the instance must stand");
         let guarded = Mount::new("/guarded", filesystem.clone(), Access::ReadWrite)
             .expect("/guarded is a guest path")
@@ -255,7 +255,7 @@ mod tests {
     #[test]
     fn an_open_standing_for_a_path_asks_no_policy() {
         let policy = Arc::new(Counts::default());
-        let filesystem = Filesystem::new(Arc::new([("f", "x")].into_iter().collect::<Tmpfs>()))
+        let filesystem = Filesystem::new([("f", "x")].into_iter().collect::<Tmpfs>())
             .expect("the instance must stand");
         let mount = Mount::new("/data", filesystem, Access::ReadWrite)
             .expect("/data is a guest path")
@@ -294,7 +294,7 @@ mod tests {
         .collect();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Filesystem::new(tmpfs).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -408,7 +408,7 @@ mod tests {
         let tmpfs: Tmpfs = [("p/d/f", "x"), ("q/keep", "x")].into_iter().collect();
         let (reached, asked) = std::sync::mpsc::channel();
         let hook = Arc::new(PausesRevalidate(std::sync::Mutex::new(None)));
-        let filesystem = Filesystem::new(Arc::new(Wrap::new(Arc::new(tmpfs), hook.clone())))
+        let filesystem = Filesystem::new(Wrap::new(Arc::new(tmpfs), hook.clone()))
             .expect("the instance must stand");
         let (cred, held, plain, guard) = held_beneath_a_policy(filesystem);
         *hook.0.lock().expect("the sender") = Some(reached);
@@ -500,7 +500,7 @@ mod tests {
             plain: std::sync::OnceLock::new(),
             moved: std::sync::atomic::AtomicUsize::new(0),
         });
-        let filesystem = Filesystem::new(Arc::new(Wrap::new(Arc::new(tmpfs), hook.clone())))
+        let filesystem = Filesystem::new(Wrap::new(Arc::new(tmpfs), hook.clone()))
             .expect("the instance must stand");
         let (_cred, held, plain, guard) = held_beneath_a_policy(filesystem);
         hook.plain.set(Path::root(plain.mnt())).ok();
@@ -527,9 +527,8 @@ mod tests {
         #[ignore = "a stress witness; run by rake crates:stress"]
         fn a_directory_moving_while_calls_start_from_it_stays_reachable_beneath_a_policy() {
             let tmpfs: Tmpfs = [("p/d/f", "x"), ("q/keep", "x")].into_iter().collect();
-            let (cred, held, plain, guard) = held_beneath_a_policy(
-                Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
-            );
+            let (cred, held, plain, guard) =
+                held_beneath_a_policy(Filesystem::new(tmpfs).expect("the instance must stand"));
             let stop = AtomicBool::new(false);
             let start = held.path().clone();
             let refused = std::thread::scope(|scope| {
@@ -570,7 +569,7 @@ mod tests {
     fn only_a_file_or_a_directory_opens() {
         let mount = Mount::new(
             "/data",
-            crate::filesystem::Filesystem::new(Arc::new(crate::filesystem::Tmpfs::new()))
+            crate::filesystem::Filesystem::new(crate::filesystem::Tmpfs::new())
                 .expect("the instance must stand"),
             Access::Read,
         )

@@ -138,7 +138,7 @@ fn a_name_given_twice_is_refused() {
 #[test]
 fn a_name_and_a_mount_path_never_meet() {
     let (mut sandbox, received) = sandbox();
-    let filesystem = Filesystem::new(Arc::new(Tmpfs::default())).expect("an empty Tmpfs stands");
+    let filesystem = Filesystem::new(Tmpfs::default()).expect("an empty Tmpfs stands");
     sandbox.mount("/data", filesystem, Access::Read).unwrap();
     sandbox
         .network("/data", Arc::new(Reaches("api.example.com")))

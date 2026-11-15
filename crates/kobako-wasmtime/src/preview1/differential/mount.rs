@@ -20,7 +20,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use kobako_runtime::filesystem::Bind;
 use kobako_runtime::filesystem::Filesystem;
@@ -380,7 +380,7 @@ fn kobako_preopen(host: &HostDir) -> (Store<Invocation>, Linker<Invocation>) {
     let grant = Grant::Mount(
         Mount::new(
             AT,
-            Filesystem::new(Arc::new(directory)).expect("the instance must stand"),
+            Filesystem::new(directory).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("AT is a guest path"),

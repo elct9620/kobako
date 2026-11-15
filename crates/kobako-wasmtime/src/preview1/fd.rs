@@ -697,7 +697,7 @@ mod tests {
         };
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(holds)).expect("the instance must stand"),
+            Filesystem::new(holds).expect("the instance must stand"),
             access,
         )
         .expect("/data is a guest path");
@@ -810,7 +810,7 @@ mod tests {
     fn a_directory_refuses_a_call_about_its_position() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(HOLDS_REFUSES_CLOSE)).expect("the instance must stand"),
+            Filesystem::new(HOLDS_REFUSES_CLOSE).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -832,7 +832,7 @@ mod tests {
         let tmpfs: kobako_runtime::filesystem::Tmpfs = [("f", "x")].into_iter().collect();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Filesystem::new(tmpfs).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
@@ -888,7 +888,7 @@ mod tests {
         let tmpfs: kobako_runtime::filesystem::Tmpfs = [("f", "x")].into_iter().collect();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(tmpfs)).expect("the instance must stand"),
+            Filesystem::new(tmpfs).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path")
@@ -921,7 +921,7 @@ mod tests {
     fn setting_a_descriptors_times_answers_as_a_paths_do() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(HOLDS_REFUSES_CLOSE)).expect("the instance must stand"),
+            Filesystem::new(HOLDS_REFUSES_CLOSE).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -1278,7 +1278,7 @@ mod tests {
     fn each_listed_entry_names_where_the_listing_goes_on() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(ListsNames("bb"))).expect("the instance must stand"),
+            Filesystem::new(ListsNames("bb")).expect("the instance must stand"),
             Access::Read,
         )
         .expect("/data is a guest path");
@@ -1320,7 +1320,7 @@ mod tests {
         let listed = |bad: &'static str| {
             let mount = Mount::new(
                 "/data",
-                Filesystem::new(Arc::new(ListsNames(bad))).expect("the instance must stand"),
+                Filesystem::new(ListsNames(bad)).expect("the instance must stand"),
                 Access::Read,
             )
             .expect("/data is a guest path");
@@ -1383,7 +1383,7 @@ mod tests {
     fn a_link_to_an_absolute_path_is_not_made() {
         let mount = Mount::new(
             "/data",
-            Filesystem::new(Arc::new(MakesLinks)).expect("the instance must stand"),
+            Filesystem::new(MakesLinks).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");

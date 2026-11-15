@@ -138,8 +138,7 @@ impl Setup {
     fn start(self) -> (Kobako, Linux) {
         match self {
             Self::Tmpfs => {
-                let filesystem =
-                    Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand");
+                let filesystem = Filesystem::new(Tmpfs::new()).expect("the instance must stand");
                 let mut kobako = Kobako::new(filesystem, Access::ReadWrite, false);
                 let root = self.dir("linux");
                 let _ = fs::remove_dir_all(&root);
@@ -160,7 +159,7 @@ impl Setup {
                 seed_directory(&kobako_dir);
                 seed_directory(&linux_dir);
                 let filesystem =
-                    Filesystem::new(Arc::new(bind(&kobako_dir))).expect("the instance must stand");
+                    Filesystem::new(bind(&kobako_dir)).expect("the instance must stand");
                 let access = match self {
                     Self::ReadOnlyBind => Access::Read,
                     _ => Access::ReadWrite,
@@ -188,16 +187,15 @@ impl Setup {
         let root = self.dir("linux-merged");
         umount(&root);
         fs::create_dir_all(&root).expect("the mount point");
-        let lower = Filesystem::new(Arc::new(bind(&self.dir("kobako-lower"))))
-            .expect("the instance must stand");
+        let lower =
+            Filesystem::new(bind(&self.dir("kobako-lower"))).expect("the instance must stand");
         let (overlay, data) = if self == Self::Overlay {
             let (upper, work) = (self.dir("linux-upper"), self.dir("linux-work"));
             for dir in [&upper, &work] {
                 let _ = fs::remove_dir_all(dir);
                 fs::create_dir_all(dir).expect("the overlayfs directory");
             }
-            let upper_tmpfs =
-                Filesystem::new(Arc::new(Tmpfs::new())).expect("the instance must stand");
+            let upper_tmpfs = Filesystem::new(Tmpfs::new()).expect("the instance must stand");
             (
                 Overlay::new(vec![lower], Some(upper_tmpfs)),
                 format!(
@@ -206,8 +204,8 @@ impl Setup {
                 ),
             )
         } else {
-            let second = Filesystem::new(Arc::new(bind(&self.dir("kobako-second"))))
-                .expect("the instance must stand");
+            let second =
+                Filesystem::new(bind(&self.dir("kobako-second"))).expect("the instance must stand");
             (
                 Overlay::new(vec![lower, second], None),
                 format!(
@@ -219,7 +217,7 @@ impl Setup {
         };
         let overlay = overlay.unwrap_or_else(|error| panic!("the Overlay must stack: {error:?}"));
         mount("overlay", &root, Some("overlay"), 0, Some(&data));
-        let filesystem = Filesystem::new(Arc::new(overlay)).expect("the instance must stand");
+        let filesystem = Filesystem::new(overlay).expect("the instance must stand");
         (
             Kobako::new(filesystem, Access::ReadWrite, true),
             Linux::new(&root, true),
