@@ -25,10 +25,10 @@ use crate::Errno;
 /// too, and an `http` endpoint must name it at its port; a literal address
 /// passes the ruleset as itself, so a virtual one is refused, and an IPv6 one
 /// reaches nothing. A header the guest may not set is refused too, so the
-/// seam frames every request itself, and so are a method that is not a token
-/// and a target not in origin form, which a proxy would forward past the
-/// judged authority. Any refusal answers
-/// `Denied`, and nothing is sent.
+/// seam frames every request itself. So is a method that is not a token,
+/// which HTTP cannot carry, and a target not in origin form, which a proxy
+/// would forward past the judged authority. Any refusal answers `Denied`,
+/// and nothing is sent.
 pub fn send(
     net: &Namespace,
     cred: &Arc<Cred>,
