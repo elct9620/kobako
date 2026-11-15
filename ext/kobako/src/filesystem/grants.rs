@@ -13,7 +13,7 @@ use kobako_runtime::policy::Policy;
 
 use super::to_filesystem;
 use crate::pinned_value::PinnedValue;
-use crate::{escape, gvl};
+use crate::{escape, gvl, name_of, named, symbol_name_of};
 
 /// Refuse a Mount at `mount` time by the same rules an invocation builds
 /// it with, so a mistake raises where it was made.
@@ -40,11 +40,8 @@ const ACCESS_NAMES: [(Access, &str); 2] =
     [(Access::Read, "read"), (Access::ReadWrite, "read_write")];
 
 fn to_access(access: Value) -> Result<Access, MagnusError> {
-    let name = crate::symbol_name_of(access)?;
-    ACCESS_NAMES
-        .iter()
-        .find(|(_, named)| name.as_deref() == Some(*named))
-        .map(|&(access, _)| access)
+    symbol_name_of(access)?
+        .and_then(|name| named(&ACCESS_NAMES, &name))
         .ok_or_else(|| {
             MagnusError::new(
                 Ruby::get().expect("Ruby thread").exception_arg_error(),
@@ -58,11 +55,7 @@ fn to_access(access: Value) -> Result<Access, MagnusError> {
 
 /// `access` as the Symbol the `access:` option names it by.
 fn to_access_name(ruby: &Ruby, access: Access) -> Symbol {
-    let (_, name) = ACCESS_NAMES
-        .iter()
-        .find(|(each, _)| *each == access)
-        .expect("every access has a name");
-    ruby.to_symbol(name)
+    ruby.to_symbol(name_of(&ACCESS_NAMES, &access).expect("every access has a name"))
 }
 
 /// A mount's block, asked what its access allows. A block raising a

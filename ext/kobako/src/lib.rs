@@ -53,3 +53,19 @@ fn symbol_name_of(value: Value) -> Result<Option<String>, Error> {
         .map(|symbol| symbol.name().map(|name| name.into_owned()))
         .transpose()
 }
+
+/// The value `table` names `name`.
+fn named<T: Copy>(table: &[(T, &str)], name: &str) -> Option<T> {
+    table
+        .iter()
+        .find(|(_, spelled)| *spelled == name)
+        .map(|(value, _)| *value)
+}
+
+/// The name `table` gives `value`.
+fn name_of<T: PartialEq>(table: &[(T, &'static str)], value: &T) -> Option<&'static str> {
+    table
+        .iter()
+        .find(|(held, _)| held == value)
+        .map(|(_, name)| *name)
+}

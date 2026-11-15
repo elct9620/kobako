@@ -38,7 +38,7 @@ use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_transport::envelope::{Bindings, Flag, Preamble, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
-use crate::{errors, escape, filesystem, gvl, network, symbol_name_of, to_bytes};
+use crate::{errors, escape, filesystem, gvl, name_of, named, network, symbol_name_of, to_bytes};
 use snapshot::Snapshot;
 
 /// `kind` arrives as a Symbol so the registry never names the wire's
@@ -296,10 +296,7 @@ impl Runtime {
         let gvl: Value = options.fetch(ruby.to_symbol("gvl"))?;
         // A value kobako does not name a profile has no profile to stand
         // for, so it is refused rather than read as a weaker one.
-        let name = symbol_name_of(profile)?;
-        let Some(&(profile, _)) = PROFILE_NAMES
-            .iter()
-            .find(|(_, named)| name.as_deref() == Some(*named))
+        let Some(profile) = symbol_name_of(profile)?.and_then(|name| named(&PROFILE_NAMES, &name))
         else {
             return Err(MagnusError::new(
                 ruby.exception_arg_error(),
@@ -446,11 +443,7 @@ const PROFILE_NAMES: [(Profile, &str); 2] = [
 
 /// `profile` as the Symbol the `profile:` option names it by.
 fn to_profile_name(ruby: &Ruby, profile: Profile) -> Symbol {
-    let (_, name) = PROFILE_NAMES
-        .iter()
-        .find(|(each, _)| *each == profile)
-        .expect("every profile has a name");
-    ruby.to_symbol(name)
+    ruby.to_symbol(name_of(&PROFILE_NAMES, &profile).expect("every profile has a name"))
 }
 
 /// The Proc stays GC-rooted for the synchronous `#eval` / `#run` call as a

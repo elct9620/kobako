@@ -27,7 +27,7 @@ use kobako_runtime::policy::Policy;
 pub(super) use mock::MockNet;
 
 use super::pinned_value::PinnedValue;
-use super::{escape, gvl, symbol_name_of};
+use super::{escape, gvl, name_of, named, symbol_name_of};
 
 /// A Ruby entry as one invocation reads it: its endpoints, its own
 /// `resolve?`, `connect?`, and `request?` for each it plays, and its
@@ -263,22 +263,6 @@ const ADDRESS_SET_NAMES: [(Addresses, &str); 3] = [
     (Addresses::Private, "private"),
     (Addresses::Local, "local"),
 ];
-
-/// The value `table` names `name`.
-fn named<T: Copy>(table: &[(T, &str)], name: &str) -> Option<T> {
-    table
-        .iter()
-        .find(|(_, spelled)| *spelled == name)
-        .map(|(value, _)| *value)
-}
-
-/// The name `table` gives `value`.
-fn name_of<T: PartialEq>(table: &[(T, &'static str)], value: &T) -> Option<&'static str> {
-    table
-        .iter()
-        .find(|(held, _)| held == value)
-        .map(|(_, name)| *name)
-}
 
 /// `protocol` as the Symbol Ruby names it by.
 fn to_protocol_name(ruby: &Ruby, protocol: Protocol) -> Result<Symbol, MagnusError> {
