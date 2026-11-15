@@ -41,14 +41,14 @@ The unit a Host App configures once and invokes many times. It owns a Catalog an
 
 ### Snippet
 
-Guest source or bytecode preloaded on a Sandbox and replayed at the start of every Invocation.
+Guest source or bytecode preloaded on a Sandbox and loaded at the start of every Invocation.
 
 ### Bytecode
 
 The compiled form of guest source, in a format the Guest defines. The host carries it as opaque bytes and never reads it. mruby's Guest uses RITE.
 
 ```
-source ──Guest compiles──> Bytecode ──host replays unchanged──> Guest loads
+source ──Guest compiles──> Bytecode ──host passes unchanged──> Guest loads
 ```
 
 ### Service
@@ -340,7 +340,7 @@ One of the two streams guest code writes to: output and error. Each is captured 
 
 ### Mount
 
-The Grant placing a Filesystem at a guest path. It allows reading, or reading and writing, and a Policy may refuse more of that. The Mount decides, so the Filesystem behind it need not.
+The Grant placing a Filesystem at a guest path. It allows reading, or reading and writing, and a Policy may restrict that further. The Mount checks it, so the Filesystem behind it need not.
 
 ```
 Mount -> at a guest path, read or read-write, or a Policy -> a Filesystem
@@ -348,19 +348,19 @@ Mount -> at a guest path, read or read-write, or a Policy -> a Filesystem
 
 ### Policy
 
-The Host App's decision on what a guest asks of a Grant. Each kind of request has its own hook, as an LSM hooks each kind of object. It is asked after the Grant itself allows the call, and can only refuse more.
+The Host App's decision on what a guest asks of a Grant. Each kind of request has its own hook, as an LSM hooks each kind of object. It is asked after the Grant itself allows the call, and can only restrict further.
 
-A Mount's Policy judges each path opened or changed beneath it, as the Filesystem spells it. In Ruby it is the block a mount is given. A network entry's Policies judge each name looked up, each connection, and each HTTP request. In Ruby each is the entry's `resolve?`, `connect?`, or `request?`, or a `policy` block.
+A Mount's Policy checks each path opened or changed beneath it, as the Filesystem spells it. In Ruby it is the block a mount is given. A network entry's Policies check each name looked up, each connection, and each HTTP request. In Ruby each is the entry's `resolve?`, `connect?`, or `request?`, or a `policy` block.
 
 ```
 a path beneath a Mount  --+
 a name, a connection,   --+--> Policy --+-- allows -> the call proceeds
-or a request                            +-- refuses -> denied, the script goes on
+or a request                            +-- denies -> EACCES, the script goes on
 ```
 
 ### Filesystem
 
-The files and directories behind a Mount, and the names reached in them. It answers every call the guest makes beneath that Mount's path, and every Invocation reaches the same one. Its Mounts share those names, as Linux's `super_block` does, so a name moved beneath one is moved beneath all. kobako ships three, and a Host App may bring its own or wrap another.
+The files and directories behind a Mount, and the names reached in them. It implements every call the guest makes beneath that Mount's path, and every Invocation reaches the same one. Its Mounts share those names, as Linux's `super_block` does, so a name moved beneath one is moved beneath all. kobako ships three, and a Host App may bring its own or wrap another.
 
 ```
 Bind     -> a host directory; nothing outside it is reachable
@@ -374,7 +374,7 @@ Overlay  -> Layers stacked into one view; changes land in its upper Tmpfs
 
 ### Layer
 
-One Filesystem stacked in an Overlay, as overlayfs stacks its layers. The lower Layers are read-only. The upper Layer, a Tmpfs, takes every change; without one the Overlay is read-only. A Layer hides the same path in the Layers below it, and a whiteout hides a removed one.
+One Filesystem stacked in an Overlay, as overlayfs stacks its layers. The lower Layers are read-only. The upper Layer, a Tmpfs, takes every change; without one the Overlay is read-only. A Layer hides the same file below it and merges a directory with theirs; a whiteout hides a removed one.
 
 ```
 Overlay -> upper Layer (a Tmpfs, writable) -> lower Layer (read-only) -> ...
@@ -392,11 +392,11 @@ later call -> same identity at its path ─┬─ yes -> proceeds
 
 ### Inode
 
-One entry of a Filesystem, as a lookup finds it: its kind, its Identity, and the operations answering for it. A directory's operations answer about one name in it at a time. A Filesystem is written as those operations, as Linux writes `inode_operations`. Whatever an entry lacks, the runtime answers for it.
+One entry of a Filesystem, as a lookup finds it: its kind, its Identity, and the operations it implements. A directory's operations act on one name in it at a time. A Filesystem is written as those operations, as Linux writes `inode_operations`. An operation an entry lacks takes the runtime's default.
 
 ### Cred
 
-Who a Guest's calls are made for, as Linux's `struct cred`. It holds the security hooks one Invocation registered, so a Policy reaches the runtime the way an LSM does.
+Who a Guest's calls are made for, as Linux's `struct cred`. It carries the security state one Invocation's hooks keep, as a cred carries each LSM's security blob. A Policy reaches the runtime the way an LSM does.
 
 ```
 Invocation's Mounts -> Cred -> each call's security hooks
@@ -404,20 +404,20 @@ Invocation's Mounts -> Cred -> each call's security hooks
 
 ### Dentry
 
-One name of a Filesystem and the directory above it, made by the runtime alone. It carries the name as the directory stores it, so every spelling of one entry reaches the same Dentry. A name moved through the runtime takes its Dentry along, and one removed through it is dead. A Filesystem reads the name a call is about from its Dentry.
+One name of a Filesystem and the directory above it, made by the runtime alone. It carries the name as the directory stores it, so every spelling of one entry reaches the same Dentry. A name moved through the runtime takes its Dentry along, and one removed through it turns negative. A Filesystem reads the name a call is about from its Dentry.
 
-The runtime records on the Dentry the Inode a lookup finds, as Linux's `d_add` does, and asks no more. A Filesystem may answer that a held Dentry no longer names what it recorded. The runtime then drops that Dentry for the next lookup, and its holders keep it alive.
+The runtime records on the Dentry the Inode a lookup finds, as Linux's `d_add` does, and asks no more. A Filesystem may report a held Dentry invalid, as `d_revalidate` does. The runtime then drops that Dentry for the next lookup, and its holders keep it alive.
 
 ### Open File
 
-What a descriptor refers to, as Linux's `struct file`. It holds where it was opened, what answers for it, its position, and what it was opened for. `kobako-runtime` holds it, so every ABI shares one, and each ABI's descriptor table refers to it. Each standard stream is one too, an end of a pipe with no position.
+What a descriptor refers to, as Linux's `struct file`. It holds where it was opened, its `file_operations`, its position, and what it was opened for. `kobako-runtime` holds it, so every ABI shares one, and each ABI's descriptor table refers to it. Each standard stream is one too, an end of a pipe with no position.
 
 ### Path
 
-An entry the guest reached beneath a Mount, as the Filesystem mounted there and the Dentry naming it. The runtime walks a guest path from a directory's, one name at a time.
+An entry the guest reached beneath a Mount, as Linux's `struct path` pairs the mount and the Dentry naming it. The runtime walks a guest path from a directory's, one name at a time.
 
 ```
-Path = mounted Filesystem + Dentry ─▶ Inode ─▶ lookup ─▶ the next Path
+Path = Mount + Dentry ─▶ Inode ─▶ lookup ─▶ the next Path
 ```
 
 ## Network
@@ -446,7 +446,7 @@ sandbox.network(name, entry) -> one Grant -> endpoints, credentials, policies
 
 ### Endpoint
 
-What one entry lets the guest reach: a host, a port, a protocol, and where its name may lead. It is data, so the runtime judges it on any thread. Unless written otherwise, an endpoint speaks HTTP and leads only to public addresses.
+What one entry lets the guest reach: a host, a port, a protocol, and where its name may lead. It is data, so the runtime checks it on any thread. Unless written otherwise, an endpoint speaks HTTP and leads only to public addresses.
 
 ```
 host:port, protocol (HTTP | TCP | UDP), addresses ([:public] unless written)
@@ -454,16 +454,16 @@ host:port, protocol (HTTP | TCP | UDP), addresses ([:public] unless written)
 
 ### Address Set
 
-A named class of real addresses an endpoint may lead to. Three are an endpoint's to name, and two are fixed sets kobako refuses whatever an entry says.
+A named class of real addresses an endpoint may lead to. Three are an endpoint's to name, and two are fixed sets kobako denies whatever an entry says.
 
 ```
 public, local, private   - an endpoint names these
-metadata, reserved       - fixed sets, always refused
+metadata, reserved       - fixed sets, always denied
 ```
 
 ### Ruleset
 
-The rule data compiled each invocation from every entry's endpoints and the address sets. It judges what a name or an address the guest reaches may be.
+The rule data compiled each invocation from every entry's endpoints and the address sets. It matches what a name or an address the guest reaches may be, as an nftables ruleset does.
 
 ```
 endpoints of every entry + address sets -> Ruleset
@@ -479,7 +479,7 @@ guest: Authorization: Bearer <placeholder> -> wire: Bearer <secret>
 
 ### Protocol Family
 
-The backend that reaches the host network, as Linux's `net_proto_family`. It dials the exact address the ruleset passed.
+The backend that creates host sockets, as Linux's `net_proto_family` creates a family's sockets. Each connects to the exact address the ruleset accepted.
 
 ```
 socket layer -> Protocol Family -> host sockets
@@ -487,7 +487,7 @@ socket layer -> Protocol Family -> host sockets
 
 ### Resolver
 
-The backend that answers a name, as userspace's `getaddrinfo` does beside Linux's sockets. A guest's lookup and the L7 proxy both ask it, and it judges nothing.
+The backend that resolves a name, as userspace's `getaddrinfo` does beside Linux's sockets. A guest's lookup and the L7 proxy both ask it, and it checks nothing.
 
 ```
 lookup, L7 proxy -> Resolver -> host resolver
@@ -495,7 +495,7 @@ lookup, L7 proxy -> Resolver -> host resolver
 
 ### Mock
 
-A Protocol Family and a Resolver kobako ships for a Host App's tests. It answers names from a table, dials only the routes it was given, and records what it was asked. The rules judge it as they judge the host's.
+A Protocol Family and a Resolver kobako ships for a Host App's tests. It resolves names from a table, connects only along the routes it was given, and records what it was asked. The rules check it as they check the host's.
 
 ```
 name -> table -> real address -> rules -> route -> a test server
@@ -503,7 +503,7 @@ name -> table -> real address -> rules -> route -> a test server
 
 ### Outbound Seam
 
-The sender of a guest's HTTP request, as wasmtime's `send_request`. It frames and sends what the ruleset already admitted. It stays kobako's own, since the rules hold only while it dials through the socket layer.
+The sender of a guest's HTTP request, as wasmtime's `send_request`. It frames and sends what the ruleset already admitted. It stays kobako's own, since the rules hold only while it connects through the socket layer.
 
 ```
 L7 proxy -> outbound seam -> socket layer -> the server
@@ -511,7 +511,7 @@ L7 proxy -> outbound seam -> socket layer -> the server
 
 ### Namespace
 
-One invocation's network namespace, as Linux's `struct net`. It holds the ruleset, the virtual addresses, the ports, the Protocol Family, the Resolver, and the connection limits. The socket layer and the L7 proxy read them; it judges nothing itself.
+One invocation's network namespace, as Linux's `struct net`. It holds the ruleset, the virtual addresses, the ports, the Protocol Family, the Resolver, and the connection limits. The socket layer and the L7 proxy read them; it checks nothing itself.
 
 ```
 socket layer, L7 proxy -> read -> Namespace: ruleset, virtual addresses, limits
@@ -519,15 +519,15 @@ socket layer, L7 proxy -> read -> Namespace: ruleset, virtual addresses, limits
 
 ### Socket Hooks
 
-The socket half of the security hooks, as Linux's `security_socket_*`. The modules a credential holds, then each entry's policy, judge what the guest named before the ruleset.
+The socket half of the security hooks, as Linux's `security_socket_*`. The modules a credential holds, then each entry's policy, check what the guest named before the ruleset.
 
 ```
-guest names an address -> socket hooks -> ruleset -> dial
+guest names an address -> socket hooks -> ruleset -> connect
 ```
 
 ### Virtual Address
 
-The address a lookup hands the guest in place of one real address. No second name reuses it. A connect to it dials the one real address it stands for, so the guest never learns one.
+The address a lookup hands the guest in place of one real address. No second name reuses it. A connect to it connects to the one real address it stands for, so the guest never learns one.
 
 ```
 lookup "api.example.com" -> virtual address -> connect -> the real addresses
@@ -535,7 +535,7 @@ lookup "api.example.com" -> virtual address -> connect -> the real addresses
 
 ### Connector
 
-The dialer the runtime hands the outbound seam. An HTTP request opens its connection through a socket of the Invocation's own. The seam is supplied one and never implements its own.
+The connector the runtime hands the outbound seam. An HTTP request opens its connection through a socket of the Invocation's own. The seam is supplied one and never implements its own.
 
 ```
 outbound seam -> connector -> socket layer -> Protocol Family
