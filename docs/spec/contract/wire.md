@@ -23,6 +23,16 @@ A payload document that writes itself to the codec's bytes.
 pub trait Encode {}
 ```
 
+## `Encode::encode`
+
+Write the document to the codec's bytes.
+
+```rust
+pub trait Encode {
+    fn encode(&self) -> Result<Vec<u8>, Error>;
+}
+```
+
 ## `Decode`
 
 A payload document that reads itself back from the codec's bytes.
@@ -31,3 +41,12 @@ A payload document that reads itself back from the codec's bytes.
 pub trait Decode {}
 ```
 
+## `Decode::decode`
+
+Read a document from the codec's bytes.
+
+```rust
+pub trait Decode {
+    fn decode(bytes: &[u8]) -> Result<Self, Error>;
+}
+```

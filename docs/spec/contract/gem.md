@@ -21,6 +21,7 @@ plainly the code works.
 - `lib/kobako/network.rb`
 - `lib/kobako/pool.rb`
 - `lib/kobako/sandbox.rb`
+- `lib/kobako/sandbox_options.rb`
 - `lib/kobako/transport/error.rb`
 - `lib/kobako/unresolved.rb`
 - `lib/kobako/usage.rb`
@@ -527,6 +528,20 @@ module Kobako
 end
 ```
 
+## `Kobako::Pool#initialize`
+
+A Pool of at most `size` Sandboxes, each built with the other keywords and
+prepared once by the block.
+
+```ruby
+module Kobako
+  class Pool
+    def initialize(size:, checkout_timeout: DEFAULT_CHECKOUT_TIMEOUT_SECONDS, **sandbox_options, &setup)
+    end
+  end
+end
+```
+
 ## `Kobako::Pool#with`
 
 Check a Sandbox out for the block's duration and return it afterwards.
@@ -536,6 +551,17 @@ module Kobako
   class Pool
     def with
     end
+  end
+end
+```
+
+## `Kobako::SandboxOptions`
+
+The options a Sandbox was built with, each read by its keyword's name.
+
+```ruby
+module Kobako
+  class SandboxOptions
   end
 end
 ```

@@ -16,6 +16,7 @@ experimental, so the runtime promises it nothing here.
 - `crates/kobako-runtime/src/policy.rs`
 - `crates/kobako-runtime/src/mount.rs`
 - `crates/kobako-runtime/src/net/backends.rs`
+- `crates/kobako-runtime/src/net/connections.rs`
 - `crates/kobako-runtime/src/net/family.rs`
 - `crates/kobako-runtime/src/net/lookup.rs`
 - `crates/kobako-runtime/src/net/mock.rs`
@@ -68,6 +69,32 @@ Dial through one Protocol Family and look names up through one Resolver.
 ```rust
 impl Backends {
     pub fn new(family: Arc<dyn ProtocolFamily>, resolver: Arc<dyn Resolver>) -> Self {}
+}
+```
+
+## `process_connections`
+
+Every connection the process's Sandboxes hold open together.
+
+```rust
+pub fn process_connections() -> &'static Arc<OpenConnections> {}
+```
+
+## `OpenConnections`
+
+How many connections one owner holds open, and the most it may.
+
+```rust
+pub struct OpenConnections {}
+```
+
+## `OpenConnections::set_limit`
+
+Move the limit; one held past a lowered limit stays open.
+
+```rust
+impl OpenConnections {
+    pub fn set_limit(&self, limit: Option<usize>) {}
 }
 ```
 
