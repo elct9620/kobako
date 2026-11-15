@@ -2687,3 +2687,16 @@ endpoint "api.example.com", port: 443
 | Given | a Mock answering a name spelled in capitals, with its root's dot, or as an IDN |
 | When | the guest looks up the name in another spelling |
 | Then | the Mock answers it, as the URL host parser reads both as one A-label. A Mock told an address, or a name ending in an empty label, raises `ArgumentError` |
+
+## `NW-216` An endpoint's or a credential's text of another class raises TypeError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-213` |
+| relates | `NW-008` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | an endpoint's host, a rule's method or path, or a credential's placeholder is neither a Symbol nor a String |
+| Then | it raises `TypeError` where the value is built, and an entry answering one raises it at the invocation |

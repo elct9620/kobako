@@ -396,3 +396,16 @@ The `Storage` idiom the end-to-end witnesses install is an illustrative fixture.
 | Given | a backend declaring a callable as its fixed object |
 | When | the Extension is installed and an invocation resolves its backends |
 | Then | the callable is never called |
+
+## `EX-050` A dependency list of another class raises TypeError at install
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-213` |
+| relates | `EX-023` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Extension whose `depends_on` is not an Array, or holds an entry neither a Symbol nor a String |
+| When | it is installed |
+| Then | it raises `TypeError`, before any invocation |
