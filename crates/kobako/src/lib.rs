@@ -55,7 +55,7 @@ pub mod yielder;
 // feature goes off was never a root name.
 pub use error::{ArgumentKind, Error, Failure};
 pub use execution::{Execution, Usage};
-pub use extension::{Backend, Extension, Provider};
+pub use extension::{Backend, Extension, Lifetime};
 pub use handles::Handles;
 pub use kobako_runtime::filesystem::Filesystem;
 pub use kobako_runtime::mount::{Access, MountRequest};

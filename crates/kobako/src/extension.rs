@@ -5,7 +5,7 @@
 //! The SDK twin of the Ruby gem's `Kobako::Extension`. `Sandbox::install`
 //! registers an Extension's `source` as a preloaded snippet and, when it
 //! carries a `Backend`, binds the backend path as a Service — a fixed object
-//! for a `Static` provider, an object resolved fresh each invocation for a
+//! for a `Static` lifetime, an object resolved fresh each invocation for a
 //! `PerInvocation` one, or the `Unresolved` sentinel for a `Fillable` one that
 //! a per-invocation `ctx.bind` override supplies. Behavior parity with the
 //! Ruby frontend is pinned by the differential harness.
@@ -23,7 +23,7 @@ use crate::yielder::Yielder;
 /// A backend factory invoked once per invocation. The same `Arc` shared by
 /// several Extensions is resolved once per invocation to one object.
 ///
-/// Public because `Provider::PerInvocation` carries it: a third party can
+/// Public because `Lifetime::PerInvocation` carries it: a third party can
 /// build one by inference, but without the name they cannot declare a
 /// helper that takes or returns one.
 pub type ProviderFn = Arc<dyn Fn() -> Arc<dyn Receiver> + Send + Sync>;
@@ -48,7 +48,7 @@ pub trait Extension: Send + Sync {
         &[]
     }
 
-    /// The host attachment — a path plus a provider — or `None` for a
+    /// The host attachment — a path plus a lifetime — or `None` for a
     /// pure-guest Extension.
     fn backend(&self) -> Option<Backend> {
         None
@@ -56,15 +56,16 @@ pub trait Extension: Send + Sync {
 }
 
 /// The host attachment of an Extension: the constant `path` the backend
-/// binds at, paired with the `provider` that sources its object.
+/// binds at, paired with the `lifetime` its object lives for.
 pub struct Backend {
     pub path: String,
-    pub provider: Provider,
+    pub lifetime: Lifetime,
 }
 
-/// How a backend's bound object is sourced — the explicit spelling of the
-/// three-kind choice the Ruby `Extension::Backend` makes by keyword.
-pub enum Provider {
+/// How long a backend's bound object lives, as .NET's `ServiceLifetime`
+/// names a service's: the explicit spelling of the three-kind choice the
+/// Ruby `Extension::Backend` makes by keyword.
+pub enum Lifetime {
     /// One object for the Sandbox's life.
     Static(Arc<dyn Receiver>),
     /// An object resolved fresh at the start of every invocation. Provider
@@ -109,10 +110,10 @@ pub(crate) fn unresolved() -> Arc<dyn Receiver> {
     Arc::new(Unresolved)
 }
 
-fn object_of(provider: &Provider) -> Arc<dyn Receiver> {
-    match provider {
-        Provider::Static(object) => object.clone(),
-        Provider::PerInvocation(_) | Provider::Fillable => unresolved(),
+fn object_of(lifetime: &Lifetime) -> Arc<dyn Receiver> {
+    match lifetime {
+        Lifetime::Static(object) => object.clone(),
+        Lifetime::PerInvocation(_) | Lifetime::Fillable => unresolved(),
     }
 }
 
@@ -136,7 +137,7 @@ impl Extensions {
             .snippets
             .register_source(extension.name(), extension.source())?;
         if let Some(backend) = extension.backend() {
-            catalog.bind(&backend.path, object_of(&backend.provider))?;
+            catalog.bind(&backend.path, object_of(&backend.lifetime))?;
         }
         self.entries.push(extension);
         Ok(())
@@ -179,7 +180,7 @@ impl Extensions {
             let Some(backend) = extension.backend() else {
                 continue;
             };
-            let Provider::PerInvocation(provider) = backend.provider else {
+            let Lifetime::PerInvocation(provider) = backend.lifetime else {
                 continue;
             };
             let object = match by_provider
@@ -307,7 +308,7 @@ mod tests {
             fn backend(&self) -> Option<Backend> {
                 Some(Backend {
                     path: self.path.to_string(),
-                    provider: Provider::PerInvocation(self.provider.clone()),
+                    lifetime: Lifetime::PerInvocation(self.provider.clone()),
                 })
             }
         }

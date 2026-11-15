@@ -25,7 +25,7 @@ use kobako::filesystem::Tmpfs;
 use kobako::msgpack::{RunArg, Value, ValueReceiver};
 use kobako::{
     network, Access, Backend, Error, Execution, Extension, Fault, FaultKind, Filesystem, Handles,
-    Options, Profile, Provider, Receiver, RunPayload, Sandbox, Yielder,
+    Lifetime, Options, Profile, Receiver, RunPayload, Sandbox, Yielder,
 };
 
 /// The scenario's opaque host objects by declared label, shared by the
@@ -224,7 +224,7 @@ fn install_extension(sandbox: &mut Sandbox, extension: &Json) -> Result<(), Stri
         None | Some(Json::Null) => None,
         Some(spec) => {
             spec["path"].as_str().ok_or("backend must carry path")?;
-            build_provider(spec)?; // validate the provider shape at install
+            build_lifetime(spec)?; // validate the backend shape at install
             Some(spec.clone())
         }
     };
@@ -261,22 +261,22 @@ impl Extension for ScenarioExtension {
                 .as_str()
                 .expect("backend path validated at install")
                 .to_string(),
-            provider: build_provider(spec).expect("provider validated at install"),
+            lifetime: build_lifetime(spec).expect("provider validated at install"),
         })
     }
 }
 
 /// `per_invocation` rebuilds a fresh stub each invocation, so a stateful
 /// `counter` resets between invocations.
-fn build_provider(backend: &Json) -> Result<Provider, String> {
+fn build_lifetime(backend: &Json) -> Result<Lifetime, String> {
     match backend["provider"].as_str() {
-        Some("fixed") => Ok(Provider::Static(
+        Some("fixed") => Ok(Lifetime::Static(
             build_backend_stub(&backend["methods"])?.into_receiver(),
         )),
         Some("per_invocation") => {
             let methods = backend["methods"].clone();
             build_backend_stub(&methods)?; // validate; the closure rebuilds
-            Ok(Provider::PerInvocation(Arc::new(move || {
+            Ok(Lifetime::PerInvocation(Arc::new(move || {
                 build_backend_stub(&methods)
                     .expect("methods validated at install")
                     .into_receiver() as Arc<dyn Receiver>

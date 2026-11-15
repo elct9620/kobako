@@ -1,5 +1,5 @@
 //! Integration coverage for a fillable Service path: declared
-//! with `bind_fillable`, or as an Extension backend with `Provider::Fillable`,
+//! with `bind_fillable`, or as an Extension backend with `Lifetime::Fillable`,
 //! and left unfilled, it enters the Preamble so the guest sees the constant, but a
 //! dispatch to it fails closed as a Service failure — the same fail-closed
 //! path as an idiom with no backend. A `ctx.bind` override fills it for one
@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use crate::common::real_sandbox;
 use kobako::msgpack::{Value, ValueReceiver};
-use kobako::{Backend, Error, Extension, Fault, Handles, Provider, Yielder};
+use kobako::{Backend, Error, Extension, Fault, Handles, Lifetime, Yielder};
 
 /// A host store the guest reaches through the filled backend; `get` returns
 /// its fixed value so a test can witness the fill.
@@ -50,7 +50,7 @@ impl Extension for StoreExt {
     fn backend(&self) -> Option<Backend> {
         Some(Backend {
             path: "Store".to_string(),
-            provider: Provider::Fillable,
+            lifetime: Lifetime::Fillable,
         })
     }
 }
@@ -123,7 +123,7 @@ fn an_extension_fillable_backend_left_unfilled_fails_closed() {
 
     assert!(
         matches!(err, Error::Service(_)),
-        "an unfilled Provider::Fillable backend's dispatch must surface as a Service failure, \
+        "an unfilled Lifetime::Fillable backend's dispatch must surface as a Service failure, \
          got {err:?}"
     );
 }
@@ -149,7 +149,7 @@ fn a_ctx_bind_override_fills_an_extension_fillable_backend() {
     assert_eq!(
         value,
         Value::Str("filled".into()),
-        "a ctx.bind override must fill a Provider::Fillable backend so the guest reaches the \
+        "a ctx.bind override must fill a Lifetime::Fillable backend so the guest reaches the \
          supplied object"
     );
 }

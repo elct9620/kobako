@@ -148,9 +148,9 @@ pub trait Extension: Send + Sync {
     fn backend(&self) -> Option<Backend> { None }
 }
 
-pub struct Backend { pub path: String, pub provider: Provider }
+pub struct Backend { pub path: String, pub lifetime: Lifetime }
 
-pub enum Provider {
+pub enum Lifetime {
     Static(Arc<dyn Receiver>),                                       // fixed
     PerInvocation(Arc<dyn Fn() -> Arc<dyn Receiver> + Send + Sync>), // fresh each invocation
     Fillable,                                                        // unresolved until ctx.bind fills it

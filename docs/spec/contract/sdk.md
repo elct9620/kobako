@@ -602,13 +602,13 @@ sourced.
 pub struct Backend {}
 ```
 
-## `Provider`
+## `Lifetime`
 
-How a Backend's object is sourced: once, per invocation, or filled through the
+How long a Backend's object lives: once, per invocation, or filled through the
 Context.
 
 ```rust
-pub enum Provider {}
+pub enum Lifetime {}
 ```
 
 ## `ValueReceiver`
