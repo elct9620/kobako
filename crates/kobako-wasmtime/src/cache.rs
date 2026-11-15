@@ -75,7 +75,7 @@ fn spawn_epoch_ticker(engine: WtEngine) {
     });
 }
 
-/// A missing file answers `SetupError::ModuleNotBuilt`, the common state of
+/// A missing file answers `SetupError::GuestBinaryNotFound`, the common state of
 /// a fresh clone before `rake compile`.
 pub(crate) fn load_module(path: &Path) -> Result<WtModule, SetupError> {
     let cache = MODULE_CACHE.get_or_init(|| Mutex::new(HashMap::new()));
@@ -90,7 +90,7 @@ pub(crate) fn load_module(path: &Path) -> Result<WtModule, SetupError> {
     }
 
     if !path.exists() {
-        return Err(SetupError::ModuleNotBuilt(format!(
+        return Err(SetupError::GuestBinaryNotFound(format!(
             "Sandbox runtime not found at {}",
             path.display()
         )));

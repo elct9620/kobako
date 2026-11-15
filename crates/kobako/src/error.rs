@@ -226,11 +226,13 @@ mod tests {
     }
 
     // A Setup error displayed to a host embedder must read as the plain
-    // failure message, not the leaked `ModuleNotBuilt("…")` Debug form.
+    // failure message, not the leaked `GuestBinaryNotFound("…")` Debug form.
     // @behavior OC-031
     #[test]
     fn setup_error_display_is_the_plain_message() {
-        let err = Error::Setup(SetupError::ModuleNotBuilt("kobako.wasm not found".into()));
+        let err = Error::Setup(SetupError::GuestBinaryNotFound(
+            "kobako.wasm not found".into(),
+        ));
         assert_eq!(err.to_string(), "kobako.wasm not found");
     }
 }

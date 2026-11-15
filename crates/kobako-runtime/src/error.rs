@@ -28,7 +28,7 @@ pub enum Trap {
 
 /// A failure that yields no invocation outcome. The discriminant records
 /// the runtime's state so a frontend can attribute the failure:
-/// `ModuleNotBuilt` (the guest artifact is absent), `Dead` (the runtime
+/// `GuestBinaryNotFound` (the guest artifact is absent), `Dead` (the runtime
 /// could not be constructed), and `Intact` (the runtime is live but a
 /// host-side pre-call step failed before the engine ran).
 ///
@@ -37,7 +37,7 @@ pub enum Trap {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum SetupError {
-    ModuleNotBuilt(String),
+    GuestBinaryNotFound(String),
     Dead(String),
     Intact(String),
 }
@@ -100,8 +100,9 @@ impl fmt::Display for Trap {
 
 impl fmt::Display for SetupError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let (SetupError::ModuleNotBuilt(msg) | SetupError::Dead(msg) | SetupError::Intact(msg)) =
-            self;
+        let (SetupError::GuestBinaryNotFound(msg)
+        | SetupError::Dead(msg)
+        | SetupError::Intact(msg)) = self;
         f.write_str(msg)
     }
 }

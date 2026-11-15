@@ -64,7 +64,7 @@ pub(super) fn from_setup(ruby: &Ruby, err: SetupError) -> MagnusError {
     match err {
         // The engine serves every frontend, so the gem adds its own way to
         // build the artifact.
-        SetupError::ModuleNotBuilt(msg) => error_in(
+        SetupError::GuestBinaryNotFound(msg) => error_in(
             ruby,
             &MODULE_NOT_BUILT_ERROR,
             format!("{msg}; run `bundle exec rake wasm:build` to build it"),
