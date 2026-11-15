@@ -3,7 +3,6 @@
 //! request policies, and the credentials bound to its own endpoints. It reads
 //! the namespace's state and decides at layer 7.
 
-use std::net::SocketAddr;
 use std::sync::Arc;
 
 use super::credential::{occurrences_of, Swap};
@@ -18,7 +17,6 @@ use super::Namespace;
 use crate::cred::Cred;
 use crate::network::{Connection, Credential, Host, Protocol, Request, Ruleset};
 use crate::policy::Policy;
-use crate::Errno;
 
 /// Send an HTTP request in `net` as `cred`. The socket hooks judge the
 /// authority the guest named first, a name passing the `resolve` policies
@@ -54,8 +52,11 @@ pub fn send(
     if cred.security_socket_connect(&connection).is_err() {
         return Err(HttpError::Denied);
     }
+    // A literal the socket hooks passed meets the ruleset as itself where
+    // the request does, below; one of a family no socket has reaches
+    // nothing, as a socket's `connect4` answers it.
     let reachable = match judged {
-        Host::Address(ip) => admit_literal(net, SocketAddr::new(ip, port)).is_ok(),
+        Host::Address(ip) => check_family(AddressFamily::of(ip)).is_ok(),
         Host::Name(ref name) => allows_lookup(net, name),
     };
     let path = request
@@ -98,14 +99,6 @@ pub fn send(
             cred,
         )
     })
-}
-
-/// Whether a request may reach `addr`, a literal the socket hooks already
-/// passed: one of a family no socket has answers `EAFNOSUPPORT`, as a
-/// socket's `connect4` does; any other meets `net`'s ruleset as itself.
-fn admit_literal(net: &Namespace, addr: SocketAddr) -> Result<(), Errno> {
-    check_family(AddressFamily::of(addr.ip()))?;
-    net.ruleset().admit_literal(addr, Protocol::Http)
 }
 
 /// The entries' request policies, which judge a request `send` found its

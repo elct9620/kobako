@@ -98,6 +98,14 @@ fn room_of(name: &str, value: &[u8]) -> usize {
     name.len() + value.len() + std::mem::size_of::<(String, Vec<u8>)>()
 }
 
+/// The room every entry of `entries` takes in a list.
+fn total_room_of(entries: &[(String, Vec<u8>)]) -> usize {
+    entries
+        .iter()
+        .map(|(name, value)| room_of(name, value))
+        .sum()
+}
+
 impl Fields {
     /// An empty list, charged to `cred` as it grows.
     pub fn new(cred: Arc<Cred>) -> Arc<Self> {
@@ -116,10 +124,7 @@ impl Fields {
         cred: Arc<Cred>,
         entries: Vec<(String, Vec<u8>)>,
     ) -> Result<Arc<Self>, FieldError> {
-        let room = entries
-            .iter()
-            .map(|(name, value)| room_of(name, value))
-            .sum();
+        let room = total_room_of(&entries);
         let room =
             MemoryCharge::new(cred.memory_budget(), room).map_err(|_| FieldError::OutOfMemory)?;
         Ok(Arc::new(Self {
@@ -321,11 +326,7 @@ impl OutgoingRequest {
         self.method.len()
             + self.authority.len()
             + self.path_with_query.len()
-            + self
-                .headers
-                .iter()
-                .map(|(name, value)| room_of(name, value))
-                .sum::<usize>()
+            + total_room_of(&self.headers)
     }
 }
 
@@ -495,6 +496,14 @@ struct State {
     filler: Option<Waker>,
 }
 
+impl State {
+    /// Whether the body holds nothing yet and may still bring a part: it
+    /// neither ended, failed, nor waited past its timeout.
+    fn is_awaiting_body(&self) -> bool {
+        self.body.is_empty() && !self.body_ended && !self.body_failed && !self.body_timed_out
+    }
+}
+
 /// One request in flight, then its response: the head once it arrives, and
 /// the body as the task reads it.
 pub struct Exchange {
@@ -562,12 +571,7 @@ impl Exchange {
         let task = reactor.spawn(async move {
             match sending.await {
                 Ok(response) => {
-                    let room = response
-                        .head
-                        .headers
-                        .iter()
-                        .map(|(name, value)| room_of(name, value))
-                        .sum();
+                    let room = total_room_of(&response.head.headers);
                     let Ok(head_memory) = MemoryCharge::new(cred.memory_budget(), room) else {
                         lock(&state).phase = Phase::Failed(HttpError::Internal);
                         wait.wake_up();
@@ -640,12 +644,7 @@ impl Exchange {
                     Expiry::Fail(HttpError::ConnectionReadTimeout),
                 )),
             },
-            Phase::Answered(_)
-                if state.body.is_empty()
-                    && !state.body_ended
-                    && !state.body_failed
-                    && !state.body_timed_out =>
-            {
+            Phase::Answered(_) if state.is_awaiting_body() => {
                 let after = bound(self.timeouts.between_bytes);
                 state.last_part.map(|at| (at + after, Expiry::Body))
             }
@@ -775,12 +774,7 @@ impl FileOperations for BodyFile {
         poll_wait(&self.0.wait, table);
         let state = self.0.state();
         let settled = !matches!(state.phase, Phase::Sending);
-        match settled
-            && (!state.body.is_empty()
-                || state.body_ended
-                || state.body_failed
-                || state.body_timed_out)
-        {
+        match settled && !state.is_awaiting_body() {
             true => PollMask::IN,
             false => PollMask::default(),
         }
@@ -2232,18 +2226,21 @@ mod tests {
             .with_addresses(vec![crate::network::Addresses::Local])]);
         let mut request = greeting_request(&format!("127.0.0.1:{port}"));
         request.timeouts.between_bytes = Some(Duration::ZERO);
-        let exchange = crate::net::send(&namespace, &prepare_creds(&[], None), request)
-            .expect("the endpoint names the authority");
+        let cred = prepare_creds(&[], None);
+        let exchange =
+            crate::net::send(&namespace, &cred, request).expect("the endpoint names the authority");
         let head = settled(&exchange).map(|head| head.status);
         let mut buf = [0; 8];
         let read = exchange.read(&mut buf);
+        let readable = exchange.alloc_body_file(&cred).poll(None) == PollMask::IN;
         exchange.release();
         server.join().unwrap();
         assert_eq!(
-            (head, read),
-            (Ok(200), Err(Errno::TimedOut)),
+            (head, read, readable),
+            (Ok(200), Err(Errno::TimedOut), true),
             "a body whose next part outlasts its between-bytes timeout must fail its read as \
-             ETIMEDOUT once its head arrived"
+             ETIMEDOUT once its head arrived, and its file must poll readable so a waiting \
+             reader meets that failure"
         );
     }
 
