@@ -8,8 +8,8 @@ use std::sync::Arc;
 
 use super::credential::{carries, Swap};
 use super::http::{
-    join_authority, split_authority, to_field_name, to_field_value, to_origin_form, Exchange,
-    HttpError, OutgoingRequest, Scheme,
+    is_token, join_authority, split_authority, to_field_name, to_field_value, to_origin_form,
+    Exchange, HttpError, OutgoingRequest, Scheme,
 };
 use super::lookup::allows_lookup;
 use super::socket::{check_family, AddressFamily};
@@ -25,8 +25,9 @@ use crate::Errno;
 /// too, and an `http` endpoint must name it at its port; a literal address
 /// passes the ruleset as itself, so a virtual one is refused, and an IPv6 one
 /// reaches nothing. A header the guest may not set is refused too, so the
-/// seam frames every request itself, and so is a target not in origin form,
-/// which a proxy would forward past the judged authority. Any refusal answers
+/// seam frames every request itself, and so are a method that is not a token
+/// and a target not in origin form, which a proxy would forward past the
+/// judged authority. Any refusal answers
 /// `Denied`, and nothing is sent.
 pub fn send(
     net: &Namespace,
@@ -36,6 +37,7 @@ pub fn send(
     let in_origin_form = to_origin_form(&request.path_with_query).as_deref()
         == Some(request.path_with_query.as_str());
     if !in_origin_form
+        || !is_token(&request.method)
         || request.headers.iter().any(|(name, value)| {
             to_field_name(name).is_err() || to_field_value(value.clone()).is_err()
         })

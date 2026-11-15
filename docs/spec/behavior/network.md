@@ -2725,3 +2725,16 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox whose `open_connection_limit` is 1, and an invocation whose lookup has not been answered |
 | When | another invocation of the same Sandbox, running beside it, looks up a name |
 | Then | that lookup takes a place of its own and is answered, as a Cloudflare Worker counts each request's connections apart |
+
+## `NW-219` A request whose method is not a token is refused unsent
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-145` |
+| relates | `NW-184` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint, and a Wasm Driver handing the runtime a request |
+| When | the request's method is empty or holds a space |
+| Then | it answers `Denied` and nothing is sent, since no request policy is asked about a method HTTP cannot carry |

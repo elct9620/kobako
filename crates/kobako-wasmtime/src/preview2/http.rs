@@ -169,8 +169,8 @@ fn to_error_code(err: net::HttpError) -> ErrorCode {
     }
 }
 
-fn to_method_name(method: &Method) -> Option<String> {
-    let name = match method {
+fn name_of(method: &Method) -> &str {
+    match method {
         Method::Get => "GET",
         Method::Head => "HEAD",
         Method::Post => "POST",
@@ -180,9 +180,8 @@ fn to_method_name(method: &Method) -> Option<String> {
         Method::Options => "OPTIONS",
         Method::Trace => "TRACE",
         Method::Patch => "PATCH",
-        Method::Other(other) => return net::is_token(other).then(|| other.clone()),
-    };
-    Some(name.to_string())
+        Method::Other(other) => other,
+    }
 }
 
 impl Invocation {
@@ -216,9 +215,7 @@ impl Invocation {
     /// Hand `request` to the namespace, which judges it here on the guest
     /// thread before the reactor sends it.
     fn send(&mut self, request: Request) -> FutureState {
-        let Some(method) = to_method_name(&request.method) else {
-            return FutureState::Refused(ErrorCode::HTTPRequestMethodInvalid);
-        };
+        let method = name_of(&request.method).to_string();
         let scheme = match request.scheme.as_ref() {
             Some(Scheme::HTTP) => net::Scheme::Http,
             Some(Scheme::HTTPS) | None => net::Scheme::Https,
@@ -377,7 +374,7 @@ impl HttpHost for Invocation {
         this: OutgoingRequest,
         method: Method,
     ) -> wasmtime::Result<Result<(), ()>> {
-        if to_method_name(&method).is_none() {
+        if !net::is_token(name_of(&method)) {
             return Ok(Err(()));
         }
         self.change_request(this, |request| request.method = method)?;

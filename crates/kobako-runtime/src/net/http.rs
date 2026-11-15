@@ -1690,6 +1690,30 @@ mod tests {
         );
     }
 
+    // @behavior NW-219
+    #[test]
+    fn a_request_whose_method_is_not_a_token_is_refused_unsent() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
+        let cred = prepare_creds(&[], None);
+        let answers = ["", "GET X"].map(|method| {
+            let mut request = greeting_request(&format!("127.0.0.1:{port}"));
+            request.method = method.to_string();
+            crate::net::send(&namespace, &cred, request).err()
+        });
+        thread::sleep(Duration::from_millis(20));
+        assert!(
+            answers
+                .iter()
+                .all(|answer| *answer == Some(HttpError::Denied))
+                && listener.accept().is_err(),
+            "a guest's request whose method is empty or holds a space must answer Denied, \
+             sending nothing, got {answers:?}"
+        );
+    }
+
     // @behavior NW-048
     #[test]
     fn an_https_request_opens_tls_before_any_byte_of_http() {
