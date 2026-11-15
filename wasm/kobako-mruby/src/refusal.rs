@@ -269,7 +269,7 @@ mod tests {
                 unreachable!()
             }
         }
-        let answer = kobako_core::abi::serve::<UnenteredGuest>(&[0x02, 0xff]);
+        let answer = kobako_core::abi::handle::<UnenteredGuest>(&[0x02, 0xff]);
         let Ok(Outcome::Panic(unframed)) = Outcome::decode(&answer) else {
             panic!("a Run whose envelope does not frame must answer with a Panic");
         };

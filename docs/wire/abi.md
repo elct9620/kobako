@@ -5,7 +5,7 @@ The ABI is the set of Wasm functions that carry both [wire](README.md) layers be
 | Section | Holds |
 |---------|-------|
 | ABI Signatures | the symbols and the layers they form |
-| Downcall and Upcall | how a message and its answer cross |
+| Downcall and Upcall | how a request and its Reply cross |
 | Invocation inputs | what each Invocation reads, and from where |
 | ABI Version | what the version pins, and how it moves |
 
@@ -48,14 +48,14 @@ Each direction has one symbol, named for the way it crosses. An operation is a t
 | `upcall` | guest | call |
 
 1. The caller writes a message at `[ptr, ptr + len)` in guest memory; the host takes that room from `cabi_realloc`.
-2. The callee reads it, runs the operation its tag names, and encodes the answer.
-3. The callee writes the answer into guest memory and names its place in a return area.
+2. The callee reads it, handles the operation its tag names, and encodes the Reply.
+3. The callee writes the Reply into guest memory and returns its place in a return area.
 
 A Call the host cannot answer is answered on the fault arm, naming why. When not even that fits in guest memory, the Invocation ends in a Trap naming the reason.
 
 ### Call Nesting
 
-Initiators alternate by depth, and every answer is the return value of the call at its depth. Correlation comes from the Wasm call stack, so no answer carries an id. A Yield alone names a Call: the open Call whose Block it runs.
+Initiators alternate by depth, and every Reply is the return value of the call at its depth. Correlation comes from the Wasm call stack, so no answer carries an id. A Yield alone names a Call: the open Call whose Block it runs.
 
 ```
 downcall{run}                  <- host, depth 0
@@ -162,7 +162,7 @@ Version `5` carries the operation in the message, so an added operation is a reg
 | a break carries nothing, on a Reply as on a Yield Reply | a block exit lands past any number of Calls, as through a plain method |
 | one message symbol per direction | the symbol set stays small |
 | one tag space for every message | an answer's tag never collides across operations |
-| every answer is a return value | a call and its answer are one round trip |
+| every Reply is a return value | a request and its Reply are one round trip |
 | field placement follows whose data it is | a Fault rides the Envelope, readable without a Codec |
 | setup is a counted list of records, each marked critical or advisory | a new kind of setup joins without a version |
 | a fresh instance per Invocation entry | the guest may exit with dirty interpreter state |

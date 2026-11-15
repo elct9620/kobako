@@ -11,22 +11,22 @@ is the trait it drives and what that expansion reaches.
 - `wasm/kobako-core/src/guest.rs`
 - `wasm/kobako-core/src/proxy.rs`
 
-## `serve`
+## `handle`
 
-Answer one downcall: the entry its tag names, or unsupported for a tag the
-Guest does not serve.
+Handle one downcall: the entry its tag names, or unsupported for a tag the
+Guest does not support.
 
 ```rust
-pub fn serve<G: Guest>(request: &[u8]) -> Vec<u8> {}
+pub fn handle<G: Guest>(request: &[u8]) -> Vec<u8> {}
 ```
 
-## `answer`
+## `return_reply`
 
-Hand the host an encoded answer. The address returned is a return area holding
-the answer's place and length.
+Return an encoded Reply to the host. The address returned is a return area
+holding the Reply's place and length.
 
 ```rust
-pub fn answer(bytes: &[u8]) -> u32 {}
+pub fn return_reply(bytes: &[u8]) -> u32 {}
 ```
 
 ## `run_ctors_once`

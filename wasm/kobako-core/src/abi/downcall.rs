@@ -9,19 +9,21 @@ use crate::{preamble, sandbox_panic, Guest};
 
 /// Answer one downcall request as the encoded message the host reads.
 ///
-/// A tag this guest does not serve is answered as unsupported, so the
+/// A tag this guest does not support replies as unsupported, so the
 /// host can tell "not here" from a guest that broke. A request that does
 /// not frame answers with the Panic of a guest that could not read its
 /// invocation, in wording apart from every refusal of its arguments.
-pub fn serve<G: Guest>(request: &[u8]) -> Vec<u8> {
+pub fn handle<G: Guest>(request: &[u8]) -> Vec<u8> {
     match Downcall::decode(request) {
         Ok(Downcall::Eval(source)) => invoke(|preamble| G::eval(preamble, source)),
         Ok(Downcall::Run(run)) => invoke(|preamble| G::run(preamble, run)),
         Ok(Downcall::Yield { frame, args }) => G::yield_to_block(frame, &args).encode(),
         Ok(Downcall::Compile) => compile::<G>().encode(),
-        Ok(_) => {
-            Unsupported::new(format!("this guest does not serve tag {:#04x}", request[0])).encode()
-        }
+        Ok(_) => Unsupported::new(format!(
+            "this guest does not support tag {:#04x}",
+            request[0]
+        ))
+        .encode(),
         Err(_) => Outcome::Panic(sandbox_panic(
             TRANSPORT_ERROR,
             "failed to decode the invocation request",
@@ -68,16 +70,16 @@ mod tests {
     // @behavior T-181
     #[test]
     fn a_guest_serving_no_block_answers_a_yield_as_unsupported() {
-        let answer = serve::<NoBlockGuest>(&[0x03, 0, 0, 0, 0, 0x90]);
+        let answer = handle::<NoBlockGuest>(&[0x03, 0, 0, 0, 0, 0x90]);
 
         assert!(
             matches!(YieldReply::decode(&answer), Ok(YieldReply::Unsupported(_))),
-            "a yield through serve against a guest with the default yield_to_block must \
+            "a yield through handle against a guest with the default yield_to_block must \
              answer as unsupported rather than trap"
         );
     }
 
-    // `serve` takes the Preamble from the host before it routes a compile, so
+    // `handle` takes the Preamble from the host before it routes a compile, so
     // the default answer is witnessed on its own; the routing itself is
     // witnessed through the real guest's compile.
     // @behavior T-281
@@ -96,18 +98,18 @@ mod tests {
     // @behavior T-277
     #[test]
     fn a_tag_the_guest_does_not_serve_is_answered_as_unsupported() {
-        let answer = serve::<NoBlockGuest>(&[0x09]);
+        let answer = handle::<NoBlockGuest>(&[0x09]);
 
         assert_eq!(
             answer[0], 0x15,
-            "a downcall under an unassigned tag through serve must answer on the unsupported arm"
+            "a downcall under an unassigned tag through handle must answer on the unsupported arm"
         );
     }
 
     // @behavior OC-044
     #[test]
     fn an_unframed_run_answers_as_the_sandboxs_wire_failure() {
-        let answer = serve::<NoBlockGuest>(&[0x02, 0xff]);
+        let answer = handle::<NoBlockGuest>(&[0x02, 0xff]);
         let Ok(Outcome::Panic(panic)) = Outcome::decode(&answer) else {
             panic!("a run whose body does not frame must answer the invocation with a Panic");
         };
@@ -115,7 +117,7 @@ mod tests {
         assert_eq!(
             (panic.origin, panic.error.name.as_str()),
             (Origin::Sandbox, "Kobako::Transport::Error"),
-            "an unframed Run through serve must attribute to the Sandbox under the wire \
+            "an unframed Run through handle must attribute to the Sandbox under the wire \
              failure's own name"
         );
         assert!(panic.error.backtrace.is_empty());
@@ -128,7 +130,7 @@ mod tests {
     #[test]
     fn a_request_the_wire_refuses_answers_as_the_sandboxs_wire_failure() {
         for request in [&[0x00][..], &[0x04, 0x90][..]] {
-            let answer = serve::<NoBlockGuest>(request);
+            let answer = handle::<NoBlockGuest>(request);
 
             assert!(
                 matches!(
@@ -136,7 +138,7 @@ mod tests {
                     Ok(Outcome::Panic(Panic { origin: Origin::Sandbox, ref error, .. }))
                         if error.name == "Kobako::Transport::Error"
                 ),
-                "a downcall under tag {:#04x} through serve must answer as the Sandbox's \
+                "a downcall under tag {:#04x} through handle must answer as the Sandbox's \
                  wire failure rather than as unsupported",
                 request[0]
             );

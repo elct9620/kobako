@@ -45,7 +45,7 @@ pub trait Guest {
 
 /// Emit every wasm export of the Guest ABI in the invoking crate: the
 /// downcall under the guest interface's name, answered through
-/// `crate::abi::serve` and a return area, and the Canonical ABI's
+/// `crate::abi::handle` and a return area, and the Canonical ABI's
 /// `cabi_realloc` every list the host writes lands through.
 ///
 /// The downcall enters through `run_ctors_once`, so static constructors run
@@ -67,7 +67,8 @@ macro_rules! export_guest {
             // alignment 1.
             let request =
                 unsafe { ::core::slice::from_raw_parts(ptr as usize as *const u8, len as usize) };
-            $crate::abi::answer(&$crate::abi::serve::<$guest>(request))
+            let reply = $crate::abi::handle::<$guest>(request);
+            $crate::abi::return_reply(&reply)
         }
 
         #[no_mangle]

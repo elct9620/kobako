@@ -47,16 +47,16 @@ pub fn realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {
     }
 }
 
-/// The return area every downcall answer is named in. A downcall nested in
-/// an upcall writes it too, but the host copies that answer out before the
+/// The return area every downcall's Reply is named in. A downcall nested in
+/// an upcall writes it too, but the host copies that Reply out before the
 /// outer one is written.
 #[cfg(target_arch = "wasm32")]
 static RETURN_AREA: crate::instance_cell::InstanceCell<[u32; 2]> =
     crate::instance_cell::InstanceCell::new([0; 2]);
 
-/// Keep an encoded answer in guest memory and answer the return area that
+/// Keep an encoded Reply in guest memory and return the return area that
 /// names its `(ptr, len)`, for the downcall export to return.
-pub fn answer(bytes: &[u8]) -> u32 {
+pub fn return_reply(bytes: &[u8]) -> u32 {
     #[cfg(target_arch = "wasm32")]
     {
         let kept: &'static [u8] = Vec::leak(bytes.to_vec());

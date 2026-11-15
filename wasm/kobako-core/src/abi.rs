@@ -1,6 +1,6 @@
 //! Guest ABI machinery: the host imports (`upcall`, `preamble`), the guest
 //! memory the host writes into (`realloc`), the downcall a guest answers
-//! (`serve`, handed back through `answer`), and the one run of the static
+//! (`handle`, its Reply handed back through `return_reply`), and the one run of the static
 //! constructors (`run_ctors_once`).
 //!
 //! The names the ABI fixes are `kobako_transport::abi`'s. The exports
@@ -10,8 +10,8 @@
 mod downcall;
 mod memory;
 
-pub use downcall::serve;
-pub use memory::{answer, realloc, run_ctors_once};
+pub use downcall::handle;
+pub use memory::{realloc, return_reply, run_ctors_once};
 
 /// Declare the host imports under the host interface's literal name, the
 /// only form `wasm_import_module` accepts.

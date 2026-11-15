@@ -14,7 +14,7 @@ compiler-checked contract.
 |---|---|
 | `Guest` trait + `export_guest!` | the operations as a trait; the macro emits each export |
 | `proxy` / `dispatch` | the guest dispatch path to the host over the `upcall` import |
-| `abi` | `serve` behind the downcall export, `answer`, `realloc`, and `run_ctors_once` |
+| `abi` | `handle` behind the downcall export, `return_reply`, `realloc`, and `run_ctors_once` |
 
 The messages themselves live in
 [kobako-transport](https://crates.io/crates/kobako-transport): the
