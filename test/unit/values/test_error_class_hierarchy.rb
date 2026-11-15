@@ -53,7 +53,7 @@ class TestErrorClassHierarchy < Minitest::Test
   # answering, where the Service may rescue and go on, so none reaches the
   # Host App as an invocation outcome and all stay outside the three that
   # do. BlockError carries what the block sent back, YieldValueError what
-  # the Service could not send, UnsupportedError a guest serving no block.
+  # the Service could not send, UnsupportedError a guest supporting no block.
   YIELD_SITE_CLASSES = [Kobako::BlockError, Kobako::YieldValueError, Kobako::UnsupportedError].freeze
   INVOCATION_OUTCOMES = [Kobako::TrapError, Kobako::SandboxError, Kobako::ServiceError].freeze
 

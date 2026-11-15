@@ -73,7 +73,7 @@ pub enum YieldReply {
     /// The block raised, or failed in a way the host re-raises at the
     /// yield site.
     Error(ErrorRecord),
-    /// The guest serves no block.
+    /// The guest supports no block.
     Unsupported(Unsupported),
 }
 
@@ -267,7 +267,7 @@ mod tests {
         assert_eq!(
             YieldReply::Unsupported(Unsupported::new("x")).encode(),
             vec![0x15, 0, 0, 0, 0, 1, b'x'],
-            "a Yield Reply from a guest serving no block must encode as tag byte 0x15"
+            "a Yield Reply from a guest supporting no block must encode as tag byte 0x15"
         );
         assert_eq!(
             YieldReply::Error(ErrorRecord {

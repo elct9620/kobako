@@ -209,7 +209,7 @@ The Yield Reply answers by arm:
 | `0x10` | ok | the block value | returns it to the Service |
 | `0x12` | break | none | unwinds the Service, then answers its Call with break |
 | `0x13` | error | an Error Record | re-raises the named class |
-| `0x15` | unsupported | an Unsupported | raises that the guest serves no block |
+| `0x15` | unsupported | an Unsupported | raises that the guest supports no block |
 
 An ok value goes to the Service, so a Capability Handle in it names its host object again. A `break` or `return` stays in the guest, which knows where it lands, so nothing of it crosses. An empty answer, any other tag, or a reply the host cannot frame fails the yield as a Trap.
 

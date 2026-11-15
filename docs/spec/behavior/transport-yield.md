@@ -511,7 +511,7 @@ The last two exits have no parity scenario, because the frontends close them at 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Service yielding to a block of a guest that serves no block |
+| Given | a Service yielding to a block of a guest that supports no block |
 | When | the guest answers the yield as unsupported |
 | Then | the Service's yield raises that the guest does not serve it, rather than trapping |
 

@@ -40,7 +40,7 @@ pub enum YieldError {
     /// started and the block never ran. The receiver may recover, or
     /// propagate it as its own failure.
     Refused(String),
-    /// The guest serves no block, so the block never ran. The receiver
+    /// The guest supports no block, so the block never ran. The receiver
     /// may recover, or propagate it as its own failure.
     Unsupported(String),
 }

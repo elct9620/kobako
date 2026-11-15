@@ -90,7 +90,7 @@ module Kobako
   # so the block never ran. Left unrescued, the Service call fails.
   class YieldValueError < Error; end
 
-  # Raised at a Service's +yield+ when the guest serves no block, so the
+  # Raised at a Service's +yield+ when the guest supports no block, so the
   # block never ran. Left unrescued, the Service call fails.
   class UnsupportedError < Error; end
 

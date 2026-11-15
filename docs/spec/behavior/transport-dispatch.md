@@ -945,7 +945,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | it dispatches |
 | Then | it fails as a wire failure naming what is missing |
 
-## `T-181` A guest that serves no block answers a yield as unsupported
+## `T-181` A guest that supports no block answers a yield as unsupported
 
 | Step | Statement |
 | --- | --- |

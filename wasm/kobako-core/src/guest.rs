@@ -31,7 +31,7 @@ pub trait Guest {
     /// has open, block or not, from `0` at the outermost, so a guest
     /// counts them the same way. `args` carries the yield arguments.
     fn yield_to_block(_frame: u32, _args: &[u8]) -> YieldReply {
-        YieldReply::Unsupported(Unsupported::new("this guest serves no block"))
+        YieldReply::Unsupported(Unsupported::new("this guest supports no block"))
     }
 
     /// The `compile` operation — compiles the Preamble's source Snippets

@@ -87,7 +87,7 @@ exception back, and the others fail the Service call.
 |---|---|
 | `Kobako::BlockError` | the guest block raised |
 | `Kobako::YieldValueError` | an argument cannot cross to the guest |
-| `Kobako::UnsupportedError` | the Guest Binary serves no block |
+| `Kobako::UnsupportedError` | the Guest Binary supports no block |
 | `ThreadError` | the block runs off the calling Fiber |
 
 ### Block Fiber
