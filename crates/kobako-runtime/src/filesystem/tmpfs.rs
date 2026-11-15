@@ -722,15 +722,15 @@ impl InodeOperations for Tmpfs {
 
     fn rename(
         &self,
-        from: &Dentry,
-        to_dir: &dyn InodeOperations,
-        to: &Dentry,
-        flag: Option<RenameFlag>,
+        old: &Dentry,
+        new_dir: &dyn InodeOperations,
+        new: &Dentry,
+        flags: Option<RenameFlag>,
     ) -> Result<(), Errno> {
-        let target = (to_dir as &dyn Any)
+        let target = (new_dir as &dyn Any)
             .downcast_ref::<Self>()
             .ok_or(Errno::CrossesDevices)?;
-        self.rename_at(&from.name(), target, &to.name(), flag)
+        self.rename_at(&old.name(), target, &new.name(), flags)
     }
 }
 

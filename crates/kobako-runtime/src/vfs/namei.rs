@@ -3591,19 +3591,19 @@ mod tests {
 
         fn rename(
             &self,
-            from: &Dentry,
-            to_dir: &dyn InodeOperations,
-            to: &Dentry,
-            flag: Option<RenameFlag>,
+            old: &Dentry,
+            new_dir: &dyn InodeOperations,
+            new: &Dentry,
+            flags: Option<RenameFlag>,
         ) -> Result<(), Errno> {
             self.renames.fetch_add(1, Ordering::SeqCst);
             if let Some(renaming) = &self.renaming {
                 renaming()?;
             }
-            let to_dir = (to_dir as &dyn std::any::Any)
+            let new_dir = (new_dir as &dyn std::any::Any)
                 .downcast_ref::<Self>()
-                .map_or(to_dir, |hooked| &hooked.tmpfs);
-            self.tmpfs.rename(from, to_dir, to, flag)
+                .map_or(new_dir, |hooked| &hooked.tmpfs);
+            self.tmpfs.rename(old, new_dir, new, flags)
         }
     }
 
@@ -3705,14 +3705,14 @@ mod tests {
 
         fn rename(
             &self,
-            from: &Dentry,
-            _to_dir: &dyn InodeOperations,
-            to: &Dentry,
-            _flag: Option<RenameFlag>,
+            old: &Dentry,
+            _new_dir: &dyn InodeOperations,
+            new: &Dentry,
+            _flags: Option<RenameFlag>,
         ) -> Result<(), Errno> {
             (self.renaming)()?;
             self.root
-                .rename(&folded_path_of(from), &self.root, &folded_path_of(to))
+                .rename(&folded_path_of(old), &self.root, &folded_path_of(new))
         }
     }
 
@@ -3874,10 +3874,10 @@ mod tests {
 
         fn rename(
             &self,
-            _from: &Dentry,
-            _to_dir: &dyn InodeOperations,
-            _to: &Dentry,
-            _flag: Option<RenameFlag>,
+            _old: &Dentry,
+            _new_dir: &dyn InodeOperations,
+            _new: &Dentry,
+            _flags: Option<RenameFlag>,
         ) -> Result<(), Errno> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Ok(())
@@ -5562,12 +5562,12 @@ mod tests {
         fn rename(
             &self,
             inner: &dyn InodeOperations,
-            from: &Dentry,
-            to_dir: &dyn InodeOperations,
-            to: &Dentry,
-            flag: Option<RenameFlag>,
+            old: &Dentry,
+            new_dir: &dyn InodeOperations,
+            new: &Dentry,
+            flags: Option<RenameFlag>,
         ) -> Result<(), Errno> {
-            if from.name() == "k" {
+            if old.name() == "k" {
                 let reached = self.reached.lock().expect("never poisoned");
                 reached.send(()).expect("the test waits to hear");
                 let go_on = self.go_on.lock().expect("never poisoned");
@@ -5575,7 +5575,7 @@ mod tests {
                     .recv_timeout(crate::sched::testing::MAX_WAIT)
                     .expect("the test says when to go on");
             }
-            inner.rename(from, to_dir, to, flag)
+            inner.rename(old, new_dir, new, flags)
         }
     }
 

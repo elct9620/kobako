@@ -450,18 +450,18 @@ impl InodeOperations for RubyFilesystem {
     /// directories are of one object, which their shared device names.
     fn rename(
         &self,
-        from: &Dentry,
-        _to_dir: &dyn InodeOperations,
-        to: &Dentry,
-        flag: Option<RenameFlag>,
+        old: &Dentry,
+        _new_dir: &dyn InodeOperations,
+        new: &Dentry,
+        flags: Option<RenameFlag>,
     ) -> Result<(), Errno> {
-        if flag.is_some() {
+        if flags.is_some() {
             return Err(Errno::InvalidInput);
         }
         change(
             self.object,
             "rename",
-            (path_of(from), path_of(to)),
+            (path_of(old), path_of(new)),
             Errno::ReadOnlyFilesystem,
         )
     }

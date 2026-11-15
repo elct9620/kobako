@@ -349,16 +349,16 @@ impl InodeOperations for Overlay {
     /// it are open. Only its upper takes a flag, which it asks itself.
     fn rename(
         &self,
-        from: &Dentry,
-        _to_dir: &dyn InodeOperations,
-        to: &Dentry,
-        flag: Option<RenameFlag>,
+        old: &Dentry,
+        _new_dir: &dyn InodeOperations,
+        new: &Dentry,
+        flags: Option<RenameFlag>,
     ) -> Result<(), Errno> {
-        if flag.is_some() {
+        if flags.is_some() {
             return Err(Errno::InvalidInput);
         }
         self.fs
-            .rename(&self.fs.parent(from)?, from, &self.fs.parent(to)?, to)
+            .rename(&self.fs.parent(old)?, old, &self.fs.parent(new)?, new)
     }
 }
 
@@ -2343,13 +2343,13 @@ mod tests {
 
         fn rename(
             &self,
-            from: &Dentry,
-            _to_dir: &dyn InodeOperations,
-            to: &Dentry,
-            _flag: Option<RenameFlag>,
+            old: &Dentry,
+            _new_dir: &dyn InodeOperations,
+            new: &Dentry,
+            _flags: Option<RenameFlag>,
         ) -> Result<(), Errno> {
             self.root
-                .rename(&folded_path_of(from), &self.root, &folded_path_of(to))
+                .rename(&folded_path_of(old), &self.root, &folded_path_of(new))
         }
     }
 

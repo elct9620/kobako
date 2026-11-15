@@ -1044,15 +1044,15 @@ mod tests {
 
         fn rename(
             &self,
-            from: &Dentry,
-            to_dir: &dyn InodeOperations,
-            to: &Dentry,
-            _flag: Option<crate::vfs::RenameFlag>,
+            old: &Dentry,
+            new_dir: &dyn InodeOperations,
+            new: &Dentry,
+            _flags: Option<crate::vfs::RenameFlag>,
         ) -> Result<(), Errno> {
-            (to_dir as &dyn Any)
+            (new_dir as &dyn Any)
                 .downcast_ref::<Self>()
                 .ok_or(Errno::CrossesDevices)?;
-            self.root.rename(&at(from), &self.root, &at(to))
+            self.root.rename(&at(old), &self.root, &at(new))
         }
     }
 

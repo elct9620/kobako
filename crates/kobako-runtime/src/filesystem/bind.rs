@@ -689,21 +689,21 @@ impl InodeOperations for Bind {
     /// moves one.
     fn rename(
         &self,
-        from: &Dentry,
-        to_dir: &dyn InodeOperations,
-        to: &Dentry,
-        flag: Option<RenameFlag>,
+        old: &Dentry,
+        new_dir: &dyn InodeOperations,
+        new: &Dentry,
+        flags: Option<RenameFlag>,
     ) -> Result<(), Errno> {
-        if flag.is_some() {
+        if flags.is_some() {
             return Err(Errno::InvalidInput);
         }
-        let target = (to_dir as &dyn Any)
+        let target = (new_dir as &dyn Any)
             .downcast_ref::<Self>()
             .ok_or(Errno::CrossesDevices)?;
-        self.at(from, |from_dir, from_name| {
-            target.at(to, |to_dir, to_name| {
-                from_dir
-                    .rename(from_name, to_dir, to_name)
+        self.at(old, |old_dir, old_name| {
+            target.at(new, |new_dir, new_name| {
+                old_dir
+                    .rename(old_name, new_dir, new_name)
                     .map_err(to_error)
             })
         })
