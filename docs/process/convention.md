@@ -170,6 +170,7 @@ A method is named for what it does, and each kind shows it this way.
 | makes or converts a value | `new`, `with_`, `for_`, `from_`, `into_`, `to_` | `with_nr_inodes`, `from_posix_name` |
 | adds one more of a member it already holds | the member's noun, as `Command::arg` | `flag` |
 | runs a block under a condition | a preposition and the condition | `within_value_budget { … }` |
+| acts for as long as its block runs | a verb, then its object, as `Dir.chdir` | `hold(name) { … }` |
 
 A preposition opens a name only where the call reads as a phrase without it, as `with_X(…)` and `within_X { … }` do. Elsewhere it stands after a verb.
 
