@@ -126,20 +126,20 @@ impl OverlayPath {
         self.upper()?.whiteout(name)
     }
 
-    /// Move `from` here to `to` in `target` as `renameat2` does with
-    /// `flag`.
+    /// Move `old` here to `new` in `new_dir` as `renameat2` does with
+    /// `flags`.
     pub(super) fn do_rename(
         &self,
-        from: &str,
-        target: &OverlayPath,
-        to: &str,
-        flag: Option<RenameFlag>,
+        old: &str,
+        new_dir: &OverlayPath,
+        new: &str,
+        flags: Option<RenameFlag>,
     ) -> Result<(), Errno> {
         let rd = __start_renaming(
             &self.filesystem,
-            (&self.dentry, from),
-            (&target.dentry, to),
-            flag,
+            (&self.dentry, old),
+            (&new_dir.dentry, new),
+            flags,
         )?;
         vfs_rename(&self.creator_cred, &self.filesystem, &rd)
     }

@@ -68,12 +68,12 @@ pub(crate) trait Hook: Send + Sync + 'static {
     fn rename(
         &self,
         inner: &dyn InodeOperations,
-        from: &Dentry,
-        to_dir: &dyn InodeOperations,
-        to: &Dentry,
-        flag: Option<RenameFlag>,
+        old: &Dentry,
+        new_dir: &dyn InodeOperations,
+        new: &Dentry,
+        flags: Option<RenameFlag>,
     ) -> Result<(), Errno> {
-        inner.rename(from, to_dir, to, flag)
+        inner.rename(old, new_dir, new, flags)
     }
 }
 
@@ -194,15 +194,15 @@ impl<H: Hook> InodeOperations for WrapInode<H> {
 
     fn rename(
         &self,
-        from: &Dentry,
-        to_dir: &dyn InodeOperations,
-        to: &Dentry,
-        flag: Option<RenameFlag>,
+        old: &Dentry,
+        new_dir: &dyn InodeOperations,
+        new: &Dentry,
+        flags: Option<RenameFlag>,
     ) -> Result<(), Errno> {
-        let target = (to_dir as &dyn Any)
+        let target = (new_dir as &dyn Any)
             .downcast_ref::<Self>()
             .ok_or(Errno::CrossesDevices)?;
         self.hook
-            .rename(self.inner.as_ref(), from, target.inner.as_ref(), to, flag)
+            .rename(self.inner.as_ref(), old, target.inner.as_ref(), new, flags)
     }
 }

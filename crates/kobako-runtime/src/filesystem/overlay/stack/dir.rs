@@ -179,66 +179,64 @@ impl OverlayFs {
     /// out of a lower Layer would mean copying up everything beneath it,
     /// so it is refused as crossing devices, as overlayfs refuses it
     /// without `redirect_dir`; so is a link or another kind a lower Layer
-    /// holds, which no copy up can make. What the view holds at `to` is
+    /// holds, which no copy up can make. What the view holds at `new` is
     /// checked as rename(2) checks it. A directory moved into one a lower
     /// Layer also shows is marked opaque before it moves, and the source leaves
     /// a whiteout as it moves when a lower Layer still shows it, as
     /// overlayfs's `ovl_rename` does.
     pub(in super::super) fn rename(
         &self,
-        from: &ViewDir,
-        moved: &Dentry,
-        to: &ViewDir,
-        target: &Dentry,
+        old_dir: &ViewDir,
+        old: &Dentry,
+        new_dir: &ViewDir,
+        new: &Dentry,
     ) -> Result<(), Errno> {
-        let (from_name, to_name) = (&moved.name(), &target.name());
-        let from_level = from.level();
-        let moving = moved.file_type()?;
-        let to_level = to.level();
+        let (old_name, new_name) = (&old.name(), &new.name());
+        let old_level = old_dir.level();
+        let moving = old.file_type()?;
+        let new_level = new_dir.level();
         let is_dir = moving == FileType::Dir;
         // What cannot move answers first, as `ovl_rename_start` asks
         // `ovl_can_move` before it looks at what would be replaced.
-        if !self.can_move(moved, moving)? {
+        if !self.can_move(old, moving)? {
             return Err(Errno::CrossesDevices);
         }
         // Only an empty directory is replaced.
-        let upper_whiteouts = match target.file_type() == Ok(FileType::Dir) {
-            true => self
-                .check_empty_dir(target)?
-                .ok_or(Errno::DirectoryNotEmpty)?,
+        let upper_whiteouts = match new.file_type() == Ok(FileType::Dir) {
+            true => self.check_empty_dir(new)?.ok_or(Errno::DirectoryNotEmpty)?,
             false => false,
         };
-        let shown_below = ovl_lower_positive(&from_level, from_name);
+        let shown_below = ovl_lower_positive(&old_level, old_name);
         if moving == FileType::RegFile {
-            self.copy_up_file(from, moved, false)?;
+            self.copy_up_file(old_dir, old, false)?;
         }
-        let target_dir = self.upper_dir(to)?;
+        let new_upperdir = self.upper_dir(new_dir)?;
         // A directory holding only whiteouts is replaced by an empty one first,
         // as `ovl_rename_upper` calls `ovl_clear_empty` for a list not empty.
         if upper_whiteouts {
-            self.clear_empty(&target_dir, to_name)?;
+            self.clear_empty(&new_upperdir, new_name)?;
         }
-        let source_dir = from.level()[UPPER].clone().ok_or(Errno::NotFound)?;
+        let old_upperdir = old_dir.level()[UPPER].clone().ok_or(Errno::NotFound)?;
         // Nothing below shows a directory the upper alone holds, so a mark left
         // on one by a move that then fails changes nothing, as `ovl_rename`
         // leaves it.
-        let into_merged = to_level
+        let into_merged = new_level
             .iter()
             .enumerate()
             .any(|(index, dir)| index != UPPER && dir.is_some());
         if is_dir && into_merged {
-            source_dir.open_dir(from_name)?.set_opaque()?;
+            old_upperdir.open_dir(old_name)?.set_opaque()?;
         }
-        let onto_whiteout = target_dir.is_whiteout(to_name);
-        let flag = match (shown_below, onto_whiteout) {
+        let onto_whiteout = new_upperdir.is_whiteout(new_name);
+        let flags = match (shown_below, onto_whiteout) {
             (true, true) => Some(RenameFlag::Exchange),
             (true, false) => Some(RenameFlag::Whiteout),
             (false, true) if is_dir => Some(RenameFlag::Exchange),
             _ => None,
         };
-        source_dir.do_rename(from_name, &target_dir, to_name, flag)?;
-        if flag == Some(RenameFlag::Exchange) && !shown_below {
-            source_dir.do_unlink(from_name)?;
+        old_upperdir.do_rename(old_name, &new_upperdir, new_name, flags)?;
+        if flags == Some(RenameFlag::Exchange) && !shown_below {
+            old_upperdir.do_unlink(old_name)?;
         }
         Ok(())
     }

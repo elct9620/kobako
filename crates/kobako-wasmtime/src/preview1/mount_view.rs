@@ -1667,13 +1667,13 @@ impl Hook for ChangeCounter {
     fn rename(
         &self,
         inner: &dyn InodeOperations,
-        from: &Dentry,
-        to_dir: &dyn InodeOperations,
-        to: &Dentry,
-        flag: Option<RenameFlag>,
+        old: &Dentry,
+        new_dir: &dyn InodeOperations,
+        new: &Dentry,
+        flags: Option<RenameFlag>,
     ) -> Result<(), Errno> {
         self.change();
-        inner.rename(from, to_dir, to, flag)
+        inner.rename(old, new_dir, new, flags)
     }
 }
 
