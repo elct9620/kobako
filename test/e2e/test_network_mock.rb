@@ -47,6 +47,14 @@ class TestE2ENetworkMock < Minitest::Test
     end
   end
 
+  # @behavior NW-217
+  def test_a_block_alone_gives_a_network_entry
+    with_upcase_server do |port|
+      assert_equal ["PING"], connect_each(routed_mock("app.test", port), "app.test"),
+                   "Sandbox#network given only a block must give the guest the endpoint the block adds"
+    end
+  end
+
   # @behavior NW-212
   def test_a_mock_resolves_a_name_to_each_address_it_was_given
     with_upcase_server do |port|

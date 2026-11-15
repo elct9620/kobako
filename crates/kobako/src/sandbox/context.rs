@@ -81,15 +81,14 @@ impl Context<'_> {
         self.replace(Grant::Network(Network::new(name, entry)?), refusal)
     }
 
-    /// `network`, with what `build` adds to `entry`, as
-    /// `Sandbox::network_with` gives an entry.
+    /// `network`, with the entry `build` writes, as `Sandbox::network_with`
+    /// gives one.
     pub fn network_with(
         &mut self,
         name: &str,
-        entry: Arc<dyn Entry>,
         build: impl FnOnce(&mut Builder),
     ) -> Result<(), Error> {
-        let mut builder = Builder::new(entry);
+        let mut builder = Builder::default();
         build(&mut builder);
         self.network(name, Arc::new(builder))
     }

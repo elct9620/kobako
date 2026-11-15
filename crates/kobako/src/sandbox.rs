@@ -235,16 +235,15 @@ impl Sandbox {
         catalog.grants.network(network)
     }
 
-    /// Give the guest `entry` under `name` with what `build` adds to it, as
-    /// `network` gives an entry: the endpoints and policies are the entry's,
-    /// then the builder's.
+    /// Give the guest under `name` the entry `build` writes, as `network`
+    /// gives one. An entry of one's own takes a builder's additions through
+    /// `network(name, Arc::new(Builder::new(entry)))`.
     pub fn network_with(
         &mut self,
         name: &str,
-        entry: Arc<dyn network::Entry>,
         build: impl FnOnce(&mut network::Builder),
     ) -> Result<(), Error> {
-        let mut builder = network::Builder::new(entry);
+        let mut builder = network::Builder::default();
         build(&mut builder);
         self.network(name, Arc::new(builder))
     }

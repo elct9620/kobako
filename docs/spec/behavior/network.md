@@ -2700,3 +2700,15 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox |
 | When | an endpoint's host, a rule's method or path, or a credential's placeholder is neither a Symbol nor a String |
 | Then | it raises `TypeError` where the value is built, and an entry answering one raises it at the invocation |
+
+## `NW-217` A builder alone gives a network entry
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-020` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox |
+| When | a network entry is given only a builder, with no entry beside it, and the builder adds an endpoint |
+| Then | the invocation receives that entry with the builder's endpoints alone |

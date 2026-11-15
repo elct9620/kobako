@@ -4,7 +4,7 @@
 use std::sync::{Arc, Mutex};
 
 use kobako::filesystem::{Filesystem, Tmpfs};
-use kobako::network::{Endpoint, Entry};
+use kobako::network::{Builder, Endpoint, Entry};
 use kobako::{Access, ArgumentKind, Error, Profile, RunPayload, Sandbox};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::error::InvokeError;
@@ -220,11 +220,9 @@ fn a_context_replaces_an_entry_with_what_a_builder_adds() {
         .unwrap();
     sandbox
         .run_with("App", RunPayload::from_bytes(Vec::new()), |ctx| {
-            ctx.network_with("api", Arc::new(Reaches("staging.example.com")), |net| {
-                net.endpoint(
-                    Endpoint::new("extra.example.com", 443).expect("a host and a port stand"),
-                );
-            })
+            let mut net = Builder::new(Arc::new(Reaches("staging.example.com")));
+            net.endpoint(Endpoint::new("extra.example.com", 443).expect("a host and a port stand"));
+            ctx.network("api", Arc::new(net))
         })
         .unwrap();
     assert_eq!(
@@ -235,6 +233,24 @@ fn a_context_replaces_an_entry_with_what_a_builder_adds() {
         ],
         "Context::network_with must hand its invocation the other entry's endpoints, then the \
          builder's"
+    );
+}
+
+// @behavior NW-217
+#[test]
+fn a_builder_alone_gives_a_network_entry() {
+    let (mut sandbox, received) = sandbox();
+    sandbox
+        .network_with("api", |net| {
+            net.endpoint(Endpoint::new("api.example.com", 443).expect("a host and a port stand"));
+        })
+        .unwrap();
+    invoke(&sandbox);
+    assert_eq!(
+        received.lock().unwrap()[0],
+        vec![("api".to_string(), vec!["api.example.com".to_string()])],
+        "Sandbox::network_with given only a builder must give the invocation an entry holding the \
+         builder's endpoints alone"
     );
 }
 

@@ -203,12 +203,11 @@ impl Sandbox {
 
 ## `Sandbox::network_with`
 
-Give the guest a named entry with what a builder adds to it. The builder's
-endpoints, policies, and credentials follow the entry's.
+Give the guest a named entry a builder writes alone.
 
 ```rust
 impl Sandbox {
-    pub fn network_with(&mut self, name: &str, entry: Arc<dyn network::Entry>, build: impl FnOnce(&mut network::Builder)) -> Result<(), Error> {}
+    pub fn network_with(&mut self, name: &str, build: impl FnOnce(&mut network::Builder)) -> Result<(), Error> {}
 }
 ```
 
@@ -333,13 +332,12 @@ impl Context<'_> {
 
 ## `Context::network_with`
 
-Replace a named network entry for this invocation alone with what a builder
-adds to it. The builder's endpoints, policies, and credentials follow the
-entry's.
+Replace a named network entry for this invocation alone with one a builder
+writes alone.
 
 ```rust
 impl Context<'_> {
-    pub fn network_with(&mut self, name: &str, entry: Arc<dyn Entry>, build: impl FnOnce(&mut Builder)) -> Result<(), Error> {}
+    pub fn network_with(&mut self, name: &str, build: impl FnOnce(&mut Builder)) -> Result<(), Error> {}
 }
 ```
 
