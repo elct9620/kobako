@@ -131,6 +131,16 @@ A name, a comment, a task description, or a message says what it is about where 
 
 A reference to something outside stays, as long as it names that thing: a Linux function, a CRuby method, a POSIX error.
 
+## Casing
+
+Prose writes a concept as any common noun, so a glossary term is no proper noun. Google's developer documentation style keeps glossary terms in lower case the same way.
+
+| Writing about | Spell it | As in |
+|---|---|---|
+| a concept | lower case | a sandbox runs one invocation |
+| a type, a method, or a symbol | code, as the source spells it | `Sandbox`, `CallReply` |
+| a proper noun | its own spelling | Linux, WASI, wasmtime |
+
 ## Naming Precedence
 
 A name is judged inside its context, as Contexts in [`architecture.md`](../architecture.md) draws them. Across two contexts only the interface that translates between them is compared, so the same word may stand in both.
