@@ -802,9 +802,13 @@ impl SocketsHost for Invocation {
         };
         let cred = self.wasi().cred();
         sys_connect(self.network(), cred, socket_file.sock.as_ref(), peer)?;
-        let incoming = self
-            .table_mut()
-            .push_child(sockets::IncomingDatagramStream(socket_file.clone()), this)?;
+        let incoming = self.table_mut().push_child(
+            sockets::IncomingDatagramStream {
+                socket: socket_file.clone(),
+                peer,
+            },
+            this,
+        )?;
         let outgoing = self.table_mut().push_child(
             sockets::OutgoingDatagramStream {
                 socket: socket_file,
@@ -824,15 +828,19 @@ impl SocketsHost for Invocation {
         self.table_mut().delete(handle).map(drop)
     }
 
-    /// Up to `max_results` datagrams the peer sent, without waiting, never
-    /// past `MAX_DATAGRAMS` or about `MAX_READ_SIZE_ALLOC` bytes, each
+    /// Up to `max_results` datagrams the stream's peer sent, without waiting,
+    /// never past `MAX_DATAGRAMS` or about `MAX_READ_SIZE_ALLOC` bytes, each
     /// datagram counting one more for its record; none yet is an empty list.
+    /// One an earlier peer sent before the socket moved to this one is
+    /// dropped, as wasmtime drops it: a stream is limited to the peer it was
+    /// made with, where Linux's socket would still read it.
     fn udp_incoming_datagram_stream_receive(
         &mut self,
         this: IncomingDatagramStream,
         max_results: u64,
     ) -> Result<Vec<IncomingDatagram>, SocketError> {
-        let socket_file = self.table_mut().get(this)?.0.clone();
+        let stream = self.table_mut().get(this)?;
+        let (socket_file, peer) = (stream.socket.clone(), stream.peer);
         let max_results =
             usize::try_from(max_results).map_or(MAX_DATAGRAMS, |max| max.min(MAX_DATAGRAMS));
         let mut received = Vec::new();
@@ -840,6 +848,7 @@ impl SocketsHost for Invocation {
         let mut buf = vec![0; MAX_DATAGRAM];
         while received.len() < max_results && sum < MAX_READ_SIZE_ALLOC {
             match socket_file.sock.recvmsg(&mut buf) {
+                Ok((_, Some(from))) if peer.is_some_and(|peer| peer != from) => {}
                 Ok((n, Some(from))) => {
                     sum += 1 + n;
                     received.push(IncomingDatagram {
@@ -860,7 +869,7 @@ impl SocketsHost for Invocation {
         &mut self,
         this: IncomingDatagramStream,
     ) -> wasmtime::Result<Pollable> {
-        let file = self.table_mut().get(this)?.0.shared_file();
+        let file = self.table_mut().get(this)?.socket.shared_file();
         self.subscribe_file(file, PollMask::IN, this)
     }
 
@@ -2321,6 +2330,98 @@ mod tests {
             [16, 4],
             "receive with max-results 100 of twenty queued datagrams must answer sixteen, then the \
              other four, as wasmtime-wasi bounds one receive"
+        );
+    }
+
+    // @behavior NW-221
+    #[test]
+    fn a_datagram_stream_hands_out_only_its_own_peers_datagrams() {
+        let first = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let second = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        let ports = [&first, &second].map(|peer| peer.local_addr().unwrap().port());
+        let mut guest = limited_network_guest(
+            ports.map(|port| {
+                network::Endpoint::new("127.0.0.1", port)
+                    .unwrap()
+                    .with_protocol(network::Protocol::Udp)
+            }),
+            None,
+        );
+        let received = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .udp_udp_socket_start_bind(socket, network, ipv4((0, 0, 0, 0), 0))
+                .into_answer()?
+                .expect("an ephemeral bind is the implicit one");
+            guest
+                .udp_udp_socket_finish_bind(socket)
+                .into_answer()?
+                .expect("the bind settles");
+            let mut received = Vec::new();
+            for (peer, port) in [&first, &second].into_iter().zip(ports) {
+                let (incoming, outgoing) = guest
+                    .udp_udp_socket_stream(socket, Some(ipv4((127, 0, 0, 1), port)))
+                    .into_answer()?
+                    .expect("the udp endpoint names the peer");
+                let room = guest.udp_outgoing_datagram_stream_subscribe(outgoing)?;
+                guest.poll_pollable_block(room)?;
+                guest.poll_pollable_drop(room)?;
+                guest
+                    .udp_outgoing_datagram_stream_check_send(outgoing)
+                    .into_answer()?
+                    .expect("the stream with room permits a datagram");
+                guest
+                    .udp_outgoing_datagram_stream_send(
+                        outgoing,
+                        vec![OutgoingDatagram {
+                            data: b"hi".to_vec(),
+                            remote_address: None,
+                        }],
+                    )
+                    .into_answer()?
+                    .expect("the datagram is sent");
+                let mut buf = [0; 16];
+                let (_, guest_end) = peer.recv_from(&mut buf)?;
+                peer.send_to(&port.to_be_bytes(), guest_end)?;
+                // The first peer's datagram is left unread as the socket
+                // moves on; the second stream reads until its own arrives.
+                let arrived = guest.udp_incoming_datagram_stream_subscribe(incoming)?;
+                guest.poll_pollable_block(arrived)?;
+                guest.poll_pollable_drop(arrived)?;
+                while port == ports[1] && received.is_empty() {
+                    let arrived = guest.udp_incoming_datagram_stream_subscribe(incoming)?;
+                    guest.poll_pollable_block(arrived)?;
+                    guest.poll_pollable_drop(arrived)?;
+                    received = guest
+                        .udp_incoming_datagram_stream_receive(incoming, 100)
+                        .into_answer()?
+                        .expect("the stream's peer is read");
+                }
+                guest.udp_incoming_datagram_stream_drop(incoming)?;
+                guest.udp_outgoing_datagram_stream_drop(outgoing)?;
+            }
+            Ok::<_, wasmtime::Error>(received)
+        })
+        .expect("the second peer's datagram arrives");
+        assert_eq!(
+            received
+                .iter()
+                .map(|datagram| (
+                    datagram.data.clone(),
+                    format!("{:?}", datagram.remote_address)
+                ))
+                .collect::<Vec<_>>(),
+            [(
+                ports[1].to_be_bytes().to_vec(),
+                format!("{:?}", ipv4((127, 0, 0, 1), ports[1]))
+            )],
+            "a datagram stream made with a second peer must hand out that peer's datagram alone, \
+             dropping the one the first peer sent before, as wasmtime-wasi limits a stream to \
+             the peer it was made with"
         );
     }
 

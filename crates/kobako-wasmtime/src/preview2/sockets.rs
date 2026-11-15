@@ -51,7 +51,13 @@ pub(crate) struct ResolveAddressStream {
     pub(crate) handed: usize,
 }
 
-pub(crate) struct IncomingDatagramStream(pub(crate) SocketFile<UdpSock>);
+/// An incoming datagram stream and the peer it was made with, the only one
+/// whose datagrams it hands out, as wasmtime keeps a stream's connected
+/// address.
+pub(crate) struct IncomingDatagramStream {
+    pub(crate) socket: SocketFile<UdpSock>,
+    pub(crate) peer: Option<SocketAddr>,
+}
 
 /// An outgoing datagram stream, and how many datagrams its last `check-send`
 /// permitted, as wasmtime keeps the permit a send spends.

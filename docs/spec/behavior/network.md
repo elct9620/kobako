@@ -2751,3 +2751,16 @@ endpoint "api.example.com", port: 443
 | Given | an entry binding a credential to an exact host over HTTPS |
 | When | a bound request's credential header carries the placeholder twice: in one value, across two, or inside a `Basic` pair |
 | Then | it answers `Denied` and nothing is sent, as OpenShell leaves no second placeholder resolved. A swap therefore grows a request by one secret at most, whatever the guest repeats |
+
+## `NW-221` A datagram stream hands out only its own peer's datagrams
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-088` |
+| relates | `NW-172` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a UDP socket holding a datagram its first peer sent, unread |
+| When | the guest takes the socket's streams again with a second peer, and receives |
+| Then | only the second peer's datagrams are handed out, and the first's is dropped, as wasmtime's stream drops it. Linux's socket would still read it: WASI limits a stream to the peer it was made with |
