@@ -123,6 +123,57 @@ are the Outcome, a Call and its Reply, a Run, and a Yield.
 pub trait PayloadCodec {}
 ```
 
+## `PayloadCodec::encode_value`
+
+Write a value for the Outcome's ok arm and a Yield Reply's body. Every Codec
+owes it.
+
+```rust
+pub trait PayloadCodec {
+    fn encode_value(kobako: &Kobako, value: beni::Value) -> Result<Vec<u8>, CodecError>;
+}
+```
+
+## `PayloadCodec::encode_call_arguments`
+
+Write a Call's positional and keyword arguments, apart.
+
+```rust
+pub trait PayloadCodec {
+    fn encode_call_arguments(kobako: &Kobako, rest: &[beni::Value], kwargs: beni::RHash) -> Result<Vec<u8>, CodecError>;
+}
+```
+
+## `PayloadCodec::decode_reply_value`
+
+Read the ok body of a Call's Reply.
+
+```rust
+pub trait PayloadCodec {
+    fn decode_reply_value(kobako: &Kobako, bytes: &[u8]) -> Result<beni::Value, CodecError>;
+}
+```
+
+## `PayloadCodec::decode_run_arguments`
+
+Read the arguments a Run calls its Entrypoint with.
+
+```rust
+pub trait PayloadCodec {
+    fn decode_run_arguments(kobako: &Kobako, bytes: &[u8]) -> Result<Arguments, CodecError>;
+}
+```
+
+## `PayloadCodec::decode_yield_arguments`
+
+Read a Yield's arguments, a plain list.
+
+```rust
+pub trait PayloadCodec {
+    fn decode_yield_arguments(kobako: &Kobako, bytes: &[u8]) -> Result<Vec<beni::Value>, CodecError>;
+}
+```
+
 ## `Arguments`
 
 A Run's positional and keyword arguments, kept apart, as the Entrypoint is called
