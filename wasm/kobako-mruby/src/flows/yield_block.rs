@@ -23,7 +23,7 @@
 
 use kobako_transport::envelope::{ErrorRecord, YieldReply};
 
-pub(crate) fn yield_to_block<G: crate::MrbGuest>(frame: u32, req: &[u8]) -> YieldReply {
+pub(crate) fn yield_to_block<G: crate::MrbGuest>(frame: u32, args: &[u8]) -> YieldReply {
     use super::mrb_slot::MRB;
     use crate::codec::PayloadCodec;
     use crate::runtime::block_stack::BLOCK_STACK;
@@ -53,7 +53,7 @@ pub(crate) fn yield_to_block<G: crate::MrbGuest>(frame: u32, req: &[u8]) -> Yiel
 
     // Read the yield arguments through the guest's codec. One it
     // cannot read fails the round-trip rather than reaching the block.
-    let args = match G::Codec::decode_yield_arguments(&kobako, req) {
+    let args = match G::Codec::decode_yield_arguments(&kobako, args) {
         Ok(args) => args,
         Err(err) => {
             let refusal = crate::refusal::at(crate::refusal::Position::YieldArguments, err);

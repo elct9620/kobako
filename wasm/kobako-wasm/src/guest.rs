@@ -60,8 +60,8 @@ impl kobako_core::Guest for KobakoGuest {
         <KobakoGuest as kobako_mruby::MrbGuest>::run(preamble, run)
     }
 
-    fn yield_to_block(frame: u32, req: &[u8]) -> YieldReply {
-        <KobakoGuest as kobako_mruby::MrbGuest>::yield_to_block(frame, req)
+    fn yield_to_block(frame: u32, args: &[u8]) -> YieldReply {
+        <KobakoGuest as kobako_mruby::MrbGuest>::yield_to_block(frame, args)
     }
 
     fn compile(preamble: Preamble) -> CompileReply {
