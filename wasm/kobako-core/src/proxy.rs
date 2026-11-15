@@ -16,7 +16,7 @@
 
 #[cfg(target_arch = "wasm32")]
 use crate::abi::{take_list, upcall};
-use kobako_transport::envelope::{self, Call, Reply, Target, Upcall};
+use kobako_transport::envelope::{self, Call, CallReply, Target, Upcall};
 
 /// Why a dispatch came back without a value.
 ///
@@ -111,11 +111,11 @@ pub fn dispatch(
         payload,
     };
     let reply_bytes = host_call(&Upcall::Call(call).encode())?;
-    match Reply::decode(&reply_bytes)? {
-        Reply::Ok(body) => Ok(body),
-        Reply::Fault(fault) => Err(DispatchError::Fault(fault)),
-        Reply::Break => Err(DispatchError::Break),
-        Reply::Unsupported(refusal) => Err(DispatchError::Unsupported(refusal)),
+    match CallReply::decode(&reply_bytes)? {
+        CallReply::Ok(body) => Ok(body),
+        CallReply::Fault(fault) => Err(DispatchError::Fault(fault)),
+        CallReply::Break => Err(DispatchError::Break),
+        CallReply::Unsupported(refusal) => Err(DispatchError::Unsupported(refusal)),
     }
 }
 
@@ -203,7 +203,7 @@ mod tests {
     #[test]
     fn dispatch_returns_the_ok_body_uninterpreted() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        install_canned(captured.clone(), Reply::Ok(OPAQUE.to_vec()).encode());
+        install_canned(captured.clone(), CallReply::Ok(OPAQUE.to_vec()).encode());
 
         let out = dispatch(Target::Path("MyService::Counter"), "value", false, OPAQUE);
         clear_loopback();
@@ -232,7 +232,7 @@ mod tests {
     #[test]
     fn a_handle_target_rides_the_envelope_rather_than_the_payload() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
-        install_canned(captured.clone(), Reply::Ok(Vec::new()).encode());
+        install_canned(captured.clone(), CallReply::Ok(Vec::new()).encode());
 
         let out = dispatch(Target::Handle(7), "commit", false, OPAQUE);
         clear_loopback();
@@ -252,7 +252,7 @@ mod tests {
     fn the_fault_arm_hands_back_its_body_for_the_caller_to_read() {
         let captured = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let fault = envelope::Fault::new(envelope::FaultKind::Undefined, "no such method");
-        install_canned(captured, Reply::Fault(fault.clone()).encode());
+        install_canned(captured, CallReply::Fault(fault.clone()).encode());
 
         let out = dispatch(Target::Path("MyService::KV"), "get", false, &[]);
         clear_loopback();

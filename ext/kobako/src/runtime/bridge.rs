@@ -17,7 +17,7 @@ use magnus::{
 
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::yielder::Yielder;
-use kobako_transport::envelope::{Call, Fault, FaultKind, Reply, Target, YieldReply};
+use kobako_transport::envelope::{Call, CallReply, Fault, FaultKind, Target, YieldReply};
 
 /// The names each side of this seam branches on — one per Reply and
 /// Yield Reply arm. Neutral Symbols rather than the envelope's tag bytes,
@@ -204,7 +204,7 @@ impl DispatchHandler for RubyDispatchHandler {
     /// than copied. The Proc folds every `StandardError` into the Reply's
     /// fault arm, so one escaping is a contract violation surfaced as
     /// `None`.
-    fn dispatch(&self, call: Call<'_>, yielder: &mut dyn Yielder) -> Option<Reply> {
+    fn dispatch(&self, call: Call<'_>, yielder: &mut dyn Yielder) -> Option<CallReply> {
         // The guest may be running GVL-free (`gvl: :release`); re-acquire the
         // GVL for the whole callback before touching any Ruby VALUE. In hold
         // mode `reenter` runs the body inline — the GVL is already held.
@@ -261,9 +261,9 @@ impl DispatchHandler for RubyDispatchHandler {
             // the public API, so it fails the dispatch rather than
             // degrading.
             match arm.name().ok()?.as_ref() {
-                ARM_OK => Some(Reply::Ok(crate::to_bytes(body))),
-                ARM_BREAK => Some(Reply::Break),
-                ARM_FAULT => Some(Reply::Fault(Fault::new(
+                ARM_OK => Some(CallReply::Ok(crate::to_bytes(body))),
+                ARM_BREAK => Some(CallReply::Break),
+                ARM_FAULT => Some(CallReply::Fault(Fault::new(
                     FaultKind::from_name(&kind?.to_string().ok()?)?,
                     body.to_string().ok()?,
                 ))),

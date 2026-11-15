@@ -10,7 +10,7 @@ use super::{tag, DecodeError, ErrorRecord, Fault, Unsupported};
 
 /// The answer to one dispatch Call.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum Reply {
+pub enum CallReply {
     /// The method returned; the bytes are the value, codec-encoded.
     Ok(Vec<u8>),
     /// The method refused or failed. Typed rather than codec-encoded:
@@ -24,19 +24,19 @@ pub enum Reply {
     Unsupported(Unsupported),
 }
 
-impl Reply {
+impl CallReply {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {
         let mut reader = Reader::new(bytes);
         match reader.read_u8()? {
-            tag::OK => Ok(Reply::Ok(reader.remaining().to_vec())),
+            tag::OK => Ok(CallReply::Ok(reader.remaining().to_vec())),
             // No `finish` here: a Fault owns everything after the tag,
             // including the fields a later contract version appends.
-            tag::FAULT => Ok(Reply::Fault(Fault::read(&mut reader)?)),
+            tag::FAULT => Ok(CallReply::Fault(Fault::read(&mut reader)?)),
             tag::BREAK => {
                 reader.finish()?;
-                Ok(Reply::Break)
+                Ok(CallReply::Break)
             }
-            tag::UNSUPPORTED => Ok(Reply::Unsupported(Unsupported::read(&mut reader)?)),
+            tag::UNSUPPORTED => Ok(CallReply::Unsupported(Unsupported::read(&mut reader)?)),
             _ => Err(DecodeError::new(
                 "Reply tag must be 0x10 (ok), 0x11 (fault), 0x12 (break), or 0x15 (unsupported)",
             )),
@@ -46,17 +46,17 @@ impl Reply {
     pub fn encode(&self) -> Vec<u8> {
         let mut writer = Writer::new();
         match self {
-            Reply::Ok(body) => {
+            CallReply::Ok(body) => {
                 writer.u8(tag::OK).remainder(body);
             }
-            Reply::Fault(fault) => {
+            CallReply::Fault(fault) => {
                 writer.u8(tag::FAULT);
                 fault.write(&mut writer);
             }
-            Reply::Break => {
+            CallReply::Break => {
                 writer.u8(tag::BREAK);
             }
-            Reply::Unsupported(refusal) => return refusal.encode(),
+            CallReply::Unsupported(refusal) => return refusal.encode(),
         }
         writer.into_bytes()
     }
@@ -123,17 +123,17 @@ mod tests {
     #[test]
     fn every_reply_arm_round_trips() {
         for reply in [
-            Reply::Ok(vec![0x2a]),
-            Reply::Fault(Fault::new(
+            CallReply::Ok(vec![0x2a]),
+            CallReply::Fault(Fault::new(
                 super::super::FaultKind::Undefined,
                 "no such method",
             )),
-            Reply::Break,
-            Reply::Unsupported(Unsupported::new("no such operation")),
+            CallReply::Break,
+            CallReply::Unsupported(Unsupported::new("no such operation")),
         ] {
             let encoded = reply.encode();
             assert_eq!(
-                Reply::decode(&encoded),
+                CallReply::decode(&encoded),
                 Ok(reply),
                 "a Reply must survive a host encode and decode on every arm"
             );
@@ -143,10 +143,10 @@ mod tests {
     // @behavior WE-019
     #[test]
     fn an_empty_ok_body_round_trips() {
-        let encoded = Reply::Ok(Vec::new()).encode();
+        let encoded = CallReply::Ok(Vec::new()).encode();
         assert_eq!(
-            Reply::decode(&encoded),
-            Ok(Reply::Ok(Vec::new())),
+            CallReply::decode(&encoded),
+            Ok(CallReply::Ok(Vec::new())),
             "a Reply whose payload is empty must decode as an empty value, not a truncation"
         );
     }
@@ -155,7 +155,7 @@ mod tests {
     #[test]
     fn an_unknown_reply_tag_is_refused() {
         assert!(
-            Reply::decode(&[0x13, 0]).is_err(),
+            CallReply::decode(&[0x13, 0]).is_err(),
             "a Reply tag outside its arms must be rejected as a wire violation"
         );
     }
@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn a_zero_length_reply_is_refused() {
         assert!(
-            Reply::decode(&[]).is_err(),
+            CallReply::decode(&[]).is_err(),
             "a zero-length Reply must be rejected rather than read as a missing tag"
         );
     }
@@ -211,24 +211,24 @@ mod tests {
         // this" from "the Service failed with this" is the tag alone, which
         // is what lets a side read the outcome without a payload codec.
         assert_eq!(
-            Reply::Ok(vec![0x2a]).encode(),
+            CallReply::Ok(vec![0x2a]).encode(),
             vec![0x10, 0x2a],
             "a successful Reply must encode as tag byte 0x10 followed by the body alone"
         );
         assert_eq!(
-            Reply::Fault(Fault::new(super::super::FaultKind::Runtime, "x")).encode(),
+            CallReply::Fault(Fault::new(super::super::FaultKind::Runtime, "x")).encode(),
             vec![0x11, 0, 0, 0, 0, 1, b'x'],
             "a fault Reply must encode as tag byte 0x11 followed by the Fault's own fixed \
              layout, so a guest reads a refusal without reaching a payload codec"
         );
         assert_eq!(
-            Reply::Unsupported(Unsupported::new("x")).encode(),
+            CallReply::Unsupported(Unsupported::new("x")).encode(),
             vec![0x15, 0, 0, 0, 0, 1, b'x'],
             "an unsupported Reply must encode as tag byte 0x15 followed by kind 0 and the \
              message"
         );
         assert_eq!(
-            Reply::Break.encode(),
+            CallReply::Break.encode(),
             vec![0x12],
             "a break Reply must encode as tag byte 0x12 alone, since the guest keeps the exit"
         );
@@ -240,7 +240,7 @@ mod tests {
         let body = vec![0x2a];
         assert_eq!(
             [
-                Reply::Ok(body.clone()).encode()[0],
+                CallReply::Ok(body.clone()).encode()[0],
                 YieldReply::Ok(body.clone()).encode()[0],
                 super::super::CompileReply::Ok(vec![body.clone()]).encode()[0],
                 super::super::Outcome::Ok(body).encode()[0],

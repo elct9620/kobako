@@ -49,7 +49,7 @@ impl Unsupported {
 
 #[cfg(test)]
 mod tests {
-    use super::super::{CompileReply, Outcome, Reply, YieldReply};
+    use super::super::{CallReply, CompileReply, Outcome, YieldReply};
     use super::*;
 
     // @behavior WE-069
@@ -58,18 +58,18 @@ mod tests {
         let refusal = Unsupported::new("not served");
         assert_eq!(
             refusal.encode(),
-            Reply::Unsupported(refusal.clone()).encode(),
+            CallReply::Unsupported(refusal.clone()).encode(),
             "an Unsupported encoded on its own must be the same answer every operation carries"
         );
         assert_eq!(
             (
-                Reply::decode(&Reply::Unsupported(refusal.clone()).encode()),
+                CallReply::decode(&CallReply::Unsupported(refusal.clone()).encode()),
                 YieldReply::decode(&YieldReply::Unsupported(refusal.clone()).encode()),
                 CompileReply::decode(&CompileReply::Unsupported(refusal.clone()).encode()),
                 Outcome::decode(&Outcome::Unsupported(refusal.clone()).encode()),
             ),
             (
-                Ok(Reply::Unsupported(refusal.clone())),
+                Ok(CallReply::Unsupported(refusal.clone())),
                 Ok(YieldReply::Unsupported(refusal.clone())),
                 Ok(CompileReply::Unsupported(refusal.clone())),
                 Ok(Outcome::Unsupported(refusal)),
@@ -84,8 +84,8 @@ mod tests {
     fn a_kind_this_reader_predates_still_delivers_its_message() {
         let bytes = [0x15, 9, 0, 0, 0, 1, b'm'];
         assert_eq!(
-            Reply::decode(&bytes),
-            Ok(Reply::Unsupported(Unsupported::new("m"))),
+            CallReply::decode(&bytes),
+            Ok(CallReply::Unsupported(Unsupported::new("m"))),
             "an Unsupported of an unknown kind through Reply::decode must read as the one \
              kind defined, its message intact"
         );
@@ -96,8 +96,8 @@ mod tests {
     fn a_field_this_reader_predates_is_skipped() {
         let bytes = [0x15, 0, 0, 0, 0, 1, b'm', 0xff];
         assert_eq!(
-            Reply::decode(&bytes),
-            Ok(Reply::Unsupported(Unsupported::new("m"))),
+            CallReply::decode(&bytes),
+            Ok(CallReply::Unsupported(Unsupported::new("m"))),
             "an Unsupported carrying a trailing field through Reply::decode must skip it, \
              its message intact"
         );

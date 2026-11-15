@@ -8,7 +8,7 @@
 //! this trait.
 
 use crate::yielder::Yielder;
-use kobako_transport::envelope::{Call, Reply};
+use kobako_transport::envelope::{Call, CallReply};
 
 /// Host-side handler for a guest→host dispatch.
 ///
@@ -23,7 +23,7 @@ use kobako_transport::envelope::{Call, Reply};
 /// The `Call` borrows the buffer the runtime decoded, so a handler passes
 /// the payload onward without copying it first.
 pub trait DispatchHandler: Send + Sync {
-    fn dispatch(&self, call: Call<'_>, yielder: &mut dyn Yielder) -> Option<Reply>;
+    fn dispatch(&self, call: Call<'_>, yielder: &mut dyn Yielder) -> Option<CallReply>;
 
     /// Whether the host gave up on this invocation, as when one of its
     /// callbacks raised something meant for the host rather than the

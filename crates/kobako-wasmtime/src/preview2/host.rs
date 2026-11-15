@@ -1358,7 +1358,7 @@ mod tests {
             &self,
             _call: kobako_transport::envelope::Call<'_>,
             _yielder: &mut dyn kobako_runtime::yielder::Yielder,
-        ) -> Option<kobako_transport::envelope::Reply> {
+        ) -> Option<kobako_transport::envelope::CallReply> {
             None
         }
 

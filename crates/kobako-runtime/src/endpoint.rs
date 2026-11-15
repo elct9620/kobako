@@ -101,7 +101,7 @@ pub trait GuestInstance {
 mod tests {
     //! Witness that the endpoint needs nothing of an Engine: an instance made
     //! of a plain buffer drives a whole request and upcall through it.
-    use kobako_transport::envelope::Reply;
+    use kobako_transport::envelope::CallReply;
 
     use super::*;
 
@@ -177,9 +177,9 @@ mod tests {
             handle(&mut guest, 512, request.len() as i32, 8).is_ok(),
             "the upcall must answer"
         );
-        let reply = Reply::decode(named_by(&guest, 8));
+        let reply = CallReply::decode(named_by(&guest, 8));
         assert!(
-            matches!(reply, Ok(Reply::Unsupported(_))),
+            matches!(reply, Ok(CallReply::Unsupported(_))),
             "endpoint::handle through an instance of a plain buffer must write the answer to a \
              request under an unserved tag back into guest memory"
         );
@@ -211,7 +211,7 @@ mod tests {
             &self,
             _call: kobako_transport::envelope::Call<'_>,
             _yielder: &mut dyn crate::yielder::Yielder,
-        ) -> Option<Reply> {
+        ) -> Option<CallReply> {
             None
         }
 

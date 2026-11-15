@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::yielder::Yielder as RawYielder;
-use kobako_transport::envelope::{Call, Reply, Target};
+use kobako_transport::envelope::{Call, CallReply, Target};
 
 use crate::catalog::Catalog;
 use crate::handles::{HandleTable, Handles};
@@ -49,16 +49,16 @@ impl CatalogHandler {
     /// Routes a Call to its Receiver and hands the payload through
     /// untouched: what the bytes mean is the Receiver's own schema, so
     /// this layer never decodes them.
-    fn answer(&self, call: &Call<'_>, yielder: &mut dyn RawYielder) -> Reply {
+    fn answer(&self, call: &Call<'_>, yielder: &mut dyn RawYielder) -> CallReply {
         let object = match self.resolve_target(&call.target) {
             Ok(object) => object,
-            Err(fault) => return Reply::Fault(fault),
+            Err(fault) => return CallReply::Fault(fault),
         };
         // The target's own narrowing predicate answers before any
         // method runs; the rejection shares the `undefined` fault kind
         // of an unresolved target and the Ruby frontend's wording.
         if !object.responds_to_guest(call.method) {
-            return Reply::Fault(Fault::new(
+            return CallReply::Fault(Fault::new(
                 FaultKind::Undefined,
                 format!("method :{} is not exposed to the guest", call.method),
             ));
@@ -69,13 +69,13 @@ impl CatalogHandler {
         // A block exit unwinds the receiver transparently: the guest kept
         // the exit and continues it no matter what the receiver returned.
         if block.as_ref().is_some_and(Yielder::broken) {
-            return Reply::Break;
+            return CallReply::Break;
         }
         match result {
-            Ok(body) => Reply::Ok(body),
+            Ok(body) => CallReply::Ok(body),
             // The Fault is an envelope shape, so it goes on as itself rather
             // than encoded, leaving every other position to the host's schema.
-            Err(fault) => Reply::Fault(fault),
+            Err(fault) => CallReply::Fault(fault),
         }
     }
 
@@ -108,7 +108,7 @@ impl CatalogHandler {
 impl DispatchHandler for CatalogHandler {
     /// `None` is reserved for "the handler itself failed"; this
     /// handler reifies every failure as an envelope instead.
-    fn dispatch(&self, call: Call<'_>, yielder: &mut dyn RawYielder) -> Option<Reply> {
+    fn dispatch(&self, call: Call<'_>, yielder: &mut dyn RawYielder) -> Option<CallReply> {
         Some(self.answer(&call, yielder))
     }
 }
@@ -320,12 +320,12 @@ mod tests {
         Break,
     }
 
-    fn answer(reply: Reply) -> Answer {
+    fn answer(reply: CallReply) -> Answer {
         match reply {
-            Reply::Ok(body) => Answer::Ok(Decoder::new(&body).read_sole_value().unwrap()),
-            Reply::Fault(fault) => Answer::Fault(fault),
-            Reply::Break => Answer::Break,
-            Reply::Unsupported(_) => unreachable!("a dispatch handler serves every Call"),
+            CallReply::Ok(body) => Answer::Ok(Decoder::new(&body).read_sole_value().unwrap()),
+            CallReply::Fault(fault) => Answer::Fault(fault),
+            CallReply::Break => Answer::Break,
+            CallReply::Unsupported(_) => unreachable!("a dispatch handler serves every Call"),
         }
     }
 

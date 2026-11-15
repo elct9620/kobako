@@ -48,7 +48,7 @@ pub use error_record::{
 pub use fault::{Fault, FaultKind};
 pub use outcome::{Origin, Outcome, Panic};
 pub use preamble::{Bindings, Flag, Preamble, Snippet, Snippets};
-pub use reply::{Reply, YieldReply};
+pub use reply::{CallReply, YieldReply};
 pub use request::{Downcall, UnknownTag, Upcall};
 pub use run::Run;
 pub use unsupported::Unsupported;

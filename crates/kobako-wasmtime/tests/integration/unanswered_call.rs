@@ -8,14 +8,14 @@ use crate::support;
 use std::sync::Arc;
 
 use kobako_runtime::{Completion, DispatchHandler, Entry, Runtime, Yielder};
-use kobako_transport::envelope::{Bindings, Call, Outcome, Preamble, Reply};
+use kobako_transport::envelope::{Bindings, Call, CallReply, Outcome, Preamble};
 
 /// Answers every Call with one byte more than a message carries.
 struct AnswersTooMuch;
 
 impl DispatchHandler for AnswersTooMuch {
-    fn dispatch(&self, _call: Call<'_>, _yielder: &mut dyn Yielder) -> Option<Reply> {
-        Some(Reply::Ok(vec![0xc0; (16 << 20) + 1]))
+    fn dispatch(&self, _call: Call<'_>, _yielder: &mut dyn Yielder) -> Option<CallReply> {
+        Some(CallReply::Ok(vec![0xc0; (16 << 20) + 1]))
     }
 }
 
@@ -23,7 +23,7 @@ impl DispatchHandler for AnswersTooMuch {
 struct AnswersNothing;
 
 impl DispatchHandler for AnswersNothing {
-    fn dispatch(&self, _call: Call<'_>, _yielder: &mut dyn Yielder) -> Option<Reply> {
+    fn dispatch(&self, _call: Call<'_>, _yielder: &mut dyn Yielder) -> Option<CallReply> {
         None
     }
 }

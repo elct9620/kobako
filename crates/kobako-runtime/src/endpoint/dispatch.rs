@@ -14,7 +14,7 @@
 use std::sync::Arc;
 
 use kobako_transport::envelope::{
-    Downcall, Fault, FaultKind, Reply, Unsupported, Upcall, YieldReply,
+    CallReply, Downcall, Fault, FaultKind, Unsupported, Upcall, YieldReply,
 };
 
 use super::buffer::{
@@ -102,7 +102,7 @@ pub fn handle<G: GuestInstance>(
     ret: i32,
 ) -> Result<(), ImportEnd<G::Fault>> {
     let reply = reply_to(guest, req_ptr, req_len)
-        .unwrap_or_else(|reason| Reply::Fault(Fault::new(FaultKind::Internal, reason)));
+        .unwrap_or_else(|reason| CallReply::Fault(Fault::new(FaultKind::Internal, reason)));
     answer_import(guest, &fit_in_message(reply).encode(), ret)
 }
 
@@ -137,11 +137,11 @@ fn answer_import<G: GuestInstance>(
 
 /// An answer past the message cap is the Service's to change, as any other
 /// answer the host cannot write is.
-fn fit_in_message(reply: Reply) -> Reply {
+fn fit_in_message(reply: CallReply) -> CallReply {
     let bytes = reply.encode().len();
     match checked_payload_len(bytes) {
         Ok(_) => reply,
-        Err(limit) => Reply::Fault(Fault::new(
+        Err(limit) => CallReply::Fault(Fault::new(
             FaultKind::Runtime,
             format!("Sandbox could not write the Service's answer: {limit}"),
         )),
@@ -152,7 +152,7 @@ fn reply_to<G: GuestInstance>(
     guest: &mut G,
     req_ptr: i32,
     req_len: i32,
-) -> Result<Reply, &'static str> {
+) -> Result<CallReply, &'static str> {
     let req_bytes = read_request(guest, req_ptr, req_len)?;
     // The endpoint decodes the Envelope, here and in `FrameYielder`, so
     // the frontend never sees a frame; the payload inside it stays bytes
@@ -160,7 +160,7 @@ fn reply_to<G: GuestInstance>(
     let call = match Upcall::decode(&req_bytes) {
         Ok(Upcall::Call(call)) => call,
         Ok(_) => {
-            return Ok(Reply::Unsupported(Unsupported::new(
+            return Ok(CallReply::Unsupported(Unsupported::new(
                 "the host does not serve this request",
             )))
         }

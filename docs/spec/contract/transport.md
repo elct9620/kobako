@@ -263,30 +263,30 @@ impl Unsupported {
 }
 ```
 
-## `Reply`
+## `CallReply`
 
 The host's answer to a Call: a value, a Fault, a break, or that it does not serve it.
 
 ```rust
-pub enum Reply {}
+pub enum CallReply {}
 ```
 
-## `Reply::decode`
+## `CallReply::decode`
 
 Read a Reply from its Envelope.
 
 ```rust
-impl Reply {
+impl CallReply {
     pub fn decode(bytes: &[u8]) -> Result<Self, DecodeError> {}
 }
 ```
 
-## `Reply::encode`
+## `CallReply::encode`
 
 Write a Reply into its Envelope.
 
 ```rust
-impl Reply {
+impl CallReply {
     pub fn encode(&self) -> Vec<u8> {}
 }
 ```

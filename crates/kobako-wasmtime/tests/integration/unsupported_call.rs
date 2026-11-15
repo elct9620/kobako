@@ -8,13 +8,13 @@ use crate::support;
 use std::sync::Arc;
 
 use kobako_runtime::{Completion, DispatchHandler, Entry, Runtime, Yielder};
-use kobako_transport::envelope::{Bindings, Call, Outcome, Preamble, Reply, Unsupported};
+use kobako_transport::envelope::{Bindings, Call, CallReply, Outcome, Preamble, Unsupported};
 
 struct ServesNoCall;
 
 impl DispatchHandler for ServesNoCall {
-    fn dispatch(&self, _call: Call<'_>, _yielder: &mut dyn Yielder) -> Option<Reply> {
-        Some(Reply::Unsupported(Unsupported::new("no calls here")))
+    fn dispatch(&self, _call: Call<'_>, _yielder: &mut dyn Yielder) -> Option<CallReply> {
+        Some(CallReply::Unsupported(Unsupported::new("no calls here")))
     }
 }
 
