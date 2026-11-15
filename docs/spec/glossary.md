@@ -78,7 +78,7 @@ A message asking the other side to run one method. The guest issues one to reach
 
 ### Reply
 
-The response to one Call: a value, a Fault, a break, or Unsupported. A break carries nothing; it continues the exit a Block took. The response to a Yield may instead be the Error Record of a Block that raised.
+The return value of one request on either channel, as ONC RPC replies to every call. A Call's Reply is a value, a Fault, a break, or Unsupported. A Yield Reply, a Compile Reply, and an Outcome are the replies to a yield, a compile, and a run. A break carries nothing; it continues the exit a Block took.
 
 ```
 Call  -> value | Fault | break | Unsupported
@@ -187,7 +187,7 @@ The part of a message that says where it goes and how it turned out. It is reada
 
 ### Tag
 
-The first byte of every message, naming its operation or its response's case. One registry covers both directions, so an assigned tag means one thing everywhere.
+The first byte of every message, naming its operation or its reply's case. One registry covers both directions, so an assigned tag means one thing everywhere.
 
 ### Request
 
@@ -223,11 +223,11 @@ The reason a Call failed, returned to whoever made it. It is kobako's own data r
 
 ### Unsupported
 
-The response that the receiver does not support the operation it was sent, returned to whoever sent it. It is a response, not a breakage, so it is never a Trap.
+The reply that the receiver does not support the operation it was sent, returned to whoever sent it. It is a reply, not a breakage, so it is never a Trap.
 
 ### Error Record
 
-A failure's name, message, and backtrace as one unit. Every response that reports a guest failure carries this same shape.
+A failure's name, message, and backtrace as one unit. Every reply that reports a guest failure carries this same shape.
 
 ### Panic
 
