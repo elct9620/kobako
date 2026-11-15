@@ -4412,3 +4412,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation whose host gave it up while a callback ran |
 | When | the guest asks the host's `preamble` import for it |
 | Then | the call traps once it answered, as the upcall does, so the guest cannot go on as if answered |
+
+## `RT-399` A poll spends its fuel by what the host holds for each subscription
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-096` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation calling `poll_oneoff` with more subscriptions than its memory holds |
+| When | their subscriptions and events fit the hostcall fuel by the host's size of each, as wasmtime-wasi counts them |
+| Then | the call goes on to read them, and only one more subscription answers NOMEM before anything is read |
