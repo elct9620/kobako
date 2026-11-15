@@ -13,6 +13,10 @@
 
 pub mod abi;
 mod guest;
+// The guest crates of this repository keep their per-instance statics in
+// it; no guest outside them is promised it.
+#[doc(hidden)]
+pub mod instance_cell;
 mod panic;
 mod preamble;
 pub mod proxy;

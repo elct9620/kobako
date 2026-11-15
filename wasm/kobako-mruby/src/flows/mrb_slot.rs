@@ -8,7 +8,7 @@
 
 use beni::Mrb;
 
-use crate::runtime::instance_cell::InstanceCell;
+use kobako_core::instance_cell::InstanceCell;
 
 /// The slot for the active `Mrb`, mutated from `&self` through an
 /// `InstanceCell`. `install` / `clear` / `as_ref` are the only entry

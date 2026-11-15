@@ -8,16 +8,16 @@
 
 use core::cell::UnsafeCell;
 
-pub(crate) struct InstanceCell<T>(UnsafeCell<T>);
+pub struct InstanceCell<T>(UnsafeCell<T>);
 
 impl<T> InstanceCell<T> {
-    pub(crate) const fn new(value: T) -> Self {
+    pub const fn new(value: T) -> Self {
         Self(UnsafeCell::new(value))
     }
 
     /// A pointer to the held value. A write through it while a borrow read
     /// through it is live is undefined behavior, as with `UnsafeCell::get`.
-    pub(crate) fn get(&self) -> *mut T {
+    pub fn get(&self) -> *mut T {
         self.0.get()
     }
 }

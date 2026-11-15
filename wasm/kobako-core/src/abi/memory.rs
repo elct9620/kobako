@@ -51,7 +51,8 @@ pub fn realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {
 /// an upcall writes it too, but the host copies that answer out before the
 /// outer one is written.
 #[cfg(target_arch = "wasm32")]
-static mut RETURN_AREA: [u32; 2] = [0; 2];
+static RETURN_AREA: crate::instance_cell::InstanceCell<[u32; 2]> =
+    crate::instance_cell::InstanceCell::new([0; 2]);
 
 /// Keep an encoded answer in guest memory and answer the return area that
 /// names its `(ptr, len)`, for the downcall export to return.
@@ -59,13 +60,11 @@ pub fn answer(bytes: &[u8]) -> u32 {
     #[cfg(target_arch = "wasm32")]
     {
         let kept: &'static [u8] = Vec::leak(bytes.to_vec());
-        // SAFETY: the guest runs on one thread, and the host reads the area
-        // only after the export that wrote it returns.
-        unsafe {
-            let area = core::ptr::addr_of_mut!(RETURN_AREA);
-            *area = [kept.as_ptr() as u32, kept.len() as u32];
-            area as u32
-        }
+        let area = RETURN_AREA.get();
+        // SAFETY: no borrow of the area is live, and the host reads it only
+        // after the export that wrote it returns.
+        unsafe { *area = [kept.as_ptr() as u32, kept.len() as u32] };
+        area as u32
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
@@ -82,16 +81,17 @@ pub fn answer(bytes: &[u8]) -> u32 {
 pub fn run_ctors_once() {
     #[cfg(target_arch = "wasm32")]
     {
-        static mut RAN: bool = false;
+        static RAN: crate::instance_cell::InstanceCell<bool> =
+            crate::instance_cell::InstanceCell::new(false);
         extern "C" {
             fn __wasm_call_ctors();
         }
-        // SAFETY: the guest runs on one thread, and wasm-ld defines
+        // SAFETY: no borrow of the flag is live, and wasm-ld defines
         // `__wasm_call_ctors` for every module it links.
         unsafe {
-            if !RAN {
+            if !*RAN.get() {
                 __wasm_call_ctors();
-                RAN = true;
+                *RAN.get() = true;
             }
         }
     }

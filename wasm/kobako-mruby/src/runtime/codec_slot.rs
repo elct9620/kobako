@@ -6,7 +6,7 @@
 //! nowhere to carry a type parameter. The shell's choice is recorded here
 //! instead, once, when `Kobako::init` runs. Set once and never changed, it
 //! needs no `InstanceCell`; the cross-invocation isolation argument of
-//! `crate::runtime::instance_cell` applies here unchanged.
+//! `kobako_core::instance_cell` applies here unchanged.
 
 use std::sync::OnceLock;
 

@@ -23,7 +23,7 @@
 use beni::sys::AsRawValue;
 use beni::Value;
 
-use crate::runtime::instance_cell::InstanceCell;
+use kobako_core::instance_cell::InstanceCell;
 
 /// The slot for the object a guest block left with. Each method holds its
 /// borrow only for its own body, so none outlives a write.

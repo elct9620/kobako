@@ -12,7 +12,6 @@ pub(crate) mod block_stack;
 pub(crate) mod bridges;
 pub(crate) mod codec_slot;
 mod init;
-pub(crate) mod instance_cell;
 mod values;
 
 pub use bindings::InstallError;

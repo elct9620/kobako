@@ -12,8 +12,8 @@
 //! it out of the guest's reach: no snippet can read or rewrite the set
 //! that decides a correction.
 
-use crate::runtime::instance_cell::InstanceCell;
 use crate::runtime::Kobako;
+use kobako_core::instance_cell::InstanceCell;
 
 /// The slot for the boot-state constant names. Written once per instance
 /// during boot and read only by the unresolved-entrypoint path, so it

@@ -13,7 +13,7 @@
 
 use beni::Proc;
 
-use crate::runtime::instance_cell::InstanceCell;
+use kobako_core::instance_cell::InstanceCell;
 
 /// The stack of guest-supplied blocks. Each method holds its borrow only
 /// for its own body, so none outlives a write.
