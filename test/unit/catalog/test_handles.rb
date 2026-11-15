@@ -176,7 +176,7 @@ module Kobako
     # Walk a value whose first leaf is wrappable and whose second is a
     # non-representable Hash key, so the walk mints an id and then aborts.
     def wrap_that_fails_after_minting(table)
-      assert_raises(Kobako::SandboxError) do
+      assert_raises(TypeError) do
         Kobako::Transport::ArgumentWrap.wrap([Object.new, { Object.new => 1 }], table)
       end
     end

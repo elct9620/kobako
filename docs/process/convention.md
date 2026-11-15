@@ -222,7 +222,7 @@ A Ruby method ends in `!` only as the dangerous member of a pair, as Ruby marks 
 | Method | Its name | As in |
 |---|---|---|
 | an act that raises where it could not do its work | its verb | `build_runtime`, `run_baker` |
-| a guard that raises when its condition fails | the check | `ensure_capacity`, `reject_unwrappable` |
+| a guard that raises when its condition fails | the check | `ensure_capacity`, `require_bound` |
 | a change to its receiver | its verb | `invalidate`, `record_handle` |
 | the dangerous member of a pair | the safe member's name and `!` | `sort!`, ActiveRecord's `save!` |
 

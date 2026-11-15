@@ -36,18 +36,4 @@ class TestE2EExecution < Minitest::Test
     assert_predicate execution, :failed?,
                      "a trapped run's carried Execution must report #failed? true"
   end
-
-  # @behavior S-068
-  # No run produced observables to carry, so there is no Execution to attach.
-  def test_a_preflight_failure_carries_no_execution
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-
-    cyclic = []
-    cyclic << cyclic
-    error = assert_raises(Kobako::SandboxError) { sandbox.run(:Entry, cyclic) }
-
-    assert_nil error.execution,
-               "a #run argument that cannot cross the boundary is refused before the guest runs, " \
-               "so the SandboxError carries no Execution"
-  end
 end

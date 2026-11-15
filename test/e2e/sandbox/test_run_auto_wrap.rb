@@ -42,39 +42,38 @@ class TestSandboxRunAutoWrap < Minitest::Test
   end
 
   # Auto-wrap applies to Hash values, not keys: a non-wire-representable
-  # object may cross as a value (above) but not as a key. #run rejects such
-  # a key with a public SandboxError rather than leaking the internal codec
-  # UnsupportedTypeError that a raw encode would otherwise raise.
+  # object may cross as a value (above) but not as a key. #run raises the
+  # Host App's mistake as Marshal.dump raises a value with no form to cross
+  # as, rather than leaking the codec's own error at encode.
   # @behavior T-068
-  def test_non_representable_hash_key_argument_is_rejected_as_sandbox_error
+  def test_non_representable_hash_key_argument_raises_type_error
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "App = ->(h) { h.size }", name: :App)
 
-    err = assert_raises(Kobako::SandboxError) do
+    err = assert_raises(TypeError) do
       sandbox.run(:App, { StringIO.new("k") => "v" })
     end
 
     assert_match(/key that cannot cross the sandbox boundary \(StringIO\)/, err.message,
-                 "a Hash key #run cannot auto-wrap must name the key's type — the sibling " \
-                 "depth refusal raises the same class, so only the wording tells them apart")
+                 "#run given a Hash keyed by a value the wire cannot carry must raise TypeError " \
+                 "naming the key's class before the guest runs")
   end
 
   # A cyclic argument nests without bound and cannot faithfully cross. The
-  # host refuses it while encoding the Run payload, so #run surfaces a
-  # clean SandboxError before entering the guest rather than a host stack
-  # overflow escaping the invocation.
+  # host refuses it while walking the Run payload, so #run raises before
+  # entering the guest rather than letting a host stack overflow escape.
   # @behavior T-069
-  def test_cyclic_argument_is_rejected_as_sandbox_error
+  def test_cyclic_argument_raises_argument_error
     sandbox = Kobako::Sandbox.new
     sandbox.preload(code: "App = ->(x) { x }", name: :App)
     cyclic = []
     cyclic << cyclic
 
-    err = assert_raises(Kobako::SandboxError) { sandbox.run(:App, cyclic) }
+    err = assert_raises(ArgumentError) { sandbox.run(:App, cyclic) }
 
     assert_match(/nests deeper than 128 levels/, err.message,
-                 "a cyclic #run argument must be refused for its depth, so the refusal " \
-                 "is not mistaken for the sibling unwrappable-key one")
+                 "#run given an argument holding itself must raise ArgumentError naming the " \
+                 "depth bound before the guest runs")
   end
 
   # An argument crosses inside the Run payload, whose document and argument
@@ -110,22 +109,22 @@ class TestSandboxRunAutoWrap < Minitest::Test
   def test_argument_a_level_past_the_payload_bound_is_refused_by_the_host
     too_deep = nest(Kobako::Codec::MAX_NESTING_DEPTH - PAYLOAD_LEVELS + 1)
 
-    err = assert_raises(Kobako::SandboxError) { entry_sandbox.run(:App, too_deep) }
+    err = assert_raises(ArgumentError) { entry_sandbox.run(:App, too_deep) }
 
     assert_match(/nests deeper than 128 levels/, err.message,
                  "a #run argument nested one level past what the Run payload can carry must " \
-                 "be refused by the host before the guest runs")
+                 "raise ArgumentError before the guest runs")
   end
 
   # @behavior T-219
   def test_keyword_value_a_level_past_the_payload_bound_is_refused_by_the_host
     too_deep = nest(Kobako::Codec::MAX_NESTING_DEPTH - PAYLOAD_LEVELS + 1)
 
-    err = assert_raises(Kobako::SandboxError) { entry_sandbox.run(:App, value: too_deep) }
+    err = assert_raises(ArgumentError) { entry_sandbox.run(:App, value: too_deep) }
 
     assert_match(/nests deeper than 128 levels/, err.message,
                  "a #run keyword value nested one level past what the Run payload can carry " \
-                 "must be refused by the host before the guest runs")
+                 "must raise ArgumentError before the guest runs")
   end
 
   # Refusing a gadget among the arguments is what keeps every id the
@@ -137,11 +136,11 @@ class TestSandboxRunAutoWrap < Minitest::Test
     entered = []
     sandbox = probe_sandbox(-> { entered << true })
 
-    err = assert_raises(Kobako::SandboxError) { sandbox.run(:App, Body.new("body"), Kernel) }
+    err = assert_raises(TypeError) { sandbox.run(:App, Body.new("body"), Kernel) }
 
     assert_match(/a Module cannot cross as a Capability Handle/, err.message,
-                 "a #run argument handing over host reflection must be refused by name, so " \
-                 "the refusal is not mistaken for the sibling unwrappable-key one")
+                 "#run given an argument handing over host reflection must raise TypeError " \
+                 "naming its class")
     assert_empty entered,
                  "a #run whose arguments hold a reflective gadget must fail before the " \
                  "entrypoint runs, so no reference the walk had already issued is addressable"

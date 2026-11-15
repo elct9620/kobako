@@ -1,7 +1,5 @@
 # frozen_string_literal: true
 
-require "delegate"
-
 require_relative "../handle"
 require_relative "../transport/exposure"
 
@@ -21,9 +19,12 @@ module Kobako
 
       # The entry records the object's Exposure as it stands at mint, so a
       # call made through this Handle is authorized against the reference
-      # the guest was given.
+      # the guest was given. The mint point asks the refusal itself, so it
+      # holds on every path a Handle is issued.
       def alloc(object)
-        reject_unwrappable(object)
+        refused = Kobako::Transport::Exposure.refused_class_of(object)
+        raise SandboxError, "a #{refused} cannot cross as a Capability Handle" if refused
+
         ensure_capacity
         id = @next_id
         @entries[id] = Kobako::Transport::Exposure.of(object, @surfaces)
@@ -47,29 +48,6 @@ module Kobako
       end
 
       private
-
-      # Refuse to mint a Capability Handle for an object whose reachable
-      # surface is not Service behaviour: a +Binding+ / +Method+ /
-      # +UnboundMethod+ hands the guest a callable proxy onto host
-      # reflection (a returned +Binding+ reaches +Binding#eval+); a +Class+
-      # or +Module+ hands over its class-level API (+File.popen+ / +read+,
-      # +Kernel.system+), which the owner-based dispatch floor cannot see
-      # because a singleton-class owner matches no core-module list; a
-      # +Delegator+ (+SimpleDelegator+, +DelegateClass+, +WeakRef+,
-      # +Tempfile+) is a transparent forwarder whose public +method_missing+
-      # binds and calls the private method the guest names (+Kernel#system+),
-      # a surface the floor reads as ordinary Service behaviour. Raising here
-      # keeps the rule at the single mint point, so it holds on both the
-      # Service-return and the +#run+ host→guest auto-wrap paths.
-      def reject_unwrappable(object)
-        case object
-        when Binding, Method, UnboundMethod, Module, Delegator
-          # Delegator < BasicObject exposes no static +#class+, so name the
-          # rejected object's class through Object's own.
-          kind = Object.instance_method(:class).bind_call(object)
-          raise SandboxError, "a #{kind} cannot cross as a Capability Handle"
-        end
-      end
 
       def ensure_capacity
         cap = Kobako::Handle::MAX_ID

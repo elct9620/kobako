@@ -13,6 +13,8 @@ module Kobako
 
       def self.of: (untyped object, ?Hash[Module, Set[Symbol]] surfaces) -> Exposure
 
+      def self.refused_class_of: (untyped object) -> Module?
+
       def initialize: (object: untyped, names: Set[Symbol]?) -> void
 
       def with: (?object: untyped, ?names: Set[Symbol]?) -> Exposure

@@ -57,14 +57,14 @@ class TestTransportArgumentWrap < Minitest::Test
   end
 
   # @behavior T-029
-  def test_non_representable_hash_key_is_rejected_as_sandbox_error
-    err = assert_raises(Kobako::SandboxError) do
+  def test_non_representable_hash_key_raises_type_error
+    err = assert_raises(TypeError) do
       ArgumentWrap.wrap({ StringIO.new("k") => "v" }, @table)
     end
 
     assert_match(/Hash key/, err.message,
-                 "a non-wire-representable Hash key must be rejected with a public SandboxError, " \
-                 "not left to leak the internal codec UnsupportedTypeError at encode")
+                 "a Hash argument keyed by a value the wire cannot carry must raise TypeError, as " \
+                 "Marshal.dump raises for a value with no form, not the codec's own error at encode")
     assert_equal 0, @table.size, "a rejected key must allocate no Handle"
   end
 

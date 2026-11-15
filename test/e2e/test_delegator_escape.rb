@@ -66,7 +66,7 @@ class TestE2EDelegatorEscape < Minitest::Test
   def test_forwarder_run_argument_is_refused_at_the_mint_point
     sandbox = real_sandbox
     sandbox.preload(code: 'App = ->(t) { t.__send__(:method_missing, :method_missing, :system, "x") }', name: "App")
-    err = assert_raises(Kobako::SandboxError) { sandbox.run(:App, SimpleDelegator.new(Object.new)).value }
+    err = assert_raises(TypeError) { sandbox.run(:App, SimpleDelegator.new(Object.new)).value }
     assert_match(/cannot cross as a Capability Handle/, err.message,
                  "a forwarder passed as a #run argument must be refused before the guest runs")
   end

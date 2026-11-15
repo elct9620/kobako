@@ -13,8 +13,6 @@ module Kobako
 
       private
 
-      def reject_unwrappable: (untyped object) -> void
-
       def ensure_capacity: () -> void
 
       def require_bound: (Integer id) -> void

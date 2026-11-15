@@ -27,6 +27,26 @@ module Kobako
         new(object: object, names: names)
       end
 
+      # The class of +object+ when no reference may stand for it, as its
+      # reachable surface is not Service behaviour; +nil+ otherwise. A
+      # +Binding+ / +Method+ / +UnboundMethod+ hands the guest a callable
+      # proxy onto host reflection (a returned +Binding+ reaches
+      # +Binding#eval+); a +Class+ or +Module+ hands over its class-level API
+      # (+File.popen+ / +read+, +Kernel.system+), which the owner-based
+      # dispatch floor cannot see because a singleton-class owner matches no
+      # core-module list; a +Delegator+ (+SimpleDelegator+, +DelegateClass+,
+      # +WeakRef+, +Tempfile+) is a transparent forwarder whose public
+      # +method_missing+ binds and calls the private method the guest names
+      # (+Kernel#system+), a surface the floor reads as ordinary Service
+      # behaviour.
+      def self.refused_class_of(object)
+        case object
+        when Binding, Method, UnboundMethod, Module, Delegator
+          # Delegator < BasicObject exposes no static +#class+.
+          Reflection::CLASS_OF.bind_call(object)
+        end
+      end
+
       # Whether the guest may call +name+ through this reference. The
       # object's own predicate is consulted with the private surface
       # included, so the guest's +public_send+ can never reach it.
