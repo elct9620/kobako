@@ -33,7 +33,7 @@ impl Origin {
     }
 
     /// Read a wire spelling back, `None` for one no origin spells.
-    pub fn from_name(name: &str) -> Option<Self> {
+    pub(crate) fn from_name(name: &str) -> Option<Self> {
         match name {
             "sandbox" => Some(Origin::Sandbox),
             "service" => Some(Origin::Service),
