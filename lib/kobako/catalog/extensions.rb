@@ -68,11 +68,23 @@ module Kobako
         source = extension.source
         raise TypeError, "Extension #source must be a String, got #{source.class}" unless source.is_a?(String)
 
+        validate_dependencies(extension.depends_on)
         backend = extension.backend
         return if backend.nil?
         return if backend.respond_to?(:path) && backend.respond_to?(:object) && backend.respond_to?(:provider)
 
         raise TypeError, "Extension #backend must expose #path, #object, and #provider"
+      end
+
+      # Each dependency names an Extension as its +name+ does.
+      def validate_dependencies(dependencies)
+        return if dependencies.nil?
+        unless dependencies.is_a?(Array)
+          raise TypeError,
+                "Extension #depends_on must be an Array, got #{dependencies.class}"
+        end
+
+        dependencies.each { |dependency| Catalog.to_name(dependency, "Extension #depends_on entry") }
       end
 
       def unmet_dependency

@@ -95,6 +95,16 @@ module Kobako
       assert_same @extensions, @extensions.assert_dependencies
     end
 
+    # @behavior EX-050
+    def test_install_raises_type_error_for_a_dependency_list_of_another_class
+      [42, [42]].each do |depends_on|
+        assert_raises(TypeError, "#install of an Extension with depends_on: #{depends_on.inspect} must raise " \
+                                 "TypeError before any invocation") do
+          install(extension(name: :File, source: "1", depends_on: depends_on))
+        end
+      end
+    end
+
     # @behavior EX-030
     # Naming only the missing half would leave a Host App with several
     # Extensions unable to tell which one asked for it.

@@ -17,6 +17,8 @@ module Kobako
 
       def validate: (untyped extension) -> void
 
+      def validate_dependencies: (untyped dependencies) -> void
+
       def unmet_dependency: () -> [untyped, untyped]?
 
       def symbolize: (untyped name) -> untyped

@@ -75,6 +75,31 @@ module Kobako
       end
     end
 
+    TEXT_OF_ANOTHER_CLASS = {
+      "Endpoint.new(host: 123)" => -> { Network::Endpoint.new(host: 123, port: 443) },
+      "HttpRule.new(method: 42)" => -> { Network::HttpRule.new(allow: true, method: 42, path: "/") },
+      "HttpRule.new(path: 42)" => -> { Network::HttpRule.new(allow: true, method: :get, path: 42) },
+      "Credential.new(placeholder: 42)" => -> { Network::Credential.new(:bearer, placeholder: 42) { "v" } }
+    }.freeze
+
+    # @behavior NW-216
+    def test_an_endpoint_rule_or_credential_text_of_another_class_raises_type_error
+      TEXT_OF_ANOTHER_CLASS.each do |call, build|
+        assert_raises(TypeError, "Kobako::Network::#{call} must raise TypeError, as text of another class") do
+          build.call
+        end
+      end
+    end
+
+    def test_a_rule_or_placeholder_named_by_a_symbol_reads_back_as_its_text
+      rule = Network::HttpRule.new(allow: true, method: :get, path: :"/a")
+      credential = Network::Credential.new(:bearer, placeholder: :token) { "v" }
+
+      assert_equal ["GET", "/a", "token"], [rule.method, rule.path, credential.placeholder],
+                   "a Symbol given as a rule's method or path, or a credential's placeholder, must read back as " \
+                   "its text"
+    end
+
     def test_a_rule_names_its_method_in_uppercase_or_nil_for_any
       rules = Network::Rules.new.allow(:get, "/repos/**").deny(:any, "/admin").to_a
 

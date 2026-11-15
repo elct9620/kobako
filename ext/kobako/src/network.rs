@@ -150,7 +150,7 @@ pub(super) fn register(kobako: RModule) -> Result<(), MagnusError> {
     let network = kobako.define_module("Network")?;
     network.define_singleton_method("normalize_endpoint", function!(normalize_endpoint, 3))?;
     network.define_singleton_method("normalize_rule", function!(normalize_rule, 3))?;
-    network.define_singleton_method("validate_credential", function!(validate_credential, 1))?;
+    network.define_singleton_method("normalize_credential", function!(normalize_credential, 2))?;
     network.define_singleton_method("validate_name", function!(validate_name, 1))?;
     mock::register(network)
 }
@@ -200,19 +200,46 @@ fn normalize_endpoint(
 /// The rule taking `allow` on `method`, or any when `nil`, on paths `path`
 /// matches, as `[allow, method, path]`.
 fn normalize_rule(
+    ruby: &Ruby,
     allow: bool,
-    method: Option<String>,
-    path: String,
-) -> (bool, Option<String>, String) {
-    let action = if allow { Action::Allow } else { Action::Deny };
-    let rule = HttpRule::new(action, method.as_deref(), path);
-    (rule.action == Action::Allow, rule.method, rule.path)
+    method: Option<Value>,
+    path: Value,
+) -> Result<(bool, Option<String>, String), MagnusError> {
+    let rule = build_rule(ruby, allow, method, path)?;
+    Ok((rule.action == Action::Allow, rule.method, rule.path))
 }
 
-/// Refuse a credential's placement as `Kobako::Network::Credential.new`
-/// takes it, by the rule an invocation reads it with.
-fn validate_credential(ruby: &Ruby, credential: Value) -> Result<(), MagnusError> {
-    to_placement(ruby, credential.funcall("placement", ())?).map(drop)
+/// The rule taking `allow` on `method`, or any when `nil`, on paths `path`
+/// matches, each read as a Symbol or a String.
+fn build_rule(
+    ruby: &Ruby,
+    allow: bool,
+    method: Option<Value>,
+    path: Value,
+) -> Result<HttpRule, MagnusError> {
+    let method = method
+        .map(|method| to_text(ruby, method, "a rule's method"))
+        .transpose()?;
+    let path = to_text(ruby, path, "a rule's path")?;
+    let action = if allow { Action::Allow } else { Action::Deny };
+    Ok(HttpRule::new(action, method.as_deref(), path))
+}
+
+/// The placeholder text of a credential at `placement`, as
+/// `Kobako::Network::Credential.new` takes them, by the rules an invocation
+/// reads them with.
+fn normalize_credential(
+    ruby: &Ruby,
+    placement: Value,
+    placeholder: Value,
+) -> Result<String, MagnusError> {
+    to_placement(ruby, placement)?;
+    to_placeholder(ruby, placeholder)
+}
+
+/// The text a credential's `placeholder` names.
+fn to_placeholder(ruby: &Ruby, placeholder: Value) -> Result<String, MagnusError> {
+    to_text(ruby, placeholder, "a credential's placeholder")
 }
 
 /// Refuse an entry's name as `Sandbox#network` takes it, by the rule an
@@ -282,6 +309,21 @@ fn to_addresses_name(ruby: &Ruby, addresses: &Addresses) -> Result<Value, Magnus
     }
 }
 
+/// The text `value` names as `what`: a String, or a Symbol's name, as a
+/// registration's name is taken; another class raises `TypeError`.
+fn to_text(ruby: &Ruby, value: Value, what: &str) -> Result<String, MagnusError> {
+    if let Some(name) = symbol_name_of(value)? {
+        return Ok(name);
+    }
+    match RString::from_value(value) {
+        Some(text) => text.to_string(),
+        None => Err(MagnusError::new(
+            ruby.exception_type_error(),
+            format!("{what} must be a Symbol or String, got {}", value.class()),
+        )),
+    }
+}
+
 /// The placement a credential's `placement` names: `:bearer`, `:basic`, or
 /// a header's name.
 fn to_placement(ruby: &Ruby, placement: Value) -> Result<Placement, MagnusError> {
@@ -306,9 +348,7 @@ fn to_credential(
     pins: &mut Vec<PinnedValue>,
 ) -> Result<Credential, MagnusError> {
     let placement = to_placement(ruby, credential.funcall("placement", ())?)?;
-    let placeholder: String = credential
-        .funcall::<_, _, Value>("placeholder", ())?
-        .funcall("to_s", ())?;
+    let placeholder = to_placeholder(ruby, credential.funcall("placeholder", ())?)?;
     pins.push(PinnedValue::new(ruby, credential));
     let source = Arc::new(RubyCredential {
         credential: Opaque::from(credential),
@@ -507,7 +547,7 @@ fn build_endpoint(
     rules: Option<RArray>,
 ) -> Result<Endpoint, MagnusError> {
     let to_arg_error = |message: String| MagnusError::new(ruby.exception_arg_error(), message);
-    let host: String = host.funcall("to_s", ())?;
+    let host = to_text(ruby, host, "an endpoint's host")?;
     let port = i64::try_convert(port)?;
     let port = u16::try_from(port).map_err(|_| {
         to_arg_error(format!(
@@ -532,22 +572,19 @@ fn build_endpoint(
         endpoint = endpoint.with_addresses(addresses);
     }
     if let Some(rules) = rules {
-        endpoint = endpoint.with_rules(each_of(rules, to_rule)?);
+        endpoint = endpoint.with_rules(each_of(rules, |rule| to_rule(ruby, rule))?);
     }
     Ok(endpoint)
 }
 
 /// The rule a Ruby object answering `allow?`, `method`, and `path` stands for.
-fn to_rule(rule: Value) -> Result<HttpRule, MagnusError> {
-    let action = match rule.funcall::<_, _, Value>("allow?", ())?.to_bool() {
-        true => Action::Allow,
-        false => Action::Deny,
-    };
-    let method: Option<String> = rule.funcall("method", ())?;
-    let path: String = rule
-        .funcall::<_, _, Value>("path", ())?
-        .funcall("to_s", ())?;
-    Ok(HttpRule::new(action, method.as_deref(), path))
+fn to_rule(ruby: &Ruby, rule: Value) -> Result<HttpRule, MagnusError> {
+    build_rule(
+        ruby,
+        rule.funcall::<_, _, Value>("allow?", ())?.to_bool(),
+        rule.funcall("method", ())?,
+        rule.funcall("path", ())?,
+    )
 }
 
 /// An address set's symbol, a CIDR as `address/prefix`, or an `IPAddr`, which

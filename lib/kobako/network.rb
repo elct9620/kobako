@@ -56,9 +56,10 @@ module Kobako
     # An +:http+ endpoint's +rules+ say which methods and paths it allows and
     # denies; with none, it allows every request.
     #
-    # Raises ArgumentError for an empty host, a port outside 1 to 65535, a
-    # protocol other than +:http+, +:tcp+, or +:udp+, or another address, by
-    # the rules an invocation reads the endpoint with.
+    # Raises TypeError for a host neither a Symbol nor a String, and
+    # ArgumentError for an empty host, a port outside 1 to 65535, a protocol
+    # other than +:http+, +:tcp+, or +:udp+, or another address, by the rules
+    # an invocation reads the endpoint with.
     class Endpoint < Data.define(:host, :port, :protocol, :addresses, :rules)
       def initialize(host:, port:, protocol: UNWRITTEN, addresses: UNWRITTEN, rules: UNWRITTEN)
         written = { protocol:, addresses:, rules: }.reject { |_, value| value.equal?(UNWRITTEN) }
@@ -76,6 +77,7 @@ module Kobako
     # One rule an +:http+ endpoint judges a request by: whether it allows or
     # denies, its +method+ uppercase or +nil+ for any, and a +path+ pattern,
     # where <tt>*</tt> stands for one segment and <tt>**</tt> for any number.
+    # Each is given as a Symbol or a String; another class raises TypeError.
     class HttpRule
       attr_reader :method, :path
 
@@ -83,8 +85,8 @@ module Kobako
       def allow? = @allow
 
       def initialize(allow:, method:, path:)
-        method = method == :any ? nil : method&.to_s
-        @allow, @method, @path = Network.normalize_rule(allow ? true : false, method, path.to_s)
+        method = nil if method == :any
+        @allow, @method, @path = Network.normalize_rule(allow ? true : false, method, path)
         @method&.freeze
         @path.freeze
         freeze
@@ -117,7 +119,8 @@ module Kobako
     # one header of a request bound to its entry's own endpoints. The
     # +placement+ is +:bearer+ or +:basic+ for the +authorization+ header, or a
     # header's name. The block answers the value for a Request, or +nil+ to
-    # send nothing, as the request leaves.
+    # send nothing, as the request leaves. A +placeholder+ neither a Symbol
+    # nor a String raises TypeError.
     class Credential
       attr_reader :placement, :placeholder
 
@@ -125,9 +128,8 @@ module Kobako
         raise ArgumentError, "a credential needs a block answering its value" unless source
 
         @placement = placement.is_a?(String) ? placement.dup.freeze : placement
-        @placeholder = placeholder.to_s.freeze
+        @placeholder = Network.normalize_credential(@placement, placeholder).freeze
         @source = source
-        Network.validate_credential(self)
       end
 
       # The value for +request+, or +nil+ to send nothing.

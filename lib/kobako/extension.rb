@@ -12,8 +12,9 @@ module Kobako
   #                 is bound with Sandbox#bind instead.
   # [+backend+]     A Backend, or +nil+ for an Extension that runs entirely in
   #                 the guest.
-  # [+depends_on+]  Names of Extensions that must also be installed, checked
-  #                 at the first invocation.
+  # [+depends_on+]  An Array naming, as Symbols or Strings, the Extensions that
+  #                 must also be installed, checked at the first invocation.
+  #                 Sandbox#install raises TypeError for another class.
   class Extension < Data.define(:name, :source, :backend, :depends_on)
     # The host object an Extension's constant at +path+ calls, such as
     # <tt>"MyApp::Store"</tt>, given by keyword:

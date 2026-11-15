@@ -7,9 +7,9 @@ module Kobako
     def self.normalize_endpoint: (untyped host, untyped port, Hash[Symbol, untyped] written) ->
       [String, Integer, protocol, Array[Symbol | String | IPAddr], Array[HttpRule]]
 
-    def self.normalize_rule: (bool allow, String? method, String path) -> [bool, String?, String]
+    def self.normalize_rule: (bool allow, untyped method, untyped path) -> [bool, String?, String]
 
-    def self.validate_credential: (Credential credential) -> nil
+    def self.normalize_credential: (Symbol | String placement, untyped placeholder) -> String
 
     def self.validate_name: (String name) -> nil
 
