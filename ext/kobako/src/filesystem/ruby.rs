@@ -492,7 +492,7 @@ impl FileOperations for RubyDir {
     fn iterate_shared(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>) -> Result<(), Errno> {
         let filesystem = self.0;
         self.1
-            .iterate(dentry, ctx, || filesystem.entries_at(dentry))
+            .iterate_shared(dentry, ctx, || filesystem.entries_at(dentry))
     }
 
     /// The object has nothing of a directory's own to flush, as FUSE's

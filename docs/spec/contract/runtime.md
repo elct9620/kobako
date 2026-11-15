@@ -1319,7 +1319,7 @@ without it answers not permitted.
 
 ```rust
 pub trait InodeOperations {
-    fn rename(&self, _from: &Dentry, _to_dir: &dyn InodeOperations, _to: &Dentry, _flag: Option<RenameFlag>) -> Result<(), Errno>;
+    fn rename(&self, _old: &Dentry, _new_dir: &dyn InodeOperations, _new: &Dentry, _flags: Option<RenameFlag>) -> Result<(), Errno>;
 }
 ```
 
@@ -1500,7 +1500,7 @@ What a directory read whole at once holds while a listing goes on.
 pub struct Rdir {}
 ```
 
-## `Rdir::iterate`
+## `Rdir::iterate_shared`
 
 Hand a listing the directory from its position, counting what it holds until it
 ends. A fresh listing reads it, then stats it and its parent for `.` and `..`.
@@ -1510,7 +1510,7 @@ with.
 
 ```rust
 impl Rdir {
-    pub fn iterate(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>, read: impl FnOnce() -> Result<Vec<DirEntry>, Errno>) -> Result<(), Errno> {}
+    pub fn iterate_shared(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>, read: impl FnOnce() -> Result<Vec<DirEntry>, Errno>) -> Result<(), Errno> {}
 }
 ```
 

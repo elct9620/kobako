@@ -35,7 +35,7 @@ impl Rdir {
     /// listing ends, as `ovl_cache_get` and `v9fs_alloc_rdir_buf` allocate before
     /// the first `dir_emit`: past what a security module allows, the listing
     /// answers out of memory before it hands any entry.
-    pub fn iterate(
+    pub fn iterate_shared(
         &mut self,
         dentry: &Dentry,
         ctx: &mut DirContext<'_>,

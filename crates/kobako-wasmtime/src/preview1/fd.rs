@@ -208,15 +208,15 @@ pub(crate) fn fdstat_get(wasi: &Wasi, fd: u32) -> Answer<types::Fdstat> {
 /// What `fd_fdstat_get` reports of `file`, a preopen's root when `preopen`.
 fn to_fdstat(file: &File, preopen: bool) -> types::Fdstat {
     let mut fs_flags = Fdflags::empty();
-    fs_flags.set(Fdflags::APPEND, file.append());
-    fs_flags.set(Fdflags::NONBLOCK, file.nonblock());
-    fs_flags.set(Fdflags::DSYNC, file.dsync());
+    fs_flags.set(Fdflags::APPEND, file.is_append());
+    fs_flags.set(Fdflags::NONBLOCK, file.is_nonblock());
+    fs_flags.set(Fdflags::DSYNC, file.is_dsync());
     // Linux's `O_RSYNC` is `O_SYNC`, so a file opened to sync holds both.
-    fs_flags.set(Fdflags::SYNC | Fdflags::RSYNC, file.sync());
+    fs_flags.set(Fdflags::SYNC | Fdflags::RSYNC, file.is_sync());
     let (fs_rights_base, fs_rights_inheriting) = if file.is_stream() {
         let mut rights = Rights::empty();
-        rights.set(Rights::FD_READ, file.readable());
-        rights.set(Rights::FD_WRITE, file.writable());
+        rights.set(Rights::FD_READ, file.is_readable());
+        rights.set(Rights::FD_WRITE, file.is_writable());
         (rights, rights)
     } else if preopen {
         (preopen_rights(), directory_rights_inheriting())
@@ -226,16 +226,16 @@ fn to_fdstat(file: &File, preopen: bool) -> types::Fdstat {
             - Rights::FD_SEEK
             - Rights::FD_FILESTAT_SET_SIZE
             - Rights::PATH_FILESTAT_SET_SIZE;
-        if !file.readable() {
+        if !file.is_readable() {
             rights -= Rights::FD_READ | Rights::FD_READDIR;
         }
         (rights, directory_rights_inheriting())
     } else {
         let mut rights = Rights::all();
-        if !file.readable() {
+        if !file.is_readable() {
             rights -= Rights::FD_READ | Rights::FD_READDIR;
         }
-        if !file.writable() {
+        if !file.is_writable() {
             rights -= Rights::FD_WRITE;
         }
         (rights, rights)
@@ -1246,7 +1246,7 @@ mod tests {
                 vfs::DirEntry::new("ok", FileType::RegFile),
                 vfs::DirEntry::new(self.0, FileType::RegFile),
             ];
-            kobako_runtime::filesystem::Rdir::default().iterate(dentry, ctx, || Ok(entries))
+            kobako_runtime::filesystem::Rdir::default().iterate_shared(dentry, ctx, || Ok(entries))
         }
     }
 

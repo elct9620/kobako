@@ -1069,7 +1069,7 @@ mod tests {
                 "" => self.0.iterate_dir(),
                 at => self.0.open_dir(at)?.iterate_dir(),
             }?;
-            crate::filesystem::Rdir::default().iterate(dentry, ctx, || Ok(entries))
+            crate::filesystem::Rdir::default().iterate_shared(dentry, ctx, || Ok(entries))
         }
     }
 

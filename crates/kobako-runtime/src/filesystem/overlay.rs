@@ -389,7 +389,7 @@ impl FileOperations for OverlayDir {
 
     fn iterate_shared(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>) -> Result<(), Errno> {
         let (fs, cache) = (&self.fs, &mut self.cache);
-        cache.iterate(dentry, ctx, || fs.dir_read_merged(&fs.dir(dentry)?.level()))
+        cache.iterate_shared(dentry, ctx, || fs.dir_read_merged(&fs.dir(dentry)?.level()))
     }
 
     /// Its Layers answer for what they hold, and its upper is a Tmpfs, so
@@ -2275,7 +2275,7 @@ mod tests {
                 "" => self.0.iterate_dir(),
                 at => self.0.open_dir(at)?.iterate_dir(),
             }?;
-            crate::filesystem::Rdir::default().iterate(dentry, ctx, || Ok(entries))
+            crate::filesystem::Rdir::default().iterate_shared(dentry, ctx, || Ok(entries))
         }
     }
 

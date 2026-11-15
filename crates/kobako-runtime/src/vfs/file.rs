@@ -474,12 +474,12 @@ impl File {
     }
 
     /// Whether it was opened to read.
-    pub fn readable(&self) -> bool {
+    pub fn is_readable(&self) -> bool {
         self.mode.contains(FMode::READ)
     }
 
     /// Whether it was opened to write.
-    pub fn writable(&self) -> bool {
+    pub fn is_writable(&self) -> bool {
         self.mode.contains(FMode::WRITE)
     }
 
@@ -491,22 +491,22 @@ impl File {
     }
 
     /// Whether each write lands at the end.
-    pub fn append(&self) -> bool {
+    pub fn is_append(&self) -> bool {
         self.append
     }
 
     /// Whether it asked not to wait.
-    pub fn nonblock(&self) -> bool {
+    pub fn is_nonblock(&self) -> bool {
         self.nonblock
     }
 
     /// Whether what each write needs read back is durable before it answers.
-    pub fn dsync(&self) -> bool {
+    pub fn is_dsync(&self) -> bool {
         self.dsync
     }
 
     /// Whether everything each write changed is durable before it answers.
-    pub fn sync(&self) -> bool {
+    pub fn is_sync(&self) -> bool {
         self.sync
     }
 
@@ -591,7 +591,7 @@ impl File {
     /// Whether a read may reach it, as `vfs_read` asks of `f_mode` before it
     /// touches the caller's buffer.
     pub fn may_read(&self) -> Result<(), Errno> {
-        match self.readable() {
+        match self.is_readable() {
             true => Ok(()),
             false => Err(Errno::BadDescriptor),
         }
@@ -600,7 +600,7 @@ impl File {
     /// Whether a write may reach it, as `vfs_write` asks of `f_mode` before
     /// it touches the caller's buffer.
     pub fn may_write(&self) -> Result<(), Errno> {
-        match self.writable() {
+        match self.is_writable() {
             true => Ok(()),
             false => Err(Errno::BadDescriptor),
         }
@@ -712,7 +712,7 @@ impl File {
     /// Truncate or extend it through what it was opened on, as `do_ftruncate`
     /// refuses anything but a file open to write, and reaches `->setattr`.
     pub fn truncate(&mut self, len: u64) -> Result<(), Errno> {
-        if self.file_type() != FileType::RegFile || !self.writable() || len > OFFSET_MAX {
+        if self.file_type() != FileType::RegFile || !self.is_writable() || len > OFFSET_MAX {
             return Err(Errno::InvalidInput);
         }
         self.cred.security_file_truncate(&self.security)?;
@@ -1158,7 +1158,7 @@ mod tests {
             dentry: &Dentry,
             ctx: &mut DirContext<'_>,
         ) -> Result<(), Errno> {
-            self.0.iterate(dentry, ctx, || {
+            self.0.iterate_shared(dentry, ctx, || {
                 Ok(vec![
                     DirEntry::new("a", FileType::RegFile),
                     DirEntry::new("b", FileType::RegFile),
@@ -1769,7 +1769,7 @@ mod tests {
         let dir = filp_open(&Arc::default(), &Path::root(mount.mnt()), "dir", &how)
             .unwrap_or_else(|_| panic!("the directory must open"));
         assert_eq!(
-            (dir.nonblock(), dir.sync()),
+            (dir.is_nonblock(), dir.is_sync()),
             (true, true),
             "File::nonblock and File::sync on a directory do_file_open opened with both must \
              report them, as F_GETFL does"

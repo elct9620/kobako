@@ -191,21 +191,21 @@ pub trait InodeOperations: Any + Send + Sync {
         Err(Errno::NotPermitted)
     }
 
-    /// Move the entry `from` names in this directory to `to` in `to_dir`,
-    /// refusing what rename(2) refuses at `to`. The runtime has already
-    /// checked what stands at `from` and never hands a move onto its own
+    /// Move the entry `old` names in this directory to `new` in `new_dir`,
+    /// refusing what rename(2) refuses at `new`. The runtime has already
+    /// checked what stands at `old` and never hands a move onto its own
     /// name, as Linux's VFS does before `inode_operations.rename`. It hands
-    /// only a `to_dir` of the same mount, so no two instances meet here, as
-    /// `filename_renameat2` answers EXDEV first. One that takes no `flag`
+    /// only a `new_dir` of the same mount, so no two instances meet here, as
+    /// `filename_renameat2` answers EXDEV first. One that takes no `flags`
     /// refuses any as invalid input, as Linux's filesystems refuse a `renameat2`
     /// flag they do not know. A directory without it answers EPERM, as
     /// Linux's VFS does.
     fn rename(
         &self,
-        _from: &Dentry,
-        _to_dir: &dyn InodeOperations,
-        _to: &Dentry,
-        _flag: Option<RenameFlag>,
+        _old: &Dentry,
+        _new_dir: &dyn InodeOperations,
+        _new: &Dentry,
+        _flags: Option<RenameFlag>,
     ) -> Result<(), Errno> {
         Err(Errno::NotPermitted)
     }

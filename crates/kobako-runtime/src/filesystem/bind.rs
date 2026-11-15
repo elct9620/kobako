@@ -734,7 +734,7 @@ impl FileOperations for BindDir {
     /// 9p's `fid->rdir` holds what the server sent.
     fn iterate_shared(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>) -> Result<(), Errno> {
         let dir = self.0.clone();
-        self.1.iterate(dentry, ctx, || entries_of(&dir))
+        self.1.iterate_shared(dentry, ctx, || entries_of(&dir))
     }
 
     /// Make the host directory's names durable. Windows syncs no directory, so
