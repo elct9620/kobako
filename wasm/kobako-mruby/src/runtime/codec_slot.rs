@@ -5,8 +5,8 @@
 //! mruby invokes it through `mrb_func_t`, a bare function pointer with
 //! nowhere to carry a type parameter. The shell's choice is recorded here
 //! instead, once, when `Kobako::init` runs. Set once and never changed, it
-//! needs no `UnsafeCell`, unlike `flows::mrb_slot`; the cross-invocation
-//! isolation argument there applies here unchanged.
+//! needs no `InstanceCell`; the cross-invocation isolation argument of
+//! `crate::runtime::instance_cell` applies here unchanged.
 
 use std::sync::OnceLock;
 

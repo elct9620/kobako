@@ -10,27 +10,18 @@
 //! The wire-level `block_given` bit is read off the guard rather than
 //! computed beside it, so a parked block and the bit announcing it are
 //! one statement; the yield flow's read is the matching dereference.
-//!
-//! ## Cross-Sandbox isolation
-//!
-//! Same argument as `crate::flows::mrb_slot`: each invocation runs on a
-//! fresh instance and therefore its own copy of this module-level static.
-//! The single-threaded wasm execution model inside any one instance
-//! licenses the `UnsafeCell` interior mutability used here.
 
 use beni::Proc;
 
-use core::cell::UnsafeCell;
+use crate::runtime::instance_cell::InstanceCell;
 
-/// Single-threaded interior-mutability stack of guest-supplied blocks.
-/// Modelled after `crate::flows::mrb_slot::MrbSlot`
-/// — the wasm Instance's single-threaded execution model is what
-/// licenses the `UnsafeCell` interior mutation here.
-pub(crate) struct BlockStack(UnsafeCell<Vec<Option<Proc>>>);
+/// The stack of guest-supplied blocks. Each method holds its borrow only
+/// for its own body, so none outlives a write.
+pub(crate) struct BlockStack(InstanceCell<Vec<Option<Proc>>>);
 
 impl BlockStack {
     const fn new() -> Self {
-        Self(UnsafeCell::new(Vec::new()))
+        Self(InstanceCell::new(Vec::new()))
     }
 
     pub(crate) fn push(&self, block: Option<Proc>) {
@@ -55,12 +46,6 @@ impl BlockStack {
         slots.get(frame as usize).copied().flatten()
     }
 }
-
-// SAFETY: identical argument to `crate::flows::mrb_slot::MrbSlot` — wasm32
-// is single-threaded inside any one Instance; the inner handle is
-// `!Send + !Sync` but the surrounding Instance gives the same
-// guarantee operationally. `static` requires `Sync` regardless.
-unsafe impl Sync for BlockStack {}
 
 /// Per-invocation LIFO stack of the open Calls' blocks.
 pub(crate) static BLOCK_STACK: BlockStack = BlockStack::new();

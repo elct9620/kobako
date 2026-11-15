@@ -11,25 +11,18 @@
 //! Recording it on the Rust side rather than in an mruby constant keeps
 //! it out of the guest's reach: no snippet can read or rewrite the set
 //! that decides a correction.
-//!
-//! The `UnsafeCell` licence and the cross-invocation isolation argument
-//! are `super::mrb_slot`'s, unchanged. The slot type is deliberately not
-//! shared with it: one generic slot would carry a single blanket `Sync`
-//! claim over any `T`, while `MrbSlot`'s rests on the `Mrb` it holds
-//! being `!Send + !Sync` to begin with.
 
+use crate::runtime::instance_cell::InstanceCell;
 use crate::runtime::Kobako;
 
-use core::cell::UnsafeCell;
-
-/// Single-threaded interior-mutability slot for the boot-state constant
-/// names. Written once per instance during boot and read only by the
-/// unresolved-entrypoint path, so it needs no clear.
-struct BootConstantSlot(UnsafeCell<Option<Vec<String>>>);
+/// The slot for the boot-state constant names. Written once per instance
+/// during boot and read only by the unresolved-entrypoint path, so it
+/// needs no clear.
+struct BootConstantSlot(InstanceCell<Option<Vec<String>>>);
 
 impl BootConstantSlot {
     const fn new() -> Self {
-        Self(UnsafeCell::new(None))
+        Self(InstanceCell::new(None))
     }
 
     /// Install `names` as the boot-state snapshot, replacing any previous
@@ -39,22 +32,17 @@ impl BootConstantSlot {
     ///
     /// No borrow from `Self::as_ref` may be live.
     unsafe fn install(&self, names: Vec<String>) {
-        // SAFETY: single-threaded wasm execution, and the caller holds no
-        // borrow the write would invalidate.
+        // SAFETY: the caller holds no borrow the write would invalidate.
         unsafe { *self.0.get() = Some(names) };
     }
 
     /// Borrow the boot-state snapshot if one is installed.
     fn as_ref(&self) -> Option<&[String]> {
-        // SAFETY: see type doc.
+        // SAFETY: a write comes only through `install`, whose caller holds
+        // no borrow from here.
         unsafe { (*self.0.get()).as_deref() }
     }
 }
-
-// SAFETY: wasm32 is single-threaded and the slot is never observed from
-// more than one logical owner inside a wasm instance; `static` requires
-// `Sync` regardless. Mirrors `super::mrb_slot`'s reasoning.
-unsafe impl Sync for BootConstantSlot {}
 
 static BOOT_CONSTANTS: BootConstantSlot = BootConstantSlot::new();
 

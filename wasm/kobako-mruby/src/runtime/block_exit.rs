@@ -19,25 +19,19 @@
 //! waits for the break answer alone. A Service unwinding through its
 //! `ensure` may yield again; that block running to its end leaves the
 //! held exit in place, and one exiting again replaces it, as in Ruby.
-//!
-//! ## Cross-Sandbox isolation
-//!
-//! Same argument as `crate::runtime::block_stack`: each invocation runs on
-//! a fresh instance and therefore its own copy of these module-level
-//! statics.
 
 use beni::sys::AsRawValue;
 use beni::Value;
 
-use core::cell::UnsafeCell;
+use crate::runtime::instance_cell::InstanceCell;
 
-/// Single-threaded interior-mutability slot for the object a guest block
-/// left with.
-pub(crate) struct HeldExit(UnsafeCell<Option<Value>>);
+/// The slot for the object a guest block left with. Each method holds its
+/// borrow only for its own body, so none outlives a write.
+pub(crate) struct HeldExit(InstanceCell<Option<Value>>);
 
 impl HeldExit {
     const fn new() -> Self {
-        Self(UnsafeCell::new(None))
+        Self(InstanceCell::new(None))
     }
 
     /// Hold `exit`, rooting it against GC: the mruby frame it left has
@@ -69,12 +63,6 @@ impl HeldExit {
         Some(held)
     }
 }
-
-// SAFETY: identical argument to `crate::runtime::block_stack::BlockStack`
-// — wasm32 is single-threaded inside any one Instance; the inner `Value`
-// is `!Send + !Sync` but the surrounding Instance gives the same
-// guarantee operationally. `static` requires `Sync` regardless.
-unsafe impl Sync for HeldExit {}
 
 /// The exception the most recent guest block raised, if it is still
 /// waiting for the answer that says whether the Service rescued it.
