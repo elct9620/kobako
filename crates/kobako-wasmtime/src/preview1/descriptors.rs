@@ -12,7 +12,8 @@
 //! descriptor, so the guest drops none while the descriptor stands.
 
 use std::collections::BTreeMap;
-use std::sync::{Arc, Mutex};
+use std::ops::{Deref, DerefMut};
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use kobako_runtime::cred::Cred;
 use kobako_runtime::mount::Mount;
@@ -26,9 +27,9 @@ use crate::preview2::bindings::wasi_io_streams_0_2_12::{
 use crate::preview2::table::{FileRoom, InputStream, OutputStream, Stream};
 use crate::preview2::Table;
 
-/// The preview2 handle one descriptor stands over.
+/// The preview2 resource one descriptor stands over, by its handle.
 #[derive(Clone, Copy)]
-pub(crate) enum Held {
+pub(crate) enum Resource {
     File(FileHandle),
     /// stdin, read as `wasi:cli`'s `get-stdin` hands it.
     Input(InputHandle),
@@ -36,9 +37,20 @@ pub(crate) enum Held {
     Output(OutputHandle),
 }
 
+impl Resource {
+    /// The stream a standard stream's descriptor stands over, if it is one.
+    fn stream(self, table: &Table) -> Option<&Stream> {
+        match self {
+            Resource::File(_) => None,
+            Resource::Input(handle) => table.get(handle).ok().map(|input| &input.stream),
+            Resource::Output(handle) => table.get(handle).ok().map(|output| &output.stream),
+        }
+    }
+}
+
 /// What one descriptor stands for, as Linux's fd table holds a `struct file`.
 pub(crate) struct Descriptor {
-    pub(crate) held: Held,
+    pub(crate) resource: Resource,
     /// The guest path a preopen names; a Mount's own root has one.
     pub(crate) preopen_path: Option<String>,
 }
@@ -47,14 +59,14 @@ impl Descriptor {
     /// The descriptor of the file under `file`, naming no preopen.
     pub(crate) fn for_file(file: FileHandle) -> Self {
         Self {
-            held: Held::File(file),
+            resource: Resource::File(file),
             preopen_path: None,
         }
     }
 
-    fn for_stream(held: Held) -> Self {
+    fn for_stream(resource: Resource) -> Self {
         Self {
-            held,
+            resource,
             preopen_path: None,
         }
     }
@@ -85,14 +97,14 @@ impl Descriptors {
         let room = table.reserve_inherited_file()?;
         used.insert(
             0,
-            Descriptor::for_stream(Held::Input(install_lent(table, room, input))),
+            Descriptor::for_stream(Resource::Input(install_lent(table, room, input))),
         );
         for (fd, file) in [(1, stdout), (2, stderr)] {
             let output = OutputStream::new(stream_of(file));
             let room = table.reserve_inherited_file()?;
             used.insert(
                 fd,
-                Descriptor::for_stream(Held::Output(install_lent(table, room, output))),
+                Descriptor::for_stream(Resource::Output(install_lent(table, room, output))),
             );
         }
         for (fd, mount) in (3..).zip(mounts) {
@@ -100,7 +112,7 @@ impl Descriptors {
             used.insert(
                 fd,
                 Descriptor {
-                    held: Held::File(install(table, root)?),
+                    resource: Resource::File(install(table, root)?),
                     preopen_path: Some(mount.at().to_string()),
                 },
             );
@@ -138,6 +150,54 @@ impl Descriptors {
     pub(crate) fn lowest_unused(&self) -> Option<u32> {
         (self.next_fd..=u32::MAX).find(|fd| !self.used.contains_key(fd))
     }
+
+    /// The file `fd` stands for, one that stands only for its path included:
+    /// the one `table` holds, or the pipe's end a standard stream stands
+    /// over, which answers each call as Linux's pipe does.
+    pub(crate) fn file<'a>(&self, fd: u32, table: &'a Table) -> Option<FileRef<'a>> {
+        let resource = self.get(fd)?.resource;
+        Some(match resource {
+            Resource::File(handle) => FileRef::Held(table.get(handle).ok()?),
+            stream => FileRef::Stream(stream.stream(table)?.lock()),
+        })
+    }
+
+    /// The file `fd` stands for, to change.
+    pub(crate) fn file_mut<'a>(&self, fd: u32, table: &'a mut Table) -> Option<FileRefMut<'a>> {
+        let resource = self.get(fd)?.resource;
+        Some(match resource {
+            Resource::File(handle) => FileRefMut::Held(table.get_mut(handle).ok()?),
+            stream => FileRefMut::Stream(stream.stream(table)?.lock()),
+        })
+    }
+
+    /// Take `fd` out of the table, and what it stood over out of `table`:
+    /// the file to close, or none for a standard stream, whose lend ends
+    /// while preview2's handle keeps the stream.
+    pub(crate) fn take(&mut self, fd: u32, table: &mut Table) -> Option<Option<File>> {
+        Some(match self.remove(fd)?.resource {
+            Resource::File(handle) => table.delete(handle).ok(),
+            Resource::Input(handle) => {
+                table.end_lend(handle);
+                None
+            }
+            Resource::Output(handle) => {
+                table.end_lend(handle);
+                None
+            }
+        })
+    }
+
+    /// Open `file` under the lowest free descriptor; `None` when the
+    /// Invocation holds as many files as it may.
+    #[cfg(test)]
+    pub(crate) fn push_file(&mut self, file: File, table: &mut Table) -> Option<u32> {
+        let room = table.reserve_file::<FileHandle>().ok()?;
+        let fd = self.lowest_unused()?;
+        let handle = table.install(room, file);
+        self.place(fd, Descriptor::for_file(handle));
+        Some(fd)
+    }
 }
 
 /// A stream over `file`, one end of a standard stream's pipe.
@@ -162,6 +222,51 @@ fn install_lent<H: crate::preview2::table::Handle>(
 fn install(table: &mut Table, file: File) -> Result<FileHandle, Errno> {
     let room = table.reserve_inherited_file()?;
     Ok(table.install(room, file))
+}
+
+/// A file a descriptor stands for, as `Descriptors::file` finds it.
+pub(crate) enum FileRef<'a> {
+    Held(&'a File),
+    /// The pipe's end behind a standard stream, which its stream shares.
+    Stream(MutexGuard<'a, File>),
+}
+
+impl Deref for FileRef<'_> {
+    type Target = File;
+
+    fn deref(&self) -> &File {
+        match self {
+            FileRef::Held(file) => file,
+            FileRef::Stream(file) => file,
+        }
+    }
+}
+
+/// A file a descriptor stands for, to change, as `Descriptors::file_mut`
+/// finds it.
+pub(crate) enum FileRefMut<'a> {
+    Held(&'a mut File),
+    Stream(MutexGuard<'a, File>),
+}
+
+impl Deref for FileRefMut<'_> {
+    type Target = File;
+
+    fn deref(&self) -> &File {
+        match self {
+            FileRefMut::Held(file) => file,
+            FileRefMut::Stream(file) => file,
+        }
+    }
+}
+
+impl DerefMut for FileRefMut<'_> {
+    fn deref_mut(&mut self) -> &mut File {
+        match self {
+            FileRefMut::Held(file) => file,
+            FileRefMut::Stream(file) => file,
+        }
+    }
 }
 
 #[cfg(test)]

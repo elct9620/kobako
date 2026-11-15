@@ -7,11 +7,11 @@ use kobako_runtime::filesystem::Iattr;
 use kobako_runtime::vfs::{self, OpenHow, Start};
 use wiggle::GuestPtr;
 
+use super::descriptors::{Descriptor, FileHandle};
 use super::errno::{Answer, Errno};
 use super::fd::to_filestat;
 use super::memory::GuestMemory;
 use super::types;
-use crate::descriptors::{Descriptor, FileHandle};
 use crate::preview2::filesystem::{self, retry_eagain};
 use crate::wasi::Wasi;
 

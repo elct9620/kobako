@@ -3,13 +3,14 @@
 //!
 //! wasmtime-wasi keeps its table private, so a descriptor kobako places
 //! there would stay invisible to its calls. Answering every call that reads
-//! a descriptor keeps the guest on one table, `crate::descriptors`, where
+//! a descriptor keeps the guest on one table, `descriptors`, where
 //! each Mount is a preopen. The other ten imports — arguments,
 //! environment, clocks, process, scheduling, and randomness — stay
 //! wasmtime-wasi's, so `witx/` declares only these 36. wiggle generates their
 //! glue as it generates wasmtime-wasi's, so a value outside what the witx
 //! defines traps there before a call starts.
 
+pub(crate) mod descriptors;
 mod errno;
 mod fd;
 mod memory;

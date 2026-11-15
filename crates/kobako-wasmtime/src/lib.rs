@@ -14,7 +14,6 @@ mod abi;
 mod ambient;
 mod cache;
 mod config;
-mod descriptors;
 mod driver;
 mod exports;
 mod guest;

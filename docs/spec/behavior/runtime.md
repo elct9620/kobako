@@ -59,7 +59,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-runtime/src/net/tcp.rs`
 - `crates/kobako-runtime/src/endpoint.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
-- `crates/kobako-wasmtime/src/descriptors.rs`
+- `crates/kobako-wasmtime/src/preview1/descriptors.rs`
 - `crates/kobako-wasmtime/src/preview1/testsuite.rs`
 - `crates/kobako-wasmtime/src/cache.rs`
 - `crates/kobako-wasmtime/src/abi.rs`

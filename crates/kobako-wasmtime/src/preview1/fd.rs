@@ -13,12 +13,12 @@ use kobako_runtime::filesystem::{FileType, Iattr, Kstat, SetTime};
 use kobako_runtime::vfs::{self, verify_dirent_name, DirContext, DirEmit, File, Whence};
 use wiggle::{GuestMemory as WitxMemory, GuestPtr, GuestType};
 
+use super::descriptors::{Descriptor, FileRef, FileRefMut};
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
 use super::types::{self, Fdflags, Filetype, Fstflags, Rights};
-use crate::descriptors::Descriptor;
 use crate::preview2::filesystem;
-use crate::wasi::{FileRef, FileRefMut, Wasi};
+use crate::wasi::Wasi;
 
 /// What a preopen allows itself: every path call, as wasmtime-wasi hands
 /// most userlands.
