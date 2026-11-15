@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require_relative "../handle"
+require_relative "../names"
 require_relative "../codec"
 require_relative "../payload"
 require_relative "argument_wrap"
@@ -11,7 +12,7 @@ module Kobako
     # legitimately holds one.
     class Run < Data.define(:entrypoint, :args, :kwargs) # :nodoc:
       def initialize(entrypoint:, args: [], kwargs: {})
-        entrypoint = normalize_entrypoint(entrypoint)
+        entrypoint = Kobako.to_constant_name(entrypoint, "entrypoint")
         validate_args(args)
         validate_kwargs(kwargs)
         super
@@ -29,21 +30,6 @@ module Kobako
       end
 
       private
-
-      # A target of the wrong type raises TypeError, a Host App programming
-      # error caught before the run reaches the guest.
-      def normalize_entrypoint(target)
-        unless target.is_a?(Symbol) || target.is_a?(String)
-          raise TypeError, "entrypoint must be a Symbol or String, got #{target.class}"
-        end
-
-        target_str = target.to_s
-        unless Kobako.constant_name?(target_str)
-          raise ArgumentError, "entrypoint must be a Ruby constant name (got #{target.inspect})"
-        end
-
-        target_str.to_sym
-      end
 
       def validate_args(args)
         raise TypeError, "arguments must be an Array" unless args.is_a?(Array)

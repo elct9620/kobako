@@ -42,7 +42,7 @@ module Kobako
       private
 
       def validate_path(path)
-        path_str = Catalog.to_name(path, "bind path")
+        path_str = Kobako.to_name(path, "bind path")
         return path_str if Kobako.constant_path?(path_str)
 
         raise ArgumentError,

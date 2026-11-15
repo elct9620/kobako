@@ -1,4 +1,8 @@
 module Kobako
+  def self.to_name: (untyped name, String what) -> String
+
+  def self.to_constant_name: (untyped name, String what) -> Symbol
+
   def self.constant_name?: (String name) -> bool
 
   def self.constant_path?: (String path) -> bool

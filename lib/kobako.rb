@@ -48,6 +48,7 @@ end
 require_relative "kobako/filesystem"
 require_relative "kobako/network"
 require_relative "kobako/errors"
+require_relative "kobako/names"
 require_relative "kobako/unresolved"
 require_relative "kobako/extension"
 require_relative "kobako/transport"

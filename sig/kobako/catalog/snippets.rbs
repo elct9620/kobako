@@ -22,8 +22,6 @@ module Kobako
       def register_binary: (String bytes) -> nil
 
       def entry_tuple: (entry) -> tuple
-
-      def normalize_name: (Symbol | String name) -> Symbol
     end
   end
 end

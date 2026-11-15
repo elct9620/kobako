@@ -13,7 +13,7 @@ module Kobako
       end
 
       def register(name, value, advisory:)
-        name = Catalog.to_name(name, "flag name")
+        name = Kobako.to_name(name, "flag name")
         raise TypeError, "flag value must be a String, got #{value.class}" unless value.is_a?(String)
 
         key = Catalog.to_utf8(name, "flag name")

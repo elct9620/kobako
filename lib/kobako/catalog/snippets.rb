@@ -51,7 +51,7 @@ module Kobako
         code, name = ensure_source_args(code, name)
         body = Catalog.to_utf8(code, "code")
 
-        name_sym = normalize_name(name)
+        name_sym = Kobako.to_constant_name(name, "snippet name")
         if @entries.any? { |e| e.is_a?(Snippet::Source) && e.name == name_sym }
           raise ArgumentError, "snippet #{name_sym.inspect} already preloaded"
         end
@@ -89,15 +89,6 @@ module Kobako
         else
           [Snippet::Bytecode::KIND, nil, entry.body]
         end
-      end
-
-      def normalize_name(name)
-        name_str = Catalog.to_name(name, "snippet name")
-        unless Kobako.constant_name?(name_str)
-          raise ArgumentError, "snippet name must be a Ruby constant name (got #{name.inspect})"
-        end
-
-        name_str.to_sym
       end
     end
   end

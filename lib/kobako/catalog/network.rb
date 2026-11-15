@@ -8,7 +8,7 @@ module Kobako
       # and ArgumentError for an empty name, which no Context could replace it
       # by.
       def initialize(name:, entry:)
-        name = Catalog.to_name(name, "network name").freeze
+        name = Kobako.to_name(name, "network name").freeze
         Kobako::Network.validate_name(name)
 
         if block_given?

@@ -84,7 +84,7 @@ module Kobako
                 "Extension #depends_on must be an Array, got #{dependencies.class}"
         end
 
-        dependencies.each { |dependency| Catalog.to_name(dependency, "Extension #depends_on entry") }
+        dependencies.each { |dependency| Kobako.to_name(dependency, "Extension #depends_on entry") }
       end
 
       def unmet_dependency
