@@ -71,15 +71,15 @@ enum Phase {
     /// Closed by a failed connect, as `tcp_done` leaves a socket in
     /// `TCP_CLOSE` with both sides shut down; it may connect afresh.
     Failed,
-    /// Closed by a reset once connected, as `tcp_done` leaves it beside
-    /// `SS_CONNECTED`, so it never connects again.
-    Reset,
+    /// Closed once connected, by a reset or by both ends' FIN, as `tcp_done`
+    /// leaves it beside `SS_CONNECTED`, so it never connects again.
+    Done,
 }
 
 impl Phase {
-    /// Whether a failed connect or a reset closed it.
+    /// Whether a failed connect, a reset, or both ends' FIN closed it.
     fn is_closed(&self) -> bool {
-        matches!(self, Phase::Failed | Phase::Reset)
+        matches!(self, Phase::Failed | Phase::Done)
     }
 
     /// The `sk_state` it stands in.
@@ -87,7 +87,7 @@ impl Phase {
         match self {
             Phase::Connecting => SkState::SynSent,
             Phase::Connected => SkState::Established,
-            Phase::Unconnected | Phase::Failed | Phase::Reset => SkState::Close,
+            Phase::Unconnected | Phase::Failed | Phase::Done => SkState::Close,
         }
     }
 }
@@ -168,7 +168,7 @@ impl TcpSock {
         let mut state = self.state();
         match state.phase {
             Phase::Connecting => Err(Errno::AlreadyInProgress),
-            Phase::Connected | Phase::Reset => Err(Errno::AlreadyConnected),
+            Phase::Connected | Phase::Done => Err(Errno::AlreadyConnected),
             Phase::Failed => {
                 let err = state.inet.err.take().unwrap_or(Errno::ConnectionAborted);
                 Self::disconnect(&mut state);
@@ -284,16 +284,23 @@ impl TcpSock {
     }
 
     /// End the socket on `err`, as `tcp_done_with_error` does after a failed
-    /// connect or a reset: `TCP_CLOSE`, both sides shut down, the failure
-    /// pending.
+    /// connect or a reset: `tcp_done`, with the failure pending.
     fn done_with_error(state: &mut State, err: Errno) {
+        Self::done(state);
+        state.inet.err = Some(err);
+    }
+
+    /// End the socket, as `tcp_done` does: `TCP_CLOSE`, both sides shut
+    /// down, its port given back. Linux ends one whose FIN left once the
+    /// peer's arrived and its own was acknowledged; no acknowledgement shows
+    /// through a host socket, so the two FINs alone end it here.
+    fn done(state: &mut State) {
         Self::close_host(state);
         state.inet.put_port();
         state.phase = match state.phase {
-            Phase::Connected => Phase::Reset,
+            Phase::Connected => Phase::Done,
             _ => Phase::Failed,
         };
-        state.inet.err = Some(err);
     }
 
     /// Return a socket whose connect failed or was given up to one never
@@ -327,8 +334,10 @@ impl TcpSock {
         if state.phase != Phase::Connected {
             return;
         }
-        if let Err(err) = Self::move_bytes(state) {
-            Self::done_with_error(state, err);
+        match Self::move_bytes(state) {
+            Ok(()) if state.fin_sent && state.received_end => Self::done(state),
+            Ok(()) => {}
+            Err(err) => Self::done_with_error(state, err),
         }
     }
 
@@ -439,7 +448,7 @@ impl TcpSock {
         match &state.phase {
             Phase::Connecting => Err(Errno::WouldBlock),
             Phase::Connected => Ok(()),
-            Phase::Unconnected | Phase::Failed | Phase::Reset => {
+            Phase::Unconnected | Phase::Failed | Phase::Done => {
                 Err(state.inet.err.take().unwrap_or(Errno::NotConnected))
             }
         }
@@ -543,7 +552,7 @@ impl ProtoOps for TcpSock {
         }
         match state.phase {
             _ if state.inet.rcv_shutdown => Ok((0, None)),
-            Phase::Failed | Phase::Reset => Ok((0, None)),
+            Phase::Failed | Phase::Done => Ok((0, None)),
             Phase::Unconnected => Err(Errno::NotConnected),
             Phase::Connecting | Phase::Connected => Err(Errno::WouldBlock),
         }
@@ -1477,6 +1486,37 @@ mod tests {
             b"ping".to_vec(),
             "a peer of a socket written then shut down for writing must read the bytes, then \
              the end"
+        );
+    }
+
+    // @behavior RT-402
+    #[test]
+    fn a_socket_both_ends_finished_stands_closed() {
+        let (sock, mut file, mut peer) = connected_socket();
+        sock.shutdown(Shutdown::Write)
+            .expect("a connected socket shuts down");
+        peer.set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        peer.read_to_end(&mut Vec::new())
+            .expect("the peer reads the socket's end");
+        drop(peer);
+        wait_for(|table| file.poll(table), PollMask::HUP);
+        assert_eq!(
+            (
+                sock.shutdown(Shutdown::Read),
+                sock.shutdown(Shutdown::Write),
+                sock.getname(true),
+                file.read(&mut [0; 8]),
+            ),
+            (
+                Err(Errno::NotConnected),
+                Err(Errno::NotConnected),
+                Err(Errno::NotConnected),
+                Ok(0),
+            ),
+            "a TCP socket that sent its FIN and read its peer's must answer ENOTCONN to a \
+             shutdown and to its peer's name, and zero to a read, as inet_shutdown and \
+             inet_getname answer one tcp_done left in TCP_CLOSE"
         );
     }
 

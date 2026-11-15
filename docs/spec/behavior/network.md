@@ -38,6 +38,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_chars.rb`
 - `test/e2e/test_network_to_str.rb`
 - `test/e2e/test_network_socket_shutdown.rb`
+- `test/e2e/test_network_socket_finished.rb`
 - `test/e2e/test_network_socket_ends.rb`
 - `test/e2e/test_network_socket_addrinfo.rb`
 - `test/e2e/test_network_addrinfo.rb`
@@ -2764,3 +2765,16 @@ endpoint "api.example.com", port: 443
 | Given | a UDP socket holding a datagram its first peer sent, unread |
 | When | the guest takes the socket's streams again with a second peer, and receives |
 | Then | only the second peer's datagrams are handed out, and the first's is dropped, as wasmtime's stream drops it. Linux's socket would still read it: WASI limits a stream to the peer it was made with |
+
+## `NW-222` A TCPSocket both ends finished answers ENOTCONN, as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-136` |
+| relates | `NW-142`, `RT-402` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a `TCPSocket` that shut its writing side and read to its peer's end |
+| When | the script calls `shutdown` by each side, `getpeername`, `peeraddr`, and `remote_address` |
+| Then | each raises `Errno::ENOTCONN`, as `tcp_done` leaves the socket in `TCP_CLOSE`. A read still answers the end. Linux waits for its FIN's acknowledgement first, which no host socket shows |

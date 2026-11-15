@@ -13,7 +13,8 @@ class TestE2ENetworkNames < Minitest::Test
     socket = TCPSocket.new("localhost", %<port>d)
     socket.write("ping")
     socket.close_write
-    answer = [socket.read, socket.peeraddr[3]]
+    peer = socket.peeraddr[3]
+    answer = [socket.read, peer]
     socket.close
     answer
   RUBY
@@ -40,7 +41,8 @@ class TestE2ENetworkNames < Minitest::Test
     socket = TCPSocket.new("localhost", %<port>d)
     socket.write("ping")
     socket.close_write
-    [socket.read, socket.peeraddr[3]]
+    peer = socket.peeraddr[3]
+    [socket.read, peer]
   RUBY
 
   # @behavior NW-032

@@ -27,7 +27,7 @@ class TestE2ENetworkSocketShutdown < Minitest::Test
     #{OUTCOME}
     named = open.call
     shuts = [
-      named.shutdown(:SHUT_WR), named.shutdown("RD"), named.shutdown(0), named.shutdown, named.shutdown(nil),
+      named.shutdown("RD"), named.shutdown(0), named.shutdown(:SHUT_WR), open.call.shutdown, open.call.shutdown(nil),
       outcome.call { named.shutdown(:FOO) }, outcome.call { named.shutdown(5) }
     ]
     sides = open.call

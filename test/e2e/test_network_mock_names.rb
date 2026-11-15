@@ -37,7 +37,8 @@ class TestE2ENetworkMockNames < Minitest::Test
       socket = TCPSocket.new(host, 80)
       socket.write("ping")
       socket.close_write
-      [socket.read, socket.peeraddr[3]]
+      peer = socket.peeraddr[3]
+      [socket.read, peer]
     rescue => e
       e.class.to_s
     end

@@ -4448,3 +4448,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest whose stdin holds bytes |
 | When | it reads them through preview2's stdin handle, then drops stdout's handle before and after closing descriptor 1 |
 | Then | the read answers the bytes, as `wasi:cli` hands stdin out. The first drop traps, as the Canonical ABI traps a drop of a lent handle. The second succeeds |
+
+## `RT-402` A socket both ends finished stands in TCP_CLOSE
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-357` |
+| relates | `RT-376`, `NW-222` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket that sent its FIN and read its peer's |
+| When | the guest shuts a side down, asks for its peer's name, and reads |
+| Then | the shutdown and the name answer `ENOTCONN`, as `inet_shutdown` and `inet_getname` answer one `tcp_done` closed. The read answers zero. No acknowledgement shows through a host socket, so the two FINs alone close it |

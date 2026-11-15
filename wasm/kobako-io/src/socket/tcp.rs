@@ -11,7 +11,7 @@ use beni::scan_args::get_kwargs;
 use beni::value::qnil;
 use beni::{Error, ExceptionClass, Module, Mrb, RClass, RHash, TryConvert, TypedData, Value};
 
-use super::address::{local_of, peers_of, to_ip_socket_address};
+use super::address::{ipv4_end_of, local_of, peers_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_TCP, SOCK_STREAM};
 use super::basic::{IoState, Readiness, SocketIo, Wait};
 use super::ip::local_end_of;
@@ -36,7 +36,6 @@ struct OpenSocket {
     input: InputStream,
     output: OutputStream,
     socket: TcpSocket,
-    peer: (Ipv4Addr, u16),
 }
 
 /// What a `TCPSocket` stands for, kept in its payload so a script's instance
@@ -105,15 +104,17 @@ impl SocketIo for Connection {
     }
 
     /// The host shuts the writing side, sending the FIN once what was written
-    /// is sent.
+    /// is sent. The reading side is the guest's own to shut, since WASI's
+    /// shutdown would close the stream over what arrived; the host is still
+    /// asked for the peer, so a socket no longer connected answers
+    /// `ENOTCONN` for either side, as `inet_shutdown` does.
     fn protocol_shutdown(&self, mrb: &Mrb, how: Shutdown) -> Result<(), Error> {
         self.with(mrb, |open| {
-            if how != Shutdown::Read {
-                open.socket
-                    .shutdown(ShutdownType::Send)
-                    .map_err(|code| to_error(mrb, code, "shutdown(2)"))?;
+            match how {
+                Shutdown::Read => open.socket.remote_address().map(drop),
+                _ => open.socket.shutdown(ShutdownType::Send),
             }
-            Ok(())
+            .map_err(|code| to_error(mrb, code, "shutdown(2)"))
         })
     }
 
@@ -123,7 +124,9 @@ impl SocketIo for Connection {
     }
 
     fn peer_end(&self, mrb: &Mrb) -> Result<(Ipv4Addr, u16), Error> {
-        self.with(mrb, |open| Ok(open.peer))
+        let peer = self.with(mrb, |open| Ok(open.socket.remote_address()))?;
+        peer.map(|peer| ipv4_end_of(&peer).unwrap_or((Ipv4Addr::UNSPECIFIED, 0)))
+            .map_err(|code| to_error(mrb, code, "getpeername(2)"))
     }
 
     fn option_of(&self, mrb: &Mrb, option: (i32, i32)) -> Result<Result<i32, Refusal>, Error> {
@@ -344,7 +347,6 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
                     input,
                     output,
                     socket,
-                    peer: (ip, port),
                 })),
                 io: IoState::new(),
             }))
