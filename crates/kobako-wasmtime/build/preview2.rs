@@ -172,8 +172,10 @@ const IMPORTS: &[(&str, &[&str])] = &[
     ("wasi:http/outgoing-handler@0.2.12", &["handle"]),
 ];
 
-/// The host type each linked WIT resource's handle stands for, as `bindgen!`
-/// takes `with:`, keyed by interface and resource name.
+/// The host type each WIT resource's handle stands for, as `bindgen!` takes
+/// `with:`, keyed by interface and resource name. A resource of an interface
+/// `IMPORTS` does not name gets its handle alone, since preview1 holds it
+/// before any guest links its functions.
 const WITH: &[(&str, &str, &str)] = &[
     ("wasi:io/error@0.2.12", "error", "table::Error"),
     ("wasi:io/poll@0.2.12", "pollable", "table::Pollable"),
@@ -187,6 +189,7 @@ const WITH: &[(&str, &str, &str)] = &[
         "output-stream",
         "table::OutputStream",
     ),
+    ("wasi:filesystem/types@0.2.12", "descriptor", "table::File"),
     ("wasi:sockets/network@0.2.12", "network", "table::Network"),
     ("wasi:sockets/tcp@0.2.12", "tcp-socket", "table::TcpSocket"),
     (
@@ -296,6 +299,26 @@ pub fn generate(wit: &Path) -> anyhow::Result<String> {
     for (id, _) in &imports {
         write_types(&resolve, *id, &mut out);
     }
+    for (interface, resources) in handles_unimported() {
+        let id = resolve
+            .interfaces
+            .iter()
+            .find(|(id, _)| resolve.id_of(*id).as_deref() == Some(interface))
+            .map(|(id, _)| id)
+            .ok_or_else(|| anyhow::anyhow!("{interface} is not in the vendored WIT"))?;
+        let _ = writeln!(
+            out,
+            "#[allow(dead_code)]\npub mod {} {{",
+            module_of(&resolve, id)
+        );
+        for (resource, host) in resources {
+            if !resolve.interfaces[id].types.contains_key(resource) {
+                return Err(anyhow::anyhow!("{interface} has no resource {resource}"));
+            }
+            write_handle(&to_camel(resource), host, &mut out);
+        }
+        out.push_str("}\n\n");
+    }
     write_host_trait(&resolve, &imports, &mut out);
     write_linker(&resolve, &sizes, &imports, &mut out);
     Ok(out)
@@ -306,6 +329,36 @@ fn host_by_resource(interface: &str, resource: &str) -> Option<&'static str> {
     WITH.iter()
         .find(|(i, r, _)| *i == interface && *r == resource)
         .map(|(_, _, host)| *host)
+}
+
+/// Each interface `WITH` names that `IMPORTS` does not, with its resources
+/// and their host types.
+fn handles_unimported() -> Vec<(&'static str, Vec<(&'static str, &'static str)>)> {
+    let mut found: Vec<(&str, Vec<(&str, &str)>)> = Vec::new();
+    for (interface, resource, host) in WITH {
+        if IMPORTS.iter().any(|(name, _)| name == interface) {
+            continue;
+        }
+        match found.iter_mut().find(|(name, _)| name == interface) {
+            Some((_, resources)) => resources.push((resource, host)),
+            None => found.push((interface, vec![(resource, host)])),
+        }
+    }
+    found
+}
+
+/// A resource's handle, the index the resource table holds it under, bound
+/// to the host type `host` names.
+fn write_handle(name: &str, host: &str, out: &mut String) {
+    let _ = writeln!(
+        out,
+        "/// A handle the guest holds, its index in the resource table.\n\
+         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\npub struct {name}(pub u32);\n\
+         impl {HOSTS}::table::Handle for {name} {{\n\
+         type Host = {HOSTS}::{host};\n\
+         fn new(index: u32) -> Self {{ Self(index) }}\n\
+         fn index(self) -> u32 {{ self.0 }}\n}}"
+    );
 }
 
 /// The module one interface's types live in.
@@ -487,22 +540,16 @@ fn write_types(resolve: &Resolve, id: InterfaceId, out: &mut String) {
                 }
                 out.push_str("}\n");
             }
-            TypeDefKind::Resource => {
-                let _ = writeln!(
-                    out,
-                    "/// A handle the guest holds, its index in the resource table.\n\
-                     #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\npub struct {name}(pub u32);"
-                );
-                if let Some(host) = host_by_resource(&wit_name, wit) {
+            TypeDefKind::Resource => match host_by_resource(&wit_name, wit) {
+                Some(host) => write_handle(&name, host, out),
+                None => {
                     let _ = writeln!(
                         out,
-                        "impl {HOSTS}::table::Handle for {name} {{\n\
-                         type Host = {HOSTS}::{host};\n\
-                         fn new(index: u32) -> Self {{ Self(index) }}\n\
-                         fn index(self) -> u32 {{ self.0 }}\n}}"
+                        "/// A handle the guest holds, its index in the resource table.\n\
+                         #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]\npub struct {name}(pub u32);"
                     );
                 }
-            }
+            },
             other => {
                 let _ = writeln!(
                     out,

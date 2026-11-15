@@ -93,6 +93,7 @@ const PROBE_WAT: &str = r#"
   (import "wasi_snapshot_preview1" "path_filestat_get" (func $stat (param i32 i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_filestat_get" (func $fstat (param i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_read" (func $read (param i32 i32 i32 i32) (result i32)))
+  (import "wasi_snapshot_preview1" "fd_close" (func $close (param i32) (result i32)))
   (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_remove_directory" (func $rmdir (param i32 i32 i32) (result i32)))
   (import "wasi_snapshot_preview1" "path_rename" (func $rename (param i32 i32 i32 i32 i32 i32) (result i32)))
@@ -167,6 +168,14 @@ const PROBE_WAT: &str = r#"
       (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 128)))
     (if (local.get $errno) (then (return (local.get $errno))))
     (call $read (i32.load (i32.const 128)) (i32.const 64) (i32.const 1) (i32.const 132)))
+
+  ;; Open the path read-only and close it again.
+  (func (export "open_close") (param $path i32) (param $len i32) (result i32)
+    (local $errno i32)
+    (local.set $errno (call $open (i32.const 3) (i32.const 0) (local.get $path) (local.get $len)
+      (i32.const 0) (i64.const 2) (i64.const 0) (i32.const 0) (i32.const 128)))
+    (if (local.get $errno) (then (return (local.get $errno))))
+    (call $close (i32.load (i32.const 128))))
 
   ;; Open the path asking no right, with the given oflags, and read from it.
   (func (export "read_unasked") (param $path i32) (param $len i32) (param $oflags i32) (result i32)
@@ -1018,6 +1027,24 @@ fn a_listing_it_cannot_hold_within_a_guests_memory_answers_enomem() {
         [(ERRNO_NOMEM, 0), (ERRNO_NOMEM, 0), (0, 51)],
         "fd_readdir through preview1, with more to hold than the guest's memory_limit, must \
          answer ENOMEM before it hands any entry, read part way or whole, and within it succeed"
+    );
+}
+
+// @behavior RT-400
+#[test]
+fn an_open_the_memory_limit_cannot_hold_answers_enomem_whatever_the_path_names() {
+    let mut starved =
+        Guest::with_memory_limit(1, &[grant(file_and_directory(), Access::Read, None)]);
+    let refused = [FILE, THROUGH_MISSING].map(|path| starved.call("open_close", path));
+    let mut held =
+        Guest::with_memory_limit(1 << 20, &[grant(file_and_directory(), Access::Read, None)]);
+    let reopened = (0..10_000).all(|_| held.call("open_close", FILE) == 0);
+    assert_eq!(
+        (refused, reopened),
+        ([ERRNO_NOMEM; 2], true),
+        "path_open through preview1 under a memory_limit that holds no more files must answer \
+         ENOMEM for a file and a missing path alike, as Linux's path_openat allocates the file \
+         before the walk, and a closed file must give its room back for the next open"
     );
 }
 

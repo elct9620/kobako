@@ -22,7 +22,7 @@ use kobako_runtime::net::{Backends, Namespace, OpenConnections};
 use kobako_runtime::network::EntryError;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::security::{prepare_creds_within, restrict_self, WalkGuard};
-use kobako_runtime::vfs::OpenFiles;
+use kobako_runtime::vfs::{File, OpenFiles};
 
 /// The Cred an invocation's Mounts open as: kobako's own rules, then each
 /// module the Driver was built with, its Filesystems holding at most the
@@ -174,9 +174,12 @@ impl Wasi {
         // stdio lives in kobako's descriptor table, which answers every
         // call that reads a descriptor (`crate::preview1`); the builder
         // keeps only what the remaining imports read. preview2's resource
-        // table numbers its own and counts against the same open files.
-        let open_files = OpenFiles::new(open_file_limit);
-        let table = preview2::Table::new(open_files.clone(), opener.memory_budget().clone());
+        // table holds every file, the descriptors' included, and counts each
+        // against the open files.
+        let mut table = preview2::Table::new(
+            OpenFiles::new(open_file_limit),
+            opener.memory_budget().clone(),
+        );
         let mounts = grants
             .iter()
             .filter_map(|grant| match grant {
@@ -194,7 +197,7 @@ impl Wasi {
             create_pipe_files(&stdout, &opener).1,
             create_pipe_files(&stderr, &opener).1,
             &mounts,
-            open_files,
+            &mut table,
             &opener,
         )
         .map_err(|err| Trap::Other(format!("a Mount's root did not open: {err:?}")))?;
@@ -273,6 +276,44 @@ impl Wasi {
 
     pub(crate) fn descriptors_mut(&mut self) -> &mut Descriptors {
         &mut self.descriptors
+    }
+
+    /// The file `fd` stands for, one that stands only for its path included.
+    pub(crate) fn file(&self, fd: u32) -> Option<&File> {
+        let descriptor = self.descriptors.get(fd)?;
+        self.table.get(descriptor.file).ok()
+    }
+
+    /// The file `fd` stands for, to change.
+    pub(crate) fn file_mut(&mut self, fd: u32) -> Option<&mut File> {
+        let handle = self.descriptors.get(fd)?.file;
+        self.table.get_mut(handle).ok()
+    }
+
+    /// Open `file` under the lowest free descriptor; `None` when the
+    /// Invocation holds as many files as it may.
+    #[cfg(test)]
+    pub(crate) fn push_file(&mut self, file: File) -> Option<u32> {
+        let room = self
+            .table
+            .reserve_file::<crate::descriptors::FileHandle>()
+            .ok()?;
+        let fd = self.descriptors.lowest_unused()?;
+        let handle = self.table.install(room, file);
+        self.descriptors
+            .place(fd, crate::descriptors::Descriptor::for_file(handle));
+        Some(fd)
+    }
+
+    /// Take `fd` out of the descriptor table, and its file out of the
+    /// resource table that held it.
+    pub(crate) fn take_file(&mut self, fd: u32) -> Option<File> {
+        let descriptor = self.descriptors.remove(fd)?;
+        Some(
+            self.table
+                .delete(descriptor.file)
+                .expect("a descriptor's handle stands in the resource table"),
+        )
     }
 
     pub(crate) fn clocks(&self) -> Clocks {

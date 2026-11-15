@@ -11,7 +11,7 @@ use super::errno::{Answer, Errno};
 use super::fd::to_filestat;
 use super::memory::GuestMemory;
 use super::types;
-use crate::descriptors::Descriptor;
+use crate::descriptors::{Descriptor, FileHandle};
 use crate::preview2::filesystem::{self, retry_eagain};
 use crate::wasi::Wasi;
 
@@ -29,10 +29,7 @@ pub(crate) struct PathOpen {
 /// starts every walk from a descriptor.
 fn start_of(wasi: &Wasi, fd: u32) -> impl vfs::Start + '_ {
     filesystem::start_at(wasi.walk_guard(), move || {
-        wasi.descriptors()
-            .get(fd)
-            .map(|descriptor| &descriptor.file)
-            .ok_or(kobako_runtime::Errno::BadDescriptor)
+        wasi.file(fd).ok_or(kobako_runtime::Errno::BadDescriptor)
     })
 }
 
@@ -121,14 +118,16 @@ pub(crate) fn open(
         .fdflags
         .intersects(types::Fdflags::RSYNC | types::Fdflags::SYNC);
     // Linux's `do_sys_openat2` builds the flags, then reserves a descriptor
-    // before `do_file_open` answers for the name, so a full table answers
-    // whatever the path names.
+    // and `path_openat` allocates the file before the walk answers for the
+    // name, so a full table or a full memory answers whatever the path names.
     let op = vfs::build_open_flags(&how)?;
+    let room = wasi.table().reserve_file::<FileHandle>()?;
     let new = wasi.descriptors().lowest_unused().ok_or(Errno::Mfile)?;
     let path = mem.read_path(path)?;
     let file = retry_eagain(|| vfs::do_file_open(wasi.cred(), &start_of(wasi, fd), &path, &op))?;
+    let handle = wasi.table_mut().install(room, file);
     wasi.descriptors_mut()
-        .place(new, Descriptor::for_file(file));
+        .place(new, Descriptor::for_file(handle));
     Ok(new.into())
 }
 

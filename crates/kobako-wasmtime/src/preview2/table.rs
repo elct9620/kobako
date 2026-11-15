@@ -13,7 +13,10 @@ use std::time::Instant;
 use kobako_runtime::memcg::{MemoryBudget, MemoryCharge};
 use kobako_runtime::net::{Exchange, NameLookup, TcpSock, UdpSock};
 use kobako_runtime::profile::Profile;
-use kobako_runtime::vfs::{File, OpenFiles, PollMask};
+use kobako_runtime::vfs::{OpenFiles, PollMask};
+
+/// What a `descriptor` stands for: the Open File every encoding shares.
+pub(crate) use kobako_runtime::vfs::File;
 use kobako_runtime::wait::PollTable;
 use kobako_runtime::Errno;
 
@@ -421,6 +424,25 @@ struct Entry {
     _memory: MemoryCharge,
 }
 
+/// The room one file takes in the table before it opens, as Linux's
+/// `get_unused_fd_flags` counts it and `alloc_empty_file` charges it before
+/// the walk. Dropped unused, it gives both back.
+pub(crate) struct FileRoom {
+    count: FileCount,
+    memory: MemoryCharge,
+}
+
+/// One file counted against the open files until the table takes it over.
+struct FileCount(Option<OpenFiles>);
+
+impl Drop for FileCount {
+    fn drop(&mut self) {
+        if let Some(open_files) = self.0.take() {
+            open_files.close();
+        }
+    }
+}
+
 pub(crate) struct Table {
     entries: BTreeMap<u32, Entry>,
     /// The numbers given back, the latest taken first, as wasmtime's
@@ -466,6 +488,37 @@ impl Table {
             .map(H::new)
     }
 
+    /// The room a file of kind `H` takes, refused as EMFILE past the open
+    /// file limit or a full table, and as ENOMEM past the Invocation's
+    /// memory, both before the file opens.
+    pub(crate) fn reserve_file<H: Handle>(&self) -> Result<FileRoom, Errno> {
+        self.reserve(size_of::<Entry>() + size_of::<H::Host>())
+    }
+
+    /// The room a file the Driver opened before the guest runs takes: counted
+    /// against the open files, and charged to none of the guest's memory, as
+    /// Linux charges a `struct file` to the task that allocates it.
+    pub(crate) fn reserve_inherited_file(&self) -> Result<FileRoom, Errno> {
+        self.reserve(0)
+    }
+
+    fn reserve(&self, bytes: usize) -> Result<FileRoom, Errno> {
+        if self.entries.len() >= MAX_TABLE_ENTRIES {
+            return Err(Errno::TooManyOpenFiles);
+        }
+        self.open_files.open()?;
+        let count = FileCount(Some(self.open_files.clone()));
+        let memory = MemoryCharge::new(&self.memory, bytes)?;
+        Ok(FileRoom { count, memory })
+    }
+
+    /// Hand out a handle for `resource`, a file opened into `room`.
+    pub(crate) fn install<H: Handle>(&mut self, room: FileRoom, resource: H::Host) -> H {
+        let FileRoom { mut count, memory } = room;
+        count.0 = None;
+        H::new(self.place(Box::new(resource), None, true, memory))
+    }
+
     /// Hand out a handle for `resource`, a view that holds no file of its
     /// own; refused past `MAX_TABLE_ENTRIES`.
     pub(crate) fn push<H: Handle>(&mut self, resource: H::Host) -> wasmtime::Result<H> {
@@ -505,19 +558,31 @@ impl Table {
         }
         let memory = MemoryCharge::new(&self.memory, size_of::<Entry>() + size_of::<H::Host>())
             .map_err(|_| wasmtime::Error::msg("the guest's resources outgrow its memory"))?;
+        Ok(self.place(Box::new(resource), parent, counted, memory))
+    }
+
+    /// Number `resource` from the free list, else past every number handed
+    /// out.
+    fn place(
+        &mut self,
+        resource: Box<dyn Any + Send>,
+        parent: Option<u32>,
+        counted: bool,
+        memory: MemoryCharge,
+    ) -> u32 {
         let handle = self.free.pop().unwrap_or_else(|| {
             self.next += 1;
             self.next - 1
         });
         let entry = Entry {
-            resource: Box::new(resource),
+            resource,
             parent,
             children: 0,
             counted,
             _memory: memory,
         };
         self.entries.insert(handle, entry);
-        Ok(handle)
+        handle
     }
 
     /// Whether `parent` still has a child of kind `H`, as wasmtime's

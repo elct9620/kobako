@@ -3445,9 +3445,10 @@ mod tests {
         let past = guest.monotonic_clock_subscribe_duration(0);
         assert_eq!(
             (first.is_ok(), held, past.is_err()),
-            (true, crate::wasi::MAX_TABLE_ENTRIES - 1, true),
+            (true, crate::wasi::MAX_TABLE_ENTRIES - 4, true),
             "subscribe-duration with no memory limit and the open file limit filled by the \
-             standard streams must hand out pollables up to a million handles, then trap"
+             standard streams must hand out pollables until the table, the three streams \
+             included, holds a million handles, then trap"
         );
     }
 
@@ -3665,9 +3666,10 @@ mod tests {
         let again = guest.instance_network_instance_network().unwrap();
         assert_eq!(
             (first.0, next_descriptor, again.0),
-            (1, Some(3), 1),
-            "a guest holding only stdin, stdout, and stderr must take 1 for its first preview2 \
-             handle, still find 3 as preview1's next descriptor, and take 1 again once it is freed"
+            (4, Some(3), 4),
+            "a guest holding only stdin, stdout, and stderr, which the resource table holds as \
+             handles 1 to 3, must take 4 for its first preview2 handle, still find 3 as \
+             preview1's next descriptor, and take 4 again once it is freed"
         );
     }
 
@@ -3683,12 +3685,12 @@ mod tests {
         };
         let calls = ["sock_accept", "sock_recv", "sock_send", "sock_shutdown"];
         let on_stdout = calls.map(|name| on(name, 1));
-        let on_handle = (on("fdstat", 3), on("sock_shutdown", 3));
+        let on_handle = (on("fdstat", handles[0]), on("sock_shutdown", handles[0]));
         assert_eq!(
             (handles, on_stdout, on_handle),
-            (vec![1, 2, 3], [57; 4], (8, 8)),
+            (vec![4, 5, 6], [57; 4], (8, 8)),
             "sock_accept, sock_recv, sock_send, and sock_shutdown on stdout must answer \
-             ENOTSOCK, as a preview1 descriptor is always a file, and preview1 calls on 3, a \
+             ENOTSOCK, as a preview1 descriptor is always a file, and preview1 calls on 4, a \
              number only a preview2 handle holds, must answer EBADF"
         );
     }

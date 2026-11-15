@@ -67,11 +67,17 @@ fn get_descriptor(wasi: &Wasi, fd: u32) -> Answer<&Descriptor> {
     wasi.descriptors().get(fd).ok_or_else(|| Errno::Badf.into())
 }
 
+/// The file `fd` stands for, one that stands only for its path included, as
+/// `fdget_raw` takes one.
+fn get_raw_file(wasi: &Wasi, fd: u32) -> Answer<&File> {
+    wasi.file(fd).ok_or_else(|| Errno::Badf.into())
+}
+
 /// The open file `fd` stands for, refusing one that stands only for its path,
 /// as `fdget` does.
 pub(crate) fn get_file(wasi: &Wasi, fd: u32) -> Answer<&File> {
-    match wasi.descriptors().get(fd) {
-        Some(descriptor) if !descriptor.file.is_path() => Ok(&descriptor.file),
+    match wasi.file(fd) {
+        Some(file) if !file.is_path() => Ok(file),
         _ => Err(Errno::Badf.into()),
     }
 }
@@ -79,8 +85,8 @@ pub(crate) fn get_file(wasi: &Wasi, fd: u32) -> Answer<&File> {
 /// The open file `fd` stands for, to change, refusing one that stands only for
 /// its path, as `fdget` does.
 fn get_file_mut(wasi: &mut Wasi, fd: u32) -> Answer<&mut File> {
-    match wasi.descriptors_mut().get_mut(fd) {
-        Some(descriptor) if !descriptor.file.is_path() => Ok(&mut descriptor.file),
+    match wasi.file_mut(fd) {
+        Some(file) if !file.is_path() => Ok(file),
         _ => Err(Errno::Badf.into()),
     }
 }
@@ -97,7 +103,7 @@ fn get_seekable(wasi: &mut Wasi, fd: u32) -> Answer<&mut File> {
 /// A call any file or directory answers, which preview1 refuses for
 /// stdio.
 fn refuse_stream(wasi: &Wasi, fd: u32) -> Answer {
-    match get_descriptor(wasi, fd)?.file.is_stream() {
+    match get_raw_file(wasi, fd)?.is_stream() {
         true => Err(Errno::Badf.into()),
         false => Ok(()),
     }
@@ -184,12 +190,7 @@ pub(crate) fn allocate(wasi: &mut Wasi, fd: u32, offset: u64, len: u64) -> Answe
 }
 
 pub(crate) fn close(wasi: &mut Wasi, fd: u32) -> Answer {
-    Ok(wasi
-        .descriptors_mut()
-        .remove(fd)
-        .ok_or(Errno::Badf)?
-        .file
-        .close()?)
+    Ok(wasi.take_file(fd).ok_or(Errno::Badf)?.close()?)
 }
 
 pub(crate) fn sync(wasi: &mut Wasi, fd: u32, datasync: bool) -> Answer {
@@ -197,11 +198,8 @@ pub(crate) fn sync(wasi: &mut Wasi, fd: u32, datasync: bool) -> Answer {
 }
 
 pub(crate) fn fdstat_get(wasi: &Wasi, fd: u32) -> Answer<types::Fdstat> {
-    let descriptor = get_descriptor(wasi, fd)?;
-    Ok(to_fdstat(
-        &descriptor.file,
-        descriptor.preopen_path.is_some(),
-    ))
+    let preopen = get_descriptor(wasi, fd)?.preopen_path.is_some();
+    Ok(to_fdstat(get_raw_file(wasi, fd)?, preopen))
 }
 
 /// What `fd_fdstat_get` reports of `file`, a preopen's root when `preopen`.
@@ -262,7 +260,7 @@ pub(crate) fn fdstat_set_rights(wasi: &Wasi, fd: u32) -> Answer {
 }
 
 pub(crate) fn filestat_get(wasi: &Wasi, fd: u32) -> Answer<types::Filestat> {
-    let stat = get_descriptor(wasi, fd)?.file.getattr()?;
+    let stat = get_raw_file(wasi, fd)?.getattr()?;
     Ok(to_filestat(wasi.cred(), stat))
 }
 
@@ -466,17 +464,17 @@ pub(crate) fn readdir(
 /// closes what stood at `to`, ignoring how its close answers, as Linux's
 /// `do_dup2` installs the file before `filp_close` of the one it replaced.
 pub(crate) fn renumber(wasi: &mut Wasi, from: u32, to: u32) -> Answer {
-    let descriptors = wasi.descriptors_mut();
-    if descriptors.get(from).is_none() || descriptors.get(to).is_none() {
+    if wasi.descriptors().get(from).is_none() || wasi.descriptors().get(to).is_none() {
         return Err(Errno::Badf.into());
     }
     if from == to {
         return Ok(());
     }
+    let replaced = wasi.take_file(to).expect("found open above");
+    let descriptors = wasi.descriptors_mut();
     let moved = descriptors.remove(from).expect("found open above");
-    let replaced = descriptors.remove(to).expect("found open above");
     descriptors.place(to, moved);
-    let _ = replaced.file.close();
+    let _ = replaced.close();
     Ok(())
 }
 
@@ -547,7 +545,6 @@ mod tests {
     fn set_times(wasi: &Wasi, fd: u32, flags: Fstflags) -> Answer {
         utimensat(0, 0, flags, |times| filestat_set_times(wasi, fd, times))
     }
-    use crate::descriptors::Descriptor;
     use crate::preview1::memory::GuestMemory;
     use crate::preview1::path::{
         create_directory, filestat_set_times as path_set_times, open as path_open, readlink,
@@ -560,7 +557,7 @@ mod tests {
     };
     use kobako_runtime::mount::{Access, Mount};
     use kobako_runtime::security::prepare_creds_within;
-    use kobako_runtime::vfs::{self, Dentry, Inode, OpenHow, Path, PATH_MAX};
+    use kobako_runtime::vfs::{self, Dentry, File, Inode, OpenHow, Path, PATH_MAX};
     use wiggle::{GuestPtr, GuestType};
 
     /// What `do_file_open` takes for an open `how` asks.
@@ -665,7 +662,7 @@ mod tests {
 
     /// The file `holds` holds, opened as `how` asks beneath a Mount that
     /// writes when `how` does.
-    fn open_held(holds: Holds, how: &OpenHow) -> Descriptor {
+    fn open_held(holds: Holds, how: &OpenHow) -> File {
         let access = match how.write {
             true => Access::ReadWrite,
             false => Access::Read,
@@ -677,18 +674,16 @@ mod tests {
         )
         .expect("/data is a guest path");
         let start = Path::root(mount.mnt());
-        Descriptor::for_file(
-            vfs::do_file_open(
-                &prepare_creds_within(&[], None),
-                &start,
-                "file",
-                &flags_of(how),
-            )
-            .unwrap_or_else(|_| panic!("the file must open")),
+        vfs::do_file_open(
+            &prepare_creds_within(&[], None),
+            &start,
+            "file",
+            &flags_of(how),
         )
+        .unwrap_or_else(|_| panic!("the file must open"))
     }
 
-    fn open_file() -> Descriptor {
+    fn open_file() -> File {
         let mut how = OpenHow::default();
         how.read = true;
         open_held(HOLDS_REFUSES_CLOSE, &how)
@@ -698,10 +693,7 @@ mod tests {
     #[test]
     fn a_file_without_fsync_refuses_a_sync() {
         let mut wasi = standard_streams();
-        let fd = wasi
-            .descriptors_mut()
-            .push(open_file())
-            .expect("a descriptor to sync");
+        let fd = wasi.push_file(open_file()).expect("a descriptor to sync");
         assert_eq!(
             errno(sync(&mut wasi, fd, false)),
             Some(Errno::Inval),
@@ -713,10 +705,7 @@ mod tests {
     #[test]
     fn a_file_set_not_to_block_reports_it() {
         let mut wasi = standard_streams();
-        let fd = wasi
-            .descriptors_mut()
-            .push(open_file())
-            .expect("a descriptor to set");
+        let fd = wasi.push_file(open_file()).expect("a descriptor to set");
         let flags = |wasi: &Wasi| {
             fdstat_get(wasi, fd)
                 .unwrap_or_else(|_| panic!("the file must report its flags"))
@@ -744,8 +733,7 @@ mod tests {
         how.read = true;
         how.write = true;
         let fd = wasi
-            .descriptors_mut()
-            .push(open_held(
+            .push_file(open_held(
                 Holds(FileType::RegFile, || Box::new(Stream)),
                 &how,
             ))
@@ -772,8 +760,7 @@ mod tests {
     fn a_descriptor_reports_the_kind_its_file_is() {
         let mut wasi = standard_streams();
         let fd = wasi
-            .descriptors_mut()
-            .push(open_held(
+            .push_file(open_held(
                 Holds(FileType::Chrdev, || Box::new(RefusesClose)),
                 &OpenHow::default(),
             ))
@@ -886,8 +873,7 @@ mod tests {
         let opened = vfs::do_file_open(&cred, &root, "f", &flags_of(&read))
             .unwrap_or_else(|_| panic!("the file must open"));
         let fd = wasi
-            .descriptors_mut()
-            .push(Descriptor::for_file(opened))
+            .push_file(opened)
             .unwrap_or_else(|| panic!("the table must have room"));
         vfs::filename_unlinkat(&cred, &root, "f").unwrap_or_else(|_| panic!("the name must go"));
         policy.0.store(0, Ordering::SeqCst);
@@ -929,8 +915,7 @@ mod tests {
     fn a_path_call_starting_from_a_file_is_not_a_directory() {
         let mut wasi = standard_streams();
         let fd = wasi
-            .descriptors_mut()
-            .push(open_file())
+            .push_file(open_file())
             .expect("a descriptor to start from");
         let mut bytes = *b"a";
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
@@ -950,8 +935,7 @@ mod tests {
     fn a_call_no_walk_can_take_answers_before_where_it_starts() {
         let mut wasi = standard_streams();
         let fd = wasi
-            .descriptors_mut()
-            .push(open_file())
+            .push_file(open_file())
             .expect("a descriptor to start from");
         let mut bytes = vec![b'a'; PATH_MAX];
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
@@ -1105,8 +1089,7 @@ mod tests {
     fn a_readlink_of_an_empty_path_answers_for_its_descriptor() {
         let mut wasi = standard_streams();
         let fd = wasi
-            .descriptors_mut()
-            .push(open_file())
+            .push_file(open_file())
             .expect("a descriptor to start from");
         let mut bytes = vec![0u8; 8];
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
@@ -1402,13 +1385,9 @@ mod tests {
     #[test]
     fn renumbering_onto_an_open_file_replaces_it_whatever_its_close_answers() {
         let mut wasi = standard_streams();
-        let from = wasi
-            .descriptors_mut()
-            .push(open_file())
-            .expect("a descriptor to move");
+        let from = wasi.push_file(open_file()).expect("a descriptor to move");
         let to = wasi
-            .descriptors_mut()
-            .push(open_file())
+            .push_file(open_file())
             .expect("a descriptor to move onto");
         assert_eq!(
             (
@@ -1427,10 +1406,7 @@ mod tests {
     #[test]
     fn renumbering_onto_a_number_not_open_answers_ebadf_and_keeps_the_source() {
         let mut wasi = standard_streams();
-        let from = wasi
-            .descriptors_mut()
-            .push(open_file())
-            .expect("a descriptor to move");
+        let from = wasi.push_file(open_file()).expect("a descriptor to move");
         let to = from + 1;
         assert_eq!(
             (

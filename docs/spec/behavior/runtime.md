@@ -3901,7 +3901,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a guest holding its three standard streams |
 | When | it takes a preview2 handle, then frees it, then takes another |
-| Then | the first takes 1, as the Canonical ABI keeps 0 for no handle, and preview1's next descriptor is still 3. The next handle takes 1 again, as wasmtime's resource table reuses a freed one |
+| Then | the first takes 4, past the three handles the streams stand under, as wasmtime-wasi's preview1 shares its resource table. preview1's next descriptor is still 3. The next handle takes 4 again, as that table reuses a freed one |
 
 ## `RT-348` A preview2 drop of a handle as another kind traps
 
@@ -4424,3 +4424,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation calling `poll_oneoff` with more subscriptions than its memory holds |
 | When | their subscriptions and events fit the hostcall fuel by the host's size of each, as wasmtime-wasi counts them |
 | Then | the call goes on to read them, and only one more subscription answers NOMEM before anything is read |
+
+## `RT-400` An open the memory limit cannot hold answers ENOMEM whatever the path names
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-190`, `RT-394` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest under a `memory_limit` that holds no more open files |
+| When | it opens a path through preview1, one that names nothing included |
+| Then | the open answers ENOMEM, as Linux's `path_openat` allocates the file before the walk. Closing a file gives its room back, and the next open succeeds |
