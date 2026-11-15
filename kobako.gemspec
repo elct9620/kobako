@@ -81,9 +81,10 @@ Gem::Specification.new do |spec|
   # MessagePack codec backbone for the host side of the kobako wire
   # payloads. The Host Gem registers ext type 0x00 (Symbol) and ext type
   # 0x01 (Capability Handle) on a `MessagePack::Factory`.
-  # 1.8.2 is the floor because earlier releases let a cleared Buffer alias
-  # another's memory (CVE-2026-54522).
-  spec.add_dependency "msgpack", ">= 1.8.2", "< 2"
+  # 1.8.6 is the floor because earlier releases let a cleared Buffer alias
+  # another's memory (CVE-2026-54522) and size a container by its header
+  # rather than by the bytes behind it, which a guest's payload controls.
+  spec.add_dependency "msgpack", ">= 1.8.6", "< 2"
   # Pin to rb_sys 0.9.128+ so the oxidize-rb/cross-gem action picks up the
   # rb-sys-dock image variant whose orchestration Ruby is new enough to
   # satisfy our dev-tool Gemfile entries (steep ~> 2.0 needs Ruby >= 3.2).
