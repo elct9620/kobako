@@ -290,7 +290,7 @@ These names come from another side, and each stays as that side spells it. The s
 | Ruby and its hooks | `method_missing`, `respond_to_missing?`, `LocalJumpError`, `ThreadError` |
 | magnus and beni | `funcall`, `define_method` |
 | WASI and POSIX | `fd_readdir`, `PATH_MAX`, `ELOOP` |
-| wasmtime-wasi's preview1, for the Wasm Driver's descriptor table, where a name there means the same | `Descriptors`, `push`, `remove`, `preopen_path` |
+| wasmtime-wasi's preview1, for the Wasm Driver's descriptor table, where a name there means the same | `Descriptors`, `remove`, `preopen_path` |
 | rustc_lexer, for a lexer's methods, each named for the token it lexes | `group`, `brace`, `octal` |
 | fancy-regex, for a value kobako hands it | `BACKTRACK_LIMIT`, for `backtrack_limit` |
 | MessagePack | `ext`, `bin`, `str` |
