@@ -86,7 +86,7 @@ mod tests {
         assert_eq!(
             CallReply::decode(&bytes),
             Ok(CallReply::Unsupported(Unsupported::new("m"))),
-            "an Unsupported of an unknown kind through Reply::decode must read as the one \
+            "a Call's reply carrying an Unsupported of an unknown kind must read as the one \
              kind defined, its message intact"
         );
     }
@@ -98,7 +98,7 @@ mod tests {
         assert_eq!(
             CallReply::decode(&bytes),
             Ok(CallReply::Unsupported(Unsupported::new("m"))),
-            "an Unsupported carrying a trailing field through Reply::decode must skip it, \
+            "a Call's reply carrying an Unsupported with a trailing field must skip it, \
              its message intact"
         );
     }
