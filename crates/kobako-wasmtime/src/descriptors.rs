@@ -8,7 +8,8 @@
 //! preview2's resource table, which holds the file and counts it, as
 //! wasmtime-wasi's preview1 numbers apart from the `ResourceTable` it shares
 //! with preview2. The standard streams stand over preview2 streams, as
-//! `wasi:cli` hands them out, each over its end of a pipe.
+//! `wasi:cli` hands them out, each over its end of a pipe and lent to its
+//! descriptor, so the guest drops none while the descriptor stands.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex};
@@ -22,7 +23,7 @@ pub(crate) use crate::preview2::bindings::wasi_filesystem_types_0_2_12::Descript
 use crate::preview2::bindings::wasi_io_streams_0_2_12::{
     InputStream as InputHandle, OutputStream as OutputHandle,
 };
-use crate::preview2::table::{InputStream, OutputStream, Stream};
+use crate::preview2::table::{FileRoom, InputStream, OutputStream, Stream};
 use crate::preview2::Table;
 
 /// The preview2 handle one descriptor stands over.
@@ -84,14 +85,14 @@ impl Descriptors {
         let room = table.reserve_inherited_file()?;
         used.insert(
             0,
-            Descriptor::for_stream(Held::Input(table.install(room, input))),
+            Descriptor::for_stream(Held::Input(install_lent(table, room, input))),
         );
         for (fd, file) in [(1, stdout), (2, stderr)] {
             let output = OutputStream::new(stream_of(file));
             let room = table.reserve_inherited_file()?;
             used.insert(
                 fd,
-                Descriptor::for_stream(Held::Output(table.install(room, output))),
+                Descriptor::for_stream(Held::Output(install_lent(table, room, output))),
             );
         }
         for (fd, mount) in (3..).zip(mounts) {
@@ -142,6 +143,18 @@ impl Descriptors {
 /// A stream over `file`, one end of a standard stream's pipe.
 fn stream_of(file: File) -> Stream {
     Stream::File(Arc::new(Mutex::new(file)))
+}
+
+/// The handle `stream` takes in `table`, lent to the descriptor standing
+/// over it.
+fn install_lent<H: crate::preview2::table::Handle>(
+    table: &mut Table,
+    room: FileRoom,
+    stream: H::Host,
+) -> H {
+    let handle = table.install(room, stream);
+    table.lend(handle);
+    handle
 }
 
 /// The handle `file`, opened before the guest runs, takes in `table`;

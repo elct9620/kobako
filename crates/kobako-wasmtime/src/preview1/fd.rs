@@ -588,7 +588,7 @@ mod tests {
 
     // @behavior RT-401
     #[test]
-    fn a_standard_stream_stands_over_the_preview2_stream_its_handle_names() {
+    fn a_standard_streams_descriptor_holds_its_pipe_apart_from_preview2s_handles() {
         use crate::invocation::Invocation;
         use crate::preview2::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
         use crate::preview2::bindings::IoHost as _;
@@ -596,14 +596,16 @@ mod tests {
         let config = crate::config::Config::for_profile(kobako_runtime::profile::Profile::Hermetic);
         let mut guest = Invocation::new(Wasi::reading_stdin(&config, b"hi".to_vec()));
         let read = guest.streams_input_stream_read(InputStream(1), 16).ok();
-        let dropped = guest.streams_output_stream_drop(OutputStream(2)).is_ok();
+        let dropped_while_open = guest.streams_output_stream_drop(OutputStream(2)).is_ok();
         let closed = errno(super::close(guest.wasi_mut(), 1));
+        let dropped_once_closed = guest.streams_output_stream_drop(OutputStream(2)).is_ok();
         assert_eq!(
-            (read, dropped, closed),
-            (Some(b"hi".to_vec()), true, None),
+            (read, dropped_while_open, closed, dropped_once_closed),
+            (Some(b"hi".to_vec()), false, None, true),
             "stdin's bytes must read through preview2's input-stream under handle 1, as \
-             wasi:cli's get-stdin hands it, and fd_close of stdout through preview1 must succeed \
-             once preview2 dropped the output-stream under handle 2"
+             wasi:cli's get-stdin hands it; dropping stdout's output-stream must trap while \
+             descriptor 1 stands over it, as the Canonical ABI traps a drop of a lent handle, and \
+             succeed once fd_close closed descriptor 1"
         );
     }
 

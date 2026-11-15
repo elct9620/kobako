@@ -315,22 +315,20 @@ impl Wasi {
     }
 
     /// Take `fd` out of the descriptor table, and what it stood over out of
-    /// the resource table: the file to close, or none once preview2 dropped
-    /// the stream a standard stream stood over, or still holds a view of it.
+    /// the resource table: the file to close, or none for a standard
+    /// stream, whose lend ends while preview2's handle keeps the stream.
     pub(crate) fn take(&mut self, fd: u32) -> Option<Option<File>> {
         let descriptor = self.descriptors.remove(fd)?;
         Some(match descriptor.held {
             Held::File(handle) => self.table.delete(handle).ok(),
-            Held::Input(handle) => self
-                .table
-                .delete(handle)
-                .ok()
-                .and_then(|input| input.stream.into_file()),
-            Held::Output(handle) => self
-                .table
-                .delete(handle)
-                .ok()
-                .and_then(|output| output.stream.into_file()),
+            Held::Input(handle) => {
+                self.table.end_lend(handle);
+                None
+            }
+            Held::Output(handle) => {
+                self.table.end_lend(handle);
+                None
+            }
         })
     }
 

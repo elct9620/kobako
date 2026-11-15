@@ -88,7 +88,7 @@ These judgments need preview1's shape, so no other Wasm Driver would make them. 
 
 | Theme | Rows |
 |---|---|
-| Descriptor Table | 8 |
+| Descriptor Table | 9 |
 | Directory Listing | 4 |
 | Error Order | 5 |
 | Formats and Waits | 5 |
@@ -107,8 +107,9 @@ The table, its numbers, and its rights exist only in preview1, so they stay in t
 | Rights a directory passes down | open mode from flags only |
 | `fd_fdstat_set_rights` refused | wasmtime-wasi |
 | Standard streams are preview2 streams | wasmtime-wasi |
+| A stream is lent to its descriptor | Canonical ABI `num_lends` |
 
-Every call finds its descriptor as its Linux syscall does, `sock_*` and `poll_oneoff` included; `kobako-runtime` marks a path-only file as `FMODE_PATH`. Renumbering ignores how the replaced descriptor's close answers. `fd_fdstat_set_rights` answers BADF for a stream and NOTSUP otherwise, since rights only narrow at open and preview2 has none. A standard stream stands over the preview2 stream `wasi:cli` would hand out. A call on its file reaches the pipe's end behind that stream, so it answers as Linux's pipe does.
+Every call finds its descriptor as its Linux syscall does, `sock_*` and `poll_oneoff` included; `kobako-runtime` marks a path-only file as `FMODE_PATH`. Renumbering ignores how the replaced descriptor's close answers. `fd_fdstat_set_rights` answers BADF for a stream and NOTSUP otherwise, since rights only narrow at open and preview2 has none. A standard stream stands over the preview2 stream `wasi:cli` would hand out, lent to its descriptor, so the guest drops none while the descriptor stands. A call on its file reaches the pipe's end behind that stream, so it answers as Linux's pipe does.
 
 ### Directory Listing
 

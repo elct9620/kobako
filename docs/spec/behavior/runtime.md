@@ -4437,14 +4437,14 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it opens a path through preview1, one that names nothing included |
 | Then | the open answers ENOMEM, as Linux's `path_openat` allocates the file before the walk. Closing a file gives its room back, and the next open succeeds |
 
-## `RT-401` A standard stream stands over the preview2 stream its handle names
+## `RT-401` A standard stream's handle is lent to its descriptor
 
 | Attribute | Value |
 | --- | --- |
-| relates | `RT-177`, `RT-347` |
+| relates | `RT-177`, `RT-347`, `RT-348` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a guest whose stdin holds bytes |
-| When | it reads them through preview2's `input-stream` under stdin's handle, then drops stdout's `output-stream` and closes descriptor 1 through preview1 |
-| Then | the read answers the bytes, as `wasi:cli` hands stdin out. The close succeeds, since nothing stands to close |
+| When | it reads them through preview2's stdin handle, then drops stdout's handle before and after closing descriptor 1 |
+| Then | the read answers the bytes, as `wasi:cli` hands stdin out. The first drop traps, as the Canonical ABI traps a drop of a lent handle. The second succeeds |
