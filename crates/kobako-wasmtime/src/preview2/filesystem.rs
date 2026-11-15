@@ -9,8 +9,11 @@ use std::sync::Arc;
 use kobako_runtime::cred::Cred;
 use kobako_runtime::filesystem::Iattr;
 use kobako_runtime::security::WalkGuard;
-use kobako_runtime::vfs::{self, File};
+use kobako_runtime::vfs;
 use kobako_runtime::Errno;
+
+/// What a `descriptor` stands for: the Open File every encoding shares.
+pub(crate) use kobako_runtime::vfs::File;
 
 /// How many times a call is made before a guest is answered EAGAIN, as cap-std
 /// makes `openat2` four times: any move in the process answers a `..` walking

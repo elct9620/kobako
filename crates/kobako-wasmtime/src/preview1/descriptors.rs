@@ -24,7 +24,8 @@ pub(crate) use crate::preview2::bindings::wasi_filesystem_types_0_2_12::Descript
 use crate::preview2::bindings::wasi_io_streams_0_2_12::{
     InputStream as InputHandle, OutputStream as OutputHandle,
 };
-use crate::preview2::table::{Handle, InputStream, OutputStream, Stream};
+use crate::preview2::io::{InputStream, OutputStream, Stream};
+use crate::preview2::table::Handle;
 use crate::preview2::Table;
 
 /// The preview2 resource one descriptor stands over, by its handle.

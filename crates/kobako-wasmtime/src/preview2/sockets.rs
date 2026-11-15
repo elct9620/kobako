@@ -1,15 +1,114 @@
-//! The translations between `wasi:sockets` and the runtime: an address, and
-//! the error code each POSIX name maps to, as the WIT's "typical errors"
-//! lists pair them.
+//! The `wasi:sockets` resources a guest holds, and the translations between
+//! `wasi:sockets` and the runtime: an address, and the error code each POSIX
+//! name maps to, as the WIT's "typical errors" lists pair them.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
 
-use kobako_runtime::net::LookupError;
+use std::sync::atomic::AtomicBool;
+use std::sync::Arc;
+
+use kobako_runtime::net::{LookupError, NameLookup, TcpSock, UdpSock};
 use kobako_runtime::Errno;
 
+use super::io::{SharedFile, SocketFile};
 use super::bindings::wasi_sockets_network_0_2_12::{
     ErrorCode, IpAddress, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress, Ipv6SocketAddress,
 };
+
+/// A UDP socket, its file made as the socket is, and where WASI's state
+/// machine has walked it.
+pub(crate) struct UdpSocket {
+    pub(crate) socket: SocketFile<UdpSock>,
+    pub(crate) state: UdpState,
+}
+
+/// The steps of a UDP socket only WASI has: its bind starts and finishes
+/// apart. Streaming once bound leaves a bind under way standing, as
+/// wasmtime keeps its in-progress bind apart from its streams.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum UdpState {
+    Unbound,
+    Binding,
+    Bound,
+}
+
+impl UdpState {
+    /// Whether a bind began, which binds a UDP socket at once, so wasmtime's
+    /// `is_bound` reads it bound before `finish-bind`.
+    pub(crate) fn is_bound(&self) -> bool {
+        !matches!(self, UdpState::Unbound)
+    }
+}
+
+/// The one network a Sandbox's Grants make, as `instance-network` hands it
+/// out.
+pub(crate) struct Network;
+
+/// A lookup, the file made for it as it starts, and how many of its
+/// addresses were handed out.
+pub(crate) struct ResolveAddressStream {
+    pub(crate) lookup: Arc<NameLookup>,
+    pub(crate) file: SharedFile,
+    pub(crate) handed: usize,
+}
+
+pub(crate) struct IncomingDatagramStream(pub(crate) SocketFile<UdpSock>);
+
+/// An outgoing datagram stream, and how many datagrams its last `check-send`
+/// permitted, as wasmtime keeps the permit a send spends.
+pub(crate) struct OutgoingDatagramStream {
+    pub(crate) socket: SocketFile<UdpSock>,
+    pub(crate) permit: u64,
+}
+
+/// A TCP socket, its file made as the socket is, and where WASI's state
+/// machine has walked it.
+pub(crate) struct TcpSocket {
+    pub(crate) socket: SocketFile<TcpSock>,
+    pub(crate) state: TcpState,
+    /// The end of the input stream a connect hands out, which a shutdown of
+    /// the receiving side sets.
+    pub(crate) input_closed: Arc<AtomicBool>,
+}
+
+/// The steps of a TCP socket only WASI has: its streams are handed out once
+/// `finish-connect` sees the connect land.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum TcpState {
+    Unbound,
+    Binding,
+    Bound,
+    Connecting,
+    /// A connect that failed as it began, its error kept for `finish-connect`
+    /// to answer, as wasmtime's connecting future resolves to it.
+    ConnectFailed(ErrorCode),
+    Connected,
+    /// A connect that failed with its error, after which the socket takes no
+    /// other, as `tcp.wit` closes it.
+    Closed(ErrorCode),
+}
+
+impl TcpState {
+    /// Whether a bind or a connect is under way, a failed connect's error
+    /// not yet answered, as wasmtime keeps one `in_progress_operation`.
+    pub(crate) fn is_in_progress(self) -> bool {
+        matches!(
+            self,
+            Self::Binding | Self::Connecting | Self::ConnectFailed(_)
+        )
+    }
+
+    /// Whether a socket option may be read or set now: as wasmtime's, a
+    /// socket connecting answers `invalid-state`, and one whose connect
+    /// failed answers its error.
+    pub(crate) fn ensure_takes_options(self) -> Result<(), ErrorCode> {
+        match self {
+            Self::Connecting | Self::ConnectFailed(_) => Err(ErrorCode::InvalidState),
+            Self::Closed(code) => Err(code),
+            Self::Unbound | Self::Binding | Self::Bound | Self::Connected => Ok(()),
+        }
+    }
+}
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
 

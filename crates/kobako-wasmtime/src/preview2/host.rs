@@ -40,8 +40,9 @@ use super::sockets::{
     to_hop_limit, to_ip_address, to_keepalive_secs, to_lookup_error_code, to_nanos, to_remote_addr,
     to_socket_addr,
 };
-use super::table::SharedFile;
-use super::table::{self, EndingStream, SocketFile, Stream, TcpState, UdpState};
+use super::io::{self, EndingStream, SharedFile, SocketFile, Stream};
+use super::sockets::{self, TcpState, UdpState};
+use super::table;
 use super::MAX_READ_SIZE_ALLOC;
 use crate::invocation::Invocation;
 use crate::trap::{Interrupted, TimeoutTrap};
@@ -67,7 +68,7 @@ impl Invocation {
     /// A pollable on the guest's own clocks, `nanos` of host time from now;
     /// the wait holding it decides when it is due.
     fn subscribe_clock(&mut self, nanos: u64) -> wasmtime::Result<Pollable> {
-        self.table_mut().push(table::Pollable::Clock {
+        self.table_mut().push(io::Pollable::Clock {
             at: Instant::now() + Duration::from_nanos(nanos),
         })
     }
@@ -132,14 +133,14 @@ impl Invocation {
     /// them: each clock is due as the profile has it beside any host-side
     /// producer among them. Both encodings wait here, so preview1's
     /// `poll_oneoff` answers by the same rule.
-    pub(crate) fn poll_ready(&self, pollables: Vec<table::Pollable>) -> wasmtime::Result<Vec<u32>> {
-        let has_producer = pollables.iter().any(table::Pollable::is_producer);
+    pub(crate) fn poll_ready(&self, pollables: Vec<io::Pollable>) -> wasmtime::Result<Vec<u32>> {
+        let has_producer = pollables.iter().any(io::Pollable::is_producer);
         let profile = self.profile();
         let pollables = pollables
             .into_iter()
             .map(|pollable| pollable.for_wait(profile, has_producer))
             .collect::<Vec<_>>();
-        let due = || pollables.iter().filter_map(table::Pollable::due).min();
+        let due = || pollables.iter().filter_map(io::Pollable::due).min();
         self.wait_for(due, |mut table| {
             let ready = (0..pollables.len() as u32)
                 .filter(|i| pollables[*i as usize].is_ready(table.as_deref_mut()))
@@ -224,7 +225,7 @@ impl Invocation {
         parent: impl table::Handle,
     ) -> wasmtime::Result<Pollable> {
         self.table_mut()
-            .push_child(table::Pollable::File(file, mask), parent)
+            .push_child(io::Pollable::File(file, mask), parent)
     }
 
     /// Start a bind of `sock`, standing at `standing`, to `local_address`, as
@@ -253,11 +254,11 @@ impl Invocation {
         Ok(sys_bind(self.network(), &cred, sock, addr)?)
     }
 
-    fn tcp_mut(&mut self, handle: TcpSocket) -> wasmtime::Result<&mut table::TcpSocket> {
+    fn tcp_mut(&mut self, handle: TcpSocket) -> wasmtime::Result<&mut sockets::TcpSocket> {
         self.table_mut().get_mut(handle)
     }
 
-    fn udp_mut(&mut self, handle: UdpSocket) -> wasmtime::Result<&mut table::UdpSocket> {
+    fn udp_mut(&mut self, handle: UdpSocket) -> wasmtime::Result<&mut sockets::UdpSocket> {
         self.table_mut().get_mut(handle)
     }
 
@@ -268,7 +269,7 @@ impl Invocation {
 
     /// Wait until `stream`'s poll finds `mask`, or an error or a hang-up.
     fn wait_on(&self, stream: &Stream, mask: PollMask) -> wasmtime::Result<()> {
-        let pollable = table::Pollable::File(stream.shared_file(), mask);
+        let pollable = io::Pollable::File(stream.shared_file(), mask);
         self.wait_for(|| None, |table| pollable.is_ready(table).then_some(()))
     }
 
@@ -304,7 +305,7 @@ impl SocketsHost for Invocation {
     }
 
     fn instance_network_instance_network(&mut self) -> wasmtime::Result<Network> {
-        self.table_mut().push(table::Network)
+        self.table_mut().push(sockets::Network)
     }
 
     fn network_network_drop(&mut self, handle: Network) -> wasmtime::Result<()> {
@@ -327,7 +328,7 @@ impl SocketsHost for Invocation {
         }
         let lookup = resolve(namespace, &name).map_err(to_lookup_error_code)?;
         let file = lookup.alloc_file(self.wasi().cred());
-        Ok(self.table_mut().push_file(table::ResolveAddressStream {
+        Ok(self.table_mut().push_file(sockets::ResolveAddressStream {
             lookup,
             file: Arc::new(Mutex::new(file)),
             handed: 0,
@@ -377,7 +378,7 @@ impl SocketsHost for Invocation {
         &mut self,
         address_family: IpAddressFamily,
     ) -> Result<TcpSocket, SocketError> {
-        self.create_socket(address_family, TcpSock::create, |socket| table::TcpSocket {
+        self.create_socket(address_family, TcpSock::create, |socket| sockets::TcpSocket {
             socket,
             state: TcpState::Unbound,
             input_closed: Arc::default(),
@@ -479,12 +480,12 @@ impl SocketsHost for Invocation {
                 self.tcp_mut(this)?.state = TcpState::Connected;
                 let stream = Stream::Socket(socket);
                 let input = self.table_mut().push_child(
-                    table::InputStream::with_closed(stream.clone(), input_closed),
+                    io::InputStream::with_closed(stream.clone(), input_closed),
                     this,
                 )?;
                 let output = self
                     .table_mut()
-                    .push_child(table::OutputStream::new(stream), this)?;
+                    .push_child(io::OutputStream::new(stream), this)?;
                 Ok((input, output))
             }
             Err(Errno::WouldBlock) => Err(ErrorCode::WouldBlock.into()),
@@ -502,7 +503,7 @@ impl SocketsHost for Invocation {
     fn tcp_tcp_socket_subscribe(&mut self, this: TcpSocket) -> wasmtime::Result<Pollable> {
         let socket = self.tcp_mut(this)?.socket.clone();
         self.table_mut()
-            .push_child(table::Pollable::TcpSocket(socket), this)
+            .push_child(io::Pollable::TcpSocket(socket), this)
     }
 
     fn tcp_tcp_socket_shutdown(
@@ -667,7 +668,7 @@ impl SocketsHost for Invocation {
         &mut self,
         address_family: IpAddressFamily,
     ) -> Result<UdpSocket, SocketError> {
-        self.create_socket(address_family, UdpSock::create, |socket| table::UdpSocket {
+        self.create_socket(address_family, UdpSock::create, |socket| sockets::UdpSocket {
             socket,
             state: UdpState::Unbound,
         })
@@ -791,9 +792,9 @@ impl SocketsHost for Invocation {
         sys_connect(self.network(), cred, socket_file.sock.as_ref(), peer)?;
         let incoming = self
             .table_mut()
-            .push_child(table::IncomingDatagramStream(socket_file.clone()), this)?;
+            .push_child(sockets::IncomingDatagramStream(socket_file.clone()), this)?;
         let outgoing = self.table_mut().push_child(
-            table::OutgoingDatagramStream {
+            sockets::OutgoingDatagramStream {
                 socket: socket_file,
                 permit: 0,
             },
@@ -804,7 +805,7 @@ impl SocketsHost for Invocation {
 
     /// Ready at once, since a bind settles as it starts.
     fn udp_udp_socket_subscribe(&mut self, this: UdpSocket) -> wasmtime::Result<Pollable> {
-        self.table_mut().push_child(table::Pollable::Ready, this)
+        self.table_mut().push_child(io::Pollable::Ready, this)
     }
 
     fn udp_udp_socket_drop(&mut self, handle: UdpSocket) -> wasmtime::Result<()> {
@@ -950,7 +951,7 @@ impl IoHost for Invocation {
         match err {
             StreamError::Closed => Ok(streams::StreamError::Closed),
             StreamError::LastOperationFailed(err) => Ok(streams::StreamError::LastOperationFailed(
-                self.table_mut().push(table::Error(err))?,
+                self.table_mut().push(io::Error(err))?,
             )),
             StreamError::Trap(trap) => Err(trap),
         }
@@ -1042,7 +1043,7 @@ impl IoHost for Invocation {
             let stream = host.table_mut().get(this)?.stream.clone();
             stream.write(&[])?;
             let output = host.table_mut().get_mut(this)?;
-            if table::OutputStream::is_flushing(&stream, &output.flushing) {
+            if io::OutputStream::is_flushing(&stream, &output.flushing) {
                 output.permit = 0;
                 return Ok(0);
             }
@@ -1108,7 +1109,7 @@ impl IoHost for Invocation {
         this: OutputStream,
     ) -> wasmtime::Result<Pollable> {
         let output = self.table_mut().get(this)?;
-        let pollable = table::Pollable::Output(
+        let pollable = io::Pollable::Output(
             output.stream.clone(),
             output.flushing.clone(),
             output.closed.clone(),
@@ -3112,7 +3113,7 @@ mod tests {
         let file = Arc::new(Mutex::new(lookup.alloc_file(guest.wasi().cred())));
         let output: OutputStream = guest
             .table_mut()
-            .push(table::OutputStream::new(table::Stream::File(file)))
+            .push(io::OutputStream::new(io::Stream::File(file)))
             .unwrap();
         let pollable = guest.streams_output_stream_subscribe(output).unwrap();
         let ready =

@@ -19,8 +19,7 @@ use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
 use super::bindings::HttpHost;
 use super::error;
-use super::table::SharedFile;
-use super::table::{self, Stream};
+use super::io::{self, SharedFile, Stream};
 use crate::invocation::Invocation;
 
 /// A request's body and whether the guest ended it, shared between the request
@@ -444,7 +443,7 @@ impl HttpHost for Invocation {
         }
         let stream = Stream::from(body.link.body.alloc_file());
         self.table_mut()
-            .push_child(table::OutputStream::new(stream), this)
+            .push_child(io::OutputStream::new(stream), this)
             .map(Ok)
     }
 
@@ -482,9 +481,9 @@ impl HttpHost for Invocation {
         self.advance(this)?;
         let pollable = match self.future_mut(this)? {
             FutureState::Sent(exchange, file) => {
-                table::Pollable::Exchange(file.clone(), exchange.clone())
+                io::Pollable::Exchange(file.clone(), exchange.clone())
             }
-            _ => table::Pollable::Ready,
+            _ => io::Pollable::Ready,
         };
         self.table_mut().push_child(pollable, this)
     }
@@ -592,7 +591,7 @@ impl HttpHost for Invocation {
         let file = Arc::new(Mutex::new(exchange.alloc_body_file(self.wasi().cred())));
         self.table_mut()
             .push_child(
-                table::InputStream::of_body(Stream::File(file), exchange),
+                io::InputStream::of_body(Stream::File(file), exchange),
                 this,
             )
             .map(Ok)

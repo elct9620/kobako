@@ -177,36 +177,36 @@ const IMPORTS: &[(&str, &[&str])] = &[
 /// `IMPORTS` does not name gets its handle alone, since preview1 holds it
 /// before any guest links its functions.
 const WITH: &[(&str, &str, &str)] = &[
-    ("wasi:io/error@0.2.12", "error", "table::Error"),
-    ("wasi:io/poll@0.2.12", "pollable", "table::Pollable"),
+    ("wasi:io/error@0.2.12", "error", "io::Error"),
+    ("wasi:io/poll@0.2.12", "pollable", "io::Pollable"),
     (
         "wasi:io/streams@0.2.12",
         "input-stream",
-        "table::InputStream",
+        "io::InputStream",
     ),
     (
         "wasi:io/streams@0.2.12",
         "output-stream",
-        "table::OutputStream",
+        "io::OutputStream",
     ),
-    ("wasi:filesystem/types@0.2.12", "descriptor", "table::File"),
-    ("wasi:sockets/network@0.2.12", "network", "table::Network"),
-    ("wasi:sockets/tcp@0.2.12", "tcp-socket", "table::TcpSocket"),
+    ("wasi:filesystem/types@0.2.12", "descriptor", "filesystem::File"),
+    ("wasi:sockets/network@0.2.12", "network", "sockets::Network"),
+    ("wasi:sockets/tcp@0.2.12", "tcp-socket", "sockets::TcpSocket"),
     (
         "wasi:sockets/ip-name-lookup@0.2.12",
         "resolve-address-stream",
-        "table::ResolveAddressStream",
+        "sockets::ResolveAddressStream",
     ),
-    ("wasi:sockets/udp@0.2.12", "udp-socket", "table::UdpSocket"),
+    ("wasi:sockets/udp@0.2.12", "udp-socket", "sockets::UdpSocket"),
     (
         "wasi:sockets/udp@0.2.12",
         "incoming-datagram-stream",
-        "table::IncomingDatagramStream",
+        "sockets::IncomingDatagramStream",
     ),
     (
         "wasi:sockets/udp@0.2.12",
         "outgoing-datagram-stream",
-        "table::OutgoingDatagramStream",
+        "sockets::OutgoingDatagramStream",
     ),
     ("wasi:http/types@0.2.12", "fields", "http::resource::Fields"),
     (

@@ -8,13 +8,15 @@ mod error;
 pub(crate) mod filesystem;
 mod host;
 mod http;
+pub(crate) mod io;
 mod sockets;
 pub(crate) mod table;
 
 pub(crate) use bindings::add_to_linker;
 #[cfg(test)]
 pub(crate) use error::IntoAnswer;
-pub(crate) use table::{Pollable, Table};
+pub(crate) use io::Pollable;
+pub(crate) use table::Table;
 
 /// The most bytes one read hands the guest, one `check-write` offers a file,
 /// and about the most one datagram `receive` answers, as wasmtime-wasi's
