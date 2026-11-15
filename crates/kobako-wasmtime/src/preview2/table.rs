@@ -1,8 +1,9 @@
 //! The resource table preview2 hands the guest its handles from, as
 //! wasmtime's `ResourceTable` is: it numbers its own, apart from preview1's
-//! descriptors, counts each host-side producer against the open files both
-//! share, and charges every entry to the Invocation's memory, as Linux's
-//! `filp` cache is accounted to the memory cgroup.
+//! descriptors, holds every file either encoding opens and counts each
+//! against the open files, and charges every entry the guest makes to the
+//! Invocation's memory, as Linux's `filp` cache is accounted to the memory
+//! cgroup of the task that allocates it.
 
 use std::any::Any;
 use std::collections::BTreeMap;
@@ -114,12 +115,12 @@ impl Stream {
     /// Read what the stream holds now; `WouldBlock` while it holds nothing
     /// yet, as `io.wit` makes a read non-blocking.
     pub(crate) fn read(&self, buf: &mut [u8]) -> Result<usize, Errno> {
-        lock(&self.shared_file()).read(buf)
+        self.lock().read(buf)
     }
 
     /// Write what the stream takes now, never waiting.
     pub(crate) fn write(&self, buf: &[u8]) -> Result<usize, Errno> {
-        lock(&self.shared_file()).write(buf)
+        self.lock().write(buf)
     }
 
     /// How many bytes a write takes now.
@@ -142,7 +143,7 @@ impl Stream {
 
     /// What a poll finds, registering on `table` for a poll that will sleep.
     pub(crate) fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
-        lock(&self.shared_file()).poll(table)
+        self.lock().poll(table)
     }
 }
 
