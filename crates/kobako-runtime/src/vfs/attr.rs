@@ -59,7 +59,7 @@ impl Iattr<'static> {
     /// A change truncating or extending a file to `len`, moving its modification
     /// time to the moment it lands, as Linux's `do_truncate` names `ATTR_MTIME`
     /// with `ATTR_SIZE`.
-    pub fn size(len: u64) -> Self {
+    pub fn for_size(len: u64) -> Self {
         Self {
             size: Some(len),
             atime: None,
@@ -74,12 +74,12 @@ impl Iattr<'static> {
     pub(crate) fn open_truncate() -> Self {
         Self {
             open: true,
-            ..Self::size(0)
+            ..Self::for_size(0)
         }
     }
 
     /// A change setting the times named, leaving any other as it stands.
-    pub fn times(atime: Option<SetTime>, mtime: Option<SetTime>) -> Self {
+    pub fn for_times(atime: Option<SetTime>, mtime: Option<SetTime>) -> Self {
         Self {
             size: None,
             atime,

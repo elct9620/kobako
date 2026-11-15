@@ -109,7 +109,7 @@ impl KernPath {
 
     /// Truncate or extend the file at `path`, as `->setattr` is asked.
     pub(crate) fn truncate(&self, path: &str, len: u64) -> Result<(), Errno> {
-        self.setattr(path, &Iattr::size(len))
+        self.setattr(path, &Iattr::for_size(len))
     }
 
     /// Hand `attr` to what `path` names, as `->setattr` is asked.

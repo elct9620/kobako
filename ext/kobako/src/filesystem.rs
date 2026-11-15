@@ -141,9 +141,9 @@ fn bind_new(args: &[Value]) -> Result<BindFs, MagnusError> {
             format!("cannot open host directory {path}: {err}"),
         )
     })?;
-    Filesystem::new(directory.with_exclusive(exclusive.unwrap_or(false)),)
-    .map(BindFs)
-    .map_err(to_instance_error)
+    Filesystem::new(directory.with_exclusive(exclusive.unwrap_or(false)))
+        .map(BindFs)
+        .map_err(to_instance_error)
 }
 
 /// `Overlay.new(lower:, upper: nil)`: the Filesystems in `lower`, topmost

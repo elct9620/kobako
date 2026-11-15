@@ -28,7 +28,7 @@ use crate::vfs::{
 /// The change setting what `stat` reports of its times, as
 /// `ovl_set_timestamps` sets `ATTR_ATIME_SET` and `ATTR_MTIME_SET`.
 pub(super) fn timestamps(stat: &Kstat) -> Iattr<'static> {
-    Iattr::times(stat.atime.map(SetTime::At), stat.mtime.map(SetTime::At))
+    Iattr::for_times(stat.atime.map(SetTime::At), stat.mtime.map(SetTime::At))
 }
 
 /// The attribute marking a directory opaque, and its value, as

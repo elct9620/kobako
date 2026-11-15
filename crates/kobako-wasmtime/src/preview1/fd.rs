@@ -178,7 +178,7 @@ fn to_iattr(
     };
     let atime = time(atim, Fstflags::ATIM, Fstflags::ATIM_NOW)?;
     let mtime = time(mtim, Fstflags::MTIM, Fstflags::MTIM_NOW)?;
-    Ok((atime.is_some() || mtime.is_some()).then(|| Iattr::times(atime, mtime)))
+    Ok((atime.is_some() || mtime.is_some()).then(|| Iattr::for_times(atime, mtime)))
 }
 
 pub(crate) fn advise(wasi: &mut Wasi, fd: u32, offset: u64, len: u64) -> Answer {

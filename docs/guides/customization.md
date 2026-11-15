@@ -46,7 +46,7 @@ A struct is graded by whether its fields can grow:
 | fixed by what it models | none | stable · exhaustive | a struct literal |
 | none | none | stable | nothing; you pass on what kobako made |
 
-`Iattr::size` and `Kiocb::at` are such constructors. `DirEmit` and `Failure` offer
+`Iattr::for_size` and `Kiocb::new` are such constructors. `DirEmit` and `Failure` offer
 none, so you only read what kobako hands you.
 
 ## Replaceable Points

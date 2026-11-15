@@ -21,9 +21,9 @@ pub use rdir::Rdir;
 pub use tmpfs::{SeedError, Tmpfs};
 
 pub use crate::vfs::{
-    Dentry, DentryOperations, DirContext, DirEntry, FMode, FileOperations, FileSystemType,
-    FileType, Finish, Iattr, Inode, InodeOperations, Kiocb, Kstat, Lookup, Mask, OpenHow, PollMask,
-    RenameFlag, SetTime, SuperBlock as Filesystem, Whence,
+    get_anon_bdev, Dentry, DentryOperations, DirContext, DirEntry, FMode, FileOperations,
+    FileSystemType, FileType, Finish, Iattr, Inode, InodeOperations, Kiocb, Kstat, Lookup, Mask,
+    OpenHow, PollMask, RenameFlag, SetTime, SuperBlock as Filesystem, Whence,
 };
 
 use crate::Errno;

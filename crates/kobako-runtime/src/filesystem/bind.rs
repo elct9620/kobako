@@ -890,7 +890,7 @@ mod tests {
         }
 
         fn set_modified() -> Iattr<'static> {
-            Iattr::times(None, Some(SetTime::At(moment())))
+            Iattr::for_times(None, Some(SetTime::At(moment())))
         }
 
         /// The root of `filesystem` mounted to change.
@@ -1918,7 +1918,7 @@ mod tests {
             .expect("the host file must open");
         let mut buf = [0; 16];
         let read = file
-            .read_iter(&mut Kiocb::at(0), &mut buf)
+            .read_iter(&mut Kiocb::new(0), &mut buf)
             .expect("the host file must read");
         assert_eq!(
             &buf[..read],
@@ -1941,7 +1941,7 @@ mod tests {
                 },
             )
             .expect("a new file must be created")
-            .write_iter(&mut Kiocb::at(0), b"written")
+            .write_iter(&mut Kiocb::new(0), b"written")
             .expect("the write must land");
         assert_eq!(
             fs::read(host.0.join("out.txt")).expect("the host file must exist"),
@@ -1970,7 +1970,8 @@ mod tests {
             .expect("the host file must open");
         assert_eq!(
             (
-                file.write_iter(&mut Kiocb::at(0).with_append(), b"y").err(),
+                file.write_iter(&mut Kiocb::new(0).with_append(), b"y")
+                    .err(),
                 fs::read(host.0.join("f")).expect("the host file must read")
             ),
             (Some(Errno::Unsupported), b"x".to_vec()),
@@ -2596,7 +2597,7 @@ mod tests {
                         .open("log.txt", &how)
                         .expect("the host file must open to write");
                     for _ in 0..10_000 {
-                        file.write_iter(&mut Kiocb::at(0).with_append(), byte)
+                        file.write_iter(&mut Kiocb::new(0).with_append(), byte)
                             .expect("the append must succeed");
                     }
                 })

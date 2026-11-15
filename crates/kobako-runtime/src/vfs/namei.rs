@@ -2399,7 +2399,7 @@ mod tests {
                 "do_utimes_path",
                 "file",
                 |cred, root| {
-                    let times = vfs::Iattr::times(None, Some(crate::filesystem::SetTime::Now));
+                    let times = vfs::Iattr::for_times(None, Some(crate::filesystem::SetTime::Now));
                     vfs::do_utimes_path(cred, root, "dir/file", false, &times)
                 },
                 Ok(()),

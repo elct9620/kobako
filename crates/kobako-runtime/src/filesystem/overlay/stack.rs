@@ -127,7 +127,7 @@ fn copy_whole(
     target: &mut dyn FileOperations,
 ) -> Result<(), Errno> {
     let mut buf = vec![0; 64 * 1024];
-    let (mut from, mut to) = (Kiocb::at(0), Kiocb::at(0));
+    let (mut from, mut to) = (Kiocb::new(0), Kiocb::new(0));
     loop {
         let read = source.read_iter(&mut from, &mut buf)?;
         if read == 0 {

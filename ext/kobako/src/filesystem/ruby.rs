@@ -20,8 +20,8 @@ use kobako_runtime::filesystem::{
     Iattr, InodeOperations, Kiocb, Kstat, Lookup, OpenHow, RenameFlag,
 };
 use kobako_runtime::vfs::{
-    generic_file_llseek, generic_read_dir, generic_write_sync, verify_dirent_name, Dentry,
-    DirContext, Identity, Inode, Whence, NAME_MAX,
+    generic_file_llseek, generic_read_dir, generic_write_sync, get_anon_bdev, verify_dirent_name,
+    Dentry, DirContext, Identity, Inode, Whence, NAME_MAX,
 };
 use kobako_runtime::Errno;
 
@@ -57,7 +57,7 @@ impl RubyFilesystem {
             answers("exclusive?") && value.funcall::<_, _, Value>("exclusive?", ())?.to_bool();
         Ok(Some(Self {
             object: Opaque::from(value),
-            dev: Kstat::unique_device(),
+            dev: get_anon_bdev(),
             exclusive,
         }))
     }
@@ -545,9 +545,9 @@ impl DentryOperations for RubyFilesystem {
             return Ok(false);
         };
         match self.stat(path_of(dentry)) {
-            Ok(found) => {
-                Ok(Identity::of(&found) == inode.identity() && found.file_type == inode.file_type())
-            }
+            Ok(found) => Ok(
+                Identity::of(&found) == inode.identity() && found.file_type == inode.file_type()
+            ),
             Err(Errno::NotFound | Errno::NotADirectory) => Ok(false),
             Err(err) => Err(err),
         }

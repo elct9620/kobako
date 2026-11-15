@@ -104,14 +104,15 @@ impl Kstat {
             ..self
         }
     }
+}
 
-    /// A device number for a Filesystem with none of its own, as each
-    /// tmpfs mount takes one: no earlier call returned it, and its top bit,
-    /// which no host's `st_dev` sets, keeps it apart from a host's.
-    pub fn unique_device() -> u64 {
-        static NEXT: AtomicU64 = AtomicU64::new(1);
-        (1 << 63) | NEXT.fetch_add(1, Ordering::Relaxed)
-    }
+/// Take a device number for a Filesystem with none of its own, as each
+/// tmpfs mount takes one through Linux's `get_anon_bdev`: no earlier call
+/// returned it, and its top bit, which no host's `st_dev` sets, keeps it
+/// apart from a host's.
+pub fn get_anon_bdev() -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    (1 << 63) | NEXT.fetch_add(1, Ordering::Relaxed)
 }
 
 /// What `path` beneath `start` names, as Linux's `vfs_fstatat` answers: a

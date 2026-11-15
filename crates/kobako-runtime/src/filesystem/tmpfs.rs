@@ -12,7 +12,7 @@ use super::{
     InodeOperations, Kiocb, Kstat, Lookup, OpenHow, RenameFlag, SetTime,
 };
 use crate::vfs::{dir_emit_dots, generic_file_llseek, generic_read_dir, DirContext, Whence};
-use crate::vfs::{Dentry, Identity, Inode, NAME_MAX};
+use crate::vfs::{get_anon_bdev, Dentry, Identity, Inode, NAME_MAX};
 use whiteout::Whiteout;
 
 mod seed;
@@ -475,7 +475,7 @@ impl Tmpfs {
             tree: Arc::new(Tree {
                 space: space.clone(),
                 inodes_follow_limit: AtomicBool::new(true),
-                dev: Kstat::unique_device(),
+                dev: get_anon_bdev(),
                 next_ino: AtomicU64::new(2),
             }),
             dir: Dir::new(1, space),
@@ -1148,7 +1148,7 @@ mod tests {
             .expect("the file must open");
         let mut buf = vec![0; 64];
         let read = file
-            .read_iter(&mut Kiocb::at(0), &mut buf)
+            .read_iter(&mut Kiocb::new(0), &mut buf)
             .expect("the file must read");
         buf.truncate(read);
         buf
@@ -1240,7 +1240,7 @@ mod tests {
                 },
             )
             .expect("a new file must be created");
-        file.write_iter(&mut Kiocb::at(0), b"kept")
+        file.write_iter(&mut Kiocb::new(0), b"kept")
             .expect("the write must land");
         drop(file);
         assert_eq!(
@@ -1287,7 +1287,7 @@ mod tests {
         let tmpfs = at(tmpfs.with_size(Some(4)));
         assert_eq!(
             (
-                writable(&tmpfs, "file").write_iter(&mut Kiocb::at(1), b"four"),
+                writable(&tmpfs, "file").write_iter(&mut Kiocb::new(1), b"four"),
                 read_all(&tmpfs, "file")
             ),
             (Err(Errno::StorageFull), b"x".to_vec()),
@@ -1302,7 +1302,7 @@ mod tests {
         let tmpfs = at([("file", "")].into_iter().collect());
         assert_eq!(
             (
-                writable(&tmpfs, "file").write_iter(&mut Kiocb::at(1000), b""),
+                writable(&tmpfs, "file").write_iter(&mut Kiocb::new(1000), b""),
                 read_all(&tmpfs, "file")
             ),
             (Ok(0), Vec::new()),
@@ -1344,11 +1344,11 @@ mod tests {
     fn a_removed_file_returns_its_space() {
         let tmpfs = at(Tmpfs::new().with_size(Some(4)));
         writable(&tmpfs, "first")
-            .write_iter(&mut Kiocb::at(0), b"four")
+            .write_iter(&mut Kiocb::new(0), b"four")
             .expect("the first file must fit");
         tmpfs.vfs_unlink("first").expect("the file must remove");
         assert_eq!(
-            writable(&tmpfs, "second").write_iter(&mut Kiocb::at(0), b"four"),
+            writable(&tmpfs, "second").write_iter(&mut Kiocb::new(0), b"four"),
             Ok(4),
             "the space a file removed through vfs_unlink held must be free for the next"
         );
@@ -1366,7 +1366,7 @@ mod tests {
         assert_eq!(
             (
                 tmpfs.truncate("file", unallocatable),
-                file.write_iter(&mut Kiocb::at(unallocatable), b"x"),
+                file.write_iter(&mut Kiocb::new(unallocatable), b"x"),
                 read_all(&tmpfs, "file")
             ),
             (
@@ -1445,7 +1445,7 @@ mod tests {
         let mut first = writable(&tmpfs, "log");
         let mut second = writable(&tmpfs, "log");
         let (mut from_first, mut from_second) =
-            (Kiocb::at(0).with_append(), Kiocb::at(0).with_append());
+            (Kiocb::new(0).with_append(), Kiocb::new(0).with_append());
         assert_eq!(
             (
                 first.write_iter(&mut from_first, b"bb"),
@@ -1545,7 +1545,7 @@ mod tests {
     // @behavior FS-085
     #[test]
     fn a_device_of_its_own_stands_apart_from_every_other_device() {
-        let (first, second) = (Kstat::unique_device(), Kstat::unique_device());
+        let (first, second) = (get_anon_bdev(), get_anon_bdev());
         let tmpfs = at(Tmpfs::new())
             .vfs_getattr()
             .expect("the root must stand")
@@ -1555,7 +1555,7 @@ mod tests {
                 && first != second
                 && tmpfs != first
                 && tmpfs != second,
-            "devices from Kstat::unique_device and a Tmpfs's root must each set the top bit \
+            "devices from get_anon_bdev and a Tmpfs's root must each set the top bit \
              and differ from one another"
         );
     }
@@ -1705,7 +1705,7 @@ mod tests {
                 "file",
                 &Iattr {
                     ctime: Some(landed),
-                    ..Iattr::times(now, now)
+                    ..Iattr::for_times(now, now)
                 },
             )
             .expect("the times must be set");
@@ -1795,13 +1795,13 @@ mod tests {
         let mut file = tmpfs
             .open_or_create("file", &how)
             .expect("the file must be made");
-        file.write_iter(&mut Kiocb::at(0), b"ab")
+        file.write_iter(&mut Kiocb::new(0), b"ab")
             .expect("the file must take a write");
         let made = tmpfs.vfs_lstat("file").expect("the file must report");
-        file.read_iter(&mut Kiocb::at(0), &mut [0; 1])
+        file.read_iter(&mut Kiocb::new(0), &mut [0; 1])
             .expect("the file must read");
         std::thread::sleep(std::time::Duration::from_millis(10));
-        file.write_iter(&mut Kiocb::at(0), b"c")
+        file.write_iter(&mut Kiocb::new(0), b"c")
             .expect("the file must take a write within its length");
         let written = tmpfs.vfs_lstat("file").expect("the file must stand");
         assert_eq!(

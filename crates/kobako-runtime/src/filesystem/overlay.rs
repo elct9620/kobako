@@ -523,7 +523,7 @@ mod tests {
     fn read_from(file: &mut dyn FileOperations) -> Vec<u8> {
         let mut buf = vec![0; 64];
         let read = file
-            .read_iter(&mut Kiocb::at(0), &mut buf)
+            .read_iter(&mut Kiocb::new(0), &mut buf)
             .expect("the file must read");
         buf.truncate(read);
         buf
@@ -542,7 +542,7 @@ mod tests {
                 ..OpenHow::default()
             },
         )?
-        .write_iter(&mut Kiocb::at(0), contents)
+        .write_iter(&mut Kiocb::new(0), contents)
         .map(drop)
     }
 
@@ -554,7 +554,7 @@ mod tests {
             ..OpenHow::default()
         };
         fs.open(path, &how)?
-            .write_iter(&mut Kiocb::at(0), contents)
+            .write_iter(&mut Kiocb::new(0), contents)
             .map(drop)
     }
 
@@ -924,7 +924,7 @@ mod tests {
             &crate::vfs::Path::root(mount.mnt()),
             "file",
             false,
-            &Iattr::times(None, Some(crate::filesystem::SetTime::Now)),
+            &Iattr::for_times(None, Some(crate::filesystem::SetTime::Now)),
         );
         assert_eq!(
             (
@@ -2520,7 +2520,7 @@ mod tests {
         let answer = vfs::do_utimes_fd(
             &cred,
             held.path(),
-            &Iattr::times(None, Some(crate::vfs::SetTime::Now)),
+            &Iattr::for_times(None, Some(crate::vfs::SetTime::Now)),
         );
         assert_eq!(
             (answer, asked.load(Ordering::SeqCst)),
@@ -2563,7 +2563,7 @@ mod tests {
         let answer = vfs::do_utimes_fd(
             &cred,
             held.path(),
-            &Iattr::times(None, Some(crate::vfs::SetTime::Now)),
+            &Iattr::for_times(None, Some(crate::vfs::SetTime::Now)),
         );
         assert_eq!(
             (
@@ -2821,7 +2821,7 @@ mod tests {
             &Path::root(mount.mnt()),
             "pipe",
             false,
-            &Iattr::times(None, Some(crate::vfs::SetTime::Now)),
+            &Iattr::for_times(None, Some(crate::vfs::SetTime::Now)),
         );
         assert_eq!(
             (answer, opened.load(Ordering::SeqCst)),

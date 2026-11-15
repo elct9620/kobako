@@ -951,13 +951,13 @@ pub trait InodeOperations {
 }
 ```
 
-## `Iattr::times`
+## `Iattr::for_times`
 
 A change setting the times named, leaving any other as it stands.
 
 ```rust
 impl Iattr {
-    pub fn times(atime: Option<SetTime>, mtime: Option<SetTime>) -> Self {}
+    pub fn for_times(atime: Option<SetTime>, mtime: Option<SetTime>) -> Self {}
 }
 ```
 
@@ -1287,14 +1287,14 @@ What a change sets of an entry, and the open file a truncate is made through.
 pub struct Iattr<'a> {}
 ```
 
-## `Iattr::size`
+## `Iattr::for_size`
 
 A change truncating or extending a file, extending with zeros, which moves its
 modification time to the moment it lands.
 
 ```rust
 impl Iattr {
-    pub fn size(len: u64) -> Self {}
+    pub fn for_size(len: u64) -> Self {}
 }
 ```
 
@@ -1370,13 +1370,13 @@ Where one read or write lands, and where the file left off once it did.
 pub struct Kiocb {}
 ```
 
-## `Kiocb::at`
+## `Kiocb::new`
 
 A call landing at an offset.
 
 ```rust
 impl Kiocb {
-    pub fn at(pos: u64) -> Self {}
+    pub fn new(pos: u64) -> Self {}
 }
 ```
 
@@ -1627,15 +1627,13 @@ impl Kstat {
 }
 ```
 
-## `Kstat::unique_device`
+## `get_anon_bdev`
 
-A device number for a Filesystem with none of its own. No earlier call
+Take a device number for a Filesystem with none of its own. No earlier call
 returned it, and no host reports it.
 
 ```rust
-impl Kstat {
-    pub fn unique_device() -> u64 {}
-}
+pub fn get_anon_bdev() -> u64 {}
 ```
 
 ## `DirEntry`

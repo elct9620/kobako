@@ -57,7 +57,7 @@ mod tests {
     use crate::vfs::Dentry;
 
     fn times() -> Iattr<'static> {
-        Iattr::times(Some(SetTime::Now), Some(SetTime::At(UNIX_EPOCH)))
+        Iattr::for_times(Some(SetTime::Now), Some(SetTime::At(UNIX_EPOCH)))
     }
 
     fn mount_of(filesystem: Arc<dyn FileSystemType>, access: MountAccess) -> Mount {

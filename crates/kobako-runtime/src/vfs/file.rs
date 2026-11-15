@@ -49,7 +49,7 @@ pub struct Kiocb {
 
 impl Kiocb {
     /// A call landing at `pos`.
-    pub fn at(pos: u64) -> Self {
+    pub fn new(pos: u64) -> Self {
         Self {
             pos,
             append: false,
@@ -580,7 +580,7 @@ impl File {
         let iocb = Kiocb {
             dsync: self.dsync,
             sync: self.sync,
-            ..Kiocb::at(pos)
+            ..Kiocb::new(pos)
         };
         match self.append {
             true => iocb.with_append(),
@@ -718,7 +718,11 @@ impl File {
         self.cred.security_file_truncate(&self.security)?;
         let dentry = self.path.dentry();
         let held = dentry.inode_lock()?;
-        notify_change(dentry, &held, &Iattr::size(len).through(self.ops.as_ref()))
+        notify_change(
+            dentry,
+            &held,
+            &Iattr::for_size(len).through(self.ops.as_ref()),
+        )
     }
 
     /// Hand `ctx` the entries of the directory from where it stands until the
