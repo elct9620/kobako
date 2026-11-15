@@ -37,6 +37,5 @@ pub use socket::{
 };
 pub use tcp::{TcpSock, MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL};
 pub(crate) use tls::load_platform_verifier;
-pub use tls::new_platform_tls;
-pub use transport::{Connector, Transport};
+pub(crate) use tls::new_platform_tls;
 pub use udp::{UdpSock, MAX_DATAGRAM};
