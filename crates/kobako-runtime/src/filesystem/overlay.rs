@@ -1777,7 +1777,7 @@ mod tests {
             dentry: &Dentry,
             how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, Errno> {
-            if dentry.kind() == Ok(FileType::Dir) && !dentry.is_root() {
+            if dentry.file_type() == Ok(FileType::Dir) && !dentry.is_root() {
                 self.start();
             }
             inner.open(dentry, how)
@@ -2306,7 +2306,7 @@ mod tests {
         }
 
         fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
-            if dentry.kind() == Ok(FileType::Dir) {
+            if dentry.file_type() == Ok(FileType::Dir) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
             }
             self.root.open(&folded_path_of(dentry), how)

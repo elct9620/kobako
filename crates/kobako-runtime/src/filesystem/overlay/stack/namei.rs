@@ -51,7 +51,7 @@ impl OverlayFs {
                 continue;
             };
             match entry(dir, name)? {
-                Presence::Entry(found) if found.kind() == Ok(FileType::Dir) => {
+                Presence::Entry(found) if found.file_type() == Ok(FileType::Dir) => {
                     let inner = dir.beneath(found.dentry);
                     let opaque = inner.is_opaque();
                     merged[index] = Some(inner);
@@ -94,7 +94,7 @@ impl OverlayFs {
         (index, found): (usize, LayerEntry),
         ops_of: impl Fn(FileType) -> Arc<dyn InodeOperations>,
     ) -> Result<Arc<Inode>, Errno> {
-        let kind = found.kind()?;
+        let kind = found.file_type()?;
         let ops = ops_of(kind);
         if kind != FileType::Dir {
             let inode = self.file_inode(index, &found.dentry, ops)?;

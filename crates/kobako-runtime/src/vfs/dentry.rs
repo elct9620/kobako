@@ -557,7 +557,7 @@ impl Dentry {
 
     /// What kind of entry this records, `NotFound` where it records none, as
     /// Linux's `d_is_*` read a dentry without asking its filesystem.
-    pub(crate) fn kind(&self) -> Result<FileType, Errno> {
+    pub(crate) fn file_type(&self) -> Result<FileType, Errno> {
         self.inode()
             .map(|inode| inode.file_type())
             .ok_or(Errno::NotFound)
@@ -1007,7 +1007,7 @@ mod tests {
         }
 
         fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
-            if dentry.kind() == Ok(FileType::Dir) {
+            if dentry.file_type() == Ok(FileType::Dir) {
                 return Ok(Box::new(ByPathDir(self.root.clone())));
             }
             self.root.open(&at(dentry), how)

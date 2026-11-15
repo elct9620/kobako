@@ -145,7 +145,7 @@ pub fn do_readlinkat(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Result
         )),
     };
     retry_estale(walk, |(target, refusal)| {
-        if target.kind()? != FileType::Symlink {
+        if target.file_type()? != FileType::Symlink {
             return Err(refusal);
         }
         cred.security_inode_readlink(&target)?;

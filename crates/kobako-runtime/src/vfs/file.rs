@@ -428,7 +428,7 @@ impl File {
     /// `dentry_open` asks the security modules before `f_op->open` and walks no
     /// path.
     pub(super) fn dentry_open(path: Path, how: &OpenHow, cred: &Arc<Cred>) -> Result<Self, Errno> {
-        let kind = path.dentry().kind()?;
+        let kind = path.dentry().file_type()?;
         let mode = FMode::of(how);
         let (ops, security) = on_path(path.mnt(), path.dentry(), |at| {
             do_dentry_open(cred, at, kind, mode, how, || path.dentry().open(how))

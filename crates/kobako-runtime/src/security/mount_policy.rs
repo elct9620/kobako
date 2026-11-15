@@ -149,7 +149,7 @@ impl SecurityOperations for MountPolicy {
         self.path_perm(old, Access::ReadWrite)?;
         self.path_perm(new, Access::ReadWrite)?;
         let moves_dir =
-            old_dentry.kind() == Ok(FileType::Dir) && !Arc::ptr_eq(old_dentry, new_dentry);
+            old_dentry.file_type() == Ok(FileType::Dir) && !Arc::ptr_eq(old_dentry, new_dentry);
         match moves_dir && self.guards(old.mnt) {
             true => Err(Errno::CrossesDevices),
             false => Ok(()),

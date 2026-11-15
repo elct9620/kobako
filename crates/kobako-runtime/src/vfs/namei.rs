@@ -120,8 +120,8 @@ impl Nameidata {
 
     /// What kind of entry the walk ended on, a link reported as itself, read
     /// from the dentry as Linux's `d_is_*` do.
-    pub(crate) fn kind(&self) -> Result<FileType, Errno> {
-        self.path()?.kind()
+    pub(crate) fn file_type(&self) -> Result<FileType, Errno> {
+        self.path()?.file_type()
     }
 
     /// What the walk ended on reports of itself, a link reported as itself, as
@@ -487,7 +487,7 @@ impl Nameidata {
             if child.inode().is_none() {
                 return Err(Errno::NotFound);
             }
-            if !follow || child.kind() != Ok(FileType::Symlink) {
+            if !follow || child.file_type() != Ok(FileType::Symlink) {
                 return Ok(());
             }
             self.pick_link(&child)?;
@@ -535,7 +535,7 @@ impl Nameidata {
                 None => self.lookup_open(how, mode)?,
             };
             let finished = opened.file.is_some() || opened.mode.contains(FMode::CREATED);
-            if finished || !follow || child.kind() != Ok(FileType::Symlink) {
+            if finished || !follow || child.file_type() != Ok(FileType::Symlink) {
                 return Ok(opened);
             }
             self.pick_link(&child)?;
@@ -627,7 +627,7 @@ impl Nameidata {
         };
         let file = match file {
             Some(file) => {
-                let kind = child.kind()?;
+                let kind = child.file_type()?;
                 let opened = on_path(&self.mnt, &child, |path| {
                     do_dentry_open(&self.cred, path, kind, mode, how, || Ok(file))
                 })?;
@@ -683,7 +683,7 @@ fn sb_permission(sb: &SuperBlock, dentry: &Dentry, mask: Mask) -> Result<(), Err
     if !mask.contains(Mask::WRITE) || !sb.rdonly() {
         return Ok(());
     }
-    match dentry.kind()? {
+    match dentry.file_type()? {
         FileType::RegFile | FileType::Dir | FileType::Symlink => Err(Errno::ReadOnlyFilesystem),
         _ => Ok(()),
     }
@@ -705,7 +705,7 @@ fn set_nameidata(
         return Err(Errno::Escape);
     }
     let start = start.path_init()?;
-    if start.dentry().kind()? != FileType::Dir {
+    if start.dentry().file_type()? != FileType::Dir {
         return Err(Errno::NotADirectory);
     }
     Ok(Nameidata {
@@ -786,7 +786,7 @@ fn path_lookupat(mut nd: Nameidata, follow: bool) -> Result<Nameidata, Errno> {
     nd.link_path_walk()?;
     nd.lookup_last(follow)?;
     nd.complete_walk()?;
-    let kind = nd.kind()?;
+    let kind = nd.file_type()?;
     if nd.lookup_directory && kind != FileType::Dir {
         return Err(Errno::NotADirectory);
     }
@@ -829,7 +829,7 @@ fn do_o_path(nd: Nameidata, op: &OpenFlags) -> Result<File, Errno> {
     let how = op.open_flag();
     let nd = path_lookupat(nd, op.lookup_follow())?;
     let child = nd.path()?;
-    let kind = child.kind()?;
+    let kind = child.file_type()?;
     let (f_op, security) = on_path(&nd.mnt, &child, |path| {
         do_dentry_open(&nd.cred, path, kind, FMode::PATH, how, || child.open(how))
     })?;
@@ -871,7 +871,7 @@ fn do_open(
     }
     // The walk followed every link the call asked it to, so a link at the
     // end now is one swapped in since, and is opened as itself.
-    let kind = child.kind()?;
+    let kind = child.file_type()?;
     let refusal = match kind {
         _ if how.create && how.exclusive && !created => Some(Errno::AlreadyExists),
         FileType::Dir if how.create => Some(Errno::IsADirectory),
@@ -1078,7 +1078,7 @@ pub fn filename_unlinkat(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Re
             }
             let (_held, child) = start_dirop(&mut nd)?;
             if nd.trailing_slash {
-                return Err(match child.kind() {
+                return Err(match child.file_type() {
                     Ok(FileType::Dir) => Errno::IsADirectory,
                     _ => Errno::NotADirectory,
                 });
@@ -1127,7 +1127,7 @@ pub fn filename_renameat2(
         )?;
         // Unless the source is a directory, a trailing `/` on either side is
         // refused, as `filename_renameat2` refuses it.
-        let is_dir = rd.old_dentry.kind()? == FileType::Dir;
+        let is_dir = rd.old_dentry.file_type()? == FileType::Dir;
         if !is_dir && (source.trailing_slash || target.trailing_slash) {
             return Err(Errno::NotADirectory);
         }
@@ -1189,7 +1189,7 @@ pub(crate) fn __start_renaming(
 ) -> Result<RenameData, Errno> {
     let _held = lock_rename(sb, old_dir, new_dir)?;
     let old_dentry = lookup_one_qstr_excl(sb, old_dir, old_name)?;
-    old_dentry.kind()?;
+    old_dentry.file_type()?;
     let new_dentry = lookup_one_qstr_excl(sb, new_dir, new_name)?;
     match (flag, new_dentry.inode().is_some()) {
         (Some(RenameFlag::Exchange), false) => return Err(Errno::NotFound),
@@ -1265,8 +1265,8 @@ pub(crate) fn vfs_rename(cred: &Cred, sb: &SuperBlock, rd: &RenameData) -> Resul
     let (old_dir, old) = (&rd.old_parent, &rd.old_dentry);
     let (new_dir, new) = (&rd.new_parent, &rd.new_dentry);
     let flag = rd.flag;
-    let moving = old.kind().ok();
-    let target = new.kind().ok();
+    let moving = old.file_type().ok();
+    let target = new.file_type().ok();
     if Arc::ptr_eq(old, new) || old.names_the_entry_of(new) {
         return Ok(());
     }
@@ -1319,7 +1319,7 @@ pub(crate) fn vfs_rmdir(
     dir: &Dentry,
     victim: &Arc<Dentry>,
 ) -> Result<(), Errno> {
-    may_delete_dentry(cred, sb, dir, victim.kind().ok(), true)?;
+    may_delete_dentry(cred, sb, dir, victim.file_type().ok(), true)?;
     let _victim = victim.inode_lock()?;
     dir.inode_ops()?.rmdir(victim)?;
     sb.dentries().shrink_dcache_parent(victim);
@@ -1338,7 +1338,7 @@ pub(crate) fn vfs_unlink(
     dir: &Dentry,
     victim: &Arc<Dentry>,
 ) -> Result<(), Errno> {
-    may_delete_dentry(cred, sb, dir, victim.kind().ok(), false)?;
+    may_delete_dentry(cred, sb, dir, victim.file_type().ok(), false)?;
     let _victim = victim.inode_lock()?;
     dir.inode_ops()?.unlink(victim)?;
     sb.dentries().unhash(victim);
@@ -1417,7 +1417,7 @@ fn vfs_link(
     child: &Dentry,
 ) -> Result<(), Errno> {
     may_create_dentry(cred, sb, dir, child)?;
-    if old.kind()? == FileType::Dir {
+    if old.file_type()? == FileType::Dir {
         return Err(Errno::NotPermitted);
     }
     let _held = old.inode_lock()?;
@@ -3668,7 +3668,7 @@ mod tests {
         }
 
         fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
-            if dentry.kind() == Ok(crate::filesystem::FileType::Dir) {
+            if dentry.file_type() == Ok(crate::filesystem::FileType::Dir) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
             }
             self.root.open(&folded_path_of(dentry), how)
@@ -4466,7 +4466,7 @@ mod tests {
         let wrapped = Wrap::new(Arc::new(tmpfs), hook.clone());
         let root = root_of(Filesystem::new(wrapped).expect("the instance must stand"));
         let walked = super::filename_lookup(&Arc::default(), &root, "f", false)
-            .and_then(|nd| Ok((nd.path()?.name(), nd.kind()?)));
+            .and_then(|nd| Ok((nd.path()?.name(), nd.file_type()?)));
         assert_eq!(
             (walked, hook.asked.load(Ordering::SeqCst)),
             (Ok(("F".to_string(), FileType::RegFile)), 1),

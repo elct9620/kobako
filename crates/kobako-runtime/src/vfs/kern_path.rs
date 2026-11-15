@@ -62,7 +62,7 @@ impl KernPath {
     pub(crate) fn open(&self, path: &str, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         let child = self.resolve(path)?.path()?;
         // A link opens as itself nowhere, as `may_open` refuses one first.
-        if child.kind() == Ok(FileType::Symlink) {
+        if child.file_type() == Ok(FileType::Symlink) {
             return Err(Errno::FilesystemLoop);
         }
         let file = child.open(how)?;
@@ -124,7 +124,7 @@ impl KernPath {
 
     pub(crate) fn open_dir(&self, path: &str) -> Result<Self, Errno> {
         let dentry = self.resolve(path)?.path()?;
-        match dentry.kind()? {
+        match dentry.file_type()? {
             FileType::Symlink => Err(Errno::FilesystemLoop),
             FileType::Dir => {
                 dentry.getattr()?;

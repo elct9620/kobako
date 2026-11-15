@@ -83,14 +83,14 @@ impl LayerEntry {
     }
 
     /// What kind of entry it is, as its lookup recorded it.
-    fn kind(&self) -> Result<FileType, Errno> {
-        self.dentry.kind()
+    fn file_type(&self) -> Result<FileType, Errno> {
+        self.dentry.file_type()
     }
 }
 
 impl Presence {
     fn is_directory(&self) -> bool {
-        matches!(self, Self::Entry(found) if found.kind() == Ok(FileType::Dir))
+        matches!(self, Self::Entry(found) if found.file_type() == Ok(FileType::Dir))
     }
 }
 

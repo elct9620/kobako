@@ -193,7 +193,7 @@ impl OverlayFs {
     ) -> Result<(), Errno> {
         let (from_name, to_name) = (&moved.name(), &target.name());
         let from_level = from.level();
-        let moving = moved.kind()?;
+        let moving = moved.file_type()?;
         let to_level = to.level();
         let is_dir = moving == FileType::Dir;
         // What cannot move answers first, as `ovl_rename_start` asks
@@ -202,7 +202,7 @@ impl OverlayFs {
             return Err(Errno::CrossesDevices);
         }
         // Only an empty directory is replaced.
-        let upper_whiteouts = match target.kind() == Ok(FileType::Dir) {
+        let upper_whiteouts = match target.file_type() == Ok(FileType::Dir) {
             true => self
                 .check_empty_dir(target)?
                 .ok_or(Errno::DirectoryNotEmpty)?,
