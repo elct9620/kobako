@@ -101,14 +101,15 @@ impl Entry for Builder {
             .collect::<Vec<_>>();
         let mut policies = Policies::default();
         if !resolve.is_empty() {
-            policies = policies.with_resolve(Arc::new(move |name: &Name<'_>| {
+            policies = policies.with_resolve_policy(Arc::new(move |name: &Name<'_>| {
                 resolve.iter().all(|policy| policy.allows(name))
             }));
         }
         if !connect.is_empty() {
-            policies = policies.with_connect(Arc::new(move |connection: &Connection<'_>| {
-                connect.iter().all(|policy| policy.allows(connection))
-            }));
+            policies =
+                policies.with_connect_policy(Arc::new(move |connection: &Connection<'_>| {
+                    connect.iter().all(|policy| policy.allows(connection))
+                }));
         }
         let request = given
             .request
@@ -116,7 +117,7 @@ impl Entry for Builder {
             .chain(self.request.iter().cloned())
             .collect::<Vec<_>>();
         if !request.is_empty() {
-            policies = policies.with_request(Arc::new(move |sent: &Request<'_>| {
+            policies = policies.with_request_policy(Arc::new(move |sent: &Request<'_>| {
                 request.iter().all(|policy| policy.allows(sent))
             }));
         }
@@ -137,7 +138,7 @@ mod tests {
         }
 
         fn policies(&self) -> Policies {
-            Policies::default().with_connect(Arc::new(|connection: &Connection<'_>| {
+            Policies::default().with_connect_policy(Arc::new(|connection: &Connection<'_>| {
                 connection.port != 22
             }))
         }

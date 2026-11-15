@@ -52,13 +52,13 @@ impl Entry for RubyEntry {
     fn policies(&self) -> Policies {
         let mut policies = Policies::default();
         if let Some(resolve) = &self.resolve {
-            policies = policies.with_resolve(resolve.clone());
+            policies = policies.with_resolve_policy(resolve.clone());
         }
         if let Some(connect) = &self.connect {
-            policies = policies.with_connect(connect.clone());
+            policies = policies.with_connect_policy(connect.clone());
         }
         if let Some(request) = &self.request {
-            policies = policies.with_request(request.clone());
+            policies = policies.with_request_policy(request.clone());
         }
         policies
     }

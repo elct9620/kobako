@@ -219,7 +219,7 @@ impl<'a> Request<'a> {
 
 impl Policies {
     /// These policies with `policy` judging each lookup.
-    pub fn with_resolve(self, policy: Arc<dyn for<'a> Policy<Name<'a>>>) -> Self {
+    pub fn with_resolve_policy(self, policy: Arc<dyn for<'a> Policy<Name<'a>>>) -> Self {
         Self {
             resolve: Some(policy),
             ..self
@@ -227,7 +227,7 @@ impl Policies {
     }
 
     /// These policies with `policy` judging each connect.
-    pub fn with_connect(self, policy: Arc<dyn for<'a> Policy<Connection<'a>>>) -> Self {
+    pub fn with_connect_policy(self, policy: Arc<dyn for<'a> Policy<Connection<'a>>>) -> Self {
         Self {
             connect: Some(policy),
             ..self
@@ -235,7 +235,7 @@ impl Policies {
     }
 
     /// These policies with `policy` judging each HTTP request.
-    pub fn with_request(self, policy: Arc<dyn for<'a> Policy<Request<'a>>>) -> Self {
+    pub fn with_request_policy(self, policy: Arc<dyn for<'a> Policy<Request<'a>>>) -> Self {
         Self {
             request: Some(policy),
             ..self

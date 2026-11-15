@@ -389,7 +389,7 @@ mod tests {
 
         fn policies(&self) -> Policies {
             let (allows, seen) = (self.allows, self.seen.clone());
-            Policies::default().with_connect(Arc::new(move |connection: &Connection<'_>| {
+            Policies::default().with_connect_policy(Arc::new(move |connection: &Connection<'_>| {
                 seen.lock().unwrap().push((
                     connection.host.to_string(),
                     connection.port,
@@ -464,11 +464,11 @@ mod tests {
             let resolved = self.resolved.clone();
             let judged = self.judged.clone();
             Policies::default()
-                .with_connect(Arc::new(move |connection: &Connection<'_>| {
+                .with_connect_policy(Arc::new(move |connection: &Connection<'_>| {
                     judged.lock().unwrap().push(connection.host.to_string());
                     connection.host != "refused.example"
                 }))
-                .with_resolve(Arc::new(move |_: &Name<'_>| {
+                .with_resolve_policy(Arc::new(move |_: &Name<'_>| {
                     resolved.fetch_add(1, Ordering::SeqCst);
                     true
                 }))

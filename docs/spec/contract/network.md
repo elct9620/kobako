@@ -52,13 +52,13 @@ pub struct Policies {
 }
 ```
 
-## `Policies::with_request`
+## `Policies::with_request_policy`
 
 These policies with one judging each HTTP request.
 
 ```rust
 impl Policies {
-    pub fn with_request(self, policy: Arc<dyn for<'a> Policy<Request<'a>>>) -> Self {}
+    pub fn with_request_policy(self, policy: Arc<dyn for<'a> Policy<Request<'a>>>) -> Self {}
 }
 ```
 
@@ -97,13 +97,13 @@ impl Builder {
 }
 ```
 
-## `Policies::with_resolve`
+## `Policies::with_resolve_policy`
 
 These policies with one judging each lookup.
 
 ```rust
 impl Policies {
-    pub fn with_resolve(self, policy: Arc<dyn for<'a> Policy<Name<'a>>>) -> Self {}
+    pub fn with_resolve_policy(self, policy: Arc<dyn for<'a> Policy<Name<'a>>>) -> Self {}
 }
 ```
 
@@ -128,13 +128,13 @@ impl<'a> Name<'a> {
 }
 ```
 
-## `Policies::with_connect`
+## `Policies::with_connect_policy`
 
 These policies with one judging each connect.
 
 ```rust
 impl Policies {
-    pub fn with_connect(self, policy: Arc<dyn for<'a> Policy<Connection<'a>>>) -> Self {}
+    pub fn with_connect_policy(self, policy: Arc<dyn for<'a> Policy<Connection<'a>>>) -> Self {}
 }
 ```
 
