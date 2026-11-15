@@ -193,7 +193,9 @@ impl Bind {
     }
 }
 
-/// The names `dir` holds, each with the kind and the identity a listing gives.
+/// The names `dir` holds, each with the kind and the identity a stat names.
+/// A Windows listing carries no file index, so there each name is asked of
+/// a stat; one gone by then lists without an identity.
 fn entries_of(dir: &Dir) -> Result<Vec<DirEntry>, Errno> {
     #[cfg(unix)]
     let dev = {
@@ -213,6 +215,14 @@ fn entries_of(dir: &Dir) -> Result<Vec<DirEntry>, Errno> {
             let listed = {
                 use std::os::unix::fs::DirEntryExt;
                 listed.with_identity(dev, entry.ino())
+            };
+            #[cfg(not(unix))]
+            let listed = match dir.symlink_metadata(&listed.name) {
+                Ok(found) => {
+                    use cap_fs_ext::MetadataExt;
+                    listed.with_identity(found.dev(), found.ino())
+                }
+                Err(_) => listed,
             };
             Ok(listed)
         })
@@ -313,8 +323,9 @@ fn to_special_file_type(_host: cap_std::fs::FileType) -> FileType {
 }
 
 /// What a host entry is, with the size the host reports. The host names
-/// its identity, link count, and times on unix; elsewhere a Bind reports
-/// none.
+/// its identity and link count everywhere, and its times on unix. Windows
+/// names the identity by volume and file index, which cap-std reads from the
+/// handle each of its stats opens.
 fn to_kstat(metadata: cap_std::fs::Metadata) -> Kstat {
     let file_type = to_file_type(metadata.file_type());
     let size = metadata.len();
@@ -331,7 +342,12 @@ fn to_kstat(metadata: cap_std::fs::Metadata) -> Kstat {
             )
     }
     #[cfg(not(unix))]
-    Kstat::new(file_type, size)
+    {
+        use cap_fs_ext::MetadataExt;
+        Kstat::new(file_type, size)
+            .with_identity(metadata.dev(), metadata.ino())
+            .with_nlink(metadata.nlink())
+    }
 }
 
 /// The time `seconds` and `nanoseconds` after the Unix epoch, as `stat`
@@ -1253,7 +1269,6 @@ mod tests {
     // file onto where it went, between the judgement and the open, so only
     // telling what opened from what was judged keeps the open from reaching it.
     // @behavior FS-156
-    #[cfg(unix)]
     #[test]
     fn an_open_reaches_only_the_entry_it_judged() {
         use crate::vfs::{self, OpenHow, Path as VfsPath};

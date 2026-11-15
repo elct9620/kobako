@@ -1479,9 +1479,7 @@ mod tests {
         assert_named_alike("Overlay", identities(overlay));
     }
 
-    // A host names no identity through a Bind beyond unix.
     // @behavior RT-183
-    #[cfg(unix)]
     #[test]
     fn a_bind_lists_each_entry_as_a_stat_names_it() {
         let dir = std::env::temp_dir().join(format!("kobako-listed-{}", std::process::id()));

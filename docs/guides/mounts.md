@@ -319,7 +319,6 @@ Windows reads some names differently and holds open directories in place.
 | a `\` in a path on a Bind | `Errno::EINVAL`, never asked of the host |
 | a name Windows reads as another on a Bind | `Errno::EINVAL`: a stream, a device, a wildcard, or a trailing dot or space |
 | a directory a Bind holds open | the host cannot move or remove it until the Bind is collected |
-| a Bind's directory opened beneath a Policy, third-party | a path through it raises `Errno::ENOENT`, as a Bind reports no identity there |
 
 ### Concurrent Invocations
 
