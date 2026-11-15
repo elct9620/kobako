@@ -10,10 +10,10 @@ use std::sync::Arc;
 use kobako_runtime::net::{LookupError, NameLookup, TcpSock, UdpSock};
 use kobako_runtime::Errno;
 
-use super::io::{SharedFile, SocketFile};
 use super::bindings::wasi_sockets_network_0_2_12::{
     ErrorCode, IpAddress, IpAddressFamily, IpSocketAddress, Ipv4SocketAddress, Ipv6SocketAddress,
 };
+use super::io::{SharedFile, SocketFile};
 
 /// A UDP socket, its file made as the socket is, and where WASI's state
 /// machine has walked it.

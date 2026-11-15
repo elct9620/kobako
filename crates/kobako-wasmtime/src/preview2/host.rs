@@ -35,13 +35,13 @@ use super::bindings::wasi_sockets_udp_0_2_12::{
 };
 use super::bindings::{ClocksHost, IoHost, SocketsHost};
 use super::error::{SocketError, StreamError};
+use super::io::{self, EndingStream, SharedFile, SocketFile, Stream};
+use super::sockets::{self, TcpState, UdpState};
 use super::sockets::{
     from_socket_addr, is_valid_unicast_address, to_asked_size, to_buffer_size, to_error_code,
     to_hop_limit, to_ip_address, to_keepalive_secs, to_lookup_error_code, to_nanos, to_remote_addr,
     to_socket_addr,
 };
-use super::io::{self, EndingStream, SharedFile, SocketFile, Stream};
-use super::sockets::{self, TcpState, UdpState};
 use super::table;
 use super::MAX_READ_SIZE_ALLOC;
 use crate::invocation::Invocation;
@@ -378,10 +378,12 @@ impl SocketsHost for Invocation {
         &mut self,
         address_family: IpAddressFamily,
     ) -> Result<TcpSocket, SocketError> {
-        self.create_socket(address_family, TcpSock::create, |socket| sockets::TcpSocket {
-            socket,
-            state: TcpState::Unbound,
-            input_closed: Arc::default(),
+        self.create_socket(address_family, TcpSock::create, |socket| {
+            sockets::TcpSocket {
+                socket,
+                state: TcpState::Unbound,
+                input_closed: Arc::default(),
+            }
         })
     }
 
@@ -668,9 +670,11 @@ impl SocketsHost for Invocation {
         &mut self,
         address_family: IpAddressFamily,
     ) -> Result<UdpSocket, SocketError> {
-        self.create_socket(address_family, UdpSock::create, |socket| sockets::UdpSocket {
-            socket,
-            state: UdpState::Unbound,
+        self.create_socket(address_family, UdpSock::create, |socket| {
+            sockets::UdpSocket {
+                socket,
+                state: UdpState::Unbound,
+            }
         })
     }
 
