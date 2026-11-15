@@ -170,7 +170,7 @@ impl Sandbox {
     pub fn mount(
         &mut self,
         at: &str,
-        filesystem: Arc<dyn Filesystem>,
+        filesystem: Arc<Filesystem>,
         access: Access,
     ) -> Result<(), Error> {}
 }
@@ -185,7 +185,7 @@ impl Sandbox {
     pub fn mount_with_policy(
         &mut self,
         at: &str,
-        filesystem: Arc<dyn Filesystem>,
+        filesystem: Arc<Filesystem>,
         access: Access,
         policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>,
     ) -> Result<(), Error> {}
@@ -351,7 +351,7 @@ impl Context<'_> {
     pub fn mount(
         &mut self,
         at: &str,
-        filesystem: Arc<dyn Filesystem>,
+        filesystem: Arc<Filesystem>,
         access: Access,
     ) -> Result<(), Error> {}
 }
@@ -366,7 +366,7 @@ impl Context<'_> {
     pub fn mount_with_policy(
         &mut self,
         at: &str,
-        filesystem: Arc<dyn Filesystem>,
+        filesystem: Arc<Filesystem>,
         access: Access,
         policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>,
     ) -> Result<(), Error> {}

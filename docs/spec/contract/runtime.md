@@ -910,7 +910,7 @@ Give an entry another name in this directory. Without it the runtime answers
 
 ```rust
 pub trait InodeOperations {
-    fn link(&self, _old: &Dentry, _dentry: &Dentry) -> Option<Result<(), Errno>>;
+    fn link(&self, _old: &Dentry, _dentry: &Dentry) -> Result<(), Errno>;
 }
 ```
 
@@ -920,7 +920,7 @@ Make a link in this directory. Without it the runtime answers `NotPermitted`.
 
 ```rust
 pub trait InodeOperations {
-    fn symlink(&self, _dentry: &Dentry, _target: &str) -> Option<Result<(), Errno>>;
+    fn symlink(&self, _dentry: &Dentry, _target: &str) -> Result<(), Errno>;
 }
 ```
 
