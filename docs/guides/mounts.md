@@ -349,7 +349,7 @@ object.
 | `Bind.new(path)` | `Bind::new(path)` |
 | `Overlay.new(lower:, upper:)` | `Overlay::new(lower, Some(upper))` |
 | `mount(at, fs, access:)` | `mount(at, fs, Access::Read)` |
-| `mount(at, fs) { \|path, access\| ... }` | `mount_with_policy(at, fs, policy)`, read-write |
+| `mount(at, fs, access:) { \|path, access\| ... }` | `mount_with_policy(at, fs, Access::Read, policy)` |
 | `ctx.mount` | `Context::mount` in `eval_with` |
 
 ```rust

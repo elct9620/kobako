@@ -181,6 +181,41 @@ fn a_runtime_presenting_no_filesystem_refuses_the_mount() {
     );
 }
 
+// @behavior MT-028
+#[test]
+fn a_policy_cannot_make_a_read_only_mount_writable() {
+    let Some(mut sandbox) = real_sandbox() else {
+        return;
+    };
+    let asked = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let seen = asked.clone();
+    sandbox
+        .mount_with_policy(
+            "/data",
+            tmpfs("hello"),
+            Access::Read,
+            Arc::new(move |request: &MountRequest<'_>| {
+                if request.access == Access::ReadWrite {
+                    seen.store(true, std::sync::atomic::Ordering::SeqCst);
+                }
+                true
+            }),
+        )
+        .unwrap();
+    let value = sandbox
+        .eval(r#"begin; File.write("/data/new.txt", "x"); rescue Errno::EROFS; "read-only"; end"#)
+        .unwrap()
+        .value()
+        .unwrap();
+
+    assert_eq!(
+        (text(value), asked.load(std::sync::atomic::Ordering::SeqCst)),
+        ("read-only".to_string(), false),
+        "a write beneath a Sandbox::mount_with_policy mount given Access::Read must raise Errno::EROFS \
+         even when the policy allows everything, without asking the policy about the change"
+    );
+}
+
 // @behavior MT-007
 #[test]
 fn a_policy_refusing_an_open_denies_it_and_the_script_goes_on() {
@@ -191,6 +226,7 @@ fn a_policy_refusing_an_open_denies_it_and_the_script_goes_on() {
         .mount_with_policy(
             "/data",
             tmpfs("hello"),
+            Access::ReadWrite,
             Arc::new(|_: &MountRequest<'_>| false),
         )
         .unwrap();

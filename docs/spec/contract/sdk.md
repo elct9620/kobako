@@ -186,6 +186,7 @@ impl Sandbox {
         &mut self,
         at: &str,
         filesystem: Arc<dyn Filesystem>,
+        access: Access,
         policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>,
     ) -> Result<(), Error> {}
 }
@@ -366,6 +367,7 @@ impl Context<'_> {
         &mut self,
         at: &str,
         filesystem: Arc<dyn Filesystem>,
+        access: Access,
         policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>,
     ) -> Result<(), Error> {}
 }

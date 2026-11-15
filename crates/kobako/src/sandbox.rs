@@ -196,16 +196,17 @@ impl Sandbox {
         self.register_mount(Mount::new(at, filesystem, access)?)
     }
 
-    /// `mount`, read-write, with a `policy` judging each open and each change;
-    /// a refusal fails that call as `Errno::EACCES` in the guest and leaves the
-    /// script running.
+    /// `mount`, with a `policy` judging each open and each change `access`
+    /// allows; a refusal fails that call as `Errno::EACCES` in the guest and
+    /// leaves the script running.
     pub fn mount_with_policy(
         &mut self,
         at: &str,
         filesystem: Arc<Filesystem>,
+        access: Access,
         policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>,
     ) -> Result<(), Error> {
-        self.register_mount(Mount::new(at, filesystem, Access::ReadWrite)?.with_policy(policy))
+        self.register_mount(Mount::new(at, filesystem, access)?.with_policy(policy))
     }
 
     fn register_mount(&mut self, mount: Mount) -> Result<(), Error> {

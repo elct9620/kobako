@@ -61,15 +61,16 @@ impl Context<'_> {
         self.replace_mount(Mount::new(at, filesystem, access)?)
     }
 
-    /// `mount`, read-write, with a `policy` judging each call, as
+    /// `mount`, with a `policy` judging each call `access` allows, as
     /// `Sandbox::mount_with_policy` takes it.
     pub fn mount_with_policy(
         &mut self,
         at: &str,
         filesystem: Arc<Filesystem>,
+        access: Access,
         policy: Arc<dyn for<'a> Policy<MountRequest<'a>>>,
     ) -> Result<(), Error> {
-        self.replace_mount(Mount::new(at, filesystem, Access::ReadWrite)?.with_policy(policy))
+        self.replace_mount(Mount::new(at, filesystem, access)?.with_policy(policy))
     }
 
     /// Use `entry` for the network entry named `name` during this invocation
