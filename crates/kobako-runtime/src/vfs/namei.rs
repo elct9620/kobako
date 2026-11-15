@@ -1171,13 +1171,13 @@ pub(crate) struct RenameData {
     pub(crate) old_dentry: Arc<Dentry>,
     pub(crate) new_parent: Arc<Dentry>,
     pub(crate) new_dentry: Arc<Dentry>,
-    pub(crate) flag: Option<RenameFlag>,
+    pub(crate) flags: Option<RenameFlag>,
 }
 
 /// Hold both directories of a move and find its names beneath them, as
 /// Linux's `__start_renaming` does through `lock_rename`, so no other move
 /// changes what either name stands for before the call acts on it. Nothing at
-/// the source, and at the target what `flag` will not take, is refused as the
+/// the source, and at the target what `flags` will not take, is refused as the
 /// flags `__start_renaming` looks each name up with refuse it. So is a move
 /// whose source stands above its target directory, and one whose target stands
 /// above its source directory, which only an exchange may not empty.
@@ -1185,13 +1185,13 @@ pub(crate) fn __start_renaming(
     sb: &SuperBlock,
     (old_dir, old_name): (&Arc<Dentry>, &str),
     (new_dir, new_name): (&Arc<Dentry>, &str),
-    flag: Option<RenameFlag>,
+    flags: Option<RenameFlag>,
 ) -> Result<RenameData, Errno> {
     let _held = lock_rename(sb, old_dir, new_dir)?;
     let old_dentry = lookup_one_qstr_excl(sb, old_dir, old_name)?;
     old_dentry.file_type()?;
     let new_dentry = lookup_one_qstr_excl(sb, new_dir, new_name)?;
-    match (flag, new_dentry.inode().is_some()) {
+    match (flags, new_dentry.inode().is_some()) {
         (Some(RenameFlag::Exchange), false) => return Err(Errno::NotFound),
         (Some(RenameFlag::NoReplace), true) => return Err(Errno::AlreadyExists),
         _ => {}
@@ -1200,7 +1200,7 @@ pub(crate) fn __start_renaming(
         return Err(Errno::InvalidInput);
     }
     if old_dir.is_subdir(&new_dentry) {
-        return Err(match flag {
+        return Err(match flags {
             Some(RenameFlag::Exchange) => Errno::InvalidInput,
             _ => Errno::DirectoryNotEmpty,
         });
@@ -1211,7 +1211,7 @@ pub(crate) fn __start_renaming(
         old_dentry,
         new_parent: new_dir.clone(),
         new_dentry,
-        flag,
+        flags,
     })
 }
 
@@ -1223,11 +1223,11 @@ fn lock_moved(
     (old, is_dir): (&Dentry, bool),
     (new, new_is_dir): (&Dentry, bool),
     same_dir: bool,
-    flag: Option<RenameFlag>,
+    flags: Option<RenameFlag>,
 ) -> Result<Vec<RwSemaphoreGuard>, Errno> {
     let (source, target) = (old.inode(), new.inode());
     let lock_old_subdir = !same_dir;
-    let lock_new_subdir = !same_dir || flag != Some(RenameFlag::Exchange);
+    let lock_new_subdir = !same_dir || flags != Some(RenameFlag::Exchange);
     let locks = match (is_dir, new_is_dir) {
         (true, _) => [
             source.filter(|_| lock_old_subdir),
@@ -1264,7 +1264,7 @@ fn lock_two_nondirectories(
 pub(crate) fn vfs_rename(cred: &Cred, sb: &SuperBlock, rd: &RenameData) -> Result<(), Errno> {
     let (old_dir, old) = (&rd.old_parent, &rd.old_dentry);
     let (new_dir, new) = (&rd.new_parent, &rd.new_dentry);
-    let flag = rd.flag;
+    let flags = rd.flags;
     let moving = old.file_type().ok();
     let target = new.file_type().ok();
     if Arc::ptr_eq(old, new) || old.names_the_entry_of(new) {
@@ -1272,7 +1272,7 @@ pub(crate) fn vfs_rename(cred: &Cred, sb: &SuperBlock, rd: &RenameData) -> Resul
     }
     let is_dir = moving == Some(FileType::Dir);
     may_delete_dentry(cred, sb, old_dir, moving, is_dir)?;
-    match (target, flag) {
+    match (target, flags) {
         (None, _) => may_create_dentry(cred, sb, new_dir, new)?,
         (target, Some(RenameFlag::Exchange)) => {
             may_delete_dentry(cred, sb, new_dir, target, target == Some(FileType::Dir))?
@@ -1284,7 +1284,7 @@ pub(crate) fn vfs_rename(cred: &Cred, sb: &SuperBlock, rd: &RenameData) -> Resul
         if is_dir {
             inode_permission(cred, sb, old, Mask::WRITE)?;
         }
-        if flag == Some(RenameFlag::Exchange) && target == Some(FileType::Dir) {
+        if flags == Some(RenameFlag::Exchange) && target == Some(FileType::Dir) {
             inode_permission(cred, sb, new, Mask::WRITE)?;
         }
     }
@@ -1292,13 +1292,13 @@ pub(crate) fn vfs_rename(cred: &Cred, sb: &SuperBlock, rd: &RenameData) -> Resul
         (old, is_dir),
         (new, target == Some(FileType::Dir)),
         Arc::ptr_eq(old_dir, new_dir),
-        flag,
+        flags,
     )?;
     old_dir
         .inode_ops()?
-        .rename(old, new_dir.inode_ops()?.as_ref(), new, flag)?;
+        .rename(old, new_dir.inode_ops()?.as_ref(), new, flags)?;
     let dentries = sb.dentries();
-    if flag == Some(RenameFlag::Exchange) {
+    if flags == Some(RenameFlag::Exchange) {
         dentries.exchange(old, new);
         return Ok(());
     }

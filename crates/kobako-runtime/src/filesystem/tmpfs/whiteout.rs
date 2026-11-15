@@ -45,25 +45,25 @@ impl Tmpfs {
         Ok(())
     }
 
-    /// Move `from` to `to` in `target` as `shmem_rename2` does with
-    /// `flag`, the entry taking all it holds, so no name beneath it
-    /// changes. Without one, what stands at `to` goes as rename(2)
+    /// Move `old_name` to `new_name` in `target` as `shmem_rename2` does with
+    /// `flags`, the entry taking all it holds, so no name beneath it
+    /// changes. Without one, what stands at `new_name` goes as rename(2)
     /// replaces it, once the VFS found the move fits what stands on each
     /// side.
     pub(super) fn rename_at(
         &self,
-        from: &str,
+        old_name: &str,
         target: &Tmpfs,
-        to: &str,
-        flag: Option<RenameFlag>,
+        new_name: &str,
+        flags: Option<RenameFlag>,
     ) -> Result<(), Errno> {
-        let (from_dir, to_dir) = (&self.dir, &target.dir);
-        let moving = from_dir.get(from)?;
-        let replaced = to_dir.get(to).ok();
-        if flag == Some(RenameFlag::Exchange) {
+        let (old_dir, new_dir) = (&self.dir, &target.dir);
+        let moving = old_dir.get(old_name)?;
+        let replaced = new_dir.get(new_name).ok();
+        if flags == Some(RenameFlag::Exchange) {
             let replaced = replaced.ok_or(Errno::NotFound)?;
-            from_dir.state().exchange(from, replaced);
-            to_dir.state().exchange(to, moving);
+            old_dir.state().exchange(old_name, replaced);
+            new_dir.state().exchange(new_name, moving);
             return Ok(());
         }
         if let Some(Node::Directory(dir)) = &replaced {
@@ -71,15 +71,15 @@ impl Tmpfs {
                 return Err(Errno::DirectoryNotEmpty);
             }
         }
-        let left = match flag {
+        let left = match flags {
             Some(RenameFlag::Whiteout) => Some(self.new_whiteout()?),
             _ => None,
         };
         match left {
-            Some(left) => from_dir.state().exchange(from, left),
-            None => from_dir.state().take(from),
+            Some(left) => old_dir.state().exchange(old_name, left),
+            None => old_dir.state().take(old_name),
         }
-        to_dir.state().insert(to, moving);
+        new_dir.state().insert(new_name, moving);
         Ok(())
     }
 }

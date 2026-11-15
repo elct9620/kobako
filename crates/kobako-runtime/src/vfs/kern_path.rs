@@ -181,11 +181,16 @@ impl KernPath {
         vfs_unlink(&nd.cred, nd.mnt.sb(), nd.dentry(), &child)
     }
 
-    /// Move `from` beneath this directory to `to` beneath `to_dir`,
+    /// Move `old_name` beneath this directory to `new_name` beneath `new_dir`,
     /// refused where the source stands above the target's directory, as
     /// `start_renaming` refuses it.
-    pub(crate) fn rename(&self, from: &str, to_dir: &Self, to: &str) -> Result<(), Errno> {
-        let ((source, old), (target, new)) = (self.parent(from)?, to_dir.parent(to)?);
+    pub(crate) fn rename(
+        &self,
+        old_name: &str,
+        new_dir: &Self,
+        new_name: &str,
+    ) -> Result<(), Errno> {
+        let ((source, old), (target, new)) = (self.parent(old_name)?, new_dir.parent(new_name)?);
         if target.dentry().is_subdir(&old) {
             return Err(Errno::InvalidInput);
         }
@@ -201,7 +206,7 @@ impl KernPath {
                 old_dentry: old,
                 new_parent: target.dentry().clone(),
                 new_dentry: new,
-                flag: None,
+                flags: None,
             },
         )
     }
