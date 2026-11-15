@@ -29,7 +29,7 @@ pub(crate) const FLAG_LETTERS: [(i64, char); 3] =
     [(MULTILINE, 'm'), (IGNORECASE, 'i'), (EXTENDED, 'x')];
 
 /// The option bit `letter` names, or `None` when MRI names no option by it.
-pub(crate) fn flag_of(letter: char) -> Option<i64> {
+pub(crate) fn flag_by_letter(letter: char) -> Option<i64> {
     FLAG_LETTERS
         .iter()
         .find(|&&(_, named)| named == letter)
@@ -40,7 +40,7 @@ pub(crate) fn flag_of(letter: char) -> Option<i64> {
 /// MRI does not name.
 pub(crate) fn parse_flag_string(flags: &str) -> Option<i64> {
     flags.chars().try_fold(0, |options, letter| {
-        flag_of(letter).map(|bit| options | bit)
+        flag_by_letter(letter).map(|bit| options | bit)
     })
 }
 

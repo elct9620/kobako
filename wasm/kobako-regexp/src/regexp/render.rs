@@ -50,8 +50,8 @@ pub(super) fn lift_inline_group(source: &str) -> Option<(i64, i64, &str)> {
                 in_disable = true;
                 i += 1;
             }
-            &letter if translate::flag_of(letter as char).is_some() => {
-                let bit = translate::flag_of(letter as char).expect("the guard named it");
+            &letter if translate::flag_by_letter(letter as char).is_some() => {
+                let bit = translate::flag_by_letter(letter as char).expect("the guard named it");
                 if in_disable {
                     disabled |= bit;
                 } else {
