@@ -132,7 +132,7 @@ The same test applies beyond the filesystem. kobako answers only what native WAS
 |---|---|---|
 | reading a clock, environment, random | native WASI | the Wasm Driver wires in the frozen sources |
 | a clock's `subscribe-duration` | `kobako-runtime` | its pollable waits beside a socket's |
-| Preamble, Channel | `kobako-runtime` | kobako's own concepts |
+| Preamble, standard output and standard error | `kobako-runtime` | kobako's own concepts |
 | kobako ABI host side | `kobako-runtime` | no Engine supports it |
 | memory budget accounting | `kobako-runtime` | the growth hook stays in the Wasm Driver |
 | networking | `kobako-runtime` | a new kind of Grant |

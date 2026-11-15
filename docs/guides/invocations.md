@@ -54,7 +54,7 @@ execution.usage.memory_peak # => bytes the run grew
 |---|---|
 | `#value` | the last expression; `nil` on a failed run |
 | `#stdout`, `#stderr` | what `puts`, `print`, `p`, `warn`, `$stdout`, and `$stderr` wrote |
-| `#stdout_truncated?`, `#stderr_truncated?` | whether a channel reached its cap |
+| `#stdout_truncated?`, `#stderr_truncated?` | whether that stream reached its cap |
 | `#usage` | the wall time and peak memory the run spent |
 | `#failed?` | whether the run failed |
 

@@ -38,7 +38,7 @@ host memory, I/O, or credentials. The scenarios under
 | Network access | `#network` hands guest sockets and `Net::HTTP` only the endpoints the Host App named |
 | Block yield | a Service method yields to a guest block, still isolated |
 | Error attribution | each failure is a Trap, a Sandbox failure, or a Service failure |
-| Output capture | each Channel, output and error, captured apart from the Transport |
+| Output capture | standard output and standard error, each captured apart from the Transport |
 | Extension installation | `#install` gives guest code a native-style constant |
 | Host-parallel execution | `gvl: :release` runs Sandboxes in parallel, changing scheduling only |
 

@@ -10,7 +10,7 @@ The rest is fidelity. Bytes go out as bytes: inline and heap strings alike, zero
 
 The supplementary surface is spelled out one member at a time. A script written against the mruby IO it mirrors expects each member. A single collective assertion would let any one of them drift.
 
-The host end of this surface belongs with the Sandbox behaviors. It covers which channel bytes land in, where they stop, and what survives a failed run.
+The host end of this surface belongs with the Sandbox behaviors. It covers which stream bytes land in, where they stop, and what survives a failed run.
 
 ## Includes
 
@@ -207,7 +207,7 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | When | guest code puts a character by its number |
 | Then | the capture holds that one byte |
 
-## `IO-024` Putting a character does not touch the error channel
+## `IO-024` Putting a character does not touch standard error
 
 | Step | Statement |
 | --- | --- |
@@ -462,7 +462,7 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | When | guest code puts a character by `65.0`, then by `:a` and by `nil` |
 | Then | the first writes `A`, and the others raise `TypeError`, as CRuby's `NUM2CHR` reads one |
 
-## `IO-049` The Kernel writers reach a rebound channel through its write
+## `IO-049` The Kernel writers reach a rebound stream through its write
 
 | Attribute | Value |
 | --- | --- |

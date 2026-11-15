@@ -65,7 +65,7 @@ These judgments decide an answer, so `kobako-runtime` holds them whichever ABI a
 | Read-only, set times, link | `vfs` | Linux VFS |
 | Sync and nonblock accepted | `vfs::File` | Linux accepts both |
 | Start is not a directory | `set_nameidata` | `set_nameidata` |
-| Standard streams, Channel | `filesystem::pipe` | pipefs |
+| Standard streams | `filesystem::pipe` | pipefs |
 | Path length, NUL | `getname` | `getname` |
 | Neither-read-nor-write open | `build_open_flags`, `do_o_path` | `O_PATH` |
 

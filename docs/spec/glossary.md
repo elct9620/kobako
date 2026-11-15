@@ -66,11 +66,11 @@ guest code ──by name─────────────> Service
 
 ### Handle
 
-An opaque reference the guest holds to a host object the Codec cannot carry by value. It names that object only within the Invocation that issued it. Where the capability it grants is the point, it is called a Capability Handle.
+An opaque reference the guest holds to a host object the Codec cannot carry by value. It names that object only within the Invocation whose handle table it was added to. Where the capability it grants is the point, it is called a Capability Handle.
 
 ### Transport
 
-The exchange of messages across the boundary. One Call is answered by one Reply, and both directions use that same pair.
+The exchange of messages across the boundary. One Call gets one Reply, and both directions use that same pair.
 
 ### Call
 
@@ -78,7 +78,7 @@ A message asking the other side to run one method. The guest issues one to reach
 
 ### Reply
 
-The answer to one Call: a value, a Fault, a break, or Unsupported. A break carries nothing; it continues the exit a Block took. The answer to a Yield may instead be the Error Record of a Block that raised.
+The response to one Call: a value, a Fault, a break, or Unsupported. A break carries nothing; it continues the exit a Block took. The response to a Yield may instead be the Error Record of a Block that raised.
 
 ```
 Call  -> value | Fault | break | Unsupported
@@ -115,7 +115,7 @@ The record one Invocation leaves — what it produced, what it wrote, and what i
 
 ### Outcome
 
-The final result of one Invocation. Every Invocation answers exactly one, whether it succeeded or failed.
+The final result of one Invocation. Every Invocation ends with exactly one, whether it succeeded or failed.
 
 ## Host
 
@@ -134,7 +134,7 @@ A bounded set of identically set-up Sandboxes, each handed to one holder at a ti
 
 ### Catalog
 
-What a Sandbox has registered: the bindings, preloads, and Flags fixed at setup. It also holds the Handle table each Invocation mints for itself.
+What a Sandbox has registered: the bindings, preloads, and Flags fixed at setup. It also holds the Handle table each Invocation adds its own Handles to.
 
 ### Receiver
 
@@ -175,7 +175,7 @@ The host side of an Extension: the object bound at its path. It is fixed for the
 
 ### Wire Spec
 
-The contract every message crossing the boundary answers to. Each side implements it independently, so it is an agreement rather than a shared component.
+The contract every message crossing the boundary conforms to. Each side implements it independently, so it is an agreement rather than a shared component.
 
 ### Envelope
 
@@ -187,7 +187,7 @@ The part of a message that says where it goes and how it turned out. It is reada
 
 ### Tag
 
-The first byte of every message, naming its operation or its answer's arm. One registry covers both directions, so an assigned tag means one thing everywhere.
+The first byte of every message, naming its operation or its response's case. One registry covers both directions, so an assigned tag means one thing everywhere.
 
 ### Request
 
@@ -219,15 +219,15 @@ The most values one guest payload may hold, worked out from the memory cap. Deco
 
 ### Fault
 
-The reason a Call is refused, returned to whoever issued it. It is kobako's own data rather than the caller's, so it rides the Envelope.
+The reason a Call failed, returned to whoever made it. It is kobako's own data rather than the caller's, so it rides the Envelope.
 
 ### Unsupported
 
-The answer that the receiver does not serve the operation it was sent, returned to whoever sent it. It is an answer, not a breakage, so it is never a Trap.
+The response that the receiver does not support the operation it was sent, returned to whoever sent it. It is a response, not a breakage, so it is never a Trap.
 
 ### Error Record
 
-A failure's name, message, and backtrace as one unit. Every answer that reports a guest failure carries this same shape.
+A failure's name, message, and backtrace as one unit. Every response that reports a guest failure carries this same shape.
 
 ### Panic
 
@@ -288,10 +288,10 @@ The WebAssembly runtime that executes a Guest Binary, such as wasmtime. Only a W
 
 ### Wasm Driver
 
-What drives one Engine, such as wasmtime, and encodes each ABI onto it. `kobako-runtime` beneath it decides each answer. The Wasm Driver keeps only the checks a syscall entry makes itself, such as which descriptor a call takes. Each implements `Runtime`, and wasmtime's is `kobako_wasmtime::Driver`.
+What drives one Engine, such as wasmtime, and encodes each ABI onto it. `kobako-runtime` beneath it implements each call. The Wasm Driver keeps only the checks a syscall entry makes itself, such as which descriptor a call takes. Each implements `Runtime`, and wasmtime's is `kobako_wasmtime::Driver`.
 
 ```
-guest --ABI--> Wasm Driver: decode, fd table, errno codes, entry checks --> runtime: the answer
+guest --ABI--> Wasm Driver: decode, fd table, errno codes, entry checks --> runtime: implements it
 ```
 
 ### Grant
@@ -318,9 +318,9 @@ A failed Invocation the engine is answerable for: a cap was reached, or no Outco
 
 The host-side stand-in for a Block, valid only while the dispatch that received the Block lasts.
 
-### Channel
+### Standard Output, Standard Error
 
-One of the two streams guest code writes to: output and error. Each is captured apart, so what a script printed never mixes with what it warned.
+The two streams guest code writes to, as POSIX and WASI's `wasi:cli` name them. Each is captured apart, so what a script printed never mixes with what it warned.
 
 ## Filesystem
 

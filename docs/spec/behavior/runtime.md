@@ -30,7 +30,7 @@ The refusals hold off other users. A Mount or a Service the host grants writes a
 
 ### Invocation results
 
-What the runtime hands an invocation back is read here, not through the Sandbox that usually reads it. A binding that shifted a field's shape would still pass every Sandbox assertion about the derived value. This is also why the two channels are separated twice. One separation is at this seam; the other is a difference the two frontends must agree on.
+What the runtime hands an invocation back is read here, not through the Sandbox that usually reads it. A binding that shifted a field's shape would still pass every Sandbox assertion about the derived value. This is also why standard output and standard error are separated twice. One separation is at this seam; the other is a difference the two frontends must agree on.
 
 ### Empty artifact
 
@@ -376,7 +376,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a runtime is built over an artifact the cache does not hold |
 | Then | the untouched entry is gone |
 
-## `RT-040` A completed invocation reports both channels, both marks, and its usage
+## `RT-040` A completed invocation reports both streams, both marks, and its usage
 
 | Step | Statement |
 | --- | --- |
@@ -392,12 +392,12 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | an invocation completes |
 | Then | the outcome carries payload bytes and no record |
 
-## `RT-042` The two channels are already apart at this seam
+## `RT-042` Standard output and standard error are already apart at this seam
 
 | Step | Statement |
 | --- | --- |
 | Given | a runtime driven without a Sandbox around it |
-| When | an invocation writes different content to each channel |
+| When | an invocation writes different content to each stream |
 | Then | each capture carries only what was written to its own |
 
 ## `RT-043` An invocation that wrote nothing carries empty captures
@@ -405,7 +405,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a runtime driven without a Sandbox around it |
-| When | an invocation writes to neither channel |
+| When | an invocation writes to neither stream |
 | Then | both captures are empty and neither mark is set |
 
 ## `RT-044` A guest that does no work still answers an evaluation
@@ -573,7 +573,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | several Threads each writing a marker of its own to both channels |
+| Given | several Threads each writing a marker of its own to both streams |
 | When | they invoke at once, on one shared Sandbox or on one each |
 | Then | each capture holds only its own invocation's marker |
 

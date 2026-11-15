@@ -22,7 +22,7 @@ A Sandbox has its preloaded source compiled once and replays the bytecode afterw
 
 ### Output surface
 
-The guest-side output surface is how `IO` and the Kernel writers behave inside the guest. It belongs to the capability gem that implements it. What is here is the host end: which channel bytes land in, where they stop, and what survives a failure.
+The guest-side output surface is how `IO` and the Kernel writers behave inside the guest. It belongs to the capability gem that implements it. What is here is the host end: which stream bytes land in, where they stop, and what survives a failure.
 
 ## Includes
 
@@ -248,7 +248,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox |
-| When | an invocation that writes to neither channel completes |
+| When | an invocation that writes to neither standard output nor standard error completes |
 | Then | both captures are empty |
 
 ## `S-023` What was written and what was returned are read separately
@@ -291,7 +291,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | a later invocation writes different output |
 | Then | the capture holds only what the later invocation wrote |
 
-## `S-028` The error channel is a channel of its own
+## `S-028` Standard error is a stream of its own
 
 | Step | Statement |
 | --- | --- |
@@ -299,7 +299,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | guest code writes to the error stream |
 | Then | the bytes appear in the error capture |
 
-## `S-029` A warning takes the error channel
+## `S-029` A warning goes to standard error
 
 | Step | Statement |
 | --- | --- |
@@ -307,7 +307,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | guest code issues a warning |
 | Then | the bytes appear in the error capture |
 
-## `S-030` The guest may point its output stream at the other channel
+## `S-030` The guest may point standard output at standard error
 
 | Step | Statement |
 | --- | --- |
@@ -323,7 +323,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | a later invocation writes to the output stream |
 | Then | the bytes appear in the output capture |
 
-## `S-032` The error channel is capped like the output channel
+## `S-032` Standard error is capped like standard output
 
 | Step | Statement |
 | --- | --- |
@@ -331,7 +331,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | an invocation writes past it |
 | Then | the error truncation predicate is true |
 
-## `S-033` An uncapped channel keeps what a capped one would have cut
+## `S-033` An uncapped stream keeps what a capped one would have cut
 
 | Step | Statement |
 | --- | --- |
@@ -339,11 +339,11 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | an invocation writes past what the default cap would have allowed |
 | Then | the capture holds every byte written |
 
-## `S-034` Both frontends separate the two channels the same way
+## `S-034` Both frontends separate standard output and standard error the same way
 
 | Step | Statement |
 | --- | --- |
-| Given | a scenario writing to both channels |
+| Given | a scenario writing to both standard output and standard error |
 | When | both frontends run it |
 | Then | they observe the same two captures |
 
@@ -351,7 +351,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a scenario writing past a channel's cap |
+| Given | a scenario writing past a stream's cap |
 | When | both frontends run it |
 | Then | they observe the same capture and truncation mark |
 
@@ -363,7 +363,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | the capture is read off the raised error's Execution |
 | Then | it holds what was written before the deadline |
 
-## `S-037` The error channel survives a deadline
+## `S-037` Standard error survives a deadline
 
 | Step | Statement |
 | --- | --- |
@@ -882,7 +882,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | the capture that stands for a channel nothing was written to |
+| Given | the capture that stands for a stream nothing was written to |
 | When | its bytes are read |
 | Then | they are empty text |
 
@@ -890,7 +890,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | the capture that stands for a channel nothing was written to |
+| Given | the capture that stands for a stream nothing was written to |
 | When | its truncation mark is read |
 | Then | it is not set |
 
@@ -898,7 +898,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | the capture that stands for a channel nothing was written to |
+| Given | the capture that stands for a stream nothing was written to |
 | When | it is asked whether it is frozen |
 | Then | it is |
 
@@ -942,19 +942,19 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | a capture is made from them |
 | Then | the caller's bytes are unchanged |
 
-## `S-108` A capped channel is given room for one byte past its cap
+## `S-108` A capped stream is given room for one byte past its cap
 
 | Step | Statement |
 | --- | --- |
-| Given | a channel with a cap |
+| Given | a stream with a cap |
 | When | its room is sized |
 | Then | it is one byte more than the cap |
 
-## `S-109` A channel with no cap is given unbounded room
+## `S-109` A stream with no cap is given unbounded room
 
 | Step | Statement |
 | --- | --- |
-| Given | a channel with no cap |
+| Given | a stream with no cap |
 | When | its room is sized |
 | Then | it is unbounded |
 
@@ -962,7 +962,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a channel capped at the widest value there is |
+| Given | a stream capped at the widest value there is |
 | When | its room is sized |
 | Then | it stays at that value rather than passing it |
 
@@ -1285,7 +1285,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox with a bound Service |
-| When | guest code writes to both channels around a call to it |
+| When | guest code writes to both standard output and standard error around a call to it |
 | Then | each capture holds exactly what guest code wrote |
 
 ## `S-154` A failed invocation leaves nothing for the next entry
@@ -1352,11 +1352,11 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | the entrypoint verb runs it |
 | Then | it fails with the cap's own failure |
 
-## `S-162` An entrypoint run captures both channels
+## `S-162` An entrypoint run captures standard output and standard error
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose entrypoint writes to both channels |
+| Given | a Sandbox whose entrypoint writes to both standard output and standard error |
 | When | the entrypoint verb runs it |
 | Then | each capture holds what was written to it |
 
