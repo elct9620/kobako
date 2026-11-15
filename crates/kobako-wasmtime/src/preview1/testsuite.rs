@@ -26,7 +26,7 @@ use crate::config::Config;
 use crate::imports;
 use crate::invocation::Invocation;
 use crate::trap::arm_deadline;
-use crate::wasi::{sandbox_connections, Wasi};
+use crate::wasi::Wasi;
 
 const SUITE: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
@@ -58,8 +58,8 @@ fn run(wasm: &Path, root: &Path) -> Result<i32, String> {
     let filesystem = Filesystem::new(Arc::new(bind)).map_err(|err| format!("{err:?}"))?;
     let mount = Mount::new("/", filesystem, Access::ReadWrite).map_err(|err| err.to_string())?;
     let config = Config::for_profile(Profile::Permissive);
-    let wasi = Wasi::for_invocation(&config, &[Grant::Mount(mount)], &sandbox_connections())
-        .map_err(|err| err.to_string())?;
+    let wasi =
+        Wasi::for_invocation(&config, &[Grant::Mount(mount)]).map_err(|err| err.to_string())?;
     let mut store = Store::new(engine, Invocation::new(wasi));
     arm_deadline(&mut store, Some(Duration::from_secs(30)));
     let module = Module::from_file(engine, wasm).map_err(|err| err.to_string())?;

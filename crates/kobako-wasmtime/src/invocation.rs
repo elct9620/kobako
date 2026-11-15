@@ -184,8 +184,7 @@ impl Invocation {
             entry.endpoint(endpoint);
         }
         let grant = Grant::Network(Network::new("local", Arc::new(entry)).unwrap());
-        let wasi = Wasi::for_invocation(config, &[grant], &crate::wasi::sandbox_connections())
-            .expect("WASI context must build");
+        let wasi = Wasi::for_invocation(config, &[grant]).expect("WASI context must build");
         Self::new(wasi)
     }
 
@@ -201,8 +200,7 @@ impl Invocation {
         match endpoints {
             Some(endpoints) => Self::with_network(&config, endpoints),
             None => {
-                let wasi = Wasi::for_invocation(&config, &[], &crate::wasi::sandbox_connections())
-                    .expect("WASI context must build");
+                let wasi = Wasi::for_invocation(&config, &[]).expect("WASI context must build");
                 Self::new(wasi)
             }
         }

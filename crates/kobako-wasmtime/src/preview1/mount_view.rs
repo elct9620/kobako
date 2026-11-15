@@ -28,7 +28,7 @@ use crate::config::Config;
 use crate::imports;
 use crate::invocation::Invocation;
 use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
-use crate::wasi::{sandbox_connections, Wasi};
+use crate::wasi::Wasi;
 use wrap::{Hook, Wrap};
 
 /// The root of `filesystem` as the host reaches it through the VFS, a
@@ -551,8 +551,7 @@ impl Guest {
         config.limits.memory_limit = memory_limit;
         config.limits.open_file_limit = open_file_limit;
         config.security = security;
-        let wasi = Wasi::for_invocation(&config, grants, &sandbox_connections())
-            .expect("WASI context must build");
+        let wasi = Wasi::for_invocation(&config, grants).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let module = Module::new(engine, PROBE_WAT).expect("probe module must compile");

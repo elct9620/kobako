@@ -75,7 +75,7 @@ mod tests {
     use crate::imports;
     use crate::invocation::Invocation;
     use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
-    use crate::wasi::{sandbox_connections, Wasi};
+    use crate::wasi::Wasi;
 
     const WASM: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../data/kobako.wasm");
 
@@ -112,8 +112,7 @@ mod tests {
         }
         let module = load_module(path).expect("the Guest Binary must load");
         let config = Config::for_profile(Profile::Hermetic);
-        let wasi = Wasi::for_invocation(&config, &[], &sandbox_connections())
-            .expect("WASI context must build");
+        let wasi = Wasi::for_invocation(&config, &[]).expect("WASI context must build");
         let mut store = Store::new(
             load_engine().expect("shared engine must be constructible"),
             Invocation::new(wasi),

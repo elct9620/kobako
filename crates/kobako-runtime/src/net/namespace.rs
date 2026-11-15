@@ -30,8 +30,8 @@ const VIRTUAL_SIZE: u32 = 1 << 17;
 const MAX_NAMED_ADDRESSES: u32 = VIRTUAL_SIZE - 2;
 
 /// What the guest may reach, which policies judge each lookup, the backends
-/// that dial and resolve, the connections the Sandbox holds open and those
-/// left to this Invocation, the ports its sockets hold, and the virtual
+/// that dial and resolve, the connections this Invocation holds open and
+/// those left to it, the ports its sockets hold, and the virtual
 /// addresses handed out.
 pub struct Namespace {
     ruleset: Arc<Ruleset>,
@@ -406,8 +406,8 @@ mod tests {
         limited_namespace(allows, None, None, &[])
     }
 
-    /// A namespace of one entry per `allows`, whose Sandbox holds at most
-    /// `open` connections at once and whose Invocation makes at most
+    /// A namespace of one entry per `allows`, whose Invocation holds at most
+    /// `open` connections at once and makes at most
     /// `total`, and the Cred the Driver makes for it: `modules`, then the
     /// entries' connect policies.
     fn limited_namespace(

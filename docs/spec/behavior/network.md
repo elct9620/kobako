@@ -61,6 +61,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_mock_names.rb`
 - `test/e2e/test_network_mock_rebinding.rb`
 - `test/e2e/test_network_mock_failures.rb`
+- `test/e2e/test_network_open_connections.rb`
 - `test/e2e/test_network_udp_cruby.rb`
 - `test/e2e/test_network_udp_flags.rb`
 - `test/e2e/test_network_udp_peerless.rb`
@@ -326,7 +327,7 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose sockets, requests, and lookups fill its open connection limit, or the process's |
+| Given | an invocation whose sockets, requests, and lookups fill its open connection limit, or the process's |
 | When | the guest connects once more |
 | Then | the connect answers `EAGAIN`, never a Trap, and dials nothing. A socket released gives its place back, and a forked child starts from none |
 
@@ -2712,3 +2713,15 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox |
 | When | a network entry is given only a builder, with no entry beside it, and the builder adds an endpoint |
 | Then | the invocation receives that entry with the builder's endpoints alone |
+
+## `NW-218` Each invocation counts its own open connections
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose `open_connection_limit` is 1, and an invocation whose lookup has not been answered |
+| When | another invocation of the same Sandbox, running beside it, looks up a name |
+| Then | that lookup takes a place of its own and is answered, as a Cloudflare Worker counts each request's connections apart |

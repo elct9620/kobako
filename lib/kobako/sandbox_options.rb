@@ -19,7 +19,7 @@ module Kobako
   #                   Integer descriptors one invocation may hold open, the
   #                   standard ones and each Mount's included; 1024.
   # [+open_connection_limit+]
-  #                   Integer connections the Sandbox holds open at once, each
+  #                   Integer connections one invocation holds open at once, each
   #                   socket, HTTP request, and name lookup in flight one; 6.
   # [+connection_limit+]
   #                   Integer connections one invocation makes in all, each

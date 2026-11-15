@@ -185,7 +185,7 @@ mod tests {
     use crate::imports;
     use crate::invocation::Invocation;
     use crate::trap::{to_trap, NO_TIMEOUT_EPOCH_DELTA};
-    use crate::wasi::{sandbox_connections, Wasi};
+    use crate::wasi::Wasi;
     use kobako_runtime::error::Trap;
     use kobako_runtime::profile::Profile;
     use kobako_runtime::sched::{run_task, Task};
@@ -251,8 +251,7 @@ mod tests {
     ) -> (wasmtime::Result<i32>, Duration) {
         let engine = load_engine().expect("shared engine must be constructible");
         let config = Config::for_profile(profile);
-        let wasi = Wasi::for_invocation(&config, &[], &sandbox_connections())
-            .expect("WASI context must build");
+        let wasi = Wasi::for_invocation(&config, &[]).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let linker = imports::linker().expect("host imports must link");
@@ -303,8 +302,7 @@ mod tests {
     fn poll_count(count: i32) -> wasmtime::Result<i32> {
         let engine = load_engine().expect("shared engine must be constructible");
         let config = Config::for_profile(Profile::Hermetic);
-        let wasi = Wasi::for_invocation(&config, &[], &sandbox_connections())
-            .expect("WASI context must build");
+        let wasi = Wasi::for_invocation(&config, &[]).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let linker = imports::linker().expect("host imports must link");
@@ -384,8 +382,7 @@ mod tests {
         "#;
         let engine = load_engine().expect("shared engine must be constructible");
         let config = Config::for_profile(Profile::Hermetic);
-        let wasi = Wasi::for_invocation(&config, &[], &sandbox_connections())
-            .expect("WASI context must build");
+        let wasi = Wasi::for_invocation(&config, &[]).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let linker = imports::linker().expect("host imports must link");
@@ -427,8 +424,7 @@ mod tests {
         "#;
         let engine = load_engine().expect("shared engine must be constructible");
         let config = Config::for_profile(Profile::Hermetic);
-        let wasi = Wasi::for_invocation(&config, &[], &sandbox_connections())
-            .expect("WASI context must build");
+        let wasi = Wasi::for_invocation(&config, &[]).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(wasi));
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let linker = imports::linker().expect("host imports must link");

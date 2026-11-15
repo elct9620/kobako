@@ -22,7 +22,6 @@ use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::endpoint;
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::grant::{Grant, GrantKind};
-use kobako_runtime::net::OpenConnections;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
@@ -38,9 +37,6 @@ pub struct Driver {
     instance_pre: WtInstancePre<Invocation>,
     // Every cap forwarded from the Sandbox; see `Config`.
     config: Config,
-    // The sockets, requests, and lookups this Sandbox holds, across its
-    // invocations, as one cgroup counts its tasks.
-    open_connections: Arc<OpenConnections>,
 }
 
 impl Driver {
@@ -50,7 +46,6 @@ impl Driver {
     pub fn new(path: &Path, config: Config) -> Result<Self, SetupError> {
         Ok(Self {
             instance_pre: instance_pre::load_instance_pre(path, config.limits.setup_timeout)?,
-            open_connections: OpenConnections::new(config.limits.open_connection_limit),
             config,
         })
     }
@@ -147,7 +142,7 @@ impl ContractRuntime for Driver {
     ) -> Result<Snapshot, InvokeError> {
         let preamble =
             endpoint::preamble_bytes(preamble).map_err(|msg| Trap::Other(msg.to_string()))?;
-        let wasi = Wasi::for_invocation(&self.config, grants, &self.open_connections)?;
+        let wasi = Wasi::for_invocation(&self.config, grants)?;
         let mut store = self.new_store(wasi)?;
         store.data_mut().set_preamble(preamble);
         if let Some(handler) = handler {

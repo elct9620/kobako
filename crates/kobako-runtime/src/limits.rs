@@ -29,7 +29,7 @@ pub struct Limits {
     /// its own, up to two for a file and one for each Layer holding a
     /// directory, Directory Layers alone holding any.
     pub open_file_limit: Option<usize>,
-    /// Connections one Sandbox holds open at once, each socket, HTTP request,
+    /// Connections one invocation holds open at once, each socket, HTTP request,
     /// and name lookup in flight one; one past it answers `EAGAIN`.
     pub open_connection_limit: Option<usize>,
     /// Connections one invocation makes in all, each socket and HTTP request

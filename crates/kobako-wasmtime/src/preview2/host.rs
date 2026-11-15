@@ -1210,7 +1210,7 @@ mod tests {
     use super::super::bindings::{Host as _, HttpHost};
     use super::super::error::IntoAnswer;
     use super::*;
-    use crate::wasi::{sandbox_connections, Wasi};
+    use crate::wasi::Wasi;
     use kobako_runtime::network;
     use kobako_runtime::profile::Profile;
     use kobako_runtime::sched::run_task;
@@ -1289,8 +1289,7 @@ mod tests {
 
     /// The guest module, instantiated over an Invocation `config` builds.
     fn guest_of(config: Config) -> (Store<Invocation>, Instance) {
-        let wasi = Wasi::for_invocation(&config, &[], &sandbox_connections())
-            .expect("WASI context must build");
+        let wasi = Wasi::for_invocation(&config, &[]).expect("WASI context must build");
         instantiate(Invocation::new(wasi))
     }
 

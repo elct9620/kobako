@@ -18,6 +18,7 @@ use std::sync::Arc;
 use kobako_runtime::cred::Cred;
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
+use kobako_runtime::limits::Limits;
 use kobako_runtime::net::{Backends, Namespace, OpenConnections};
 use kobako_runtime::network::EntryError;
 use kobako_runtime::profile::Profile;
@@ -60,11 +61,7 @@ impl Wasi {
     /// descriptor 3 in order. A network entry whose endpoints the ruleset
     /// refuses answers `InvokeError::Entry`, the Host App's argument.
     /// Descriptor 0 reads nothing.
-    pub(crate) fn for_invocation(
-        config: &Config,
-        grants: &[Grant],
-        open_connections: &Arc<OpenConnections>,
-    ) -> Result<Self, InvokeError> {
+    pub(crate) fn for_invocation(config: &Config, grants: &[Grant]) -> Result<Self, InvokeError> {
         let mut wasi = Self::new(
             Vec::new(),
             config.limits.stdout_limit,
@@ -74,12 +71,7 @@ impl Wasi {
             config.profile,
             grants,
         )?;
-        wasi.network = to_network(
-            grants,
-            &config.network,
-            open_connections,
-            config.limits.connection_limit,
-        )?;
+        wasi.network = to_network(grants, &config.network, &config.limits)?;
         Ok(wasi)
     }
 
@@ -308,22 +300,14 @@ impl Wasi {
     }
 }
 
-/// The open connections a fresh Sandbox counts, for a test building an
-/// invocation's context as a Driver does.
-#[cfg(test)]
-pub(crate) fn sandbox_connections() -> Arc<OpenConnections> {
-    OpenConnections::new(Config::default().limits.open_connection_limit)
-}
-
 /// The network an invocation's Grants make, one namespace for every entry,
 /// dialed and looked up through `backends`, each connection counted against
-/// the Sandbox's `open_connections` while open and the run's
-/// `connection_limit` in all. No network Grant makes none.
+/// the run's `open_connection_limit` while open and its `connection_limit`
+/// in all. No network Grant makes none.
 fn to_network(
     grants: &[Grant],
     backends: &Backends,
-    open_connections: &Arc<OpenConnections>,
-    connection_limit: Option<usize>,
+    limits: &Limits,
 ) -> Result<Option<Namespace>, EntryError> {
     let entries = grants
         .iter()
@@ -338,8 +322,8 @@ fn to_network(
     Namespace::new(
         entries,
         backends,
-        open_connections.clone(),
-        connection_limit,
+        OpenConnections::new(limits.open_connection_limit),
+        limits.connection_limit,
     )
     .map(Some)
 }
@@ -399,8 +383,7 @@ mod tests {
     fn probe(profile: Profile) -> impl FnMut(&str) -> i64 {
         let engine = load_engine().expect("shared engine must be constructible");
         let config = Config::for_profile(profile);
-        let wasi = Wasi::for_invocation(&config, &[], &sandbox_connections())
-            .expect("WASI context must build");
+        let wasi = Wasi::for_invocation(&config, &[]).expect("WASI context must build");
         let mut store = Store::new(engine, Invocation::new(wasi));
         store.set_epoch_deadline(crate::trap::NO_TIMEOUT_EPOCH_DELTA);
 
