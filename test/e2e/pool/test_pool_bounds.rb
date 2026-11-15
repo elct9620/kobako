@@ -11,7 +11,7 @@ class TestPoolBounds < Minitest::Test
 
   # @behavior PL-027
   def test_a_nested_checkout_waits_on_a_pool_whose_every_slot_is_held
-    pool = Kobako::Pool.new(slots: 1, checkout_timeout: 0.05)
+    pool = Kobako::Pool.new(size: 1, checkout_timeout: 0.05)
 
     assert_raises(Kobako::PoolTimeoutError,
                   "a nested Pool#with on a Pool whose only slot the outer checkout holds must wait") do
@@ -21,7 +21,7 @@ class TestPoolBounds < Minitest::Test
 
   # @behavior PL-028
   def test_a_checkout_past_its_bound_fails_as_none_of_the_invocation_outcomes
-    pool = Kobako::Pool.new(slots: 1, checkout_timeout: 0.05)
+    pool = Kobako::Pool.new(size: 1, checkout_timeout: 0.05)
 
     err = pool.with { assert_raises(Kobako::PoolTimeoutError) { pool.with { nil } } }
 
@@ -41,7 +41,7 @@ class TestPoolBounds < Minitest::Test
 
   # @behavior PL-033
   def test_a_timed_out_checkout_leaves_the_held_sandbox_in_the_pool
-    pool = Kobako::Pool.new(slots: 1, checkout_timeout: 0.05)
+    pool = Kobako::Pool.new(size: 1, checkout_timeout: 0.05)
     held, = hold_through_a_timed_out_checkout(pool)
 
     pool.with { |sandbox| assert_same held, sandbox, "a timed-out checkout must leave the pooled Sandbox in place" }
@@ -51,7 +51,7 @@ class TestPoolBounds < Minitest::Test
 
   # Bind a Service in the only slot's Sandbox, time another checkout out,
   # then answer that Sandbox and what calling the Service returned.
-  def hold_through_a_timed_out_checkout(pool = Kobako::Pool.new(slots: 1, checkout_timeout: 0.05))
+  def hold_through_a_timed_out_checkout(pool = Kobako::Pool.new(size: 1, checkout_timeout: 0.05))
     pool.with do |sandbox|
       sandbox.bind("Note::Read", -> { :held })
       assert_raises(Kobako::PoolTimeoutError) { pool.with { nil } }

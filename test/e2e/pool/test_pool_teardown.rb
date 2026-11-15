@@ -33,7 +33,7 @@ class TestPoolTeardown < Minitest::Test
   # block exits, even after the holder drops its own Pool reference
   # mid-block.
   def test_in_flight_checkout_stays_valid_after_pool_reference_dropped
-    pool = Kobako::Pool.new(slots: 1)
+    pool = Kobako::Pool.new(size: 1)
     result = pool.with do |sandbox|
       pool = nil
       GC.start
@@ -52,7 +52,7 @@ class TestPoolTeardown < Minitest::Test
   # slot from the checkout call chain can pin either object.
   def pool_and_sandbox_refs
     Thread.new do
-      pool = Kobako::Pool.new(slots: 1)
+      pool = Kobako::Pool.new(size: 1)
       sandbox_ref = pool.with { |sandbox| WeakRef.new(sandbox) }
       [WeakRef.new(pool), sandbox_ref]
     end.value

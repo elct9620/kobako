@@ -174,7 +174,7 @@ A Sandbox keeps nothing between runs, so Threads may share one. `gvl:
 :release` runs guest code in parallel, and `Kobako::Pool` keeps warm Sandboxes.
 
 ```ruby
-pool = Kobako::Pool.new(slots: 4) { |sandbox| sandbox.bind("KV::Lookup", lookup) }
+pool = Kobako::Pool.new(size: 4) { |sandbox| sandbox.bind("KV::Lookup", lookup) }
 pool.with { |sandbox| sandbox.eval(script).value }
 ```
 

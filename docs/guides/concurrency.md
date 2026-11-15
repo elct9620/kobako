@@ -50,7 +50,7 @@ hardware.
 hands each one to a single holder at a time.
 
 ```ruby
-pool = Kobako::Pool.new(slots: 4) do |sandbox|
+pool = Kobako::Pool.new(size: 4) do |sandbox|
   sandbox.bind("KV::Lookup", ->(key) { redis.get(key) })
 end
 
@@ -59,7 +59,7 @@ pool.with { |sandbox| sandbox.eval('KV::Lookup.call("user_42")').value }
 
 | Option | Meaning | Default |
 |---|---|---|
-| `slots:` | the most Sandboxes it builds | required |
+| `size:` | the most Sandboxes it builds | required |
 | `checkout_timeout:` | seconds `#with` waits; `nil` waits forever | 5.0 |
 | any `Sandbox.new` keyword | passed to each Sandbox | — |
 

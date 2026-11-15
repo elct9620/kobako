@@ -69,7 +69,7 @@ class TestE2EHostAppJourneys < Minitest::Test
 
   # @behavior J-009 PL-025
   def test_j08_concurrent_requests_each_receive_their_own_worker_result
-    pool = Kobako::Pool.new(slots: 2) do |sandbox|
+    pool = Kobako::Pool.new(size: 2) do |sandbox|
       sandbox.preload(code: 'Worker = ->(req) { "done:" + req }', name: :Worker)
     end
 

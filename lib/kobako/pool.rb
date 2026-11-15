@@ -11,18 +11,18 @@ module Kobako
     # The default +checkout_timeout+: 5 seconds.
     DEFAULT_CHECKOUT_TIMEOUT_SECONDS = 5.0
 
-    # Build a Pool of up to +slots+ Sandboxes, built on first demand with the
+    # Build a Pool of up to +size+ Sandboxes, built on first demand with the
     # other keywords as Sandbox.new takes them. +checkout_timeout+ bounds how
     # many seconds #with waits, and +nil+ waits indefinitely. The block, if
     # given, sets up each Sandbox once, as with Sandbox#bind and
     # Sandbox#preload.
     #
-    # Raises TypeError when +slots+ is not an Integer or +checkout_timeout+
+    # Raises TypeError when +size+ is not an Integer or +checkout_timeout+
     # is not Numeric, and ArgumentError when either is not positive or
     # +checkout_timeout+ is not finite.
-    def initialize(slots:, checkout_timeout: DEFAULT_CHECKOUT_TIMEOUT_SECONDS, **sandbox_options, &setup)
-      validate_slots(slots)
-      @slots = slots
+    def initialize(size:, checkout_timeout: DEFAULT_CHECKOUT_TIMEOUT_SECONDS, **sandbox_options, &setup)
+      validate_size(size)
+      @size = size
       @checkout_timeout = normalize_checkout_timeout(checkout_timeout)
       @sandbox_options = sandbox_options
       @setup = setup
@@ -65,7 +65,7 @@ module Kobako
       @mutex.synchronize do
         return [:idle, @idle.pop] unless @idle.empty?
 
-        if @constructed < @slots
+        if @constructed < @size
           @constructed += 1
           return [:build, nil]
         end
@@ -80,7 +80,7 @@ module Kobako
       remaining = deadline && (deadline - monotonic_now)
       if remaining && remaining <= 0
         raise PoolTimeoutError,
-              "no Sandbox returned within #{@checkout_timeout}s: all #{@slots} slots are held"
+              "no Sandbox returned within #{@checkout_timeout}s: all #{@size} Sandboxes are held"
       end
 
       @slot_freed.wait(@mutex, remaining)
@@ -118,11 +118,11 @@ module Kobako
       Process.clock_gettime(Process::CLOCK_MONOTONIC)
     end
 
-    def validate_slots(slots)
-      raise TypeError, "slots must be an Integer, got #{slots.class}" unless slots.is_a?(Integer)
-      return if slots.positive?
+    def validate_size(size)
+      raise TypeError, "size must be an Integer, got #{size.class}" unless size.is_a?(Integer)
+      return if size.positive?
 
-      raise ArgumentError, "slots must be a positive Integer, got #{slots.inspect}"
+      raise ArgumentError, "size must be a positive Integer, got #{size.inspect}"
     end
 
     def normalize_checkout_timeout(checkout_timeout)

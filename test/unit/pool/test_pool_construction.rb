@@ -9,13 +9,13 @@ class TestPoolConstruction < Minitest::Test
   # A slot count is what the Pool sizes itself by, so a value it cannot
   # count with is refused at construction rather than at the first
   # checkout, where the caller would already be waiting on it.
-  def test_slots_must_be_positive_integer
+  def test_size_must_be_positive_integer
     { 0 => ArgumentError, -1 => ArgumentError, 1.5 => TypeError, "3" => TypeError,
       nil => TypeError }.each do |bad, error|
-      err = assert_raises(error, "slots: #{bad.inspect} through Pool.new must raise #{error}") do
-        Kobako::Pool.new(slots: bad)
+      err = assert_raises(error, "size: #{bad.inspect} through Pool.new must raise #{error}") do
+        Kobako::Pool.new(size: bad)
       end
-      assert_match(/slots/, err.message)
+      assert_match(/size/, err.message)
     end
   end
 
@@ -27,7 +27,7 @@ class TestPoolConstruction < Minitest::Test
     { 0 => ArgumentError, -1 => ArgumentError, Float::INFINITY => ArgumentError, Float::NAN => ArgumentError,
       "5" => TypeError }.each do |bad, error|
       err = assert_raises(error, "checkout_timeout: #{bad.inspect} through Pool.new must raise #{error}") do
-        Kobako::Pool.new(slots: 1, checkout_timeout: bad)
+        Kobako::Pool.new(size: 1, checkout_timeout: bad)
       end
       assert_match(/checkout_timeout/, err.message)
     end
@@ -37,7 +37,7 @@ class TestPoolConstruction < Minitest::Test
   # The sentinel that selects an indefinite wait has to construct, or
   # the only way to ask for one would be a value the checks reject.
   def test_nil_checkout_timeout_is_valid
-    assert_instance_of Kobako::Pool, Kobako::Pool.new(slots: 1, checkout_timeout: nil),
+    assert_instance_of Kobako::Pool, Kobako::Pool.new(size: 1, checkout_timeout: nil),
                        "checkout_timeout: nil through Pool.new must construct a Pool"
   end
 
@@ -52,7 +52,7 @@ class TestPoolConstruction < Minitest::Test
   # @behavior PL-001
   def test_construction_is_lazy
     setup_runs = 0
-    Kobako::Pool.new(slots: 2) { |_sandbox| setup_runs += 1 }
+    Kobako::Pool.new(size: 2) { |_sandbox| setup_runs += 1 }
     assert_equal 0, setup_runs, "Pool.new must not construct any Sandbox before the first checkout"
   end
 
@@ -62,7 +62,7 @@ class TestPoolConstruction < Minitest::Test
   def test_a_refused_sandbox_option_surfaces_unchanged_at_the_checkout_that_built_it
     expected = assert_raises(ArgumentError) { Kobako::Sandbox.new(timeout: -1) }
 
-    pool = Kobako::Pool.new(slots: 1, timeout: -1)
+    pool = Kobako::Pool.new(size: 1, timeout: -1)
     err = assert_raises(ArgumentError) { pool.with { |_sandbox| nil } }
 
     assert_equal expected.message, err.message,

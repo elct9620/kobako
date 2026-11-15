@@ -31,7 +31,7 @@ class TestPoolRecovery < Minitest::Test
   # A guest exception leaves the Sandbox in the pool without a rebuild.
   def test_sandbox_error_checks_the_sandbox_back_in
     constructed = []
-    pool = Kobako::Pool.new(slots: 1) { |sandbox| constructed << sandbox }
+    pool = Kobako::Pool.new(size: 1) { |sandbox| constructed << sandbox }
     assert_raises(Kobako::SandboxError) { pool.with { |sandbox| sandbox.eval(%(raise "boom")) } }
     pool.with { nil }
 
@@ -44,7 +44,7 @@ class TestPoolRecovery < Minitest::Test
   # the reserved slot capacity for a later retry.
   def test_setup_block_error_propagates_and_releases_capacity
     attempts = 0
-    pool = Kobako::Pool.new(slots: 1) do |_sandbox|
+    pool = Kobako::Pool.new(size: 1) do |_sandbox|
       attempts += 1
       raise "setup boom" if attempts == 1
     end
@@ -58,7 +58,7 @@ class TestPoolRecovery < Minitest::Test
 
   # A one-slot Pool whose only Sandbox has met a trap.
   def trapped_pool(&setup)
-    pool = Kobako::Pool.new(slots: 1, timeout: 0.05, &setup)
+    pool = Kobako::Pool.new(size: 1, timeout: 0.05, &setup)
     assert_raises(Kobako::TimeoutError) { pool.with { |sandbox| sandbox.eval("loop do end") } }
     pool
   end

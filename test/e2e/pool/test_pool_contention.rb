@@ -12,7 +12,7 @@ class TestPoolContention < Minitest::Test
   # The wait is bounded so a full Pool refuses rather than hanging the
   # caller; the refusal has to arrive before any Sandbox is touched.
   def test_exhausted_pool_times_out
-    pool = Kobako::Pool.new(slots: 1, checkout_timeout: 0.05)
+    pool = Kobako::Pool.new(size: 1, checkout_timeout: 0.05)
     release, holder = hold_one_slot(pool)
     assert_raises(Kobako::PoolTimeoutError,
                   "a checkout past checkout_timeout on a full pool must raise PoolTimeoutError") do
@@ -24,7 +24,7 @@ class TestPoolContention < Minitest::Test
 
   # @behavior PL-011
   def test_blocked_checkout_proceeds_on_checkin
-    pool = Kobako::Pool.new(slots: 1, checkout_timeout: 5.0)
+    pool = Kobako::Pool.new(size: 1, checkout_timeout: 5.0)
     release, holder = hold_one_slot(pool)
     waiter = Thread.new { pool.with { |sandbox| sandbox.eval("3").value } }
     Thread.pass until waiter.stop?
@@ -35,7 +35,7 @@ class TestPoolContention < Minitest::Test
 
   # @behavior PL-012
   def test_nested_with_checks_out_a_distinct_sandbox
-    pool = Kobako::Pool.new(slots: 2)
+    pool = Kobako::Pool.new(size: 2)
     pool.with do |outer|
       pool.with do |inner|
         refute_same outer, inner, "a nested Pool#with on the same thread must hold a distinct Sandbox"

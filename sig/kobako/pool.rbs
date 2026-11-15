@@ -2,7 +2,7 @@ module Kobako
   class Pool
     DEFAULT_CHECKOUT_TIMEOUT_SECONDS: Float
 
-    @slots: Integer
+    @size: Integer
     @checkout_timeout: Float?
     @sandbox_options: Hash[Symbol, untyped]
     @setup: ^(Kobako::Sandbox) -> void | nil
@@ -12,7 +12,7 @@ module Kobako
     @slot_freed: Thread::ConditionVariable
 
     def initialize: (
-      slots: Integer,
+      size: Integer,
       ?checkout_timeout: (Float | Integer)?,
       **untyped sandbox_options
     ) ?{ (Kobako::Sandbox) -> void } -> void
@@ -35,7 +35,7 @@ module Kobako
 
     def monotonic_now: () -> Float
 
-    def validate_slots: (untyped slots) -> void
+    def validate_size: (untyped size) -> void
 
     def normalize_checkout_timeout: ((Float | Integer)? checkout_timeout) -> Float?
   end

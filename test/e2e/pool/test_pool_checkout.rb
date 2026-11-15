@@ -9,7 +9,7 @@ class TestPoolCheckout < Minitest::Test
 
   # @behavior PL-008
   def test_with_returns_block_value
-    pool = Kobako::Pool.new(slots: 1)
+    pool = Kobako::Pool.new(size: 1)
     assert_equal 42, pool.with { |sandbox| sandbox.eval("40 + 2").value },
                  "the block's return value through Pool#with must be returned to the caller"
   end
@@ -19,7 +19,7 @@ class TestPoolCheckout < Minitest::Test
   # constructed Sandbox, not once per checkout.
   def test_sequential_checkouts_reuse_the_idle_sandbox
     constructed = []
-    pool = Kobako::Pool.new(slots: 2) { |sandbox| constructed << sandbox }
+    pool = Kobako::Pool.new(size: 2) { |sandbox| constructed << sandbox }
     first = pool.with { |sandbox| sandbox }
     pool.with do |sandbox|
       assert_same first, sandbox, "a checkout with an idle Sandbox available must reuse it"
@@ -32,7 +32,7 @@ class TestPoolCheckout < Minitest::Test
     echo = Class.new do
       def call(value) = value
     end
-    pool = Kobako::Pool.new(slots: 1) { |sandbox| sandbox.bind("Pooled::Echo", echo.new) }
+    pool = Kobako::Pool.new(size: 1) { |sandbox| sandbox.bind("Pooled::Echo", echo.new) }
     pool.with { |sandbox| sandbox.eval("Pooled::Echo.call(1)").value }
     assert_equal 2, pool.with { |sandbox| sandbox.eval("Pooled::Echo.call(2)").value },
                  "setup-block Service bindings through a reused pooled Sandbox must stay active"
@@ -43,7 +43,7 @@ class TestPoolCheckout < Minitest::Test
   # next. The canonical-boot e2e pins this on a directly constructed
   # Sandbox; this is the Pool-composition witness on the same global probe.
   def test_checkout_isolates_guest_global_state
-    pool = Kobako::Pool.new(slots: 1)
+    pool = Kobako::Pool.new(size: 1)
     pool.with { |sandbox| sandbox.eval("$leak = 1").value }
     pool.with do |sandbox|
       assert_nil sandbox.eval("$leak").value,
@@ -55,7 +55,7 @@ class TestPoolCheckout < Minitest::Test
   # Sandbox keywords forward verbatim — the forwarded timeout cap governs
   # invocations on pooled Sandboxes.
   def test_sandbox_keywords_forward_to_pooled_sandboxes
-    pool = Kobako::Pool.new(slots: 1, timeout: 0.05)
+    pool = Kobako::Pool.new(size: 1, timeout: 0.05)
     assert_raises(Kobako::TimeoutError, "an over-deadline eval through a pooled Sandbox must raise TimeoutError") do
       pool.with { |sandbox| sandbox.eval("loop do end") }
     end
