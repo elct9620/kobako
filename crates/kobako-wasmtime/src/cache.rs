@@ -6,7 +6,7 @@
 //! Module JIT compilation across multiple sandbox constructions, the
 //! driver keeps a process-scope shared Engine and a per-path Module
 //! cache. Both are transparent to frontends, which construct a
-//! `Driver` via `Driver::new` and never see Engine or Module.
+//! `Driver` via `Driver::from_file` and never see Engine or Module.
 //!
 //! Across processes, the Cranelift compile cost is amortised by a
 //! best-effort `.cwasm` disk cache keyed by the SHA-256 of the Guest

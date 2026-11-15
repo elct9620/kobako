@@ -5,7 +5,7 @@
 //! An artifact reports one ABI version, so the answer belongs to the
 //! module and not to the sandbox asking for it. The check therefore runs
 //! alongside the `InstancePre` it guards (`crate::instance_pre`) and is
-//! amortised with it, rather than once per `Driver::new`.
+//! amortised with it, rather than once per `Driver::from_file`.
 
 use std::time::Duration;
 
@@ -66,8 +66,8 @@ mod tests {
         let built = Driver::from_file(Path::new(FIXTURE), config);
         assert!(
             matches!(&built, Err(SetupError::Dead(message)) if message.contains("within 300ms")),
-            "a Guest Binary whose start never returns through Driver::new must fail construction \
-             once the setup deadline passes, saying so"
+            "a Guest Binary whose start never returns must fail the Driver's construction once \
+             the setup deadline passes, saying so"
         );
     }
 }

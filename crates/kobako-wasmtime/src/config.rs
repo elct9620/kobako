@@ -1,6 +1,6 @@
 //! The caps a `Driver` applies to every invocation.
 //!
-//! What a frontend forwards into `Driver::new`. A plain value carrier
+//! What a frontend forwards into `Driver::from_file`. A plain value carrier
 //! owned by the `Driver` — distinct from the process-wide engine/module
 //! `crate::cache` (which is shared across every sandbox) and from the
 //! per-invocation `crate::invocation::Invocation` (which the wasm engine

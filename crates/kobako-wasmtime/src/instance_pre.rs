@@ -4,7 +4,7 @@
 //! compiled Module are identical for every `Driver` on the same Guest
 //! Binary. Caching the resolved `InstancePre` per path — together
 //! with the ABI version check it guards (`crate::abi`) — takes both off
-//! the `Driver::new` hot path.
+//! the `Driver::from_file` hot path.
 //!
 //! Concurrency: the same as `crate::cache` — the Mutex covers lookup and
 //! insert only, and a concurrent miss builds an equivalent `InstancePre`.
