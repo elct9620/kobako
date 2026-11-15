@@ -149,8 +149,8 @@ Each ABI version gets its own syscall table, and every table asks the same `koba
          v               v
 +-----------------+  +-------------------+
 | p1 fd table     |->| p2 resource table |
-| rights, numbers |  | files, sockets,   |
-|                 |  | http, io          |
+| numbers,        |  | files, sockets,   |
+| preopens        |  | http, io          |
 +-----------------+  +---------+---------+
                                |
                                v
