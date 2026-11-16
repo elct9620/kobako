@@ -8,7 +8,7 @@ use beni::prelude::*;
 use beni::{Error, Integer, IntoValue, Mrb, RClass, TryConvert, Value};
 
 use super::{resolution_error, to_error, EAI_AGAIN, EAI_FAIL, EAI_NONAME, EAI_SERVICE};
-use crate::convert::{string_bytes_of, string_value_of};
+use crate::convert::string_bytes_of;
 use crate::errno;
 use crate::io::argument_error;
 use crate::wasi::wait_within;
@@ -72,11 +72,13 @@ pub(super) fn no_timeout() -> Result<Option<Duration>, Error> {
 }
 
 /// The host `host` names, as CRuby's `host_str` reads it for `getaddrinfo`:
-/// an Integer is the IPv4 address it numbers, as `NUM2UINT` reads it; `""`
-/// and `"<any>"` are any address and `"<broadcast>"` the broadcast one; any
-/// other value converts as `StringValueCStr` does, so a Symbol raises
-/// `TypeError`. `nil` names none, which `getaddrinfo` reads as the loopback,
-/// or any address when `passive`.
+/// an Integer is the IPv4 address it numbers, as `NUM2UINT` reads it,
+/// raising `RangeError` past an `unsigned int`; `""` and `"<any>"` are any
+/// address and `"<broadcast>"` the broadcast one; any other value converts as
+/// `StringValueCStr` does, so a Symbol raises `TypeError` and a NUL
+/// `ArgumentError`, and one past `NI_MAXHOST` raises `ArgumentError`. `nil`
+/// names none, which `getaddrinfo` reads as the loopback, or any address
+/// when `passive`.
 pub(super) fn host_of(mrb: &Mrb, host: Value, passive: bool) -> Result<String, Error> {
     if host.is_nil() {
         let ip = match passive {
@@ -86,14 +88,97 @@ pub(super) fn host_of(mrb: &Mrb, host: Value, passive: bool) -> Result<String, E
         return Ok(ip.to_string());
     }
     if Integer::from_value(host).is_some() {
-        return Ok(Ipv4Addr::from(i64::try_convert(host, mrb)? as u32).to_string());
+        let number = i64::try_convert(host, mrb)?;
+        let side = match number {
+            n if n > i64::from(u32::MAX) => Some("big"),
+            n if n < i64::from(i32::MIN) => Some("small"),
+            _ => None,
+        };
+        if let Some(side) = side {
+            return Err(errno::to_error(
+                mrb,
+                mrb.exception_range_error(),
+                &format!("integer {number} too {side} to convert to 'unsigned int'"),
+            ));
+        }
+        return Ok(Ipv4Addr::from(number as u32).to_string());
     }
-    let text = string_value_of(mrb, host)?.to_string(mrb)?;
+    let text = cstr_text_of(mrb, host)?;
+    if text.len() >= NI_MAXHOST {
+        return Err(argument_error(
+            mrb,
+            &format!("hostname too long ({})", text.len()),
+        ));
+    }
     Ok(match text.as_str() {
         "" | "<any>" => Ipv4Addr::UNSPECIFIED.to_string(),
         "<broadcast>" => Ipv4Addr::BROADCAST.to_string(),
         _ => text,
     })
+}
+
+/// The bytes CRuby's `host_str` holds a host in, its NUL among them.
+const NI_MAXHOST: usize = 1025;
+
+/// The text of `value` as `StringValueCStr` takes it: a NUL inside raises
+/// `ArgumentError`.
+fn cstr_text_of(mrb: &Mrb, value: Value) -> Result<String, Error> {
+    let bytes = string_bytes_of(mrb, value)?;
+    if bytes.contains(&0) {
+        return Err(argument_error(mrb, "string contains null byte"));
+    }
+    Ok(String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// The address `text` spells, as glibc's `getaddrinfo` reads a numeric host:
+/// IPv6 as written, and IPv4 as `inet_aton` reads it, so `127.1`, `0x7f.1`,
+/// and `2130706433` are `127.0.0.1`.
+pub(super) fn literal_of(text: &str) -> Option<IpAddr> {
+    if text.contains(':') {
+        return text.parse::<Ipv6Addr>().ok().map(IpAddr::V6);
+    }
+    inet_aton(text).map(IpAddr::V4)
+}
+
+/// The IPv4 address `text` spells as glibc's `inet_aton` reads it: one to
+/// four parts, each in C's base 0 (`0x` hex, a leading `0` octal), the last
+/// filling the bytes the others leave.
+fn inet_aton(text: &str) -> Option<Ipv4Addr> {
+    let parts = text.split('.').collect::<Vec<_>>();
+    if parts.len() > 4 {
+        return None;
+    }
+    let numbers = parts
+        .iter()
+        .map(|part| {
+            let (digits, radix) = match part.as_bytes() {
+                [b'0', b'x' | b'X', ..] => (&part[2..], 16),
+                [b'0', _, ..] => (&part[1..], 8),
+                _ => (*part, 10),
+            };
+            let valid = |b: u8| (b as char).is_digit(radix);
+            if (digits.is_empty() && radix != 16) || !digits.bytes().all(valid) {
+                return None;
+            }
+            match digits.is_empty() {
+                true => Some(0),
+                false => u32::from_str_radix(digits, radix).ok(),
+            }
+        })
+        .collect::<Option<Vec<u32>>>()?;
+    let (last, leading) = numbers.split_last()?;
+    if leading.iter().any(|n| *n > 0xff) {
+        return None;
+    }
+    let room = 32 - 8 * leading.len() as u32;
+    if room < 32 && *last >= 1 << room {
+        return None;
+    }
+    let high = leading
+        .iter()
+        .enumerate()
+        .fold(0u32, |ip, (i, n)| ip | n << (24 - 8 * i as u32));
+    Some(Ipv4Addr::from(high | last))
 }
 
 /// The peers `host` and `port` name for `call`, for a connect to try in turn:
@@ -121,14 +206,14 @@ fn ends_of_host(
     call: &str,
 ) -> Result<(Vec<Ipv4Addr>, u16, String), Error> {
     let host_text = host_of(mrb, host, passive)?;
-    let (port, port_text) = port_of(mrb, port)?;
+    let (port_number, port_text) = port_of(mrb, port)?;
+    ensure_named(mrb, host, port)?;
+    let port = port_number;
     let call = to_peer_message(mrb, call, host, port_text);
-    let ips = match host_text.parse::<std::net::IpAddr>() {
-        Ok(std::net::IpAddr::V4(ip)) => vec![ip],
-        Ok(std::net::IpAddr::V6(_)) => {
-            return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", &call))
-        }
-        Err(_) => resolve(mrb, &host_text, resolv_timeout()?, &call)?,
+    let ips = match literal_of(&host_text) {
+        Some(IpAddr::V4(ip)) => vec![ip],
+        Some(IpAddr::V6(_)) => return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", &call)),
+        None => resolve(mrb, &host_text, resolv_timeout()?, &call)?,
     };
     Ok((ips, port, call))
 }
@@ -164,7 +249,7 @@ pub(crate) fn port_of(mrb: &Mrb, port: Value) -> Result<(u16, String), Error> {
         });
         number.ok_or_else(|| errno::type_error(mrb, port))?.to_string()
     } else {
-        String::from_utf8_lossy(&string_bytes_of(mrb, port)?).into_owned()
+        cstr_text_of(mrb, port)?
     };
     if text.is_empty() {
         return Ok((0, text));
@@ -180,6 +265,15 @@ pub(crate) fn port_of(mrb: &Mrb, port: Value) -> Result<(u16, String), Error> {
         return Err(resolution_error(mrb, EAI_SERVICE));
     }
     Ok((number as u16, text))
+}
+
+/// Refuse a call naming neither a host nor a service, as glibc's
+/// `getaddrinfo` answers `EAI_NONAME` before anything else.
+pub(super) fn ensure_named(mrb: &Mrb, host: Value, service: Value) -> Result<(), Error> {
+    match host.is_nil() && service.is_nil() {
+        true => Err(resolution_error(mrb, EAI_NONAME)),
+        false => Ok(()),
+    }
 }
 
 /// The bytes CRuby's `port_str` holds a service in, its NUL among them.
@@ -223,20 +317,12 @@ pub(super) fn init(mrb: &Mrb, socket: RClass) -> Result<(), Error> {
     Ok(())
 }
 
-/// The addresses `host` names, as CRuby's `rsock_addrinfo` reads it through
-/// `host_of`, `passive` when `AI_PASSIVE` asks: a literal is itself, and a
-/// name each address it leads to. The guest has no IPv6, so `nil` is IPv4's
-/// loopback.
-pub(super) fn hosts_of(mrb: &Mrb, host: Value, passive: bool) -> Result<Vec<IpAddr>, Error> {
-    addresses_of(mrb, &host_of(mrb, host, passive)?)
-}
-
 /// The addresses `host` names once `host_of` read it: a literal is itself,
 /// and a name each address it leads to.
 pub(super) fn addresses_of(mrb: &Mrb, host: &str) -> Result<Vec<IpAddr>, Error> {
-    Ok(match host.parse::<IpAddr>() {
-        Ok(ip) => vec![ip],
-        Err(_) => resolve(mrb, host, None, "getaddrinfo(3)")?
+    Ok(match literal_of(host) {
+        Some(ip) => vec![ip],
+        None => resolve(mrb, host, None, "getaddrinfo(3)")?
             .into_iter()
             .map(IpAddr::V4)
             .collect(),
@@ -293,8 +379,11 @@ pub(super) fn end_of(mrb: &Mrb, sockaddr: Value) -> Result<(IpAddr, u16), Error>
 /// `Socket.sockaddr_in(port, host)` packs the end `host` and `port` name, a
 /// name's first address, as CRuby's packs the first `getaddrinfo` answers.
 fn socket_s_sockaddr_in(mrb: &Mrb, _self: Value, port: Value, host: Value) -> Result<Value, Error> {
-    let (port, _) = port_of(mrb, port)?;
-    let ip = hosts_of(mrb, host, false)?[0];
+    let (number, _) = port_of(mrb, port)?;
+    let host_text = host_of(mrb, host, false)?;
+    ensure_named(mrb, host, port)?;
+    let ip = addresses_of(mrb, &host_text)?[0];
+    let port = number;
     Ok(mrb.str_new(&to_sockaddr(ip, port)).as_value())
 }
 

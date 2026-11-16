@@ -10,11 +10,14 @@ use beni::scan_args::get_kwargs;
 use beni::value::qnil;
 use beni::{Error, Integer, IntoValue, Module, Mrb, RArray, RClass, TryConvert, TypedData, Value};
 
-use super::address::{addresses_of, end_of, host_of, port_of, to_sockaddr};
+use super::address::{
+    addresses_of, end_of, ensure_named, host_of, literal_of, port_of, to_sockaddr,
+};
 use super::basic::open_socket_of;
 use super::ip::ensure_reverse_lookup_flag;
 use super::{
-    family_of, name_of, resolution_error, socket_error, Family, AF_INET, AF_INET6, EAI_NONAME,
+    family_of, name_of, resolution_error, socket_error, to_resolution_error, Family, AF_INET,
+    AF_INET6, EAI_NONAME,
 };
 use crate::convert::string_value_of;
 use crate::errno;
@@ -58,9 +61,12 @@ const AI_CANONNAME: i64 = 2;
 const AI_NUMERICHOST: i64 = 4;
 const NI_NUMERICHOST: i64 = 1;
 const NI_NUMERICSERV: i64 = 2;
+/// Every flag glibc's `getnameinfo` takes, `NI_NUMERICHOST` through `NI_IDN`.
+const NI_FLAGS: i64 = 0x3f;
 
-/// glibc's `EAI_SOCKTYPE`, `EAI_FAMILY`, and `EAI_ADDRFAMILY`, with
-/// `gai_strerror`'s words for each.
+/// glibc's `EAI_BADFLAGS`, `EAI_SOCKTYPE`, `EAI_FAMILY`, and
+/// `EAI_ADDRFAMILY`, with `gai_strerror`'s words for each.
+const EAI_BADFLAGS: (i32, &str) = (-1, "Bad value for ai_flags");
 const EAI_SOCKTYPE: (i32, &str) = (-7, "ai_socktype not supported");
 const EAI_FAMILY: (i32, &str) = (-6, "ai_family not supported");
 const EAI_ADDRFAMILY: (i32, &str) = (-9, "Address family for hostname not supported");
@@ -238,6 +244,10 @@ struct Hints {
 /// asked. A name leads to its virtual addresses, and `nil` to the loopback,
 /// or to any address with `AI_PASSIVE`.
 fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<Addrinfo>, Error> {
+    ensure_named(mrb, node, service)?;
+    if hints.flags & AI_CANONNAME != 0 && node.is_nil() {
+        return Err(resolution_error(mrb, EAI_BADFLAGS));
+    }
     let kinds = kinds_of(mrb, hints)?;
     let (port, service_text) = port_of(mrb, service)?;
     let passive = hints.flags & AI_PASSIVE != 0;
@@ -250,7 +260,7 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
     // The node as `host_of` reads it, so `""`, `<any>`, and `<broadcast>`
     // are the literals CRuby's `host_str` makes of them.
     let host = host_of(mrb, node, passive)?;
-    let numeric = host.parse::<IpAddr>().is_ok();
+    let numeric = literal_of(&host).is_some();
     if hints.flags & AI_NUMERICHOST != 0 && !numeric {
         return Err(resolution_error(mrb, EAI_NONAME));
     }
@@ -287,6 +297,53 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
         }
     }
     Ok(found)
+}
+
+/// The address, port, and `inspect` name CRuby's `["AF_INET", port, host,
+/// ip]` holds: the family a String naming an IP one, the port an Integer
+/// keeping its low 16 bits, the host `nil` or a String, and the ip a numeric
+/// address of that family and of `family`, which the kinds `socktype` and
+/// `protocol` name must be ones glibc's table holds.
+fn parts_of(
+    mrb: &Mrb,
+    parts: RArray,
+    family: Option<i64>,
+    socktype: Option<Value>,
+    protocol: Option<Value>,
+) -> Result<(IpAddr, u16, Option<String>), Error> {
+    let named = string_value_of(mrb, parts.entry(mrb, 0)?)?.to_string(mrb)?;
+    let named = match named.trim_start_matches("AF_").trim_start_matches("PF_") {
+        "INET" => AF_INET,
+        "INET6" => AF_INET6,
+        _ => return Err(socket_error(mrb, &format!("unknown address family: {named}"))),
+    };
+    let number = to_int(mrb, parts.entry(mrb, 1)?)?.to_i64(mrb)?;
+    let host: Value = parts.entry(mrb, 2)?;
+    let host = (!host.is_nil())
+        .then(|| string_value_of(mrb, host)?.to_string(mrb))
+        .transpose()?;
+    let address = string_value_of(mrb, parts.entry(mrb, 3)?)?.to_string(mrb)?;
+    let ip = literal_of(&address).ok_or_else(|| resolution_error(mrb, EAI_NONAME))?;
+    if [Some(named), family].into_iter().flatten().any(|family| family != afamily_of(ip)) {
+        return Err(resolution_error(mrb, EAI_ADDRFAMILY));
+    }
+    let protocol = match protocol.filter(|protocol| !protocol.is_nil()) {
+        Some(protocol) => to_int(mrb, protocol)?.to_i64(mrb)?,
+        None => 0,
+    };
+    let hints = Hints {
+        family: None,
+        socktype: socktype_of(mrb, socktype)?,
+        protocol,
+        flags: 0,
+    };
+    kinds_of(mrb, &hints)?;
+    let port = number as u16;
+    let mut inspectname = host.filter(|host| *host != ip.to_string());
+    if number != i64::from(port) {
+        inspectname = Some(format!("{}:{number}", inspectname.unwrap_or_default()));
+    }
+    Ok((ip, port, inspectname))
 }
 
 /// The `Addrinfo`s a lookup answers, as `lookup` does, once an Integer
@@ -426,35 +483,22 @@ fn addrinfo_s_ip(mrb: &Mrb, _self: Value, host: Value) -> Result<Value, Error> {
 /// `Addrinfo.new(sockaddr, family = nil, socktype = nil, protocol = nil)`
 /// wraps a packed address, or CRuby's `["AF_INET", port, host, ip]`; a
 /// packed address of no IP family raises `ArgumentError`, since the guest
-/// holds no other.
+/// holds no other. An array is read as CRuby's `init_addrinfo_getaddrinfo`
+/// reads it, a numeric lookup of its address limited to its family and to
+/// `family`, `socktype`, and `protocol`.
 fn addrinfo_s_new(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Error> {
     let (sockaddr, rest) = match args {
         [sockaddr, rest @ ..] if rest.len() <= 3 => (*sockaddr, rest),
         _ => return Err(Error::argnum(mrb, args.len(), 1, 4)),
     };
+    let at = |i: usize| rest.get(i).copied();
     let (ip, port, inspectname) = match RArray::from_value(sockaddr) {
-        Some(parts) => {
-            let port: u16 = parts
-                .entry::<Value>(mrb, 1)
-                .and_then(|port| u16::try_convert(port, mrb))?;
-            let host: Value = parts.entry(mrb, 2)?;
-            let ip: Value = parts.entry(mrb, 3)?;
-            let ip = ip
-                .to_r_string(mrb)?
-                .to_string(mrb)?
-                .parse::<IpAddr>()
-                .map_err(|_| argument_error(mrb, "not an AF_INET/AF_INET6 sockaddr"))?;
-            let host = (!host.is_nil())
-                .then(|| host.to_r_string(mrb)?.to_string(mrb))
-                .transpose()?;
-            (ip, port, host.filter(|host| *host != ip.to_string()))
-        }
+        Some(parts) => parts_of(mrb, parts, lookup_family_of(mrb, at(0))?, at(1), at(2))?,
         None => {
             let (ip, port) = end_of(mrb, sockaddr)?;
             (ip, port, None)
         }
     };
-    let at = |i: usize| rest.get(i).copied();
     let protocol = match at(2).filter(|protocol| !protocol.is_nil()) {
         Some(protocol) => to_int(mrb, protocol)?.to_i64(mrb)?,
         None => 0,
@@ -621,7 +665,14 @@ fn addrinfo_ipv6_to_ipv4(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// `NI_NUMERICHOST` and `NI_NUMERICSERV` ask.
 fn addrinfo_getnameinfo(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if let Some(flags) = args.first().filter(|_| args.len() == 1) {
-        to_int(mrb, *flags)?.to_i64(mrb)?;
+        let flags = match flags.is_nil() {
+            true => 0,
+            false => to_int(mrb, *flags)?.to_i64(mrb)?,
+        };
+        if flags & !NI_FLAGS != 0 {
+            let (code, words) = EAI_BADFLAGS;
+            return Err(to_resolution_error(mrb, code, &format!("getnameinfo: {words}")));
+        }
     } else if !args.is_empty() {
         return Err(Error::argnum(mrb, args.len(), 0, 1));
     }

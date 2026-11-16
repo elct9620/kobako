@@ -1752,7 +1752,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a network entry naming `localhost` |
 | When | the script builds an `Addrinfo` with `tcp`, `udp`, `ip`, and `new`. It builds from literals, a packed address, an array, and `localhost`, and reads each one's parts and `inspect` |
-| Then | each answers as CRuby's, and `localhost` stands for its virtual address. A reverse lookup answers the address. A packed address of no IP family raises `ArgumentError`, where CRuby's answers one of unknown family. An `Addrinfo` defines no `connect`, `bind`, or `listen`, since the guest makes no raw socket |
+| Then | each answers as CRuby's, and `localhost` stands for its virtual address. A reverse lookup answers the address. `getnameinfo` takes `nil` as no flags, and raises `EAI_BADFLAGS` for a flag glibc's lacks. An array reads as CRuby's numeric lookup of it. A packed address of no IP family raises `ArgumentError`, where CRuby's answers one of unknown family. An `Addrinfo` defines no `connect`, `bind`, or `listen`, since the guest makes no raw socket |
 
 ## `NW-141` A script looks up a name's Addrinfos, as CRuby's
 
@@ -1765,7 +1765,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a network entry naming `localhost` |
 | When | the script calls `Addrinfo.getaddrinfo` and `Socket.getaddrinfo` for a literal and for `localhost`, with and without a family, kind, and `AI_CANONNAME`. It looks up a name no entry names |
-| Then | each answers one entry per kind CRuby's does, for the virtual address a name leads to. The canonical name comes on the first entry. An empty host, `<any>`, and `<broadcast>` read as the literals CRuby makes of them. The unnamed one raises `Socket::ResolutionError`, as CRuby's does. `timeout:` is taken and never read, as CRuby's `call_getaddrinfo` on Linux reads none. A `reverse_lookup` flag CRuby's refuses raises before the lookup. A kind or protocol glibc's table has no entry for raises `EAI_SOCKTYPE`, before the name or service is read. `SOCK_SEQPACKET` raises it too, where glibc answers SCTP, since WASI has no such socket |
+| Then | each answers one entry per kind CRuby's does, for the virtual address a name leads to. The canonical name comes on the first entry. An empty host, `<any>`, and `<broadcast>` read as the literals CRuby makes of them. The unnamed one raises `Socket::ResolutionError`, as CRuby's does. `timeout:` is taken and never read, as CRuby's `call_getaddrinfo` on Linux reads none. A `reverse_lookup` flag CRuby's refuses raises before the lookup. Naming neither host nor service raises `EAI_NONAME`, and `AI_CANONNAME` with no host `EAI_BADFLAGS`. A kind or protocol glibc's table has no entry for raises `EAI_SOCKTYPE`, before the name or service is read. `SOCK_SEQPACKET` raises it too, where glibc answers SCTP, since WASI has no such socket |
 
 ## `NW-142` A script reads a socket's ends as Addrinfos
 
@@ -2372,7 +2372,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server |
 | When | the script connects naming the host by an Integer, by `nil`, and by a Symbol. It packs a `sockaddr_in` from the Integer. Then it connects each of the Integer, `nil`, and `""` to a refusing port |
-| Then | the Integer is the IPv4 address it numbers and `nil` the loopback, as CRuby's `host_str` reads them. The Symbol raises `TypeError`. Each refusal quotes the host as the script wrote it, as `rsock_syserr_fail_host_port` inspects it |
+| Then | the Integer is the IPv4 address it numbers and `nil` the loopback, as CRuby's `host_str` reads them. The Symbol raises `TypeError`. Each refusal quotes the host as the script wrote it, as `rsock_syserr_fail_host_port` inspects it. An Integer past an `unsigned int` raises `RangeError`. A host holding NUL, or of 1025 bytes, raises `ArgumentError` |
 
 ## `NW-191` A script's socket reads each argument as CRuby's
 
@@ -2512,7 +2512,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a guest given the network |
 | When | it looks up an IPv4 address in full and in a short form such as `127.1`. It looks up a bare IPv6 address |
-| Then | each answers the address it spells as-is, with no query, as WIT returns an address string. An HTTP authority spelled the same way is judged as that address, as `NW-013` judges a literal |
+| Then | each answers the address it spells as-is, with no query, as WIT returns an address string. The guest reads a short form as `inet_aton` does, so it needs no network. An HTTP authority spelled the same way is judged as that address, as `NW-013` judges a literal |
 
 ## `NW-202` A TCP socket's send buffer grows once it connects
 
