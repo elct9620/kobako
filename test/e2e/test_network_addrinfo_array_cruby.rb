@@ -30,7 +30,8 @@ class TestE2ENetworkAddrinfoArrayCruby < Minitest::Test
     '["AF_INET", 80, nil, nil]', '["PF_INET", 80, nil, "1.2.3.4"]',
     '["AF_INET", 80, nil, "1.2.3.4"], :INET6', '["AF_INET", 80, nil, "1.2.3.4"], nil, :STREAM, 17',
     '["AF_INET", -1, nil, "127.0.0.1"]', '["AF_INET", 2**31, nil, "1.2.3.4"]',
-    '["AF_INET", 80, nil, "x"], nil, :DGRAM, 6', '["AF_PF_INET", 80, nil, "1.2.3.4"]'
+    '["AF_INET", 80, nil, "x"], nil, :DGRAM, 6', '["AF_PF_INET", 80, nil, "1.2.3.4"]',
+    '["AF_INET", 80, nil, "::1"], :INET6'
   ].map { |parts| "-> { Addrinfo.new(#{parts}) }" }.freeze
 
   UNMATCHED = ["Socket::ResolutionError", -9, "getaddrinfo: Address family for hostname not supported"].freeze
@@ -45,7 +46,7 @@ class TestE2ENetworkAddrinfoArrayCruby < Minitest::Test
     ["Socket::ResolutionError", -8, "getaddrinfo: Servname not supported for ai_socktype"],
     ["RangeError", nil, "integer 2147483648 too big to convert to 'int'"],
     ["Socket::ResolutionError", -7, "getaddrinfo: ai_socktype not supported"],
-    ["SocketError", nil, "unknown address family: AF_PF_INET"]
+    ["SocketError", nil, "unknown address family: AF_PF_INET"], "#<Addrinfo: [::1]:80>"
   ].freeze
 
   # @behavior NW-140

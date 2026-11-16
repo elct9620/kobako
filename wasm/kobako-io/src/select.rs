@@ -41,6 +41,9 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     io.define_method(mrb, c"wait_readable", beni::method!(io_wait_readable, -1))?;
     io.define_method(mrb, c"wait_writable", beni::method!(io_wait_writable, -1))?;
     io.define_method(mrb, c"wait", beni::method!(io_wait, -1))?;
+    io.const_set(mrb, c"READABLE", IO_READABLE)?;
+    io.const_set(mrb, c"PRIORITY", IO_PRIORITY)?;
+    io.const_set(mrb, c"WRITABLE", IO_WRITABLE)?;
     Ok(())
 }
 
@@ -142,8 +145,10 @@ fn io_wait_writable(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Er
     wait_for(mrb, self_, args, POLLWRNORM)
 }
 
-/// `IO::READABLE` and `IO::WRITABLE`, the event bits `IO#wait` takes.
+/// `IO::READABLE`, `IO::PRIORITY`, and `IO::WRITABLE`, the event bits
+/// `IO#wait` takes; no wait of the guest's ever finds priority data.
 const IO_READABLE: i64 = 1;
+const IO_PRIORITY: i64 = 2;
 const IO_WRITABLE: i64 = 4;
 
 /// `wait(events, timeout)` answers the events that came ready, and
@@ -158,6 +163,8 @@ fn io_wait(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let (events, timeout) = match fast {
         true => {
             let events = crate::io::to_int(mrb, args[0])?.to_i64(mrb)?;
+            let int = i64::from(i32::MIN)..=i64::from(i32::MAX);
+            crate::convert::ensure_fits(mrb, events, int, "int")?;
             if events <= 0 {
                 return Err(crate::io::argument_error(
                     mrb,
@@ -166,7 +173,7 @@ fn io_wait(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
             }
             (events, Some(args[1]).filter(|timeout| !timeout.is_nil()))
         }
-        false => modes_and_timeout(mrb, args)?,
+        false => events_and_timeout_of(mrb, args)?,
     };
     if events & IO_READABLE != 0 && socket::holds_buffered(mrb, self_) {
         return Ok(match fast {
@@ -196,10 +203,11 @@ fn io_wait(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
 }
 
 /// The events each Symbol of `args` names and the one other argument, the
-/// timeout, as `io_wait` reads them past its two-argument form: no mode is
-/// `IO::READABLE`, an unknown one raises `ArgumentError`, and a second
-/// timeout too.
-fn modes_and_timeout(mrb: &Mrb, args: &[Value]) -> Result<(i64, Option<Value>), Error> {
+/// timeout, as `io_wait` reads them past its two-argument form, each in
+/// turn: no mode is `IO::READABLE`, an unknown one raises `ArgumentError`,
+/// a timeout `rb_time_interval` refuses raises as it is met, and a second
+/// timeout raises `ArgumentError`.
+fn events_and_timeout_of(mrb: &Mrb, args: &[Value]) -> Result<(i64, Option<Value>), Error> {
     let mut events = 0;
     let mut timeout = None;
     for arg in args {
@@ -222,6 +230,7 @@ fn modes_and_timeout(mrb: &Mrb, args: &[Value]) -> Result<(i64, Option<Value>), 
                     "can't convert NilClass into time interval",
                 ));
             }
+            time_interval_of(mrb, *arg)?;
             timeout = Some(*arg);
         } else {
             return Err(crate::io::argument_error(

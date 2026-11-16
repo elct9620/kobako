@@ -60,6 +60,9 @@ const AI_PASSIVE: i64 = 1;
 const AI_CANONNAME: i64 = 2;
 const AI_NUMERICHOST: i64 = 4;
 const AI_NUMERICSERV: i64 = 0x400;
+/// Every flag glibc's `getaddrinfo` takes: `AI_PASSIVE` through `AI_ALL`,
+/// `AI_ADDRCONFIG`, `AI_NUMERICSERV`, and the IDN ones.
+const AI_FLAGS: i64 = 0x7ff;
 const NI_NUMERICHOST: i64 = 1;
 const NI_NUMERICSERV: i64 = 2;
 /// Every flag glibc's `getnameinfo` takes, its `NI_IDN` ones among them.
@@ -219,20 +222,32 @@ fn socktype_of(mrb: &Mrb, value: Option<Value>) -> Result<i64, Error> {
     }
 }
 
-/// The IP family a lookup is limited to, `None` for either, as CRuby's
-/// `rsock_family_arg` reads it; a family that is no IP one raises
-/// `EAI_FAMILY`, as glibc's `getaddrinfo` does.
+/// The family a lookup is limited to, `None` for either, as CRuby's
+/// `rsock_family_arg` reads it: an IP family by its number, and any other
+/// as `OTHER_FAMILY`, which glibc refuses in its own turn.
 fn lookup_family_of(mrb: &Mrb, value: Option<Value>) -> Result<Option<i64>, Error> {
     let Some(value) = value.filter(|value| !value.is_nil()) else {
         return Ok(None);
     };
-    match family_of(mrb, value)? {
-        Family::Number(0) => Ok(None),
-        Family::Named(name) if name == "UNSPEC" => Ok(None),
-        family => match family.ip_number() {
-            Some(number) => Ok(Some(number)),
-            None => Err(resolution_error(mrb, EAI_FAMILY)),
-        },
+    Ok(match family_of(mrb, value)? {
+        Family::Number(0) => None,
+        Family::Named(name) if name == "UNSPEC" => None,
+        family => Some(family.ip_number().unwrap_or(OTHER_FAMILY)),
+    })
+}
+
+/// A family no IP lookup takes, standing for every one CRuby names but glibc
+/// refuses.
+const OTHER_FAMILY: i64 = -1;
+
+/// `family` once glibc's `getaddrinfo` judged it: one other than IPv4's and
+/// IPv6's raises `EAI_FAMILY`.
+fn ip_family(mrb: &Mrb, family: Option<i64>) -> Result<Option<i64>, Error> {
+    match family {
+        Some(family) if ![AF_INET, AF_INET6].contains(&family) => {
+            Err(resolution_error(mrb, EAI_FAMILY))
+        }
+        family => Ok(family),
     }
 }
 
@@ -252,17 +267,28 @@ struct Hints {
 /// or to any address with `AI_PASSIVE`.
 fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<Addrinfo>, Error> {
     // CRuby's `host_str` and `port_str` read both before glibc is asked,
-    // which then refuses in `getaddrinfo`'s order: no name, a flag, a
-    // service `AI_NUMERICSERV` refuses, a kind, then the service itself.
+    // which then refuses in `getaddrinfo`'s order: no name, a flag, the
+    // family, a service `AI_NUMERICSERV` refuses, a kind, then the service
+    // itself. `"*"` names none.
     let host_text = host_text_of(mrb, node)?;
     let service_text = service_text_of(mrb, service)?;
     ensure_named(mrb, &host_text, &service_text)?;
-    if hints.flags & AI_CANONNAME != 0 && node.is_nil() {
-        return Err(resolution_error(mrb, EAI_BADFLAGS));
-    }
+    let unnamed = host_text.as_deref().is_none_or(|text| text == "*");
     let numeric_service = service_text
         .as_deref()
+        .filter(|text| *text != "*")
         .is_none_or(|text| text.is_empty() || strtoul(text).is_some());
+    // CRuby answers a literal address at a numeric port itself, as its
+    // `numeric_getaddrinfo` does, reading no flag glibc would refuse.
+    let numeric =
+        !unnamed && numeric_service && host_text.as_deref().and_then(literal_of).is_some();
+    if hints.flags & !AI_FLAGS != 0 && !numeric {
+        return Err(resolution_error(mrb, EAI_BADFLAGS));
+    }
+    if hints.flags & AI_CANONNAME != 0 && unnamed {
+        return Err(resolution_error(mrb, EAI_BADFLAGS));
+    }
+    ip_family(mrb, hints.family)?;
     if hints.flags & AI_NUMERICSERV != 0 && !numeric_service {
         return Err(resolution_error(mrb, EAI_NONAME));
     }
@@ -320,9 +346,10 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
 
 /// The address, port, and `inspect` name CRuby's `["AF_INET", port, host,
 /// ip]` holds: the family a String naming an IP one, the port an Integer
-/// keeping its low 16 bits, the host `nil` or a String, and the ip a numeric
-/// address of that family and of `family`, which the kinds `socktype` and
-/// `protocol` name must be ones glibc's table holds.
+/// `NUM2INT` takes and glibc reads as a service, the host `nil` or a String,
+/// and the ip a numeric address of `family`, or of the array's own family
+/// when `family` names none, as CRuby asks glibc for one; the kinds
+/// `socktype` and `protocol` name must be ones glibc's table holds.
 fn parts_of(
     mrb: &Mrb,
     parts: RArray,
@@ -369,14 +396,11 @@ fn parts_of(
         protocol,
         flags: 0,
     };
+    let family = ip_family(mrb, family)?.unwrap_or(named);
     kinds_of(mrb, &hints)?;
     let port = port_of_service(mrb, Some(&number.to_string()))?;
     let ip = literal_of(&address).ok_or_else(|| resolution_error(mrb, EAI_NONAME))?;
-    if [Some(named), family]
-        .into_iter()
-        .flatten()
-        .any(|family| family != afamily_of(ip))
-    {
+    if family != afamily_of(ip) {
         return Err(resolution_error(mrb, EAI_ADDRFAMILY));
     }
     let mut inspectname = host.filter(|host| *host != ip.to_string());
@@ -410,9 +434,9 @@ fn addrinfos_of(
 
 /// The kinds and protocols `hints` leave open, from glibc's table, where a
 /// raw socket takes whichever protocol is asked. None left raises
-/// `EAI_SOCKTYPE` before the service or the node is read, as `gaih_inet`
-/// checks its table first; the guest has no SCTP, so a `SOCK_SEQPACKET`
-/// glibc would answer with one is refused too.
+/// `EAI_SOCKTYPE` before the service or the node is looked up, as
+/// `gaih_inet` checks its table first. WASI has no SCTP, UDP-Lite, or DCCP
+/// socket, so the kinds glibc answers with one are refused too.
 fn kinds_of(mrb: &Mrb, hints: &Hints) -> Result<Vec<(i64, i64)>, Error> {
     let table = [
         (SOCK_STREAM, Some(IPPROTO_TCP)),
@@ -540,7 +564,7 @@ fn addrinfo_s_new(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Erro
     let mut info = Addrinfo::new(ip, port, (socktype_of(mrb, at(1))?, protocol));
     // A packed address names no protocol family, as CRuby's leaves it 0; an
     // array names one by its address family.
-    info.pfamily = match lookup_family_of(mrb, at(0))? {
+    info.pfamily = match ip_family(mrb, lookup_family_of(mrb, at(0))?)? {
         Some(family) => family,
         None if RArray::from_value(sockaddr).is_some() => afamily_of(ip),
         None => 0,

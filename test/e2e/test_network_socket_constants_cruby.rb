@@ -43,7 +43,9 @@ class TestE2ENetworkSocketConstantsCruby < Minitest::Test
      answer.call { socket.wait(1, :read, :w) }, answer.call { socket.wait(0.01, :bogus) },
      answer.call { socket.wait(0.01, "read") }, answer.call { socket.wait(nil) },
      answer.call { socket.wait(:w, 1) }, answer.call { socket.wait(4, 1) }, answer.call { socket.wait(1, 0.01) },
-     answer.call { socket.wait(1, :read, 2) },
+     answer.call { socket.wait(1, :read, 2) }, [IO::READABLE, IO::PRIORITY, IO::WRITABLE],
+     answer.call { socket.wait(IO::WRITABLE, 1) }, answer.call { socket.wait(2**32 + 4, 0) },
+     answer.call { socket.wait(-1, :bogus) },
      IPSocket.getaddress("127.1"), IPSocket.getaddress("::1"), answer.call { IPSocket.getaddress("unnamed.test") }]
   RUBY
 
@@ -51,7 +53,9 @@ class TestE2ENetworkSocketConstantsCruby < Minitest::Test
   WAIT_ANSWERS = [nil, :self, :self, ["ArgumentError", "unsupported mode: bogus"],
                   ["ArgumentError", "Events must be positive integer!"],
                   ["TypeError", "can't convert NilClass into time interval"], :self, 4, nil,
-                  ["ArgumentError", "timeout given more than once"], "127.0.0.1", "::1",
+                  ["ArgumentError", "timeout given more than once"], [1, 2, 4], 4,
+                  ["RangeError", "integer 4294967300 too big to convert to 'int'"],
+                  ["ArgumentError", "time interval must not be negative"], "127.0.0.1", "::1",
                   ["Socket::ResolutionError", "getaddrinfo: Name or service not known"]].freeze
 
   # @behavior NW-224

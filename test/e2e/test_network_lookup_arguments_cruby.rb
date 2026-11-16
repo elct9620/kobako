@@ -74,10 +74,18 @@ class TestE2ENetworkLookupArgumentsCruby < Minitest::Test
     "-> { Addrinfo.getaddrinfo('127.0.0.1', 80, nil, :STREAM, 132) }",
     "-> { [Addrinfo.tcp('127.0.0.1', \"\\v80\").ip_port, Addrinfo.tcp('127.0.0.1', '*').ip_port] }",
     "-> { Addrinfo.getaddrinfo('*', 80, nil, :STREAM) }", "-> { Addrinfo.tcp('127.0.0.1', \"\\xff\" * 11) }",
-    "-> { IPSocket.getaddress(nil) }", "-> { Addrinfo.tcp('127.0.0.1', 80).getnameinfo(0x80) }"
+    "-> { IPSocket.getaddress(nil) }", "-> { Addrinfo.tcp('127.0.0.1', 80).getnameinfo(0x80) }",
+    "-> { Addrinfo.getaddrinfo(nil, nil, 1) }", "-> { Addrinfo.getaddrinfo('x' * 1025, 80, 1) }",
+    "-> { Addrinfo.getaddrinfo(nil, 80, 1, :STREAM, nil, Socket::AI_CANONNAME) }",
+    "-> { Addrinfo.getaddrinfo(nil, 80, 1) }",
+    "-> { Addrinfo.getaddrinfo('*', 80, nil, :STREAM, nil, Socket::AI_CANONNAME) }",
+    "-> { Addrinfo.getaddrinfo('127.0.0.1', '*', nil, :STREAM, nil, Socket::AI_NUMERICSERV) }",
+    "-> { Addrinfo.getaddrinfo(nil, 80, nil, :STREAM, nil, 0x10000) }",
+    "-> { Addrinfo.getaddrinfo('127.0.0.1', 80, nil, :STREAM, nil, 0x10000) }"
   ].freeze
 
   NAMELESS = ["Socket::ResolutionError", -2, "getaddrinfo: Name or service not known"].freeze
+  BAD_FLAGS = ["Socket::ResolutionError", -1, "getaddrinfo: Bad value for ai_flags"].freeze
 
   LOOKUP_ANSWERS = [
     NAMELESS, NAMELESS, NAMELESS, ["Socket::ResolutionError", -1, "getaddrinfo: Bad value for ai_flags"],
@@ -87,7 +95,10 @@ class TestE2ENetworkLookupArgumentsCruby < Minitest::Test
     ["Socket::ResolutionError", -7, "getaddrinfo: ai_socktype not supported"], [80, 0],
     ["#<Addrinfo: 127.0.0.1:80 TCP (*)>"],
     ["Socket::ResolutionError", -8, "getaddrinfo: Servname not supported for ai_socktype"],
-    NAMELESS, %w[127.0.0.1 80]
+    NAMELESS, %w[127.0.0.1 80],
+    NAMELESS, ["ArgumentError", nil, "hostname too long (1025)"], BAD_FLAGS,
+    ["Socket::ResolutionError", -6, "getaddrinfo: ai_family not supported"], BAD_FLAGS,
+    ["#<Addrinfo: 127.0.0.1 TCP (:*)>"], BAD_FLAGS, ["#<Addrinfo: 127.0.0.1:80 TCP>"]
   ].freeze
 
   # @behavior NW-141
@@ -97,6 +108,8 @@ class TestE2ENetworkLookupArgumentsCruby < Minitest::Test
                  "EAI_BADFLAGS, and AI_NUMERICSERV a service name EAI_NONAME, after the host and the service " \
                  "are read and before the kind is judged; AI_NUMERICHOST must take a short IPv4 form, \"*\" " \
                  "names none, a port reads past C's spaces, and getnameinfo must take nil as no flags and " \
-                 "raise EAI_BADFLAGS for a flag glibc's lacks, as CRuby's on Linux do; SCTP is refused"
+                 "raise EAI_BADFLAGS for a flag glibc's lacks, as CRuby's on Linux do; SCTP is refused, a " \
+                 "family other than IP's is judged after the flags, and an unknown flag only off CRuby's " \
+                 "numeric path"
   end
 end

@@ -439,7 +439,7 @@ fn http_port(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// The port a session dials, read as `TCPSocket.open` reads the one CRuby's
 /// hands it.
 fn port_of(mrb: &Mrb, self_: Value) -> Result<u16, Error> {
-    socket::port_of(mrb, ivar_get(mrb, self_, c"@port")?).map(|(port, _)| port)
+    socket::port_of(mrb, ivar_get(mrb, self_, c"@port")?)
 }
 
 /// `inspect`: the address, the port, and whether a session is open, as

@@ -216,14 +216,11 @@ pub(super) fn local_of(
     Ok((ips[0], port, call))
 }
 
-/// The port `port` names, and its text, as `service_text_of` and then
-/// `port_of_service` read it.
-pub(crate) fn port_of(mrb: &Mrb, port: Value) -> Result<(u16, String), Error> {
+/// The port `port` names, as `service_text_of` and then `port_of_service`
+/// read it.
+pub(crate) fn port_of(mrb: &Mrb, port: Value) -> Result<u16, Error> {
     let text = service_text_of(mrb, port)?;
-    Ok((
-        port_of_service(mrb, text.as_deref())?,
-        text.unwrap_or_default(),
-    ))
+    port_of_service(mrb, text.as_deref())
 }
 
 /// The text CRuby's `port_str` hands `getaddrinfo` for `port`: `None` for
