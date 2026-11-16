@@ -72,7 +72,11 @@ class TestE2ENetworkAddrinfo < Minitest::Test
      Addrinfo.getaddrinfo(nil, 80, :INET, :STREAM, nil, Socket::AI_PASSIVE).map(&:inspect),
      Addrinfo.getaddrinfo("localhost", 80, nil, :STREAM, nil, Socket::AI_CANONNAME).map { |a| [a.inspect, a.canonname] },
      Socket.getaddrinfo("localhost", "80", :INET, :STREAM),
-     refusal.call { Addrinfo.getaddrinfo("127.0.0.1", 80, :INET6) }, refusal.call { Addrinfo.getaddrinfo("unnamed.test", 80) }]
+     refusal.call { Addrinfo.getaddrinfo("127.0.0.1", 80, :INET6) }, refusal.call { Addrinfo.getaddrinfo("unnamed.test", 80) },
+     refusal.call { Addrinfo.getaddrinfo("unnamed.test", "zz", nil, 99) },
+     refusal.call { Addrinfo.getaddrinfo("127.0.0.1", 80, nil, :STREAM, Socket::IPPROTO_UDP) },
+     refusal.call { Socket.getaddrinfo("127.0.0.1", 80, nil, :SEQPACKET) },
+     refusal.call { Addrinfo.new(Socket.sockaddr_in(80, "1.2.3.4"), nil, 99).family_addrinfo("1.2.3.4", 81) }]
   RUBY
 
   LITERAL_LOOKUPS = [
@@ -84,7 +88,8 @@ class TestE2ENetworkAddrinfo < Minitest::Test
 
   REFUSALS = [
     ["Socket::ResolutionError", "getaddrinfo: Address family for hostname not supported"],
-    ["Socket::ResolutionError", "getaddrinfo: Name or service not known"]
+    ["Socket::ResolutionError", "getaddrinfo: Name or service not known"],
+    *[["Socket::ResolutionError", "getaddrinfo: ai_socktype not supported"]] * 4
   ].freeze
 
   # What the lookups of `localhost` answer, one virtual address for each of
@@ -102,7 +107,8 @@ class TestE2ENetworkAddrinfo < Minitest::Test
     assert_equal expected, localhost_sandbox(80).eval(LOOKUP_CALLS).value,
                  "Addrinfo.getaddrinfo and Socket.getaddrinfo must answer one entry per kind and address CRuby's " \
                  "does, a virtual address for each address a name leads to, the canonical name on the first entry, " \
-                 "and Socket::ResolutionError for a family the address lacks and a name no entry names"
+                 "and Socket::ResolutionError for a family the address lacks, a name no entry names, and a kind or " \
+                 "protocol glibc's table leaves no entry for, before the name or the service is read"
   end
 
   REVERSE_LOOKUP_FLAGS = <<~RUBY

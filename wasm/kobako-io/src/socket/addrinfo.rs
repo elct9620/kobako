@@ -58,8 +58,9 @@ const AI_NUMERICHOST: i64 = 4;
 const NI_NUMERICHOST: i64 = 1;
 const NI_NUMERICSERV: i64 = 2;
 
-/// glibc's `EAI_FAMILY` and `EAI_ADDRFAMILY`, with `gai_strerror`'s words for
-/// each.
+/// glibc's `EAI_SOCKTYPE`, `EAI_FAMILY`, and `EAI_ADDRFAMILY`, with
+/// `gai_strerror`'s words for each.
+const EAI_SOCKTYPE: (i32, &str) = (-7, "ai_socktype not supported");
 const EAI_FAMILY: (i32, &str) = (-6, "ai_family not supported");
 const EAI_ADDRFAMILY: (i32, &str) = (-9, "Address family for hostname not supported");
 
@@ -197,6 +198,9 @@ fn socktype_of(mrb: &Mrb, value: Option<Value>) -> Result<i64, Error> {
         "STREAM" => Ok(SOCK_STREAM),
         "DGRAM" => Ok(SOCK_DGRAM),
         "RAW" => Ok(SOCK_RAW),
+        "RDM" => Ok(SOCK_RDM),
+        "SEQPACKET" => Ok(SOCK_SEQPACKET),
+        "PACKET" => Ok(SOCK_PACKET),
         _ => Err(socket_error(mrb, &format!("unknown socket type: {name}"))),
     }
 }
@@ -233,6 +237,7 @@ struct Hints {
 /// asked. A name leads to its virtual addresses, and `nil` to the loopback,
 /// or to any address with `AI_PASSIVE`.
 fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<Addrinfo>, Error> {
+    let kinds = kinds_of(mrb, hints)?;
     let (port, service_text) = port_of(mrb, service)?;
     let passive = hints.flags & AI_PASSIVE != 0;
     // The node as written, which `inspect` shows, as CRuby's
@@ -255,12 +260,6 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
     {
         return Err(resolution_error(mrb, EAI_ADDRFAMILY));
     }
-    // glibc's table: a raw socket takes whichever protocol is asked.
-    let kinds = [
-        (SOCK_STREAM, Some(IPPROTO_TCP)),
-        (SOCK_DGRAM, Some(IPPROTO_UDP)),
-        (SOCK_RAW, None),
-    ];
     // Each address in the resolver's order, then each kind, as glibc's
     // `gaih_inet` lists them; only the first carries the canonical name.
     let mut found = Vec::new();
@@ -277,14 +276,7 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
                 inspectname.unwrap_or_default()
             ));
         }
-        for (socktype, protocol) in kinds {
-            if hints.socktype != 0 && hints.socktype != socktype {
-                continue;
-            }
-            if hints.protocol != 0 && protocol.is_some_and(|protocol| protocol != hints.protocol) {
-                continue;
-            }
-            let protocol = protocol.unwrap_or(hints.protocol);
+        for &(socktype, protocol) in &kinds {
             let mut info = Addrinfo::new(ip, port, (socktype, protocol));
             info.inspectname = inspectname.clone();
             if found.is_empty() && hints.flags & AI_CANONNAME != 0 && !numeric {
@@ -294,6 +286,31 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
         }
     }
     Ok(found)
+}
+
+/// The kinds and protocols `hints` leave open, from glibc's table, where a
+/// raw socket takes whichever protocol is asked. None left raises
+/// `EAI_SOCKTYPE` before the service or the node is read, as `gaih_inet`
+/// checks its table first; the guest has no SCTP, so a `SOCK_SEQPACKET`
+/// glibc would answer with one is refused too.
+fn kinds_of(mrb: &Mrb, hints: &Hints) -> Result<Vec<(i64, i64)>, Error> {
+    let table = [
+        (SOCK_STREAM, Some(IPPROTO_TCP)),
+        (SOCK_DGRAM, Some(IPPROTO_UDP)),
+        (SOCK_RAW, None),
+    ];
+    let kinds: Vec<_> = table
+        .into_iter()
+        .filter(|(socktype, _)| hints.socktype == 0 || hints.socktype == *socktype)
+        .filter(|(_, protocol)| {
+            hints.protocol == 0 || protocol.is_none_or(|protocol| protocol == hints.protocol)
+        })
+        .map(|(socktype, protocol)| (socktype, protocol.unwrap_or(hints.protocol)))
+        .collect();
+    if kinds.is_empty() {
+        return Err(resolution_error(mrb, EAI_SOCKTYPE));
+    }
+    Ok(kinds)
 }
 
 /// The hints `getaddrinfo`'s arguments after `node` and `service` give.

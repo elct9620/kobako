@@ -1765,7 +1765,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a network entry naming `localhost` |
 | When | the script calls `Addrinfo.getaddrinfo` and `Socket.getaddrinfo` for a literal and for `localhost`, with and without a family, kind, and `AI_CANONNAME`. It looks up a name no entry names |
-| Then | each answers one entry per kind CRuby's does, for the virtual address a name leads to. The canonical name comes on the first entry. An empty host, `<any>`, and `<broadcast>` read as the literals CRuby makes of them. The unnamed one raises `Socket::ResolutionError`, as CRuby's does. `timeout:` is taken and never read, as CRuby's `call_getaddrinfo` on Linux reads none. A `reverse_lookup` flag CRuby's refuses raises before the lookup |
+| Then | each answers one entry per kind CRuby's does, for the virtual address a name leads to. The canonical name comes on the first entry. An empty host, `<any>`, and `<broadcast>` read as the literals CRuby makes of them. The unnamed one raises `Socket::ResolutionError`, as CRuby's does. `timeout:` is taken and never read, as CRuby's `call_getaddrinfo` on Linux reads none. A `reverse_lookup` flag CRuby's refuses raises before the lookup. A kind or protocol glibc's table has no entry for raises `EAI_SOCKTYPE`, before the name or service is read. `SOCK_SEQPACKET` raises it too, where glibc answers SCTP, since WASI has no such socket |
 
 ## `NW-142` A script reads a socket's ends as Addrinfos
 
