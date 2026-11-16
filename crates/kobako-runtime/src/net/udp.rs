@@ -116,17 +116,27 @@ impl UdpSock {
     ) -> Result<(), Errno> {
         {
             let mut state = self.state();
-            let same_family = state.host.as_ref().is_some_and(|(socket, _)| {
-                socket
-                    .local_addr()
-                    .is_ok_and(|local| local.is_ipv4() == addr.is_ipv4())
-            });
-            if same_family {
+            // The host socket repoints within the family of where the family
+            // sends, which a route may answer apart from `addr`.
+            let routed = match state.host.as_ref() {
+                Some(_) => Some(family.route_datagram(addr).map_err(|err| to_error(&err))?),
+                None => None,
+            };
+            let same_family =
+                state
+                    .host
+                    .as_ref()
+                    .zip(routed)
+                    .is_some_and(|((socket, _), routed)| {
+                        socket
+                            .local_addr()
+                            .is_ok_and(|local| local.is_ipv4() == routed.is_ipv4())
+                    });
+            if let (true, Some(routed)) = (same_family, routed) {
                 // What the old peer sent reads as its own, so it is taken in
                 // before the host socket repoints.
                 self.pump(&mut state);
                 if let Some((socket, _)) = state.host.as_ref() {
-                    let routed = family.route_datagram(addr).map_err(|err| to_error(&err))?;
                     socket.connect(routed).map_err(|err| to_error(&err))?;
                 }
                 state.inet.peer = Some(peer);
@@ -804,6 +814,40 @@ mod tests {
             "a UDP socket that connects from an IPv4 peer to an IPv6 one must still read the \
              datagram the first peer sent before, with the first peer, as Linux's repointed \
              socket keeps its receive queue"
+        );
+    }
+
+    // @behavior NW-227
+    #[test]
+    fn a_socket_connected_again_repoints_within_the_family_its_route_sends_in() {
+        let first = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let second = UdpSocket::bind("[::1]:0").unwrap();
+        let (to_first, to_second) = (
+            SocketAddr::from(([93, 184, 216, 34], 53)),
+            SocketAddr::from(([93, 184, 216, 35], 53)),
+        );
+        let mock = Arc::new(crate::net::Mock::default());
+        mock.route(Protocol::Udp, to_first, first.local_addr().unwrap());
+        mock.route(Protocol::Udp, to_second, second.local_addr().unwrap());
+        let family: Arc<dyn ProtocolFamily> = mock.clone();
+        let sock = UdpSock::new(&prepare_creds(&[], None)).expect("an unbounded socket is made");
+        let cap = OpenConnections::new(None);
+        sock.dial(&family, to_first, to_first, &cap)
+            .expect("a routed socket connects");
+        let again = sock.dial(&family, to_second, to_second, &cap);
+        wait_for(|table| sock.poll(table), PollMask::OUT);
+        let sent = sock.sendmsg(b"ping");
+        second
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .unwrap();
+        let heard = second.recv_from(&mut [0; 8]).map(|(n, _)| n).ok();
+        sock.release();
+        assert_eq!(
+            (again, sent.is_ok(), heard, mock.dialed_addresses()),
+            (Ok(()), true, Some(4), vec![to_first, to_second]),
+            "a UDP socket under a Mock, connected again to an IPv4 address its route sends to an \
+             IPv6 peer, must connect and reach that peer, as a fresh socket of the routed \
+             family would, the Mock reading back each connect once"
         );
     }
 

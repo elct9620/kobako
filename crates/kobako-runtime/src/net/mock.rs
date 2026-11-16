@@ -32,6 +32,9 @@ struct State {
     held: HashMap<String, usize>,
     lookups: Vec<String>,
     dials: Vec<SocketAddr>,
+    /// The address a UDP socket connecting again was routed for, which a
+    /// fresh socket of another family dials next without a second record.
+    rerouted: Option<SocketAddr>,
 }
 
 /// What a dial to one address does.
@@ -126,11 +129,16 @@ impl Mock {
 
     /// Where a dial to `addr` over `transport` goes, recording it.
     fn dial(&self, transport: Transport, addr: SocketAddr) -> io::Result<SocketAddr> {
-        let dial = {
-            let mut state = self.state();
-            state.dials.push(addr);
-            state.routes.get(&(transport, addr)).cloned()
-        };
+        let mut state = self.state();
+        state.rerouted = None;
+        state.dials.push(addr);
+        drop(state);
+        self.target_of(transport, addr)
+    }
+
+    /// Where a dial to `addr` over `transport` goes.
+    fn target_of(&self, transport: Transport, addr: SocketAddr) -> io::Result<SocketAddr> {
+        let dial = self.state().routes.get(&(transport, addr)).cloned();
         match dial {
             Some(Dial::To(target)) => Ok(target),
             Some(Dial::Refused(err)) => Err(io::Error::other(CarriedErrno(err))),
@@ -174,11 +182,20 @@ impl ProtocolFamily for Mock {
     /// none, so every host answers alike where one would wait for a peer's
     /// ICMP reply.
     fn connect_datagram(&self, addr: SocketAddr) -> io::Result<UdpSocket> {
-        HostInet.connect_datagram(self.dial(Transport::Datagram, addr)?)
+        let rerouted = self.state().rerouted.take() == Some(addr);
+        let target = match rerouted {
+            true => self.target_of(Transport::Datagram, addr),
+            false => self.dial(Transport::Datagram, addr),
+        };
+        HostInet.connect_datagram(target?)
     }
 
+    /// The route's target, as a fresh socket's; one in another family than
+    /// the socket's own has the socket's protocol dial it anew, recorded once.
     fn route_datagram(&self, addr: SocketAddr) -> io::Result<SocketAddr> {
-        self.dial(Transport::Datagram, addr)
+        let routed = self.dial(Transport::Datagram, addr);
+        self.state().rerouted = Some(addr);
+        routed
     }
 
     fn local_addresses(&self) -> io::Result<Vec<IpAddr>> {
