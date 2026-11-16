@@ -66,7 +66,7 @@ impl ProtocolFamily for HostInet {
 
     /// The host's own UDP, bound to an ephemeral port of `addr`'s family.
     fn connect_datagram(&self, addr: SocketAddr) -> io::Result<UdpSocket> {
-        let socket = UdpSocket::bind(super::resolv::any_address_for(addr))?;
+        let socket = UdpSocket::bind(super::resolv::any_address_of(addr))?;
         socket.connect(addr)?;
         socket.set_nonblocking(true)?;
         Ok(socket)

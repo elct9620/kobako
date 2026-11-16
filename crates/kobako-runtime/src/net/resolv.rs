@@ -52,7 +52,7 @@ pub(super) fn local_addresses() -> io::Result<Vec<IpAddr>> {
 
 /// The unspecified address of `peer`'s family at an ephemeral port, where a
 /// datagram socket bound to reach `peer` sits.
-pub(super) fn any_address_for(peer: SocketAddr) -> SocketAddr {
+pub(super) fn any_address_of(peer: SocketAddr) -> SocketAddr {
     match peer {
         SocketAddr::V4(_) => (std::net::Ipv4Addr::UNSPECIFIED, 0).into(),
         SocketAddr::V6(_) => (std::net::Ipv6Addr::UNSPECIFIED, 0).into(),

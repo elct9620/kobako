@@ -144,10 +144,11 @@ impl Reactor {
     /// cancelled leaves none behind.
     #[cfg(any(test, all(unix, not(target_os = "macos"))))]
     pub(crate) fn wake_at(self: &Arc<Self>, at: Instant, waker: Waker) -> Timer {
-        let mut timers = self.timers.lock().unwrap_or_else(PoisonError::into_inner);
-        timers.retain(|(_, armed)| !armed.will_wake(&waker));
-        timers.push((at, waker.clone()));
-        drop(timers);
+        self.disarm(&waker);
+        self.timers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((at, waker.clone()));
         let _ = self.waker.wake();
         Timer {
             reactor: self.clone(),

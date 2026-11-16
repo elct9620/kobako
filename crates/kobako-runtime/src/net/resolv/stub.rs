@@ -85,7 +85,7 @@ impl Conf {
     /// How long the server at `place` in the list is waited for, as
     /// `send_dg` gives it: doubled for each place down the list, and shared
     /// among the servers past the first.
-    fn timeout_at(&self, place: usize) -> Duration {
+    fn timeout_of(&self, place: usize) -> Duration {
         match place {
             0 => self.timeout,
             _ => self.timeout * (1 << place) / self.nameservers.len() as u32,
@@ -169,7 +169,7 @@ enum Reply {
 async fn ask(conf: Conf, name: String) -> Result<Vec<IpAddr>, LookupError> {
     for _ in 0..conf.attempts {
         for (place, server) in conf.nameservers.iter().enumerate() {
-            match exchange(*server, &name, conf.timeout_at(place)).await {
+            match exchange(*server, &name, conf.timeout_of(place)).await {
                 Ok(Some(found)) => return Ok(found),
                 Err(err) if err.kind() == io::ErrorKind::InvalidInput => {
                     return Err(LookupError::NoName)
@@ -369,7 +369,7 @@ impl WatchedSocket<mio::net::UdpSocket> {
     /// A UDP socket connected to `server`, so the host takes replies from
     /// that server alone.
     fn connect_udp(server: SocketAddr) -> io::Result<Self> {
-        let socket = mio::net::UdpSocket::bind(super::any_address_for(server))?;
+        let socket = mio::net::UdpSocket::bind(super::any_address_of(server))?;
         socket.connect(server)?;
         Self::watch(socket)
     }

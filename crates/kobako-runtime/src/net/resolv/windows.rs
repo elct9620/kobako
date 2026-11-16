@@ -35,7 +35,7 @@ pub(super) fn resolve(name: &str) -> Resolving {
 /// `WSAHOST_NOT_FOUND` with `EAI_NONAME`, `WSANO_RECOVERY` with `EAI_FAIL`,
 /// and `WSATRY_AGAIN` with `EAI_AGAIN`. A name no query can carry is
 /// `NoName`; any other failure leaves a lookup asking again may answer.
-fn lookup_error_of(error: i32) -> LookupError {
+fn to_lookup_error(error: i32) -> LookupError {
     match error {
         WSAHOST_NOT_FOUND | WSANO_DATA | WSAEINVAL => LookupError::NoName,
         WSANO_RECOVERY => LookupError::Fail,
@@ -133,7 +133,7 @@ impl QueryContext {
         let result = unsafe { std::mem::replace(&mut *self.result.get(), null_mut()) };
         let answer = match error {
             0 => Ok(unsafe { addresses_of(result) }),
-            code => Err(lookup_error_of(code as i32)),
+            code => Err(to_lookup_error(code as i32)),
         };
         if !result.is_null() {
             unsafe { FreeAddrInfoExW(result) };

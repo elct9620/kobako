@@ -390,7 +390,7 @@ fn a_server_down_the_list_waits_as_send_dg_shares_the_time() {
         attempts: 1,
     };
     assert_eq!(
-        [0, 1, 2].map(|place| conf.timeout_at(place)),
+        [0, 1, 2].map(|place| conf.timeout_of(place)),
         [6, 4, 8].map(Duration::from_secs),
         "the first server must wait the whole timeout, and each after it the timeout doubled \
          for its place, shared among the servers, as glibc's send_dg gives it"
