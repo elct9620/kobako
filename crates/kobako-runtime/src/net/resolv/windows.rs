@@ -3,12 +3,13 @@
 //! `GetAddrInfoExCancel` cancels it. The routine runs on a system thread even
 //! after a cancel, so it holds its own reference to what it writes.
 
-use std::cell::UnsafeCell;
+use std::cell::{Cell, UnsafeCell};
 use std::future::Future;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
 use std::ptr::{null, null_mut};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::task::{Context, Poll, Waker};
 
@@ -29,36 +30,80 @@ pub(super) fn resolve(name: &str) -> Resolving {
     }
 }
 
-/// What the call and its completion routine share. `overlapped` comes first,
-/// so the routine finds the whole from the pointer it is handed.
+/// What the call and its completion routine share, as Microsoft's example
+/// calls its `QUERY_CONTEXT`. `overlapped` comes first, so the routine finds
+/// the whole from the pointer it is handed; Windows writes it, `result`, and
+/// `handle` through that pointer, so each sits in an `UnsafeCell`.
 #[repr(C)]
-struct Shared {
-    overlapped: OVERLAPPED,
+struct QueryContext {
+    overlapped: UnsafeCell<OVERLAPPED>,
     result: UnsafeCell<*mut ADDRINFOEXW>,
     handle: UnsafeCell<HANDLE>,
+    /// Whether the query is pending, being cancelled, or done; a cancel and
+    /// the routine's end exclude each other, so a cancel never names a handle
+    /// the routine already ended.
+    phase: AtomicU8,
     state: Mutex<State>,
 }
 
-// Windows writes `result` and `handle` before the routine runs, and the
-// routine alone reads them after; everything else sits behind the mutex.
-unsafe impl Send for Shared {}
-unsafe impl Sync for Shared {}
+// Windows writes the cells before the routine runs, and the routine alone
+// reads them after; everything else is atomic or behind the mutex.
+unsafe impl Send for QueryContext {}
+unsafe impl Sync for QueryContext {}
+
+const PENDING: u8 = 0;
+const CANCELLING: u8 = 1;
+const DONE: u8 = 2;
+
+thread_local! {
+    /// Whether this thread is inside `GetAddrInfoExCancel`, which may run the
+    /// routine on it before returning.
+    static IN_CANCEL: Cell<bool> = const { Cell::new(false) };
+}
 
 #[derive(Default)]
 struct State {
-    /// Whether the query ended, after which its handle is no longer valid.
-    finished: bool,
     answer: Option<io::Result<Vec<IpAddr>>>,
     waker: Option<Waker>,
 }
 
-impl Shared {
+impl QueryContext {
     fn new() -> Self {
         Self {
-            overlapped: unsafe { std::mem::zeroed() },
+            overlapped: UnsafeCell::new(unsafe { std::mem::zeroed() }),
             result: UnsafeCell::new(null_mut()),
             handle: UnsafeCell::new(null_mut()),
+            phase: AtomicU8::new(PENDING),
             state: Mutex::default(),
+        }
+    }
+
+    /// Mark the query done, waiting out a cancel another thread is making,
+    /// so the handle stays valid for as long as that cancel names it.
+    fn end(&self) {
+        loop {
+            match self
+                .phase
+                .compare_exchange(PENDING, DONE, Ordering::AcqRel, Ordering::Acquire)
+            {
+                Ok(_) | Err(DONE) => return,
+                Err(_) if IN_CANCEL.get() => return,
+                Err(_) => std::thread::yield_now(),
+            }
+        }
+    }
+
+    /// Cancel the query unless it already ended.
+    fn cancel(&self) {
+        let claimed = self
+            .phase
+            .compare_exchange(PENDING, CANCELLING, Ordering::AcqRel, Ordering::Acquire)
+            .is_ok();
+        if claimed {
+            IN_CANCEL.set(true);
+            unsafe { GetAddrInfoExCancel(self.handle.get()) };
+            IN_CANCEL.set(false);
+            self.phase.store(DONE, Ordering::Release);
         }
     }
 
@@ -69,6 +114,7 @@ impl Shared {
     /// Take the query's outcome, `error` being its Winsock code, and wake
     /// whoever waits for it.
     fn finish(&self, error: u32) {
+        self.end();
         let result = unsafe { std::mem::replace(&mut *self.result.get(), null_mut()) };
         let answer = match error {
             0 => Ok(unsafe { addresses_of(result) }),
@@ -78,7 +124,6 @@ impl Shared {
             unsafe { FreeAddrInfoExW(result) };
         }
         let mut state = self.state();
-        state.finished = true;
         state.answer = Some(answer);
         if let Some(waker) = state.waker.take() {
             waker.wake();
@@ -112,12 +157,12 @@ unsafe fn addresses_of(mut result: *const ADDRINFOEXW) -> Vec<IpAddr> {
 }
 
 unsafe extern "system" fn on_complete(error: u32, _bytes: u32, overlapped: *const OVERLAPPED) {
-    let shared = Arc::from_raw(overlapped.cast::<Shared>());
-    shared.finish(error);
+    let context = Arc::from_raw(overlapped.cast::<QueryContext>());
+    context.finish(error);
 }
 
-/// Winsock started once for the process, as a call before any socket needs.
-fn startup() -> io::Result<()> {
+/// Start Winsock once for the process, as a call before any socket needs.
+fn start_winsock() -> io::Result<()> {
     static STARTED: OnceLock<i32> = OnceLock::new();
     let code = *STARTED.get_or_init(|| {
         let mut data: WSADATA = unsafe { std::mem::zeroed() };
@@ -131,20 +176,20 @@ fn startup() -> io::Result<()> {
 
 /// One query, cancelled as it drops unanswered.
 struct Query {
-    shared: Arc<Shared>,
+    context: Arc<QueryContext>,
 }
 
 impl Query {
     fn start(name: &str) -> io::Result<Self> {
-        startup()?;
+        start_winsock()?;
         let wide: Vec<u16> = name.encode_utf16().chain(std::iter::once(0)).collect();
         let mut hints: ADDRINFOEXW = unsafe { std::mem::zeroed() };
         hints.ai_family = i32::from(AF_UNSPEC);
         hints.ai_socktype = SOCK_STREAM;
         hints.ai_protocol = IPPROTO_TCP;
-        let shared = Arc::new(Shared::new());
+        let context = Arc::new(QueryContext::new());
         // The routine's own reference, which it takes back as it runs.
-        let routine = Arc::into_raw(shared.clone());
+        let routine = Arc::into_raw(context.clone());
         let error = unsafe {
             GetAddrInfoExW(
                 wide.as_ptr(),
@@ -152,19 +197,19 @@ impl Query {
                 NS_ALL,
                 null(),
                 &hints,
-                shared.result.get(),
+                context.result.get(),
                 null(),
                 routine.cast::<OVERLAPPED>(),
                 Some(on_complete),
-                shared.handle.get(),
+                context.handle.get(),
             )
         };
         if error != WSA_IO_PENDING {
             // Answered at once, so the routine never runs.
             drop(unsafe { Arc::from_raw(routine) });
-            shared.finish(error as u32);
+            context.finish(error as u32);
         }
-        Ok(Self { shared })
+        Ok(Self { context })
     }
 }
 
@@ -172,7 +217,7 @@ impl Future for Query {
     type Output = io::Result<Vec<IpAddr>>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        let mut state = self.shared.state();
+        let mut state = self.context.state();
         match state.answer.take() {
             Some(answer) => Poll::Ready(answer),
             None => {
@@ -185,11 +230,6 @@ impl Future for Query {
 
 impl Drop for Query {
     fn drop(&mut self) {
-        // The state is read apart from the cancel, since a cancel may run the
-        // routine, which takes the state, before it returns.
-        let finished = self.shared.state().finished;
-        if !finished {
-            unsafe { GetAddrInfoExCancel(self.shared.handle.get()) };
-        }
+        self.context.cancel();
     }
 }
