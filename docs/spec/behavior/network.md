@@ -86,6 +86,7 @@ endpoint "api.example.com", port: 443
 - `crates/kobako-runtime/src/net/http.rs`
 - `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/connections.rs`
+- `crates/kobako-runtime/src/net/lookup.rs`
 - `crates/kobako-runtime/src/net/udp.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
 - `crates/kobako-wasmtime/src/preview2/http.rs`
