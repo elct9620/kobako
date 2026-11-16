@@ -12,7 +12,7 @@ use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::task::{Poll, Waker};
 
-use super::family::{same_family, HostInet, ProtocolFamily};
+use super::family::{is_same_family, HostInet, ProtocolFamily};
 use super::lookup::{LookupError, Resolver, Resolving};
 use super::socket::CarriedErrno;
 use crate::network::Host;
@@ -91,7 +91,9 @@ impl Mock {
     /// layer answers as a host socket failing with it, alike on every host. A
     /// datagram socket fails as it connects.
     pub fn refuse(&self, protocol: IpProtocol, addr: SocketAddr, err: Errno) {
-        self.state().routes.insert((protocol, addr), Dial::Refused(err));
+        self.state()
+            .routes
+            .insert((protocol, addr), Dial::Refused(err));
     }
 
     /// Keep each lookup of `name` waiting until the hold drops, as a
@@ -176,7 +178,7 @@ impl ProtocolFamily for Mock {
         addr: SocketAddr,
     ) -> io::Result<Option<SocketAddr>> {
         match self.target_of(IpProtocol::Udp, addr) {
-            Ok(target) if !same_family(local, target) => Ok(None),
+            Ok(target) if !is_same_family(local, target) => Ok(None),
             _ => self.dial(IpProtocol::Udp, addr).map(Some),
         }
     }

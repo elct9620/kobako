@@ -244,7 +244,7 @@ fn socket_error(mrb: &Mrb, message: &str) -> Error {
 
 /// A family's name without its `AF_` or `PF_`, as CRuby's
 /// `rsock_family_to_int` reads either spelling.
-fn bare_family(name: &str) -> &str {
+fn bare_family_of(name: &str) -> &str {
     name.strip_prefix("AF_")
         .or_else(|| name.strip_prefix("PF_"))
         .unwrap_or(name)
@@ -256,7 +256,7 @@ fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
     let Some(name) = name_of(mrb, value)? else {
         return Ok(Family::Number(crate::convert::num2int(mrb, value)?));
     };
-    let bare = bare_family(&name);
+    let bare = bare_family_of(&name);
     if !FAMILIES.contains(&bare) {
         return Err(socket_error(mrb, &format!("unknown socket domain: {name}")));
     }

@@ -874,7 +874,7 @@ impl Outbound for HyperOutbound {
                     let session = tokio_rustls::TlsConnector::from(config)
                         .connect(name, connection)
                         .await
-                        .map_err(|err| HttpError::from_io(&err))?;
+                        .map_err(|err| HttpError::from_tls(&err))?;
                     send_over(Wire(session), http).await
                 }
             }
@@ -1024,7 +1024,7 @@ impl HttpError {
     /// connection the server ended as `connection-terminated`, and any other
     /// as `TLS-protocol-error`; memory the socket could not reserve is the
     /// seam's own failure.
-    pub(crate) fn from_io(err: &io::Error) -> Self {
+    pub(crate) fn from_tls(err: &io::Error) -> Self {
         match err
             .get_ref()
             .and_then(|inner| inner.downcast_ref::<rustls::Error>())
@@ -1137,9 +1137,9 @@ mod tests {
             io::ErrorKind::InvalidData,
             io::ErrorKind::TimedOut,
         ]
-        .map(|kind| HttpError::from_io(&io::Error::from(kind)));
+        .map(|kind| HttpError::from_tls(&io::Error::from(kind)));
         assert_eq!(
-            (handshakes, HttpError::from_io(&alert)),
+            (handshakes, HttpError::from_tls(&alert)),
             (
                 [
                     HttpError::ConnectionTerminated,

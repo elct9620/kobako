@@ -7,7 +7,7 @@ use beni::prelude::*;
 use beni::value::qnil;
 use beni::{Error, IntoValue, Mrb, Qtrue, RArray, RClass, Symbol, Value};
 
-use super::address::{addresses_of, ipv4_end_of, named_of, node_of};
+use super::address::{addresses_of, host_and_service_of, ipv4_end_of, node_of};
 use super::basic::{open_socket_of, receive_past_buffer, PastBuffer, Wait};
 use super::to_error;
 use crate::io::argument_error;
@@ -116,7 +116,7 @@ pub(super) fn to_addr_array(
 /// CRuby's looks it up and spells the first answer; a name answers its
 /// virtual address.
 fn ip_socket_s_getaddress(mrb: &Mrb, _self: Value, host: Value) -> Result<Value, Error> {
-    let (host_text, _) = named_of(mrb, host, qnil().as_value())?;
+    let (host_text, _) = host_and_service_of(mrb, host, qnil().as_value())?;
     let ip = addresses_of(mrb, &node_of(host_text.as_deref(), false))?[0];
     Ok(mrb.str_new(ip.to_string().as_bytes()).as_value())
 }

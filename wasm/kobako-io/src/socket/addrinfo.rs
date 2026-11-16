@@ -11,13 +11,13 @@ use beni::value::qnil;
 use beni::{Error, Integer, IntoValue, Module, Mrb, RArray, RClass, TryConvert, TypedData, Value};
 
 use super::address::{
-    addresses_of, end_of, given, literal_of, named_of, node_of, port_of_service, strtoul,
-    to_sockaddr,
+    addresses_of, end_of, host_and_service_of, literal_of, lookup_text_of, node_of,
+    port_of_service, strtoul, to_sockaddr,
 };
 use super::basic::open_socket_of;
 use super::ip::ensure_reverse_lookup_flag;
 use super::{
-    bare_family, family_of, name_of, resolution_error, socket_error, to_resolution_error,
+    bare_family_of, family_of, name_of, resolution_error, socket_error, to_resolution_error,
     Constants, Family, AF_INET, AF_INET6, EAI_ADDRFAMILY, EAI_BADFLAGS, EAI_FAMILY, EAI_NONAME,
     EAI_SOCKTYPE,
 };
@@ -264,9 +264,9 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
     // which then refuses in `getaddrinfo`'s order: no name, a flag, the
     // family, a service `AI_NUMERICSERV` refuses, a kind, then the service
     // itself. `"*"` names none.
-    let (host_text, service_text) = named_of(mrb, node, service)?;
-    let unnamed = given(host_text.as_deref()).is_none();
-    let numeric_service = given(service_text.as_deref())
+    let (host_text, service_text) = host_and_service_of(mrb, node, service)?;
+    let unnamed = lookup_text_of(host_text.as_deref()).is_none();
+    let numeric_service = lookup_text_of(service_text.as_deref())
         .is_none_or(|text| text.is_empty() || strtoul(text).is_some());
     // CRuby answers a literal address at a numeric port itself, as its
     // `numeric_getaddrinfo` does, reading no flag glibc would refuse.
@@ -350,7 +350,7 @@ fn parts_of(
     // CRuby reads each part before glibc's numeric lookup judges the kind,
     // the service, and the address in turn.
     let named = string_value_of(mrb, parts.entry(mrb, 0)?)?.to_string(mrb)?;
-    let named = Family::Named(bare_family(&named).to_string())
+    let named = Family::Named(bare_family_of(&named).to_string())
         .ip_number()
         .ok_or_else(|| socket_error(mrb, &format!("unknown address family: {named}")))?;
     let number = crate::convert::num2int(mrb, parts.entry(mrb, 1)?)?;

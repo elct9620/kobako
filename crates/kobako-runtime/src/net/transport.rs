@@ -248,7 +248,7 @@ mod tests {
         assert_eq!(
             (
                 failures.clone().map(|err| to_error(&to_io(err))),
-                HttpError::from_io(&to_io(Errno::OutOfMemory))
+                HttpError::from_tls(&to_io(Errno::OutOfMemory))
             ),
             (failures, HttpError::Internal),
             "a failure the upstream socket answers must read back as the same errno once it \

@@ -182,7 +182,7 @@ fn io_wait(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
         });
     }
     let targets = targets_of(mrb, self_, events)?;
-    let mask = ready_mask(mrb, targets, timeout)?;
+    let mask = wait_for_ready(mrb, targets, timeout)?;
     Ok(match (mask, fast) {
         (0, _) => qnil().as_value(),
         (mask, true) => mask.into_value(mrb),
@@ -244,7 +244,7 @@ fn wait_for(mrb: &Mrb, self_: Value, args: &[Value], event: i64) -> Result<Value
     if event == IO_READABLE && socket::holds_buffered(mrb, self_) {
         return Ok(true.into_value(mrb));
     }
-    Ok(match ready_mask(mrb, targets, timeout)? {
+    Ok(match wait_for_ready(mrb, targets, timeout)? {
         0 => qnil().as_value(),
         _ => self_,
     })
@@ -260,8 +260,9 @@ fn targets_of(mrb: &Mrb, io: Value, events: i64) -> Result<Vec<(i64, WaitTarget,
         .collect()
 }
 
-/// The bits of `targets` that came ready within `timeout`, 0 at the timeout.
-fn ready_mask(
+/// Wait until `targets` come ready or `timeout` passes, answering the bits
+/// of those that came ready, 0 at the timeout.
+fn wait_for_ready(
     mrb: &Mrb,
     targets: Vec<(i64, WaitTarget, c_short)>,
     timeout: Option<Value>,

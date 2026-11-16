@@ -44,13 +44,13 @@ pub trait ProtocolFamily: Send + Sync {
         local: SocketAddr,
         addr: SocketAddr,
     ) -> io::Result<Option<SocketAddr>> {
-        Ok(same_family(local, addr).then_some(addr))
+        Ok(is_same_family(local, addr).then_some(addr))
     }
 }
 
 /// Whether `local` and `peer` are both IPv4 or both IPv6, as a socket bound
 /// at one may connect to the other.
-pub(crate) fn same_family(local: SocketAddr, peer: SocketAddr) -> bool {
+pub(crate) fn is_same_family(local: SocketAddr, peer: SocketAddr) -> bool {
     local.is_ipv4() == peer.is_ipv4()
 }
 
