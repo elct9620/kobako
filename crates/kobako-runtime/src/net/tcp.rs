@@ -13,7 +13,7 @@ use std::time::Duration;
 
 use socket2::{SockRef, TcpKeepalive};
 
-use super::connections::OpenConnections;
+use super::connections::{OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::namespace::Namespace;
 use super::reactor::{Reactor, Ready, Registration};
@@ -213,15 +213,18 @@ impl TcpSock {
     /// its name, through what the socket layer judges after the hooks: the
     /// socket's state, a port from `ports`, and `ruleset`'s filter. The hooks
     /// already judged the name the guest asked for, so they see no real
-    /// address, and the request the proxy dials for already counts against
-    /// the caps, so the socket takes no place of its own.
+    /// address. The socket holds `place`, the request's own, so a socket
+    /// still sending once the request is released counts against the caps
+    /// until it closes, as a guest's socket keeps its place.
     pub(crate) fn connect_upstream(
         &self,
         ports: &Arc<BindHash>,
         ruleset: &Ruleset,
         dest: &Destination,
+        place: &Arc<Place>,
     ) -> Result<(), Errno> {
         self.check_state()?;
+        self.state().inet.place = Some(place.clone());
         self.connect_from_port(ports, || {
             let real = filter_with(ruleset, &*self.family, dest, Protocol::Http)?;
             self.start_connect(&mut self.state(), real, real);

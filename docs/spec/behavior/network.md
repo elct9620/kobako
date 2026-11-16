@@ -331,7 +331,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | an invocation whose sockets, requests, and lookups fill its open connection limit, or the process's |
 | When | the guest connects once more |
-| Then | the connect answers `EAGAIN`, never a Trap, and dials nothing. A socket released gives its place back, and a forked child starts from none |
+| Then | the connect answers `EAGAIN`, never a Trap, and dials nothing. A socket released gives its place back, and a forked child starts from none. A released request whose connection still sends its body keeps its place until that connection closes |
 
 ## `NW-023` A frozen clock beside a socket elapses in host time
 

@@ -91,6 +91,7 @@ impl Connector {
                 })
                 .collect(),
         };
+        let place = self.place.as_ref().ok_or(HttpError::Internal)?;
         let mut last = HttpError::Denied;
         for dest in &dests {
             let sock = TcpSock::create_kern(&self.family, &self.tcp_sockets, &self.cred)
@@ -100,7 +101,7 @@ impl Connector {
             // own socket keeps Linux's default.
             sock.setsockopt(SockOpt::NoDelay, 1)
                 .map_err(|err| HttpError::from_errno(&err))?;
-            match sock.connect_upstream(&self.ports, &self.ruleset, dest) {
+            match sock.connect_upstream(&self.ports, &self.ruleset, dest, place) {
                 Err(Errno::PermissionDenied) => continue,
                 Err(err) => {
                     last = HttpError::from_errno(&err);

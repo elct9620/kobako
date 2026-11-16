@@ -1,7 +1,8 @@
 //! The connections a guest holds open, counted against its Sandbox and the
 //! process, as a cgroup's `pids.max` bounds the tasks beneath it, so one
 //! tenant cannot starve another of host sockets. A socket and an HTTP request
-//! each hold one place until released; a name lookup's place is held by its
+//! each hold one place until released, and a request's connection still
+//! sending holds it until it closes; a name lookup's place is held by its
 //! resolver thread until the resolver returns, so it bounds those threads.
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};

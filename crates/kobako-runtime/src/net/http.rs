@@ -527,7 +527,8 @@ pub struct Exchange {
 impl Exchange {
     /// Send `request` through `seam` on the reactor, dialing through
     /// `connector`; it counts against `open_connections` and the process until
-    /// released, and a full count answers `ConnectionLimitReached`. The
+    /// released and its connection closed, and a full count answers
+    /// `ConnectionLimitReached`. The
     /// request, the seam's read buffer, and the response's buffer count
     /// against `cred`'s memory until then.
     pub(crate) fn start(
@@ -1206,6 +1207,53 @@ mod tests {
             (Some(HttpError::TlsProtocol), 0),
             "an https request through a seam with no trust roots must answer TlsProtocol before \
              dialing the host"
+        );
+    }
+
+    // @behavior NW-022
+    #[test]
+    fn a_released_requests_upstream_still_sending_holds_its_place() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let port = listener.local_addr().unwrap().port();
+        let mut entry = Builder::default();
+        entry.endpoint(Endpoint::new("127.0.0.1", port).unwrap());
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let namespace = Namespace::new(
+            [&network],
+            &crate::net::Backends::new(Arc::new(HostInet), Arc::new(HostInet)),
+            OpenConnections::new(Some(1)),
+            None,
+        )
+        .expect("the endpoints compile")
+        .with_outbound(Arc::new(HyperOutbound::new()));
+        let cred = prepare_creds(&[], None);
+        let authority = format!("127.0.0.1:{port}");
+        let mut request = OutgoingRequest::new("POST", Scheme::Http, &authority);
+        request.path_with_query = "/".to_string();
+        request.body = vec![b'b'; 32 * 1024 * 1024];
+        let exchange = crate::net::send(&namespace, &cred, request).expect("the endpoint admits it");
+        // The peer accepts and never reads, so the request's bytes stay queued.
+        let (peer, _) = listener.accept().expect("the listener accepts");
+        thread::sleep(Duration::from_millis(200));
+        exchange.release();
+        let while_sending = crate::net::send(&namespace, &cred, greeting_request(&authority)).err();
+        drop(peer);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let once_closed = loop {
+            match crate::net::send(&namespace, &cred, greeting_request(&authority)) {
+                Ok(_) => break true,
+                Err(_) if std::time::Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(1))
+                }
+                Err(_) => break false,
+            }
+        };
+        assert_eq!(
+            (while_sending, once_closed),
+            (Some(HttpError::ConnectionLimitReached), true),
+            "a request past an open_connection_limit of 1 must answer ConnectionLimitReached \
+             while a released request's connection still sends its queued body, and send once \
+             that connection closed"
         );
     }
 

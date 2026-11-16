@@ -245,8 +245,8 @@ pub(crate) struct InetSock {
     /// The guest shut its writing side down, as `SEND_SHUTDOWN`.
     pub(crate) send_shutdown: bool,
     /// The socket's place against its Sandbox's cap and the process's, given
-    /// back as it is released.
-    pub(crate) place: Option<Place>,
+    /// back as it is released; an upstream socket shares its request's.
+    pub(crate) place: Option<Arc<Place>>,
     /// Whether the bind named its port, which the socket then keeps once it
     /// closes, as `SOCK_BINDPORT_LOCK` does.
     bindport_locked: bool,
@@ -352,10 +352,12 @@ impl InetSock {
     pub(crate) fn open_place(
         &self,
         open_connections: &Arc<OpenConnections>,
-    ) -> Result<Option<Place>, Errno> {
+    ) -> Result<Option<Arc<Place>>, Errno> {
         match self.place {
             Some(_) => Ok(None),
-            None => open(open_connections).map(Some).ok_or(Errno::WouldBlock),
+            None => open(open_connections)
+                .map(|place| Some(Arc::new(place)))
+                .ok_or(Errno::WouldBlock),
         }
     }
 
