@@ -134,8 +134,9 @@ pub(super) fn named_of(
 /// through an `unsigned int`'s most, as `check_uint` bounds it.
 const INT_TO_UINT: core::ops::RangeInclusive<i64> = i32::MIN as i64..=u32::MAX as i64;
 
-/// The bytes CRuby's `host_str` holds a host in, its NUL among them.
-const NI_MAXHOST: usize = 1025;
+/// The bytes CRuby's `host_str` holds a host in, its NUL among them, as
+/// glibc's `NI_MAXHOST` sizes one.
+pub(super) const NI_MAXHOST: usize = 1025;
 
 /// The bytes of `value` as `StringValueCStr` takes them: a NUL inside raises
 /// `ArgumentError`.
@@ -261,7 +262,7 @@ pub(super) fn service_text_of(mrb: &Mrb, port: Value) -> Result<Option<String>, 
         ));
     }
     let bytes = cstr_bytes_of(mrb, port)?;
-    if bytes.len() >= SERVICE_TEXT_MAX {
+    if bytes.len() >= NI_MAXSERV {
         let message = format!("service name too long ({})", bytes.len());
         return Err(argument_error(mrb, &message));
     }
@@ -284,8 +285,9 @@ pub(super) fn port_of_service(mrb: &Mrb, service: Option<&str>) -> Result<u16, E
     Ok(number as u16)
 }
 
-/// The bytes CRuby's `port_str` holds a service in, its NUL among them.
-const SERVICE_TEXT_MAX: usize = 32;
+/// The bytes CRuby's `port_str` holds a service in, its NUL among them, as
+/// glibc's `NI_MAXSERV` sizes one.
+pub(super) const NI_MAXSERV: usize = 32;
 
 /// What a Fixnum holds on a 64-bit CRuby, past which an Integer is a Bignum.
 const FIXNUM_MAX: i64 = (1 << 62) - 1;

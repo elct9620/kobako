@@ -32,6 +32,7 @@ use beni::{
 };
 
 pub(crate) use address::port_of;
+use address::{NI_MAXHOST, NI_MAXSERV};
 pub(crate) use basic::{is_open_socket, readiness_of, select_readiness_of, Readiness};
 pub(crate) use buffer::holds_buffered;
 
@@ -81,7 +82,7 @@ const AF_INET6: i64 = 10;
 /// defines each in both.
 pub(super) struct Constants {
     socket: RClass,
-    pub(super) module: RModule,
+    module: RModule,
 }
 
 impl Constants {
@@ -121,19 +122,19 @@ const SOCKET_CONSTANTS: &[(&str, i64)] = &[
     ("INADDR_LOOPBACK", 0x7f00_0001),
     ("INADDR_BROADCAST", 0xffff_ffff),
     ("INADDR_NONE", 0xffff_ffff),
-    ("EAI_BADFLAGS", -1),
+    ("EAI_BADFLAGS", EAI_BADFLAGS.0 as i64),
     ("EAI_NONAME", EAI_NONAME.0 as i64),
     ("EAI_AGAIN", EAI_AGAIN.0 as i64),
     ("EAI_FAIL", EAI_FAIL.0 as i64),
-    ("EAI_FAMILY", -6),
-    ("EAI_SOCKTYPE", -7),
+    ("EAI_FAMILY", EAI_FAMILY.0 as i64),
+    ("EAI_SOCKTYPE", EAI_SOCKTYPE.0 as i64),
     ("EAI_SERVICE", EAI_SERVICE.0 as i64),
-    ("EAI_ADDRFAMILY", -9),
+    ("EAI_ADDRFAMILY", EAI_ADDRFAMILY.0 as i64),
     ("EAI_MEMORY", -10),
     ("EAI_SYSTEM", -11),
     ("EAI_OVERFLOW", -12),
-    ("NI_MAXHOST", 1025),
-    ("NI_MAXSERV", 32),
+    ("NI_MAXHOST", NI_MAXHOST as i64),
+    ("NI_MAXSERV", NI_MAXSERV as i64),
 ];
 
 /// The address families CRuby's `Socket` names, each also spelled with `AF_`
@@ -298,12 +299,16 @@ fn resolution_error_code(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
     }
 }
 
-/// Linux's `EAI_NONAME`, `EAI_AGAIN`, `EAI_FAIL`, and `EAI_SERVICE`, with
-/// `gai_strerror`'s words for each.
+/// glibc's `getaddrinfo` codes on Linux, with `gai_strerror`'s words for
+/// each.
+const EAI_BADFLAGS: (i32, &str) = (-1, "Bad value for ai_flags");
 pub(crate) const EAI_NONAME: (i32, &str) = (-2, "Name or service not known");
 const EAI_AGAIN: (i32, &str) = (-3, "Temporary failure in name resolution");
 const EAI_FAIL: (i32, &str) = (-4, "Non-recoverable failure in name resolution");
+const EAI_FAMILY: (i32, &str) = (-6, "ai_family not supported");
+const EAI_SOCKTYPE: (i32, &str) = (-7, "ai_socktype not supported");
 const EAI_SERVICE: (i32, &str) = (-8, "Servname not supported for ai_socktype");
+const EAI_ADDRFAMILY: (i32, &str) = (-9, "Address family for hostname not supported");
 
 /// The `Socket::ResolutionError` CRuby raises for a `getaddrinfo` failure.
 fn resolution_error(mrb: &Mrb, (code, words): (i32, &str)) -> Error {

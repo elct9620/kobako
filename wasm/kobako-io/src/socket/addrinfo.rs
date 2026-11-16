@@ -18,7 +18,8 @@ use super::basic::open_socket_of;
 use super::ip::ensure_reverse_lookup_flag;
 use super::{
     bare_family, family_of, name_of, resolution_error, socket_error, to_resolution_error,
-    Constants, Family, AF_INET, AF_INET6, EAI_NONAME,
+    Constants, Family, AF_INET, AF_INET6, EAI_ADDRFAMILY, EAI_BADFLAGS, EAI_FAMILY, EAI_NONAME,
+    EAI_SOCKTYPE,
 };
 use crate::convert::string_value_of;
 use crate::io::{argument_error, split_options};
@@ -67,13 +68,6 @@ const NI_NUMERICHOST: i64 = 1;
 const NI_NUMERICSERV: i64 = 2;
 /// Every flag glibc's `getnameinfo` takes, its `NI_IDN` ones among them.
 const NI_FLAGS: i64 = 0xff;
-
-/// glibc's `EAI_BADFLAGS`, `EAI_SOCKTYPE`, `EAI_FAMILY`, and
-/// `EAI_ADDRFAMILY`, with `gai_strerror`'s words for each.
-const EAI_BADFLAGS: (i32, &str) = (-1, "Bad value for ai_flags");
-const EAI_SOCKTYPE: (i32, &str) = (-7, "ai_socktype not supported");
-const EAI_FAMILY: (i32, &str) = (-6, "ai_family not supported");
-const EAI_ADDRFAMILY: (i32, &str) = (-9, "Address family for hostname not supported");
 
 /// One address and the kind of socket it is for, kept in its payload so a
 /// script's instance variables cannot rewrite it.
