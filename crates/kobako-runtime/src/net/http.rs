@@ -417,6 +417,8 @@ pub enum HttpError {
     Denied,
     /// The authority's name resolves to nothing.
     DestinationNotFound,
+    /// No route reaches the authority's address.
+    DestinationUnavailable,
     /// The authority refused the connection.
     ConnectionRefused,
     /// The connection did not open in time.
@@ -431,6 +433,8 @@ pub enum HttpError {
     ConnectionLimitReached,
     /// The server's certificate is not one the host's store trusts.
     TlsCertificate,
+    /// The server ended TLS with the alert of this id.
+    TlsAlertReceived(u8),
     /// TLS could not be agreed with the server.
     TlsProtocol,
     /// The seam failed in a way no other code names.
@@ -1022,6 +1026,9 @@ impl HttpError {
             .and_then(|inner| inner.downcast_ref::<rustls::Error>())
         {
             Some(rustls::Error::InvalidCertificate(_)) => return Self::TlsCertificate,
+            Some(rustls::Error::AlertReceived(alert)) => {
+                return Self::TlsAlertReceived(u8::from(*alert))
+            }
             Some(_) => return Self::TlsProtocol,
             None => {}
         }
@@ -1031,12 +1038,17 @@ impl HttpError {
         Self::from_errno(&to_error(err))
     }
 
-    /// The code a connection failing with `err` answers; memory the socket
-    /// could not reserve is the seam's own failure.
+    /// The code a connection failing with `err` answers, as wasmtime-wasi-http
+    /// names each; memory the socket could not reserve is the seam's own
+    /// failure.
     pub(crate) fn from_errno(err: &Errno) -> Self {
         match err {
             Errno::OutOfMemory => Self::Internal,
             Errno::TimedOut => Self::ConnectionTimeout,
+            Errno::HostUnreachable
+            | Errno::NetworkUnreachable
+            | Errno::NetworkDown
+            | Errno::AddressFamilyNotSupported => Self::DestinationUnavailable,
             Errno::ConnectionReset | Errno::ConnectionAborted => Self::ConnectionTerminated,
             _ => Self::ConnectionRefused,
         }
@@ -1081,21 +1093,34 @@ mod tests {
             io::ErrorKind::ConnectionAborted,
             io::ErrorKind::InvalidData,
             io::ErrorKind::HostUnreachable,
+            io::ErrorKind::NetworkUnreachable,
+            io::ErrorKind::NetworkDown,
         ]
         .map(|kind| HttpError::from_io(&io::Error::from(kind)));
+        let alert = io::Error::new(
+            io::ErrorKind::InvalidData,
+            rustls::Error::AlertReceived(rustls::AlertDescription::HandshakeFailure),
+        );
         assert_eq!(
-            codes,
-            [
-                HttpError::ConnectionTimeout,
-                HttpError::ConnectionRefused,
-                HttpError::ConnectionTerminated,
-                HttpError::ConnectionTerminated,
-                HttpError::TlsProtocol,
-                HttpError::ConnectionRefused,
-            ],
+            (codes, HttpError::from_io(&alert)),
+            (
+                [
+                    HttpError::ConnectionTimeout,
+                    HttpError::ConnectionRefused,
+                    HttpError::ConnectionTerminated,
+                    HttpError::ConnectionTerminated,
+                    HttpError::TlsProtocol,
+                    HttpError::DestinationUnavailable,
+                    HttpError::DestinationUnavailable,
+                    HttpError::DestinationUnavailable,
+                ],
+                HttpError::TlsAlertReceived(40)
+            ),
             "a dial that timed out, was refused, reset, aborted, sent bytes TLS could not read, or \
-             found no host must answer connection-timeout, connection-refused, \
-             connection-terminated twice, TLS-protocol-error, and connection-refused"
+             found no route to its host or network must answer connection-timeout, \
+             connection-refused, connection-terminated twice, TLS-protocol-error, and \
+             destination-unavailable three times, and a handshake_failure alert the server sent \
+             must answer TLS-alert-received with its id, as wasmtime-wasi-http names each"
         );
     }
 

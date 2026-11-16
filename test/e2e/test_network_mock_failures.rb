@@ -45,6 +45,30 @@ class TestE2ENetworkMockFailures < Minitest::Test
                  "the code wasmtime-wasi gives that errno"
   end
 
+  # Each errno a host socket's dial fails with under a request, and the Errno
+  # the guest's Net::HTTP raises for the wasi:http code it answers.
+  REQUEST_FAILURES = {
+    "ECONNREFUSED" => "Errno::ECONNREFUSED", "EHOSTUNREACH" => "Errno::EHOSTUNREACH",
+    "ENETUNREACH" => "Errno::EHOSTUNREACH", "ENETDOWN" => "Errno::EHOSTUNREACH",
+    "EAFNOSUPPORT" => "Errno::EHOSTUNREACH"
+  }.freeze
+
+  # What the guest's request to `web.test` raises when the host fails its
+  # dial with the errno +name+.
+  def request_raised_for(name)
+    mock = mock_resolving({ "web.test" => PUBLIC })
+    mock.refuse(PUBLIC, 80, Errno.const_get(name))
+    sandbox = mock_sandbox(mock) { |net| net.endpoint "web.test", port: 80 }
+    sandbox.eval(format(HTTP_EACH, hosts: ["web.test"])).value.first
+  end
+
+  # @behavior NW-225
+  def test_a_request_whose_dial_fails_answers_the_code_wasmtime_wasi_http_gives_it
+    assert_equal REQUEST_FAILURES, REQUEST_FAILURES.keys.to_h { |name| [name, request_raised_for(name)] },
+                 "a Net::HTTP request whose dial fails on the host with each errno must raise what its wasi:http " \
+                 "code reads as, the code wasmtime-wasi-http gives that errno"
+  end
+
   HTTP_EACH = <<~RUBY
     %<hosts>p.map do |host|
       Net::HTTP.get(host, "/")

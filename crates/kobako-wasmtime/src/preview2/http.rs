@@ -14,6 +14,7 @@ use kobako_runtime::net::{self, Exchange, FieldError, RequestBody};
 use super::bindings::wasi_http_types_0_2_12::{
     ErrorCode, Fields, FutureIncomingResponse, FutureTrailers, HeaderError, IncomingBody,
     IncomingResponse, Method, OutgoingBody, OutgoingRequest, RequestOptions, Scheme,
+    TLSAlertReceivedPayload,
 };
 use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
@@ -157,6 +158,7 @@ fn to_error_code(err: net::HttpError) -> ErrorCode {
     match err {
         net::HttpError::Denied => ErrorCode::HTTPRequestDenied,
         net::HttpError::DestinationNotFound => ErrorCode::DestinationNotFound,
+        net::HttpError::DestinationUnavailable => ErrorCode::DestinationUnavailable,
         net::HttpError::ConnectionRefused => ErrorCode::ConnectionRefused,
         net::HttpError::ConnectionTimeout => ErrorCode::ConnectionTimeout,
         net::HttpError::ConnectionReadTimeout => ErrorCode::ConnectionReadTimeout,
@@ -164,6 +166,12 @@ fn to_error_code(err: net::HttpError) -> ErrorCode {
         net::HttpError::ProtocolError => ErrorCode::HTTPProtocolError,
         net::HttpError::ConnectionLimitReached => ErrorCode::ConnectionLimitReached,
         net::HttpError::TlsCertificate => ErrorCode::TLSCertificateError,
+        net::HttpError::TlsAlertReceived(alert_id) => {
+            ErrorCode::TLSAlertReceived(TLSAlertReceivedPayload {
+                alert_id: Some(alert_id),
+                alert_message: None,
+            })
+        }
         net::HttpError::TlsProtocol => ErrorCode::TLSProtocolError,
         _ => ErrorCode::InternalError(None),
     }

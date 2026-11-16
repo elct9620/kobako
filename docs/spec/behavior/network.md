@@ -2809,3 +2809,15 @@ endpoint "api.example.com", port: 443
 | Given | a guest's `Socket` and `IPSocket` |
 | When | the script names each constant the guest takes, waits on a socket with `IO#wait`, and calls `IPSocket.getaddress` |
 | Then | each constant holds CRuby's number on Linux, on `Socket` and on `Socket::Constants`. `IO#wait` answers each mode as CRuby's. `getaddress` answers the address a host spells |
+
+## `NW-225` A request whose dial fails answers the code wasmtime-wasi-http gives it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-074` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an HTTP request whose dial the host fails |
+| When | the guest reads why the request has no response |
+| Then | ECONNREFUSED answers `connection-refused`. EHOSTUNREACH, ENETUNREACH, ENETDOWN, and EAFNOSUPPORT answer `destination-unavailable`, which `Net::HTTP` raises as `Errno::EHOSTUNREACH`. A TLS alert the server sends answers `TLS-alert-received` with its id |

@@ -1017,6 +1017,7 @@ fn to_error(mrb: &Mrb, parts: &RequestParts<'_>, code: ErrorCode) -> Error {
     match code {
         ErrorCode::HttpRequestDenied => connect(c"EACCES"),
         ErrorCode::ConnectionRefused => connect(c"ECONNREFUSED"),
+        ErrorCode::DestinationUnavailable => connect(c"EHOSTUNREACH"),
         ErrorCode::ConnectionLimitReached => connect(c"EAGAIN"),
         ErrorCode::DestinationNotFound | ErrorCode::DnsError(_) => {
             let (code, words) = socket::EAI_NONAME;
