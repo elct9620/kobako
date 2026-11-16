@@ -64,7 +64,7 @@ extern "C" {
 /// carry it; any other failure is `Again`, as `kDNSServiceErr_Timeout` and an
 /// unreachable mDNSResponder leave a lookup that asking again may answer.
 pub(super) fn resolve(name: &str) -> Resolving {
-    match Lookup::start(name) {
+    match Queries::start(name) {
         Ok(lookup) => Box::pin(lookup),
         Err(err) if err.kind() == io::ErrorKind::InvalidInput => {
             Box::pin(std::future::ready(Err(LookupError::NoName)))
@@ -222,12 +222,12 @@ unsafe fn ip_of(address: *const libc::sockaddr) -> Option<IpAddr> {
 }
 
 /// An IPv6 and an IPv4 query for one name, answered once both are.
-struct Lookup {
+struct Queries {
     queries: [Query; 2],
     waker: Arc<ReadyWaker>,
 }
 
-impl Lookup {
+impl Queries {
     fn start(name: &str) -> io::Result<Self> {
         let name = CString::new(name).map_err(|_| io::ErrorKind::InvalidInput)?;
         let reactor = Reactor::current()?;
@@ -242,7 +242,7 @@ impl Lookup {
     }
 }
 
-impl Future for Lookup {
+impl Future for Queries {
     type Output = Result<Vec<IpAddr>, LookupError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {

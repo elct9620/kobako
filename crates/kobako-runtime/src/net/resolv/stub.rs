@@ -34,8 +34,9 @@ const MAXNS: usize = 3;
 /// The port a name server answers on.
 const NAMESERVER_PORT: u16 = 53;
 
-/// The largest reply a UDP read takes, past which a server truncates.
-const MAX_UDP_REPLY: usize = 512;
+/// glibc's `PACKETSZ`: the largest reply a UDP read takes, past which a
+/// server truncates.
+const PACKETSZ: usize = 512;
 
 pub(super) fn resolve(name: &str) -> Resolving {
     let bare = name.strip_suffix('.').unwrap_or(name).to_string();
@@ -394,7 +395,7 @@ impl WatchedSocket<mio::net::UdpSocket> {
         name: &str,
         deadline: Instant,
     ) -> io::Result<()> {
-        let mut buffer = [0u8; MAX_UDP_REPLY];
+        let mut buffer = [0u8; PACKETSZ];
         while replies.iter().any(Option::is_none) {
             let Some(read) = self.recv(&mut buffer, deadline).await? else {
                 return Ok(());

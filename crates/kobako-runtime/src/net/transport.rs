@@ -31,7 +31,6 @@ use crate::Errno;
 /// request named, resolving a name on the host and dialing each real address
 /// in turn through a socket the ruleset filters.
 pub struct Connector {
-    host: Host,
     port: u16,
     ruleset: Arc<Ruleset>,
     family: Arc<dyn ProtocolFamily>,
@@ -61,15 +60,19 @@ impl Connector {
         port: u16,
         place: Arc<Place>,
     ) -> Self {
-        let target = match &host {
-            Host::Address(ip) => Target::Address(*ip),
-            Host::Name(name) => Target::Named(
-                NameLookup::start_holding(net.resolver().clone(), name.clone(), place.clone())
-                    .map_err(|_| HttpError::ConnectionLimitReached),
-            ),
+        let target = match host {
+            Host::Address(ip) => Target::Address(ip),
+            Host::Name(name) => Target::Named {
+                lookup: NameLookup::start_holding(
+                    net.resolver().clone(),
+                    name.clone(),
+                    place.clone(),
+                )
+                .map_err(|_| HttpError::ConnectionLimitReached),
+                name,
+            },
         };
         Self {
-            host,
             port,
             ruleset: net.ruleset().clone(),
             family: net.family().clone(),
@@ -85,7 +88,11 @@ impl Connector {
 
     /// The host and port the request named.
     pub fn authority(&self) -> (String, u16) {
-        (self.host.to_string(), self.port)
+        let host = match &self.target {
+            Target::Address(ip) => ip.to_string(),
+            Target::Named { name, .. } => name.clone(),
+        };
+        (host, self.port)
     }
 
     /// A connection to the authority, once one of its addresses answers. The
@@ -96,7 +103,7 @@ impl Connector {
     pub async fn dial(&self) -> Result<Transport, HttpError> {
         let dests = match &self.target {
             Target::Address(ip) => vec![Destination::Literal(SocketAddr::new(*ip, self.port))],
-            Target::Named(lookup) => {
+            Target::Named { lookup, .. } => {
                 let lookup = lookup.as_ref().map_err(|err| *err)?;
                 poll_fn(|cx| lookup.poll_answer(cx))
                     .await
@@ -143,18 +150,21 @@ impl Connector {
     }
 }
 
-/// Where a connector dials: a literal address, or a named authority's
+/// Where a connector dials: a literal address, or a named authority and its
 /// lookup, started on the thread that sends the request, as a guest's own
 /// lookup is, so the reactor never makes the call a Resolver may block on.
 enum Target {
     Address(IpAddr),
-    Named(Result<Arc<NameLookup>, HttpError>),
+    Named {
+        name: String,
+        lookup: Result<Arc<NameLookup>, HttpError>,
+    },
 }
 
 impl fmt::Debug for Connector {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Connector")
-            .field("host", &self.host)
+            .field("host", &self.authority().0)
             .field("port", &self.port)
             .finish()
     }
