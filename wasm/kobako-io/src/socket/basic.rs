@@ -380,7 +380,7 @@ pub(super) fn dest_sockaddr_of(mrb: &Mrb, dest: Value) -> Result<Value, Error> {
 /// them: a Float drops its fraction, and NaN, an infinity, or a number past
 /// C's `int` raises `RangeError`.
 pub(super) fn flags_of(mrb: &Mrb, flags: Value) -> Result<i64, Error> {
-    Ok(i64::from(to_int(mrb, flags)?.to_i32(mrb)?))
+    Ok(i64::from(crate::convert::num2int(mrb, flags)?))
 }
 
 /// `send(mesg, flags[, dest])` sends every byte of `mesg` past any buffer,

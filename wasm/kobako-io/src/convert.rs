@@ -55,6 +55,19 @@ pub(crate) fn string_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error>
     Ok(unsafe { string.as_slice(mrb) }.to_vec())
 }
 
+/// `value` as CRuby's `NUM2INT` reads it: `rb_to_int`'s Integer, past C's
+/// `int` raising `RangeError` too big above and too small below.
+pub(crate) fn num2int(mrb: &Mrb, value: Value) -> Result<i32, Error> {
+    let number = crate::io::to_int(mrb, value)?.to_i64(mrb)?;
+    ensure_fits(
+        mrb,
+        number,
+        i64::from(i32::MIN)..=i64::from(i32::MAX),
+        "int",
+    )?;
+    Ok(number as i32)
+}
+
 /// Raise `RangeError` for `number` outside what a C `c_type` holds, `range`,
 /// as CRuby's `check_int` and `rb_num2uint` word it: too big above, too
 /// small below.

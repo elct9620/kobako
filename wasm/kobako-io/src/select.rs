@@ -164,9 +164,7 @@ fn io_wait(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let fast = args.len() == 2 && args.iter().all(|arg| Symbol::from_value(*arg).is_none());
     let (events, timeout) = match fast {
         true => {
-            let events = crate::io::to_int(mrb, args[0])?.to_i64(mrb)?;
-            let int = i64::from(i32::MIN)..=i64::from(i32::MAX);
-            crate::convert::ensure_fits(mrb, events, int, "int")?;
+            let events = i64::from(crate::convert::num2int(mrb, args[0])?);
             if events <= 0 {
                 return Err(crate::io::argument_error(
                     mrb,

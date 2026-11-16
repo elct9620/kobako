@@ -33,6 +33,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_order_cruby.rb`
 - `test/e2e/test_network_socket_corners_cruby.rb`
 - `test/e2e/test_network_lookup_arguments_cruby.rb`
+- `test/e2e/test_network_lookup_ints_cruby.rb`
 - `test/e2e/test_network_addrinfo_array_cruby.rb`
 - `test/e2e/test_network_addrinfo_kinds.rb`
 - `test/e2e/test_network_socket_constants_cruby.rb`

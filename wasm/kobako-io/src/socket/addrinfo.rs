@@ -21,7 +21,7 @@ use super::{
     AF_INET, AF_INET6, EAI_NONAME,
 };
 use crate::convert::string_value_of;
-use crate::io::{argument_error, split_options, to_int};
+use crate::io::{argument_error, split_options};
 
 /// Linux's socket kinds, and the protocols each IP kind carries.
 pub(super) const SOCK_STREAM: i64 = 1;
@@ -209,7 +209,7 @@ fn socktype_of(mrb: &Mrb, value: Option<Value>) -> Result<i64, Error> {
         return Ok(0);
     };
     let Some(name) = name_of(mrb, value)? else {
-        return to_int(mrb, value)?.to_i64(mrb);
+        return crate::convert::num2int(mrb, value).map(i64::from);
     };
     match name.strip_prefix("SOCK_").unwrap_or(&name) {
         "STREAM" => Ok(SOCK_STREAM),
@@ -374,20 +374,14 @@ fn parts_of(
             ))
         }
     };
-    let number = to_int(mrb, parts.entry(mrb, 1)?)?.to_i64(mrb)?;
-    crate::convert::ensure_fits(
-        mrb,
-        number,
-        i64::from(i32::MIN)..=i64::from(i32::MAX),
-        "int",
-    )?;
+    let number = i64::from(crate::convert::num2int(mrb, parts.entry(mrb, 1)?)?);
     let host: Value = parts.entry(mrb, 2)?;
     let host = (!host.is_nil())
         .then(|| string_value_of(mrb, host)?.to_string(mrb))
         .transpose()?;
     let address = string_value_of(mrb, parts.entry(mrb, 3)?)?.to_string(mrb)?;
     let protocol = match protocol.filter(|protocol| !protocol.is_nil()) {
-        Some(protocol) => to_int(mrb, protocol)?.to_i64(mrb)?,
+        Some(protocol) => i64::from(crate::convert::num2int(mrb, protocol)?),
         None => 0,
     };
     let hints = Hints {
@@ -421,13 +415,7 @@ fn addrinfos_of(
 ) -> Result<Vec<Addrinfo>, Error> {
     let found = lookup(mrb, node, service, hints)?;
     if Integer::from_value(service).is_some() {
-        let number = i64::try_convert(service, mrb)?;
-        crate::convert::ensure_fits(
-            mrb,
-            number,
-            i64::from(i32::MIN)..=i64::from(i32::MAX),
-            "int",
-        )?;
+        crate::convert::num2int(mrb, service)?;
     }
     Ok(found)
 }
@@ -461,11 +449,11 @@ fn kinds_of(mrb: &Mrb, hints: &Hints) -> Result<Vec<(i64, i64)>, Error> {
 fn hints_of(mrb: &Mrb, args: &[Value]) -> Result<Hints, Error> {
     let at = |i: usize| args.get(i).copied();
     let flags = match at(3).filter(|flags| !flags.is_nil()) {
-        Some(flags) => to_int(mrb, flags)?.to_i64(mrb)?,
+        Some(flags) => i64::from(crate::convert::num2int(mrb, flags)?),
         None => 0,
     };
     let protocol = match at(2).filter(|protocol| !protocol.is_nil()) {
-        Some(protocol) => to_int(mrb, protocol)?.to_i64(mrb)?,
+        Some(protocol) => i64::from(crate::convert::num2int(mrb, protocol)?),
         None => 0,
     };
     Ok(Hints {
@@ -558,7 +546,7 @@ fn addrinfo_s_new(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Erro
         }
     };
     let protocol = match at(2).filter(|protocol| !protocol.is_nil()) {
-        Some(protocol) => to_int(mrb, protocol)?.to_i64(mrb)?,
+        Some(protocol) => i64::from(crate::convert::num2int(mrb, protocol)?),
         None => 0,
     };
     let mut info = Addrinfo::new(ip, port, (socktype_of(mrb, at(1))?, protocol));
@@ -725,7 +713,7 @@ fn addrinfo_getnameinfo(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value
     if let Some(flags) = args.first().filter(|_| args.len() == 1) {
         let flags = match flags.is_nil() {
             true => 0,
-            false => to_int(mrb, *flags)?.to_i64(mrb)?,
+            false => i64::from(crate::convert::num2int(mrb, *flags)?),
         };
         if flags & !NI_FLAGS != 0 {
             let (code, words) = EAI_BADFLAGS;

@@ -456,9 +456,7 @@ fn to_putc_byte(mrb: &Mrb, obj: Value) -> Result<Option<u8>, Error> {
         // SAFETY: the first byte is copied out before the next mruby call.
         return Ok(unsafe { s.as_slice(mrb) }.first().copied());
     }
-    let wide = to_int(mrb, obj)?.to_i64(mrb)?;
-    crate::convert::ensure_fits(mrb, wide, i64::from(i32::MIN)..=i64::from(i32::MAX), "int")?;
-    Ok(Some(wide as u8))
+    Ok(Some(crate::convert::num2int(mrb, obj)? as u8))
 }
 
 /// The Integer `obj` stands for, as CRuby's `rb_num2long` reads it: an

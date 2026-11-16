@@ -245,7 +245,9 @@ fn socket_error(mrb: &Mrb, message: &str) -> Error {
 /// String, or an Integer; a name no family has raises `SocketError`.
 fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
     let Some(name) = name_of(mrb, value)? else {
-        return Ok(Family::Number(crate::io::to_int(mrb, value)?.to_i64(mrb)?));
+        return Ok(Family::Number(i64::from(crate::convert::num2int(
+            mrb, value,
+        )?)));
     };
     let bare = name
         .strip_prefix("AF_")
