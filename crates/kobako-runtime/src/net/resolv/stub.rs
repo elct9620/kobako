@@ -445,24 +445,21 @@ impl<S: Source> WatchedSocket<S> {
     }
 
     /// Wait until the socket changes, `false` once `deadline` passes first.
+    /// The timer goes with the wait it bounds, whether it ends or is
+    /// cancelled.
     async fn wait_for_change(&self, deadline: Instant) -> bool {
-        let mut armed = false;
+        let mut timer = None;
         poll_fn(|cx| {
             if self.waker.poll_changed(cx).is_ready() {
-                // The timer goes with the wait it bounded.
-                if let (true, Ok(reactor)) = (armed, Reactor::current()) {
-                    reactor.disarm(cx.waker());
-                }
                 return Poll::Ready(true);
             }
             if Instant::now() >= deadline {
                 return Poll::Ready(false);
             }
-            if !armed {
-                armed = true;
-                if let Ok(reactor) = Reactor::current() {
-                    reactor.wake_at(deadline, cx.waker().clone());
-                }
+            if timer.is_none() {
+                timer = Reactor::current()
+                    .ok()
+                    .map(|reactor| reactor.wake_at(deadline, cx.waker().clone()));
             }
             Poll::Pending
         })

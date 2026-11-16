@@ -138,22 +138,25 @@ impl Reactor {
     }
 
     /// Wake `waker` once `at` passes, in place of any instant its task asked
-    /// for before, as `hrtimer_start` moves a task's one timer. A task holds
-    /// one timer until it is due or disarmed; one a cancelled task left stays
-    /// until it is due. Only the stub resolver times its retries this way.
+    /// for before, as `hrtimer_start` moves a task's one timer. The timer
+    /// lasts until it is due or its `Timer` drops, so a wait that ends or is
+    /// cancelled leaves none behind.
     #[cfg(any(test, all(unix, not(target_os = "macos"))))]
-    pub(crate) fn wake_at(&self, at: Instant, waker: Waker) {
+    pub(crate) fn wake_at(self: &Arc<Self>, at: Instant, waker: Waker) -> Timer {
         let mut timers = self.timers.lock().unwrap_or_else(PoisonError::into_inner);
         timers.retain(|(_, armed)| !armed.will_wake(&waker));
-        timers.push((at, waker));
+        timers.push((at, waker.clone()));
         drop(timers);
         let _ = self.waker.wake();
+        Timer {
+            reactor: self.clone(),
+            waker,
+        }
     }
 
-    /// Drop the timer `waker`'s task holds, as `hrtimer_cancel` does once the
-    /// wait it bounded ends.
+    /// Drop the timer `waker`'s task holds, as `hrtimer_cancel` does.
     #[cfg(any(test, all(unix, not(target_os = "macos"))))]
-    pub(crate) fn disarm(&self, waker: &Waker) {
+    fn disarm(&self, waker: &Waker) {
         self.timers
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -290,6 +293,20 @@ impl Drop for Registration {
     }
 }
 
+/// A task's armed timer, disarmed as it drops.
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+pub(crate) struct Timer {
+    reactor: Arc<Reactor>,
+    waker: Waker,
+}
+
+#[cfg(any(test, all(unix, not(target_os = "macos"))))]
+impl Drop for Timer {
+    fn drop(&mut self) {
+        self.reactor.disarm(&self.waker);
+    }
+}
+
 /// A future the reactor runs, as an executor's task.
 pub(crate) struct Task {
     future: Mutex<Option<Pin<Box<dyn Future<Output = ()> + Send>>>>,
@@ -390,15 +407,12 @@ mod tests {
         let due = Instant::now() + Duration::from_millis(50);
         let timing = reactor.clone();
         reactor.spawn(async move {
-            let mut armed = false;
+            let mut timer = None;
             std::future::poll_fn(|cx| {
                 if Instant::now() >= due {
                     return Poll::Ready(());
                 }
-                if !armed {
-                    armed = true;
-                    timing.wake_at(due, cx.waker().clone());
-                }
+                timer.get_or_insert_with(|| timing.wake_at(due, cx.waker().clone()));
                 Poll::Pending
             })
             .await;
@@ -417,27 +431,57 @@ mod tests {
         let reactor = Reactor::current().expect("a reactor starts");
         let waker = Waker::noop().clone();
         let later = Instant::now() + Duration::from_secs(30);
-        (0..3).for_each(|_| reactor.wake_at(later, waker.clone()));
-        let held = reactor
-            .timers
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(_, armed)| armed.will_wake(&waker))
-            .count();
-        reactor.disarm(&waker);
-        let after_disarm = reactor
-            .timers
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|(_, armed)| armed.will_wake(&waker))
-            .count();
+        let armed: Vec<Timer> = (0..3)
+            .map(|_| reactor.wake_at(later, waker.clone()))
+            .collect();
+        let held = timers_of(&reactor, &waker);
+        drop(armed);
         assert_eq!(
-            (held, after_disarm),
+            (held, timers_of(&reactor, &waker)),
             (1, 0),
             "a waker asked to be woken three times must hold one timer, the newest, and none \
-             once disarmed"
+             once its timers drop"
+        );
+    }
+
+    /// How many timers `reactor` holds for `waker`.
+    fn timers_of(reactor: &Reactor, waker: &Waker) -> usize {
+        reactor
+            .timers
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, armed)| armed.will_wake(waker))
+            .count()
+    }
+
+    // A task cancelled while its timer is armed leaves no timer behind, so a
+    // guest dropping lookups never fills the reactor's timers.
+    #[test]
+    fn a_cancelled_task_leaves_no_timer() {
+        let reactor = Reactor::current().expect("a reactor starts");
+        let (armed_tx, armed_rx) = mpsc::channel();
+        let timing = reactor.clone();
+        let later = Instant::now() + Duration::from_secs(30);
+        let task = reactor.spawn(async move {
+            let mut timer = None;
+            std::future::poll_fn(|cx| {
+                timer.get_or_insert_with(|| timing.wake_at(later, cx.waker().clone()));
+                let _ = armed_tx.send(());
+                Poll::<()>::Pending
+            })
+            .await;
+        });
+        armed_rx
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the task arms its timer");
+        let waker = Waker::from(task.clone());
+        let held = timers_of(&reactor, &waker);
+        task.cancel();
+        assert_eq!(
+            (held, timers_of(&reactor, &waker)),
+            (1, 0),
+            "a cancelled lookup's timer must leave the reactor with the lookup, not stay until due"
         );
     }
 }
