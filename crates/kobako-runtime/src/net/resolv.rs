@@ -3,14 +3,21 @@
 //! dropped, so no lookup holds a thread that outlives it, as glibc's
 //! `getaddrinfo` would.
 
-#[cfg(all(unix, not(target_os = "macos")))]
-mod blocking;
 #[cfg(target_os = "macos")]
 mod darwin;
+#[cfg(all(unix, not(target_os = "macos")))]
+mod stub;
 #[cfg(windows)]
 mod windows;
 
+#[cfg(unix)]
+use std::sync::{Mutex, PoisonError};
+#[cfg(unix)]
+use std::task::{Context, Poll, Waker};
+
 use super::lookup::Resolving;
+#[cfg(unix)]
+use super::reactor::Ready;
 
 /// The host's addresses for `name`, a fully qualified name with its root.
 pub(super) fn resolve(name: &str) -> Resolving {
@@ -19,11 +26,43 @@ pub(super) fn resolve(name: &str) -> Resolving {
     #[cfg(windows)]
     return windows::resolve(name);
     #[cfg(all(unix, not(target_os = "macos")))]
-    return blocking::resolve(name);
+    return stub::resolve(name);
+}
+
+/// Wakes the task waiting on a resolver's socket, keeping a change that came
+/// while no task waited, so a task that reads after it learns of it.
+#[cfg(unix)]
+#[derive(Default)]
+struct ReadyWaker(Mutex<(bool, Option<Waker>)>);
+
+#[cfg(unix)]
+impl ReadyWaker {
+    /// Ready once the socket changed since the last ready answer; otherwise
+    /// the task waits for the next change.
+    fn poll_changed(&self, cx: &mut Context<'_>) -> Poll<()> {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        if std::mem::take(&mut state.0) {
+            return Poll::Ready(());
+        }
+        state.1 = Some(cx.waker().clone());
+        Poll::Pending
+    }
+}
+
+#[cfg(unix)]
+impl Ready for ReadyWaker {
+    fn on_event(&self) {
+        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        state.0 = true;
+        if let Some(waker) = state.1.take() {
+            waker.wake();
+        }
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::future::Future;
     use std::io;
     use std::net::IpAddr;
     use std::sync::Arc;
@@ -42,19 +81,24 @@ mod tests {
         }
     }
 
-    /// `name`'s answer, or `None` once ten seconds pass unanswered.
-    fn answer_of(name: &str) -> Option<io::Result<Vec<IpAddr>>> {
-        let mut resolving = resolve(name);
+    /// What `future` ends with, or `None` once ten seconds pass first.
+    pub(super) fn wait_for<F: Future>(future: F) -> Option<F::Output> {
+        let mut future = std::pin::pin!(future);
         let waker = Arc::new(Unparks(thread::current())).into();
         let mut cx = Context::from_waker(&waker);
         let deadline = Instant::now() + Duration::from_secs(10);
         loop {
-            if let Poll::Ready(answer) = resolving.as_mut().poll(&mut cx) {
-                return Some(answer);
+            if let Poll::Ready(output) = future.as_mut().poll(&mut cx) {
+                return Some(output);
             }
             let left = deadline.checked_duration_since(Instant::now())?;
             thread::park_timeout(left.min(Duration::from_millis(50)));
         }
+    }
+
+    /// `name`'s answer, or `None` once ten seconds pass unanswered.
+    fn answer_of(name: &str) -> Option<io::Result<Vec<IpAddr>>> {
+        wait_for(resolve(name))
     }
 
     #[test]

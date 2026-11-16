@@ -13,6 +13,7 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError, Weak};
 use std::task::{Context, Wake, Waker};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use mio::event::Source;
 use mio::{Events, Interest, Registry, Token};
@@ -43,6 +44,9 @@ pub(crate) struct Reactor {
     /// Whether the thread stopped, its poll having failed, so the next socket
     /// starts another reactor rather than register on one nobody waits on.
     stopped: AtomicBool,
+    /// The wakers due at an instant, as hrtimers wake a task whose timeout
+    /// ends.
+    timers: Mutex<Vec<(Instant, Waker)>>,
 }
 
 /// A reactor, and the process it was started in.
@@ -78,6 +82,7 @@ impl Reactor {
             run_queue: Mutex::default(),
             repoll: Mutex::default(),
             stopped: AtomicBool::new(false),
+            timers: Mutex::default(),
         });
         let running = reactor.clone();
         thread::Builder::new()
@@ -95,7 +100,10 @@ impl Reactor {
             // the next.
             let again =
                 std::mem::take(&mut *self.repoll.lock().unwrap_or_else(PoisonError::into_inner));
-            let wait = (!again.is_empty()).then_some(std::time::Duration::ZERO);
+            let wait = match again.is_empty() {
+                true => self.until_next_timer(),
+                false => Some(Duration::ZERO),
+            };
             if let Err(err) = poll.poll(&mut events, wait) {
                 if err.kind() == io::ErrorKind::Interrupted {
                     continue;
@@ -122,10 +130,42 @@ impl Reactor {
                 .iter()
                 .filter_map(Weak::upgrade)
                 .for_each(|socket| socket.on_event());
+            self.wake_due_timers();
             if run_tasks {
                 self.run_tasks();
             }
         }
+    }
+
+    /// Wake `waker` once `at` passes. Only the stub resolver times its
+    /// retries this way.
+    #[cfg(any(test, all(unix, not(target_os = "macos"))))]
+    pub(crate) fn wake_at(&self, at: Instant, waker: Waker) {
+        self.timers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .push((at, waker));
+        let _ = self.waker.wake();
+    }
+
+    /// How long the poll may wait before the soonest timer is due.
+    fn until_next_timer(&self) -> Option<Duration> {
+        let timers = self.timers.lock().unwrap_or_else(PoisonError::into_inner);
+        let soonest = timers.iter().map(|(at, _)| *at).min()?;
+        Some(soonest.saturating_duration_since(Instant::now()))
+    }
+
+    fn wake_due_timers(&self) {
+        let now = Instant::now();
+        let due: Vec<Waker> = {
+            let mut timers = self.timers.lock().unwrap_or_else(PoisonError::into_inner);
+            let (due, pending) = std::mem::take(&mut *timers)
+                .into_iter()
+                .partition(|(at, _)| *at <= now);
+            *timers = pending;
+            due.into_iter().map(|(_, waker)| waker).collect()
+        };
+        due.into_iter().for_each(Waker::wake);
     }
 
     /// Watch `source` for reading and writing, handing each change to `ready`'s
@@ -326,6 +366,35 @@ mod tests {
         assert!(
             rx.recv_timeout(Duration::from_secs(5)).is_ok(),
             "a task woken from another thread must run on the reactor to its end"
+        );
+    }
+
+    // A task that asks to be woken at an instant runs again once it passes,
+    // with nothing else waking it.
+    #[test]
+    fn a_timer_wakes_its_task_once_due() {
+        let reactor = Reactor::current().expect("a reactor starts");
+        let (tx, rx) = mpsc::channel();
+        let due = Instant::now() + Duration::from_millis(50);
+        let timing = reactor.clone();
+        reactor.spawn(async move {
+            let mut armed = false;
+            std::future::poll_fn(|cx| {
+                if Instant::now() >= due {
+                    return Poll::Ready(());
+                }
+                if !armed {
+                    armed = true;
+                    timing.wake_at(due, cx.waker().clone());
+                }
+                Poll::Pending
+            })
+            .await;
+            tx.send(()).unwrap();
+        });
+        assert!(
+            rx.recv_timeout(Duration::from_secs(5)).is_ok(),
+            "a task the reactor was asked to wake at an instant must run again once it passes"
         );
     }
 }

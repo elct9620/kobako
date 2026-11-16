@@ -93,6 +93,11 @@ rustix = { version = "1.1.4", features = ["fs", "system"] }
 rustix = { version = "1.1.4", features = ["net"] }
 windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_System_IO"] }
 
+# simple-dns reads and writes the DNS messages the Linux stub resolver sends
+# to a name server, its compression loops refused; it pulls in only bitflags.
+[target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+simple-dns = "0.13.0"
+
 # libc asks macOS for the name a directory stores, which a Mount's Policy
 # judges in place of a spelling the host folds, and opens a directory
 # beneath another with O_NOFOLLOW_ANY; rustix has neither.

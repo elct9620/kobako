@@ -12,11 +12,12 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::os::fd::RawFd;
 use std::pin::Pin;
 use std::ptr::NonNull;
-use std::sync::{Arc, Mutex, PoisonError, Weak};
-use std::task::{Context, Poll, Waker};
+use std::sync::{Arc, Weak};
+use std::task::{Context, Poll};
 
 use mio::unix::SourceFd;
 
+use super::ReadyWaker;
 use crate::net::lookup::Resolving;
 use crate::net::reactor::{Reactor, Ready, Registration};
 
@@ -74,18 +75,6 @@ struct Replies {
     addresses: Vec<IpAddr>,
     answered: bool,
     failed: bool,
-}
-
-/// The waker of the task waiting on a query's socket.
-#[derive(Default)]
-struct ReadyWaker(Mutex<Option<Waker>>);
-
-impl Ready for ReadyWaker {
-    fn on_event(&self) {
-        if let Some(waker) = self.0.lock().unwrap_or_else(PoisonError::into_inner).take() {
-            waker.wake();
-        }
-    }
 }
 
 /// One family's query, cancelled as it drops.
@@ -254,11 +243,17 @@ impl Future for Lookup {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // The waker is in place before the sockets are read, so a reply
-        // landing after the read wakes the task.
-        *self.waker.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(cx.waker().clone());
-        self.queries.iter_mut().for_each(Query::take_replies);
-        if !self.queries.iter().all(|query| query.replies().answered) {
-            return Poll::Pending;
+        // landing after the read wakes the task; one landing before it is
+        // read again at once.
+        loop {
+            let changed = self.waker.poll_changed(cx);
+            self.queries.iter_mut().for_each(Query::take_replies);
+            if self.queries.iter().all(|query| query.replies().answered) {
+                break;
+            }
+            if changed.is_pending() {
+                return Poll::Pending;
+            }
         }
         let addresses: Vec<IpAddr> = self
             .queries
