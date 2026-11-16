@@ -248,7 +248,7 @@ pub(crate) fn to_error_code(err: &Errno) -> ErrorCode {
         Errno::OutOfMemory | Errno::NoBufferSpace => ErrorCode::OutOfMemory,
         Errno::TimedOut => ErrorCode::Timeout,
         Errno::WouldBlock => ErrorCode::WouldBlock,
-        Errno::TooManyOpenFiles => ErrorCode::NewSocketLimit,
+        Errno::TooManyOpenFiles | Errno::TooManyOpenFilesInSystem => ErrorCode::NewSocketLimit,
         Errno::AddressNotAvailable => ErrorCode::AddressNotBindable,
         Errno::AddressInUse => ErrorCode::AddressInUse,
         Errno::HostUnreachable | Errno::NetworkUnreachable | Errno::NetworkDown => {
@@ -283,6 +283,9 @@ mod tests {
                 Errno::NoBufferSpace,
                 Errno::DestinationAddressRequired,
                 Errno::ProtocolNotAvailable,
+                Errno::TooManyOpenFiles,
+                Errno::TooManyOpenFilesInSystem,
+                Errno::MessageTooLong,
                 Errno::WouldBlock,
                 Errno::InvalidInput,
             ]
@@ -295,13 +298,17 @@ mod tests {
                 ErrorCode::OutOfMemory,
                 ErrorCode::InvalidState,
                 ErrorCode::NotSupported,
+                ErrorCode::NewSocketLimit,
+                ErrorCode::NewSocketLimit,
+                ErrorCode::DatagramTooLarge,
                 ErrorCode::WouldBlock,
                 ErrorCode::InvalidArgument,
             ],
-            "EPIPE, EADDRINUSE, ECONNRESET, ENETDOWN, ENOBUFS, EDESTADDRREQ, ENOPROTOOPT, EAGAIN, \
-             and EINVAL must answer unknown, address-in-use, connection-reset, \
-             remote-unreachable, out-of-memory, invalid-state, not-supported, would-block, and \
-             invalid-argument, as wasmtime-wasi maps them"
+            "EPIPE, EADDRINUSE, ECONNRESET, ENETDOWN, ENOBUFS, EDESTADDRREQ, ENOPROTOOPT, EMFILE, \
+             ENFILE, EMSGSIZE, EAGAIN, and EINVAL must answer unknown, address-in-use, \
+             connection-reset, remote-unreachable, out-of-memory, invalid-state, not-supported, \
+             new-socket-limit twice, datagram-too-large, would-block, and invalid-argument, as \
+             wasmtime-wasi maps them"
         );
     }
 }

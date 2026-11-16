@@ -946,9 +946,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a host socket failure with a POSIX name |
+| Given | a host socket failure with a POSIX name, on any host |
 | When | the Wasm Driver answers it as a `wasi:sockets` error code |
-| Then | EPIPE answers `unknown`, EADDRINUSE `address-in-use`, and ECONNRESET `connection-reset`, as wasmtime-wasi's preview2 maps them. ENETDOWN answers `remote-unreachable` and ENOBUFS `out-of-memory`, each read from the host's errno where no kind names it. EDESTADDRREQ answers `invalid-state` and ENOPROTOOPT `not-supported`. EAGAIN answers `would-block` and EINVAL `invalid-argument`, as a file's failure does |
+| Then | EPIPE answers `unknown`, EADDRINUSE `address-in-use`, and ECONNRESET `connection-reset`, as wasmtime-wasi's preview2 maps them. ENETDOWN answers `remote-unreachable` and ENOBUFS `out-of-memory`, each read from the host's errno where no kind names it. EMFILE and ENFILE answer `new-socket-limit`, and EMSGSIZE `datagram-too-large`. EDESTADDRREQ answers `invalid-state` and ENOPROTOOPT `not-supported`. EAGAIN answers `would-block` and EINVAL `invalid-argument`, as a file's failure does |
 
 ## `NW-075` An endpoint names an IDN by its A-label
 

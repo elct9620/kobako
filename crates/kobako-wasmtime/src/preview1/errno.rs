@@ -90,6 +90,7 @@ mod tests {
             (kobako_runtime::Errno::Interrupted, 27),
             (kobako_runtime::Errno::WouldBlock, 6),
             (kobako_runtime::Errno::TooManyOpenFiles, 33),
+            (kobako_runtime::Errno::TooManyOpenFilesInSystem, 41),
             (kobako_runtime::Errno::InvalidFilename, 37),
             (kobako_runtime::Errno::OutOfMemory, 48),
             (kobako_runtime::Errno::NotASocket, 57),

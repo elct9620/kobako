@@ -564,18 +564,20 @@ pub(crate) fn to_error(err: &io::Error) -> Errno {
     {
         return carried.clone();
     }
-    #[cfg(unix)]
-    {
-        use rustix::io::Errno as HostErrno;
-        match HostErrno::from_io_error(err) {
-            Some(HostErrno::NOBUFS) => return Errno::NoBufferSpace,
-            Some(HostErrno::HOSTDOWN) => return Errno::HostUnreachable,
-            Some(HostErrno::DESTADDRREQ) => return Errno::DestinationAddressRequired,
-            Some(HostErrno::NOPROTOOPT) => return Errno::ProtocolNotAvailable,
-            #[cfg(target_os = "linux")]
-            Some(HostErrno::NONET) => return Errno::NetworkUnreachable,
-            _ => {}
-        }
+    use rustix::io::Errno as HostErrno;
+    match HostErrno::from_io_error(err) {
+        Some(HostErrno::NOBUFS) => return Errno::NoBufferSpace,
+        Some(HostErrno::HOSTDOWN) => return Errno::HostUnreachable,
+        Some(HostErrno::DESTADDRREQ) => return Errno::DestinationAddressRequired,
+        Some(HostErrno::NOPROTOOPT) => return Errno::ProtocolNotAvailable,
+        Some(HostErrno::MFILE) => return Errno::TooManyOpenFiles,
+        #[cfg(not(windows))]
+        Some(HostErrno::NFILE) => return Errno::TooManyOpenFilesInSystem,
+        Some(HostErrno::MSGSIZE) => return Errno::MessageTooLong,
+        Some(HostErrno::AFNOSUPPORT) => return Errno::AddressFamilyNotSupported,
+        #[cfg(target_os = "linux")]
+        Some(HostErrno::NONET) => return Errno::NetworkUnreachable,
+        _ => {}
     }
     Errno::from_io_kind(err.kind()).unwrap_or_else(|| Errno::Other(format!("{:?}", err.kind())))
 }
@@ -857,7 +859,7 @@ pub(crate) mod testing {
     }
 }
 
-#[cfg(all(test, unix))]
+#[cfg(test)]
 mod tests {
     use super::*;
 
@@ -871,6 +873,9 @@ mod tests {
             HostErrno::HOSTDOWN,
             HostErrno::DESTADDRREQ,
             HostErrno::NOPROTOOPT,
+            HostErrno::MFILE,
+            HostErrno::MSGSIZE,
+            HostErrno::AFNOSUPPORT,
             HostErrno::AGAIN,
             HostErrno::INVAL,
         ]
@@ -883,13 +888,28 @@ mod tests {
                 Errno::HostUnreachable,
                 Errno::DestinationAddressRequired,
                 Errno::ProtocolNotAvailable,
+                Errno::TooManyOpenFiles,
+                Errno::MessageTooLong,
+                Errno::AddressFamilyNotSupported,
                 Errno::WouldBlock,
                 Errno::InvalidInput
             ],
             "a host socket failing with ENETDOWN, ENOBUFS, EHOSTDOWN, EDESTADDRREQ, ENOPROTOOPT, \
-             EAGAIN, or EINVAL must answer ENETDOWN, ENOBUFS, EHOSTUNREACH, EDESTADDRREQ, \
-             ENOPROTOOPT, EAGAIN, and EINVAL, read from its errno where std names no kind, as a \
-             file's failure is otherwise"
+             EMFILE, EMSGSIZE, EAFNOSUPPORT, EAGAIN, or EINVAL must answer ENETDOWN, ENOBUFS, \
+             EHOSTUNREACH, EDESTADDRREQ, ENOPROTOOPT, EMFILE, EMSGSIZE, EAFNOSUPPORT, EAGAIN, and \
+             EINVAL on every host, read from its errno where std names no kind"
+        );
+    }
+
+    // @behavior NW-074
+    #[cfg(unix)]
+    #[test]
+    fn a_host_out_of_open_files_answers_enfile() {
+        let errno = rustix::io::Errno::NFILE.raw_os_error();
+        assert_eq!(
+            to_error(&io::Error::from_raw_os_error(errno)),
+            Errno::TooManyOpenFilesInSystem,
+            "a host socket failing with ENFILE must answer ENFILE, which Windows has no code for"
         );
     }
 

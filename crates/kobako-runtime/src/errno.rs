@@ -42,6 +42,8 @@ pub enum Errno {
     /// A call to make again, as a walk a move landed in answers.
     WouldBlock,
     TooManyOpenFiles,
+    /// A host whose own table of open files is full.
+    TooManyOpenFilesInSystem,
     /// A name too long for the Filesystem.
     InvalidFilename,
     OutOfMemory,
@@ -97,7 +99,7 @@ pub enum Errno {
 /// Each failure a Filesystem can name under the POSIX error name it stands for.
 /// `ENOTSUP` comes before `EOPNOTSUPP`, a name some hosts give the same error,
 /// so `Unsupported` answers to the first.
-const POSIX_NAMES: [(&str, Errno); 48] = [
+const POSIX_NAMES: [(&str, Errno); 49] = [
     ("EAGAIN", Errno::WouldBlock),
     ("ENOENT", Errno::NotFound),
     ("EEXIST", Errno::AlreadyExists),
@@ -120,6 +122,7 @@ const POSIX_NAMES: [(&str, Errno); 48] = [
     ("EILSEQ", Errno::IllegalSequence),
     ("EINTR", Errno::Interrupted),
     ("EMFILE", Errno::TooManyOpenFiles),
+    ("ENFILE", Errno::TooManyOpenFilesInSystem),
     ("ENAMETOOLONG", Errno::InvalidFilename),
     ("ENOMEM", Errno::OutOfMemory),
     ("ENOTSOCK", Errno::NotASocket),
