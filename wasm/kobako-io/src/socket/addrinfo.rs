@@ -344,11 +344,11 @@ fn parts_of(
     mrb: &Mrb,
     parts: RArray,
     family: Option<i64>,
-    socktype: Option<Value>,
-    protocol: Option<Value>,
+    socktype: i64,
+    protocol: i64,
 ) -> Result<(IpAddr, u16, Option<String>), Error> {
-    // CRuby reads each part, then the kind, before glibc's numeric lookup
-    // judges the kind, the service, and the address in turn.
+    // CRuby reads each part before glibc's numeric lookup judges the kind,
+    // the service, and the address in turn.
     let named = string_value_of(mrb, parts.entry(mrb, 0)?)?.to_string(mrb)?;
     let named = Family::Named(bare_family(&named).to_string())
         .ip_number()
@@ -359,13 +359,9 @@ fn parts_of(
         .then(|| string_value_of(mrb, host)?.to_string(mrb))
         .transpose()?;
     let address = string_value_of(mrb, parts.entry(mrb, 3)?)?.to_string(mrb)?;
-    let protocol = match protocol.filter(|protocol| !protocol.is_nil()) {
-        Some(protocol) => i64::from(crate::convert::num2int(mrb, protocol)?),
-        None => 0,
-    };
     let hints = Hints {
         family: None,
-        socktype: socktype_of(mrb, socktype)?,
+        socktype,
         protocol,
         flags: 0,
     };
@@ -424,23 +420,26 @@ fn kinds_of(mrb: &Mrb, hints: &Hints) -> Result<Vec<(i64, i64)>, Error> {
     Ok(kinds)
 }
 
-/// The hints `getaddrinfo`'s arguments after `node` and `service` give.
+/// The hints `getaddrinfo`'s arguments after `node` and `service` give, read
+/// in CRuby's `call_getaddrinfo` order: the family, the kind, the protocol,
+/// then the flags.
 fn hints_of(mrb: &Mrb, args: &[Value]) -> Result<Hints, Error> {
     let at = |i: usize| args.get(i).copied();
-    let flags = match at(3).filter(|flags| !flags.is_nil()) {
-        Some(flags) => i64::from(crate::convert::num2int(mrb, flags)?),
-        None => 0,
-    };
-    let protocol = match at(2).filter(|protocol| !protocol.is_nil()) {
-        Some(protocol) => i64::from(crate::convert::num2int(mrb, protocol)?),
-        None => 0,
-    };
     Ok(Hints {
         family: lookup_family_of(mrb, at(0))?,
         socktype: socktype_of(mrb, at(1))?,
-        protocol,
-        flags,
+        protocol: int_or_zero_of(mrb, at(2))?,
+        flags: int_or_zero_of(mrb, at(3))?,
     })
+}
+
+/// A protocol or flags argument as CRuby's `NUM2INT` reads it, `nil` or none
+/// being 0.
+fn int_or_zero_of(mrb: &Mrb, value: Option<Value>) -> Result<i64, Error> {
+    match value.filter(|value| !value.is_nil()) {
+        Some(value) => crate::convert::num2int(mrb, value).map(i64::from),
+        None => Ok(0),
+    }
 }
 
 /// `Addrinfo.getaddrinfo(nodename, service, family = nil, socktype = nil,
@@ -517,21 +516,22 @@ fn addrinfo_s_new(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Erro
         _ => return Err(Error::argnum(mrb, args.len(), 1, 4)),
     };
     let at = |i: usize| rest.get(i).copied();
+    // CRuby's `addrinfo_initialize` reads the family, the kind, and the
+    // protocol before the address.
+    let family = lookup_family_of(mrb, at(0))?;
+    let socktype = socktype_of(mrb, at(1))?;
+    let protocol = int_or_zero_of(mrb, at(2))?;
     let (ip, port, inspectname) = match RArray::from_value(sockaddr) {
-        Some(parts) => parts_of(mrb, parts, lookup_family_of(mrb, at(0))?, at(1), at(2))?,
+        Some(parts) => parts_of(mrb, parts, family, socktype, protocol)?,
         None => {
             let (ip, port) = end_of(mrb, sockaddr)?;
             (ip, port, None)
         }
     };
-    let protocol = match at(2).filter(|protocol| !protocol.is_nil()) {
-        Some(protocol) => i64::from(crate::convert::num2int(mrb, protocol)?),
-        None => 0,
-    };
-    let mut info = Addrinfo::new(ip, port, (socktype_of(mrb, at(1))?, protocol));
+    let mut info = Addrinfo::new(ip, port, (socktype, protocol));
     // A packed address names no protocol family, as CRuby's leaves it 0; an
     // array names one by its address family.
-    info.pfamily = match ip_family(mrb, lookup_family_of(mrb, at(0))?)? {
+    info.pfamily = match ip_family(mrb, family)? {
         Some(family) => family,
         None if RArray::from_value(sockaddr).is_some() => afamily_of(ip),
         None => 0,
