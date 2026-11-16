@@ -483,7 +483,8 @@ enum Phase {
 struct State {
     phase: Phase,
     /// What the response's head holds, reserved against the Invocation's
-    /// memory as it arrives.
+    /// memory as it arrives and given back with the head, as Linux uncharges
+    /// an object's memory only when the object is freed.
     head_memory: Option<MemoryCharge>,
     body: VecDeque<u8>,
     body_ended: bool,
@@ -725,13 +726,12 @@ impl Exchange {
         Ok(n)
     }
 
-    /// Let the exchange go, dropping its task with the connection it holds.
+    /// Let the exchange go, dropping its task with the connection it holds
+    /// and the body's buffer. The head stays readable, and held against the
+    /// Invocation's memory, while the guest keeps the exchange.
     pub fn release(&self) {
         self.cancel_task();
-        let mut state = lock(&self.state);
-        state.body.clear();
-        state.head_memory = None;
-        drop(state);
+        lock(&self.state).body = VecDeque::new();
         *self.place.lock().unwrap_or_else(PoisonError::into_inner) = None;
         *self.memory.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
@@ -2097,6 +2097,40 @@ mod tests {
             (Ok(200), Err(HttpError::Internal)),
             "a response whose head fits the Invocation's memory beside its buffer must be \
              answered, and one whose 64 KiB head does not must fail as internal"
+        );
+    }
+
+    // @behavior NW-156
+    #[test]
+    fn a_released_response_holds_its_head_until_the_exchange_is_dropped() {
+        let mut entry = Builder::default();
+        entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
+        let network = Network::new("api", Arc::new(entry)).unwrap();
+        let namespace = Namespace::for_network(
+            &network,
+            Arc::new(CountsDials::default()),
+            Arc::new(AnswersHeader(24 * 1024)),
+        );
+        let cred = prepare_creds(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER + 40 * 1024));
+        let exchange = crate::net::send(
+            &namespace,
+            &cred,
+            OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
+        )
+        .expect("an endpoint names the authority");
+        read_response(&exchange).expect("a 24 KiB head fits the memory");
+        exchange.release();
+        // Everything but the head: what the exchange gave back on release.
+        let rest = MAX_READ_BUFFER + MAX_SOCKET_BUFFER + 30 * 1024;
+        let while_held = MemoryCharge::new(cred.memory_budget(), rest).is_ok();
+        drop(exchange);
+        let after = MemoryCharge::new(cred.memory_budget(), rest).is_ok();
+        assert_eq!(
+            (while_held, after),
+            (false, true),
+            "a response whose 24 KiB head was read and its body finished must keep that head \
+             against the Invocation's memory while the guest holds the response, so the \
+             buffers and 30 KiB more are refused, and give it back once the response is dropped"
         );
     }
 
