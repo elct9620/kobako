@@ -10,12 +10,13 @@ A `beni::Gem` installing the Ruby IO and File surface.
 | What it installs | Detail |
 |---|---|
 | The IO surface | the `::IO` class, the `STDOUT` / `STDERR` constants, and the assignable `$stdout` / `$stderr` globals |
-| The waits | `IO.select`, `IO#wait_readable` / `IO#wait_writable`, and `IO::WaitReadable` / `IO::WaitWritable` |
+| The waits | `IO.select`, `IO#wait`, `IO#wait_readable` / `IO#wait_writable`, and `IO::WaitReadable` / `IO::WaitWritable` |
 | The File surface | `::File < IO` and `File::Stat` over the directories the host preopens, raising `NotImplementedError` where it preopens none |
 | The Dir surface | `::Dir`, listing, making, removing, and matching directories beneath those preopens, unimplemented alike without one |
 | The working directory | `Dir.pwd` and `Dir.chdir`, starting at `/` in every invocation |
 | The socket surface | `::TCPSocket < IPSocket < BasicSocket < IO` and `::UDPSocket` over WASI 0.2's `wasi:sockets`, raising `Errno::EACCES` where the host gives no network |
-| The address surface | `Socket.tcp`, `Socket.getaddrinfo`, and `::Addrinfo`, a name answering its virtual address |
+| The address surface | `Socket.tcp`, `Socket.getaddrinfo`, `IPSocket.getaddress`, and `::Addrinfo`, a name answering its virtual address |
+| The constants | the `Socket` constants the guest takes, on `Socket` and `Socket::Constants` alike |
 | The HTTP surface | a `Net::HTTP` subset over `wasi:http`, its TLS ended on the host |
 | The errors | `IOError`, `EOFError`, `SystemCallError`, and the `Errno` classes a file operation raises |
 | The Kernel delegators | `print` / `puts` / `printf` / `p` / `putc` / `warn`, private, dispatching through those globals at call time |
