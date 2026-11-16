@@ -127,12 +127,11 @@ enum Reply {
 }
 
 /// Each server in turn, `attempts` rounds over all, as `res_send` tries
-/// them, until one answers both questions.
+/// them, until one answers.
 async fn ask(conf: Conf, name: String) -> io::Result<Vec<IpAddr>> {
     for _ in 0..conf.attempts {
         for server in &conf.nameservers {
-            let deadline = Instant::now() + conf.timeout;
-            if let Ok(Some(found)) = exchange(*server, &name, deadline).await {
+            if let Ok(Some(found)) = exchange(*server, &name, conf.timeout).await {
                 return Ok(found);
             }
         }
@@ -143,40 +142,57 @@ async fn ask(conf: Conf, name: String) -> io::Result<Vec<IpAddr>> {
     ))
 }
 
-/// Ask `server` for `name`'s AAAA and A records. One question answered is enough, as glibc's `send_dg` takes the one
-/// reply it has once the other fails or the time runs out; `None` when
-/// neither was, so the next server is asked.
+/// Ask `server` for `name`'s AAAA and A records, as glibc's `send_dg` asks:
+/// both at once, then, when the time runs out with one replied, the other
+/// alone, and once more on a fresh socket, before taking the one reply it
+/// has. A server that fails one question gives the other's answer at once.
+/// `None` when neither was answered, so the next server is asked.
 async fn exchange(
     server: SocketAddr,
     name: &str,
-    deadline: Instant,
+    timeout: Duration,
 ) -> io::Result<Option<Vec<IpAddr>>> {
     let questions = [TYPE::AAAA, TYPE::A].map(|rtype| (draw_id(), rtype));
+    let mut replies: [Option<Reply>; 2] = [None, None];
     let mut socket = WatchedSocket::connect_udp(server)?;
+    let deadline = Instant::now() + timeout;
     for (id, rtype) in questions {
         socket
             .send(&encode_query(id, name, rtype)?, deadline)
             .await?;
     }
-    let mut replies: [Option<Reply>; 2] = [None, None];
-    let mut buffer = [0u8; MAX_UDP_REPLY];
-    while replies.iter().any(Option::is_none) {
-        let Some(read) = socket.recv(&mut buffer, deadline).await? else {
+    socket
+        .collect(&mut replies, questions, name, deadline)
+        .await?;
+    for reopen in [false, true] {
+        let replied = replies.iter().any(Option::is_some);
+        let Some(unreplied) = replies.iter().position(Option::is_none) else {
             break;
         };
-        for (slot, (id, rtype)) in replies.iter_mut().zip(questions) {
-            if slot.is_none() {
-                *slot = reply_of(&buffer[..read], id, name, rtype);
-            }
+        if !replied {
+            break;
         }
+        if reopen {
+            socket = WatchedSocket::connect_udp(server)?;
+        }
+        let deadline = Instant::now() + timeout;
+        let (id, rtype) = questions[unreplied];
+        socket
+            .send(&encode_query(id, name, rtype)?, deadline)
+            .await?;
+        socket
+            .collect(&mut replies, questions, name, deadline)
+            .await?;
     }
     let mut found = None::<Vec<IpAddr>>;
     for (reply, (id, rtype)) in replies.into_iter().zip(questions) {
         let reply = match reply {
-            Some(Reply::Truncated) => ask_over_tcp(server, id, name, rtype, deadline)
-                .await
-                .ok()
-                .flatten(),
+            Some(Reply::Truncated) => {
+                ask_over_tcp(server, id, name, rtype, Instant::now() + timeout)
+                    .await
+                    .ok()
+                    .flatten()
+            }
             reply => reply,
         };
         if let Some(Reply::Answered(addresses)) = reply {
@@ -325,6 +341,29 @@ impl WatchedSocket<mio::net::UdpSocket> {
         }
     }
 
+    /// Fill each empty slot of `replies` with the reply to its question,
+    /// until all are filled or `deadline` passes.
+    async fn collect(
+        &mut self,
+        replies: &mut [Option<Reply>; 2],
+        questions: [(u16, TYPE); 2],
+        name: &str,
+        deadline: Instant,
+    ) -> io::Result<()> {
+        let mut buffer = [0u8; MAX_UDP_REPLY];
+        while replies.iter().any(Option::is_none) {
+            let Some(read) = self.recv(&mut buffer, deadline).await? else {
+                return Ok(());
+            };
+            for (slot, (id, rtype)) in replies.iter_mut().zip(questions) {
+                if slot.is_none() {
+                    *slot = reply_of(&buffer[..read], id, name, rtype);
+                }
+            }
+        }
+        Ok(())
+    }
+
     /// The next datagram's length, or `None` at the deadline.
     async fn recv(&mut self, buffer: &mut [u8], deadline: Instant) -> io::Result<Option<usize>> {
         loop {
@@ -404,6 +443,10 @@ impl<S: Source> WatchedSocket<S> {
         let mut armed = false;
         poll_fn(|cx| {
             if self.waker.poll_changed(cx).is_ready() {
+                // The timer goes with the wait it bounded.
+                if let (true, Ok(reactor)) = (armed, Reactor::current()) {
+                    reactor.disarm(cx.waker());
+                }
                 return Poll::Ready(true);
             }
             if Instant::now() >= deadline {

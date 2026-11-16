@@ -238,6 +238,27 @@ fn a_server_answering_one_question_gives_that_answer() {
 }
 
 #[test]
+fn a_question_lost_once_is_asked_again_alone() {
+    let dropped = std::sync::atomic::AtomicBool::new(false);
+    let server = serve_udp(move |query| match rtype_of(query) {
+        TYPE::A if !dropped.swap(true, std::sync::atomic::Ordering::SeqCst) => None,
+        TYPE::A => Some(reply_to(
+            query,
+            &[("app.test", a([93, 184, 216, 34]))],
+            RCODE::NoError,
+            false,
+        )),
+        _ => Some(reply_to(query, &[], RCODE::NoError, false)),
+    });
+    assert_eq!(
+        wait_for(ask(conf_of(vec![server]), "app.test".into())).map(|found| found.ok()),
+        Some(Some(vec!["93.184.216.34".parse().unwrap()])),
+        "a server whose A reply is lost once must be asked for A again alone, as glibc's \
+         send_dg resends in single-request mode, and its answer taken"
+    );
+}
+
+#[test]
 fn a_silent_server_gives_way_to_the_next() {
     let silent = serve_udp(|_| None);
     let answering = serve_udp(|query| {

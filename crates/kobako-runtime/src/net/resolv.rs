@@ -170,8 +170,10 @@ mod tests {
     #[test]
     fn localhost_resolves_to_a_loopback_address() {
         let answer = answer_of("localhost.").map(|found| found.ok());
+        let is_loopback_only =
+            |found: &Vec<IpAddr>| !found.is_empty() && found.iter().all(IpAddr::is_loopback);
         assert!(
-            matches!(&answer, Some(Some(found)) if !found.is_empty() && found.iter().all(IpAddr::is_loopback)),
+            matches!(&answer, Some(Some(found)) if is_loopback_only(found)),
             "the host's resolver must answer localhost with loopback addresses only, got {answer:?}"
         );
     }

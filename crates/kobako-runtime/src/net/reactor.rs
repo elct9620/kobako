@@ -138,9 +138,9 @@ impl Reactor {
     }
 
     /// Wake `waker` once `at` passes, in place of any instant its task asked
-    /// for before, as `hrtimer_start` moves a task's one timer, so a task
-    /// holds one timer however often it waits. Only the stub resolver times
-    /// its retries this way.
+    /// for before, as `hrtimer_start` moves a task's one timer. A task holds
+    /// one timer until it is due or disarmed; one a cancelled task left stays
+    /// until it is due. Only the stub resolver times its retries this way.
     #[cfg(any(test, all(unix, not(target_os = "macos"))))]
     pub(crate) fn wake_at(&self, at: Instant, waker: Waker) {
         let mut timers = self.timers.lock().unwrap_or_else(PoisonError::into_inner);
@@ -148,6 +148,16 @@ impl Reactor {
         timers.push((at, waker));
         drop(timers);
         let _ = self.waker.wake();
+    }
+
+    /// Drop the timer `waker`'s task holds, as `hrtimer_cancel` does once the
+    /// wait it bounded ends.
+    #[cfg(any(test, all(unix, not(target_os = "macos"))))]
+    pub(crate) fn disarm(&self, waker: &Waker) {
+        self.timers
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .retain(|(_, armed)| !armed.will_wake(waker));
     }
 
     /// How long the poll may wait before the soonest timer is due.
@@ -415,9 +425,19 @@ mod tests {
             .iter()
             .filter(|(_, armed)| armed.will_wake(&waker))
             .count();
+        reactor.disarm(&waker);
+        let after_disarm = reactor
+            .timers
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, armed)| armed.will_wake(&waker))
+            .count();
         assert_eq!(
-            held, 1,
-            "a waker asked to be woken three times must hold one timer, the newest"
+            (held, after_disarm),
+            (1, 0),
+            "a waker asked to be woken three times must hold one timer, the newest, and none \
+             once disarmed"
         );
     }
 }
