@@ -18,9 +18,9 @@ module Kobako
 
       def resolve: (String name, to: String | Array[String]) -> nil
 
-      def route: (String address, Integer port, to: [String, Integer]) -> nil
+      def route: (String address, Integer port, to: [String, Integer], ?protocol: :tcp | :udp) -> nil
 
-      def refuse: (String address, Integer port, singleton(SystemCallError) errno) -> nil
+      def refuse: (String address, Integer port, singleton(SystemCallError) errno, ?protocol: :tcp | :udp) -> nil
 
       def hold: [T] (String name) { () -> T } -> T
 
