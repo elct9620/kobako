@@ -138,6 +138,17 @@ pub trait ProtocolFamily {
 }
 ```
 
+## `ProtocolFamily::route_datagram`
+
+Where a datagram socket the family handed out sends once pointed at another
+peer. It keeps its port, and the host's own family sends to that peer.
+
+```rust
+pub trait ProtocolFamily {
+    fn route_datagram(&self, addr: SocketAddr) -> io::Result<SocketAddr>;
+}
+```
+
 ## `Resolver`
 
 What answers a name, each address it answers judged again at connect.
@@ -187,21 +198,22 @@ impl Mock {
 
 ## `Mock::route`
 
-Where a dial to one address goes instead.
+Where a dial to one address over one protocol goes instead.
 
 ```rust
 impl Mock {
-    pub fn route(&self, from: SocketAddr, to: SocketAddr) {}
+    pub fn route(&self, protocol: Protocol, from: SocketAddr, to: SocketAddr) {}
 }
 ```
 
 ## `Mock::refuse`
 
-The errno a dial to one address fails with, alike on every host.
+The errno a dial to one address over one protocol fails with, alike on every
+host.
 
 ```rust
 impl Mock {
-    pub fn refuse(&self, addr: SocketAddr, err: Errno) {}
+    pub fn refuse(&self, protocol: Protocol, addr: SocketAddr, err: Errno) {}
 }
 ```
 

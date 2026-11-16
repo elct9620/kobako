@@ -28,14 +28,15 @@ module Kobako
   #   resolves to nothing. The name reads as a guest's lookup reads it, so
   #   case, the root's dot, and an IDN's spelling do not matter. Raises
   #   ArgumentError for a host no lookup asks, such as an address.
-  # [<tt>route(address, port, to: [address, port])</tt>]
-  #   Where a dial goes instead. A dial with no route is refused, so nothing
-  #   reaches the host network unasked.
-  # [<tt>refuse(address, port, errno)</tt>]
-  #   Fails a dial as a host socket failing with +errno+ does: an Errno class
-  #   such as Errno::ECONNRESET, or a subclass of one, read by its name so it
-  #   fails alike on every host. Raises ArgumentError for a class no Errno
-  #   class is behind, or an errno kobako never answers.
+  # [<tt>route(address, port, to: [address, port], protocol: :tcp)</tt>]
+  #   Where a dial over +protocol+, +:tcp+ or +:udp+, goes instead. A dial
+  #   with no route for its protocol is refused, so nothing reaches the host
+  #   network unasked; a UDP socket is refused as it connects.
+  # [<tt>refuse(address, port, errno, protocol: :tcp)</tt>]
+  #   Fails a dial over +protocol+ as a host socket failing with +errno+
+  #   does: an Errno class such as Errno::ECONNRESET, or a subclass of one,
+  #   read by its name so it fails alike on every host. Raises ArgumentError
+  #   for a class no Errno class is behind, or an errno kobako never answers.
   # [<tt>hold(name) { ... }</tt>]
   #   Keeps each lookup of +name+ waiting until the block returns or raises,
   #   +name+ read as +resolve+ reads it.

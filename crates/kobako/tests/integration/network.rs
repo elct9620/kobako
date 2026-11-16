@@ -327,6 +327,7 @@ fn a_mock_handed_through_options_answers_the_guests_names() {
     mock.resolve_to_addrs("app.test", vec![public])
         .expect("a name");
     mock.route(
+        kobako::network::Protocol::Tcp,
         SocketAddr::new(public, 80),
         server.local_addr().expect("the server's address"),
     );

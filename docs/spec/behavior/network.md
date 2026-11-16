@@ -68,6 +68,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_mock_names.rb`
 - `test/e2e/test_network_mock_rebinding.rb`
 - `test/e2e/test_network_mock_failures.rb`
+- `test/e2e/test_network_mock_udp.rb`
 - `test/e2e/test_network_open_connections.rb`
 - `test/e2e/test_network_udp_cruby.rb`
 - `test/e2e/test_network_udp_flags.rb`
@@ -2834,3 +2835,16 @@ endpoint "api.example.com", port: 443
 | Given | an entry binding a credential to an exact host over HTTPS |
 | When | a bound request leaves and the credential's source cannot answer, as a Ruby block raising a `StandardError` |
 | Then | it answers `Denied` and nothing is dialed, so the script raises `Errno::EACCES` and goes on. A source answering `nil` sends the request with no value. Envoy's credential injector and OpenShell refuse a request whose credential they could not resolve |
+
+## `NW-227` A Mock routes a UDP socket by protocol, and its peer answers
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-212` |
+| relates | `NW-088`, `NW-213` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Mock routing an address over UDP to a test peer, and a `udp` endpoint naming it |
+| When | the guest's UDPSocket connects to that name and reads a reply. It then connects to an address routed only over TCP, and to one refused over UDP |
+| Then | the peer's reply reads back. A route or a refusal holds for its own protocol, so the TCP-only address raises `Errno::ECONNREFUSED`. The refused one raises the refusal's errno. Each fails as it connects, alike on every host. A connect again reaches its new peer through the route. The Mock reads back each address dialed |

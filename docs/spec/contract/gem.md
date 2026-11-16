@@ -288,7 +288,7 @@ end
 
 ## `Kobako::Network::Mock#route`
 
-Where a dial to one address goes instead.
+Where a dial to one address over one protocol goes instead.
 
 | Attribute | Value |
 | --- | --- |
@@ -298,7 +298,7 @@ Where a dial to one address goes instead.
 module Kobako
   module Network
     class Mock
-      def route(address, port, to:)
+      def route(address, port, to:, protocol: :tcp)
       end
     end
   end
@@ -307,7 +307,7 @@ end
 
 ## `Kobako::Network::Mock#refuse`
 
-The host errno a dial to one address fails with.
+The host errno a dial to one address over one protocol fails with.
 
 | Attribute | Value |
 | --- | --- |
@@ -317,7 +317,7 @@ The host errno a dial to one address fails with.
 module Kobako
   module Network
     class Mock
-      def refuse(address, port, errno)
+      def refuse(address, port, errno, protocol: :tcp)
       end
     end
   end

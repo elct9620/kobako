@@ -31,6 +31,15 @@ pub trait ProtocolFamily: Send + Sync {
     fn connect_datagram(&self, _addr: SocketAddr) -> io::Result<UdpSocket> {
         Err(io::ErrorKind::Unsupported.into())
     }
+
+    /// Where a datagram socket this family handed out sends once the guest
+    /// points it at `addr`, the socket keeping its port, as
+    /// `__ip4_datagram_connect` routes a socket connected again. The host's
+    /// own family sends to `addr` itself; one that sends elsewhere from
+    /// `connect_datagram` answers alike here.
+    fn route_datagram(&self, addr: SocketAddr) -> io::Result<SocketAddr> {
+        Ok(addr)
+    }
 }
 
 /// The host's own network: its TCP and UDP sockets, as gVisor's `hostinet`

@@ -126,7 +126,8 @@ impl UdpSock {
                 // before the host socket repoints.
                 self.pump(&mut state);
                 if let Some((socket, _)) = state.host.as_ref() {
-                    socket.connect(addr).map_err(|err| to_error(&err))?;
+                    let routed = family.route_datagram(addr).map_err(|err| to_error(&err))?;
+                    socket.connect(routed).map_err(|err| to_error(&err))?;
                 }
                 state.inet.peer = Some(peer);
                 state.writable = true;

@@ -11,7 +11,9 @@ use magnus::{
 };
 
 use kobako_runtime::net::{Backends, Mock};
+use kobako_runtime::network::Protocol;
 
+use super::{symbol_name_of, value_by_name, PROTOCOL_NAMES};
 use crate::errors::errno_of;
 
 #[magnus::wrap(class = "Kobako::Network::Mock", free_immediately, size)]
@@ -31,7 +33,7 @@ pub(super) fn register(network: RModule) -> Result<(), MagnusError> {
     mock.define_singleton_method("new", function!(mock_new, -1))?;
     mock.define_method("resolve", method!(resolve, -1))?;
     mock.define_method("route", method!(route, -1))?;
-    mock.define_method("refuse", method!(refuse, 3))?;
+    mock.define_method("refuse", method!(refuse, -1))?;
     mock.define_method("hold", method!(hold, 1))?;
     mock.define_method("lookups", method!(lookups, 0))?;
     mock.define_method("dialed_addresses", method!(dialed_addresses, 0))?;
@@ -70,22 +72,31 @@ fn resolve(rb_self: &MockNet, args: &[Value]) -> Result<(), MagnusError> {
         .map_err(|_| to_name_error(&name))
 }
 
-/// `route(address, port, to: [address, port])`.
+/// `route(address, port, to: [address, port], protocol: :tcp)`.
 fn route(rb_self: &MockNet, args: &[Value]) -> Result<(), MagnusError> {
     let args = scan_args::<(String, u16), (), (), (), RHash, ()>(args)?;
     let (address, port) = args.required;
-    let kwargs = get_kwargs::<_, ((String, u16),), (), ()>(args.keywords, &["to"], &[])?;
+    let kwargs = get_kwargs::<_, ((String, u16),), (Option<Value>,), ()>(
+        args.keywords,
+        &["to"],
+        &["protocol"],
+    )?;
     let (to_address, to_port) = kwargs.required.0;
     rb_self.0.route(
+        to_protocol(kwargs.optional.0)?,
         SocketAddr::new(to_ip(&address)?, port),
         SocketAddr::new(to_ip(&to_address)?, to_port),
     );
     Ok(())
 }
 
-/// `refuse(address, port, errno)`, the errno an `Errno` class read by its
-/// POSIX name, since the number behind one differs between hosts.
-fn refuse(rb_self: &MockNet, address: String, port: u16, errno: RClass) -> Result<(), MagnusError> {
+/// `refuse(address, port, errno, protocol: :tcp)`, the errno an `Errno`
+/// class read by its POSIX name, since the number behind one differs between
+/// hosts.
+fn refuse(rb_self: &MockNet, args: &[Value]) -> Result<(), MagnusError> {
+    let args = scan_args::<(String, u16, RClass), (), (), (), RHash, ()>(args)?;
+    let (address, port, errno) = args.required;
+    let kwargs = get_kwargs::<_, (), (Option<Value>,), ()>(args.keywords, &[], &["protocol"])?;
     let err = errno_of(errno).ok_or_else(|| {
         let ruby = Ruby::get().expect("Ruby thread");
         MagnusError::new(
@@ -93,10 +104,26 @@ fn refuse(rb_self: &MockNet, address: String, port: u16, errno: RClass) -> Resul
             format!("kobako answers no errno {}", errno.inspect()),
         )
     })?;
-    rb_self
-        .0
-        .refuse(SocketAddr::new(to_ip(&address)?, port), err);
+    rb_self.0.refuse(
+        to_protocol(kwargs.optional.0)?,
+        SocketAddr::new(to_ip(&address)?, port),
+        err,
+    );
     Ok(())
+}
+
+/// The protocol a route or a refusal keys on, `:tcp` unless written.
+fn to_protocol(protocol: Option<Value>) -> Result<Protocol, MagnusError> {
+    let Some(protocol) = protocol else {
+        return Ok(Protocol::Tcp);
+    };
+    symbol_name_of(protocol)?
+        .filter(|name| name != "http")
+        .and_then(|name| value_by_name(&PROTOCOL_NAMES, &name))
+        .ok_or_else(|| {
+            let ruby = Ruby::get().expect("Ruby thread");
+            MagnusError::new(ruby.exception_arg_error(), "protocol must be :tcp or :udp")
+        })
 }
 
 /// `hold(name) { ... }`: the name answers no lookup until the block
