@@ -10,10 +10,9 @@ use magnus::{
     function, method, prelude::*, Error as MagnusError, RArray, RClass, RHash, RModule, Ruby, Value,
 };
 
-use kobako_runtime::net::{Backends, Mock};
-use kobako_runtime::network::Protocol;
+use kobako_runtime::net::{Backends, IpProtocol, Mock};
 
-use super::{symbol_name_of, value_by_name, PROTOCOL_NAMES};
+use super::{symbol_name_of, value_by_name};
 use crate::errors::errno_of;
 
 #[magnus::wrap(class = "Kobako::Network::Mock", free_immediately, size)]
@@ -112,14 +111,16 @@ fn refuse(rb_self: &MockNet, args: &[Value]) -> Result<(), MagnusError> {
     Ok(())
 }
 
+/// Each protocol a route or a refusal keys on, by its Ruby name.
+const IP_PROTOCOL_NAMES: [(IpProtocol, &str); 2] = [(IpProtocol::Tcp, "tcp"), (IpProtocol::Udp, "udp")];
+
 /// The protocol a route or a refusal keys on, `:tcp` unless written.
-fn to_protocol(protocol: Option<Value>) -> Result<Protocol, MagnusError> {
+fn to_protocol(protocol: Option<Value>) -> Result<IpProtocol, MagnusError> {
     let Some(protocol) = protocol else {
-        return Ok(Protocol::Tcp);
+        return Ok(IpProtocol::Tcp);
     };
     symbol_name_of(protocol)?
-        .filter(|name| name != "http")
-        .and_then(|name| value_by_name(&PROTOCOL_NAMES, &name))
+        .and_then(|name| value_by_name(&IP_PROTOCOL_NAMES, &name))
         .ok_or_else(|| {
             let ruby = Ruby::get().expect("Ruby thread");
             MagnusError::new(ruby.exception_arg_error(), "protocol must be :tcp or :udp")

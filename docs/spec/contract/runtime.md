@@ -197,13 +197,24 @@ impl Mock {
 }
 ```
 
+## `IpProtocol`
+
+The protocol a Mock's route keys a dial on.
+
+```rust
+pub enum IpProtocol {
+    Tcp,
+    Udp,
+}
+```
+
 ## `Mock::route`
 
 Where a dial to one address over one protocol goes instead.
 
 ```rust
 impl Mock {
-    pub fn route(&self, protocol: Protocol, from: SocketAddr, to: SocketAddr) {}
+    pub fn route(&self, protocol: IpProtocol, from: SocketAddr, to: SocketAddr) {}
 }
 ```
 
@@ -214,7 +225,7 @@ host.
 
 ```rust
 impl Mock {
-    pub fn refuse(&self, protocol: Protocol, addr: SocketAddr, err: Errno) {}
+    pub fn refuse(&self, protocol: IpProtocol, addr: SocketAddr, err: Errno) {}
 }
 ```
 

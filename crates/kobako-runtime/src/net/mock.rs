@@ -15,7 +15,7 @@ use std::task::{Poll, Waker};
 use super::family::{same_family, HostInet, ProtocolFamily};
 use super::lookup::{LookupError, Resolver, Resolving};
 use super::socket::CarriedErrno;
-use crate::network::{Host, Protocol};
+use crate::network::Host;
 use crate::Errno;
 
 /// A table of names, routes, and refusals, answering the guest's network in
@@ -28,7 +28,7 @@ pub struct Mock {
 #[derive(Default)]
 struct State {
     answers: HashMap<String, Vec<IpAddr>>,
-    routes: HashMap<(Transport, SocketAddr), Dial>,
+    routes: HashMap<(IpProtocol, SocketAddr), Dial>,
     /// How many holds each held name has.
     held: HashMap<String, usize>,
     /// The lookups waiting for a hold to drop.
@@ -44,20 +44,12 @@ enum Dial {
     Refused(Errno),
 }
 
-/// The protocol a route keys on: HTTP rides a stream as TCP does.
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum Transport {
-    Stream,
-    Datagram,
-}
-
-impl From<Protocol> for Transport {
-    fn from(protocol: Protocol) -> Self {
-        match protocol {
-            Protocol::Udp => Self::Datagram,
-            _ => Self::Stream,
-        }
-    }
+/// The protocol a dial runs over, as Linux's `IPPROTO_TCP` and `IPPROTO_UDP`
+/// name it, which a route keys on. An HTTP request dials over TCP.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum IpProtocol {
+    Tcp,
+    Udp,
 }
 
 impl Default for Mock {
@@ -90,21 +82,16 @@ impl Mock {
         Ok(())
     }
 
-    /// Dial `to` whenever `from` is dialed over `protocol`; HTTP dials as
-    /// TCP does.
-    pub fn route(&self, protocol: Protocol, from: SocketAddr, to: SocketAddr) {
-        self.state()
-            .routes
-            .insert((protocol.into(), from), Dial::To(to));
+    /// Dial `to` whenever `from` is dialed over `protocol`.
+    pub fn route(&self, protocol: IpProtocol, from: SocketAddr, to: SocketAddr) {
+        self.state().routes.insert((protocol, from), Dial::To(to));
     }
 
     /// Fail a dial to `addr` over `protocol` with `err`, which the socket
     /// layer answers as a host socket failing with it, alike on every host. A
     /// datagram socket fails as it connects.
-    pub fn refuse(&self, protocol: Protocol, addr: SocketAddr, err: Errno) {
-        self.state()
-            .routes
-            .insert((protocol.into(), addr), Dial::Refused(err));
+    pub fn refuse(&self, protocol: IpProtocol, addr: SocketAddr, err: Errno) {
+        self.state().routes.insert((protocol, addr), Dial::Refused(err));
     }
 
     /// Keep each lookup of `name` waiting until the hold drops, as a
@@ -126,15 +113,15 @@ impl Mock {
         self.state().dials.clone()
     }
 
-    /// Where a dial to `addr` over `transport` goes, recording it.
-    fn dial(&self, transport: Transport, addr: SocketAddr) -> io::Result<SocketAddr> {
+    /// Where a dial to `addr` over `protocol` goes, recording it.
+    fn dial(&self, protocol: IpProtocol, addr: SocketAddr) -> io::Result<SocketAddr> {
         self.state().dials.push(addr);
-        self.target_of(transport, addr)
+        self.target_of(protocol, addr)
     }
 
-    /// Where a dial to `addr` over `transport` goes.
-    fn target_of(&self, transport: Transport, addr: SocketAddr) -> io::Result<SocketAddr> {
-        let dial = self.state().routes.get(&(transport, addr)).cloned();
+    /// Where a dial to `addr` over `protocol` goes.
+    fn target_of(&self, protocol: IpProtocol, addr: SocketAddr) -> io::Result<SocketAddr> {
+        let dial = self.state().routes.get(&(protocol, addr)).cloned();
         match dial {
             Some(Dial::To(target)) => Ok(target),
             Some(Dial::Refused(err)) => Err(io::Error::other(CarriedErrno(err))),
@@ -170,14 +157,14 @@ impl ProtocolFamily for Mock {
     /// The route's target, through the host's own sockets; an address with
     /// no route is refused, so nothing unrouted reaches the host network.
     fn connect(&self, addr: SocketAddr) -> io::Result<TcpStream> {
-        HostInet.connect(self.dial(Transport::Stream, addr)?)
+        HostInet.connect(self.dial(IpProtocol::Tcp, addr)?)
     }
 
     /// The route's target over UDP, refused as it connects when there is
     /// none, so every host answers alike where one would wait for a peer's
     /// ICMP reply.
     fn connect_datagram(&self, addr: SocketAddr) -> io::Result<UdpSocket> {
-        HostInet.connect_datagram(self.dial(Transport::Datagram, addr)?)
+        HostInet.connect_datagram(self.dial(IpProtocol::Udp, addr)?)
     }
 
     /// The route's target when it lies in the socket's family, recorded as a
@@ -188,9 +175,9 @@ impl ProtocolFamily for Mock {
         local: SocketAddr,
         addr: SocketAddr,
     ) -> io::Result<Option<SocketAddr>> {
-        match self.target_of(Transport::Datagram, addr) {
+        match self.target_of(IpProtocol::Udp, addr) {
             Ok(target) if !same_family(local, target) => Ok(None),
-            _ => self.dial(Transport::Datagram, addr).map(Some),
+            _ => self.dial(IpProtocol::Udp, addr).map(Some),
         }
     }
 

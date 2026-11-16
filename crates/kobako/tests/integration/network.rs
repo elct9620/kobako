@@ -318,7 +318,7 @@ fn a_wildcard_endpoint_leading_to_private_addresses_is_an_argument_error() {
 fn a_mock_handed_through_options_answers_the_guests_names() {
     use kobako::network::{Builder, Protocol};
     use kobako::Options;
-    use kobako_runtime::net::{Backends, Mock};
+    use kobako_runtime::net::{Backends, IpProtocol, Mock};
     use std::net::{IpAddr, SocketAddr, TcpListener};
 
     let public = IpAddr::from([93, 184, 216, 34]);
@@ -327,7 +327,7 @@ fn a_mock_handed_through_options_answers_the_guests_names() {
     mock.resolve_to_addrs("app.test", vec![public])
         .expect("a name");
     mock.route(
-        kobako::network::Protocol::Tcp,
+        IpProtocol::Tcp,
         SocketAddr::new(public, 80),
         server.local_addr().expect("the server's address"),
     );

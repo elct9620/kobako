@@ -31,7 +31,7 @@ pub use http::{
     ResponseFuture, ResponseHead, Scheme, Timeouts, MAX_FIELD_SIZE,
 };
 pub use lookup::{resolve, LookupError, NameLookup, Resolver, Resolving};
-pub use mock::{Hold, Mock};
+pub use mock::{Hold, IpProtocol, Mock};
 pub use namespace::Namespace;
 pub use socket::{
     sock_alloc_file, sys_bind, sys_connect, AddressFamily, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,

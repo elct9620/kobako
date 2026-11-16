@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use kobako_runtime::grant::Grant;
-use kobako_runtime::net::{Backends, Mock, ProtocolFamily, Resolver, Resolving};
+use kobako_runtime::net::{Backends, IpProtocol, Mock, ProtocolFamily, Resolver, Resolving};
 use kobako_runtime::network::{Builder, Endpoint, Network, Protocol};
 use kobako_runtime::snapshot::Completion;
 use kobako_runtime::{Entry, Errno, Runtime};
@@ -125,7 +125,7 @@ fn a_mock_answers_names_from_its_table_and_dials_only_its_routes() {
     mock.resolve_to_addrs("unrouted.test", vec![IpAddr::from(OTHER_PUBLIC)])
         .unwrap();
     mock.route(
-        Protocol::Tcp,
+        IpProtocol::Tcp,
         SocketAddr::from((PUBLIC, 80)),
         server.local_addr().unwrap(),
     );
@@ -160,7 +160,7 @@ fn a_mock_refuses_a_dial_with_the_error_it_was_given() {
     mock.resolve_to_addrs("app.test", vec![IpAddr::from(PUBLIC)])
         .unwrap();
     mock.refuse(
-        Protocol::Tcp,
+        IpProtocol::Tcp,
         SocketAddr::from((PUBLIC, 80)),
         Errno::ConnectionReset,
     );
@@ -183,7 +183,7 @@ fn a_mocks_held_name_answers_once_its_hold_ends() {
     mock.resolve_to_addrs("held.test", vec![IpAddr::from(PUBLIC)])
         .unwrap();
     mock.route(
-        Protocol::Tcp,
+        IpProtocol::Tcp,
         SocketAddr::from((PUBLIC, 80)),
         server.local_addr().unwrap(),
     );

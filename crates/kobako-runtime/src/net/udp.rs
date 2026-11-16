@@ -424,7 +424,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use crate::net::socket::testing::wait_for;
-    use crate::net::HostInet;
+    use crate::net::{HostInet, IpProtocol};
     use crate::security::prepare_creds;
 
     /// A socket connected to `addr` through the host.
@@ -822,8 +822,8 @@ mod tests {
             SocketAddr::from(([93, 184, 216, 35], 53)),
         );
         let mock = Arc::new(crate::net::Mock::default());
-        mock.route(Protocol::Udp, to_first, first.local_addr().unwrap());
-        mock.route(Protocol::Udp, to_second, second.local_addr().unwrap());
+        mock.route(IpProtocol::Udp, to_first, first.local_addr().unwrap());
+        mock.route(IpProtocol::Udp, to_second, second.local_addr().unwrap());
         let family: Arc<dyn ProtocolFamily> = mock.clone();
         let sock = UdpSock::new(&prepare_creds(&[], None)).expect("an unbounded socket is made");
         let cap = OpenConnections::new(None);
@@ -856,9 +856,9 @@ mod tests {
             SocketAddr::from(([93, 184, 216, 36], 53)),
         );
         let mock = Arc::new(crate::net::Mock::default());
-        mock.route(Protocol::Udp, to_x, peer.local_addr().unwrap());
-        mock.route(Protocol::Udp, to_y, peer.local_addr().unwrap());
-        mock.refuse(Protocol::Udp, to_z, Errno::AddressNotAvailable);
+        mock.route(IpProtocol::Udp, to_x, peer.local_addr().unwrap());
+        mock.route(IpProtocol::Udp, to_y, peer.local_addr().unwrap());
+        mock.refuse(IpProtocol::Udp, to_z, Errno::AddressNotAvailable);
         let family: Arc<dyn ProtocolFamily> = mock.clone();
         let cap = OpenConnections::new(None);
         let socket = || UdpSock::new(&prepare_creds(&[], None)).expect("an unbounded socket");
