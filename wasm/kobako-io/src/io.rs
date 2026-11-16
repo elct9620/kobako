@@ -37,6 +37,7 @@ use beni::{
     RTypedData, Symbol, TryConvert, TypedData, Value,
 };
 
+use crate::convert::{num2int, to_int};
 use crate::{descriptors, errno};
 
 /// What an `IO` stands for, kept in its payload: a script reaches every
@@ -456,42 +457,7 @@ fn to_putc_byte(mrb: &Mrb, obj: Value) -> Result<Option<u8>, Error> {
         // SAFETY: the first byte is copied out before the next mruby call.
         return Ok(unsafe { s.as_slice(mrb) }.first().copied());
     }
-    Ok(Some(crate::convert::num2int(mrb, obj)? as u8))
-}
-
-/// The Integer `obj` stands for, as CRuby's `rb_num2long` reads it: an
-/// Integer as itself, a Float truncated, NaN, an infinity, or a Float past
-/// what an Integer holds raising `RangeError`, and anything else through its
-/// `to_int`, as `rb_to_int` asks; one with no `to_int`, or whose `to_int`
-/// answers no Integer, raises the `TypeError` mruby's own coercion words.
-pub(crate) fn to_int(mrb: &Mrb, obj: Value) -> Result<Integer, Error> {
-    if let Some(int) = Integer::from_value(obj) {
-        return Ok(int);
-    }
-    if let Some(float) = f64::from_value(obj) {
-        // `i64::MIN as f64` is exactly -2⁶³, and `i64::MAX as f64` rounds up
-        // to 2⁶³, the first value past it.
-        if float >= i64::MIN as f64 && float < i64::MAX as f64 {
-            return Integer::try_convert((float.trunc() as i64).into_value(mrb), mrb);
-        }
-        let shown = obj
-            .funcall::<_, _, Value>(mrb, c"to_s", ())?
-            .to_r_string(mrb)?
-            .to_string(mrb)?;
-        return Err(crate::errno::to_error(
-            mrb,
-            mrb.exception_range_error(),
-            &format!("float {shown} out of range of integer"),
-        ));
-    }
-    if !obj.is_nil() {
-        if let Some(int) =
-            crate::convert::check_funcall(mrb, obj, c"to_int")?.and_then(Integer::from_value)
-        {
-            return Ok(int);
-        }
-    }
-    Integer::try_convert(obj, mrb)
+    Ok(Some(num2int(mrb, obj)? as u8))
 }
 
 /// The length `read` and `readpartial` are given, refusing a negative one as

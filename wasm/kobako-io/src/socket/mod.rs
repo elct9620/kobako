@@ -114,9 +114,9 @@ const SOCKET_CONSTANTS: &[(&str, i64)] = &[
     ("PF_INET", AF_INET),
     ("AF_INET6", AF_INET6),
     ("PF_INET6", AF_INET6),
-    ("SHUT_RD", 0),
-    ("SHUT_WR", 1),
-    ("SHUT_RDWR", 2),
+    ("SHUT_RD", basic::SHUT_RD),
+    ("SHUT_WR", basic::SHUT_WR),
+    ("SHUT_RDWR", basic::SHUT_RDWR),
     ("MSG_DONTWAIT", basic::MSG_DONTWAIT),
     ("INADDR_ANY", 0),
     ("INADDR_LOOPBACK", 0x7f00_0001),
@@ -254,9 +254,7 @@ fn bare_family(name: &str) -> &str {
 /// String, or an Integer; a name no family has raises `SocketError`.
 fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
     let Some(name) = name_of(mrb, value)? else {
-        return Ok(Family::Number(i64::from(crate::convert::num2int(
-            mrb, value,
-        )?)));
+        return Ok(Family::Number(crate::convert::num2int(mrb, value)?));
     };
     let bare = bare_family(&name);
     if !FAMILIES.contains(&bare) {

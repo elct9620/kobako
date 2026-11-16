@@ -175,7 +175,7 @@ pub(super) fn init(mrb: &Mrb, constants: &Constants, basic: RClass) -> Result<()
 /// String, or an Integer.
 fn level_of(mrb: &Mrb, value: Value) -> Result<i32, Error> {
     let Some(name) = name_of(mrb, value)? else {
-        return crate::convert::num2int(mrb, value);
+        return crate::convert::num2int(mrb, value).map(|number| number as i32);
     };
     LEVELS
         .iter()
@@ -189,7 +189,7 @@ fn level_of(mrb: &Mrb, value: Value) -> Result<i32, Error> {
 fn optname_of(mrb: &Mrb, level: i32, value: Value) -> Result<i32, Error> {
     let known = LEVELS.iter().find(|known| known.number == level);
     let (Some(level), Some(name)) = (known, name_of(mrb, value)?) else {
-        return crate::convert::num2int(mrb, value);
+        return crate::convert::num2int(mrb, value).map(|number| number as i32);
     };
     let bare = name.strip_prefix(level.option_prefix).unwrap_or(&name);
     level
@@ -562,7 +562,7 @@ fn option_s_int(
     optname: Value,
     int: Value,
 ) -> Result<Value, Error> {
-    let data = crate::convert::num2int(mrb, int)?.to_le_bytes().to_vec();
+    let data = (crate::convert::num2int(mrb, int)? as i32).to_le_bytes().to_vec();
     new_option(mrb, class, (family, level, optname), data)
 }
 

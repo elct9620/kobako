@@ -1269,6 +1269,27 @@ fn a_seek_by_a_whence_no_name_stands_for_raises_type_error() {
     );
 }
 
+// @behavior FL-106
+#[test]
+fn a_seek_by_a_whence_past_c_int_raises_range_error() {
+    let script = r#"
+        File.open("/data/lines.txt") do |f|
+          f.seek(0, 2**40)
+        rescue RangeError => e
+          print e.class.to_s
+        end
+    "#;
+    let Some(answer) = run(script, &[mount(lines_tmpfs(), Access::Read)], Vec::new()) else {
+        return;
+    };
+    assert_eq!(
+        answer,
+        Ok("RangeError".to_string()),
+        "File#seek by the whence 2**40 through the bundled guest must raise RangeError, as \
+         CRuby's NUM2INT refuses an Integer past C's int"
+    );
+}
+
 // @behavior FL-105
 #[test]
 fn a_read_length_given_as_a_float_drops_its_fraction() {

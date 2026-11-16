@@ -24,7 +24,8 @@ use beni::{
 
 use crate::errno;
 use crate::file::{path_arg, path_text, require_mount, stat_or_none};
-use crate::io::{argument_error, missing_block, to_int};
+use crate::convert::to_int;
+use crate::io::{argument_error, missing_block};
 
 mod glob;
 

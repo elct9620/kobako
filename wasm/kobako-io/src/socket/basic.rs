@@ -18,7 +18,8 @@ use super::option::Refusal;
 use super::tcp::Connection;
 use crate::convert::{string_bytes_of, string_value_of};
 use crate::errno::{self, eof_error};
-use crate::io::{argument_error, split_options, strbuf_length_of, to_int, would_wait, Direction};
+use crate::convert::to_int;
+use crate::io::{argument_error, split_options, strbuf_length_of, would_wait, Direction};
 use crate::wasi::wasi::io::poll::Pollable;
 
 /// Whether one call waits for the socket, as Linux's `MSG_DONTWAIT` chooses
@@ -376,13 +377,6 @@ pub(super) fn dest_sockaddr_of(mrb: &Mrb, dest: Value) -> Result<Value, Error> {
     }
 }
 
-/// The flags a send or a receive takes, read as CRuby's `NUM2INT` reads
-/// them: a Float drops its fraction, and NaN, an infinity, or a number past
-/// C's `int` raises `RangeError`.
-pub(super) fn flags_of(mrb: &Mrb, flags: Value) -> Result<i64, Error> {
-    Ok(i64::from(crate::convert::num2int(mrb, flags)?))
-}
-
 /// `send(mesg, flags[, dest])` sends every byte of `mesg` past any buffer,
 /// waiting for room, as CRuby's `BasicSocket#send`: `dest`, an `Addrinfo` or
 /// a String, changes nothing on a connected stream, as Linux's TCP ignores
@@ -432,7 +426,7 @@ pub(super) fn send_args_of<'a>(
         false => "send(2)",
     };
     let socket = open_socket_of(mrb, self_)?;
-    ensure_flags_carried(mrb, flags_of(mrb, flags)?, call)?;
+    ensure_flags_carried(mrb, crate::convert::num2int(mrb, flags)?, call)?;
     Ok(SendArgs {
         bytes,
         dest,
@@ -444,6 +438,11 @@ pub(super) fn send_args_of<'a>(
 /// Linux's `MSG_DONTWAIT`, the one flag a guest's receive or send takes; it
 /// waits all the same, as CRuby's `recv` waits again on `EAGAIN`.
 pub(super) const MSG_DONTWAIT: i64 = 0x40;
+
+/// `shutdown(2)`'s sides, at Linux's numbers.
+pub(super) const SHUT_RD: i64 = 0;
+pub(super) const SHUT_WR: i64 = 1;
+pub(super) const SHUT_RDWR: i64 = 2;
 
 /// Refuse a `flags` WASI carries none of with `Errno::ENOTSUP`, naming
 /// `call`, as a receive and a send both take only `MSG_DONTWAIT`.
@@ -514,10 +513,10 @@ fn shutdown_of(mrb: &Mrb, how: Option<Value>) -> Result<Shutdown, Error> {
         };
     }
     // A number reads as `NUM2INT` reads it, past `int` a RangeError.
-    match flags_of(mrb, how)? {
-        0 => Ok(Shutdown::Read),
-        1 => Ok(Shutdown::Write),
-        2 => Ok(Shutdown::Both),
+    match crate::convert::num2int(mrb, how)? {
+        SHUT_RD => Ok(Shutdown::Read),
+        SHUT_WR => Ok(Shutdown::Write),
+        SHUT_RDWR => Ok(Shutdown::Both),
         _ => Err(argument_error(
             mrb,
             "`how' should be either :SHUT_RD, :SHUT_WR, :SHUT_RDWR",

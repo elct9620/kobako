@@ -25,7 +25,8 @@ use core::ffi::c_int;
 use beni::{Error, IntoValue, Module, Mrb, RClass, RString, Symbol, Value};
 
 use crate::file::fstat_of;
-use crate::io::{checked_fd, is_closed, read_length_of, release, strbuf_length_of, to_int, Stream};
+use crate::convert::num2int;
+use crate::io::{checked_fd, is_closed, read_length_of, release, strbuf_length_of, Stream};
 use crate::lines::{self, LineSource};
 use crate::{descriptors, errno};
 
@@ -233,7 +234,7 @@ fn io_seek(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
 
 /// `whence` as a number, `:SET`, `:CUR`, and `:END` read as the constants
 /// they name, as CRuby's `interpret_seek_whence` reads them; any other value
-/// converts as an Integer, as its `NUM2INT` does.
+/// reads as its `NUM2INT` does.
 fn whence_of(mrb: &Mrb, whence: Value) -> Result<i64, Error> {
     if let Some(name) = Symbol::from_value(whence) {
         match name.name(mrb)?.as_str() {
@@ -243,7 +244,7 @@ fn whence_of(mrb: &Mrb, whence: Value) -> Result<i64, Error> {
             _ => {}
         }
     }
-    to_int(mrb, whence)?.to_i64(mrb)
+    num2int(mrb, whence)
 }
 
 fn io_set_pos(mrb: &Mrb, self_: Value, offset: i64) -> Result<Value, Error> {

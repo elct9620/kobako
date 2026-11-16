@@ -203,7 +203,7 @@ fn socktype_of(mrb: &Mrb, value: Option<Value>) -> Result<i64, Error> {
         return Ok(0);
     };
     let Some(name) = name_of(mrb, value)? else {
-        return crate::convert::num2int(mrb, value).map(i64::from);
+        return crate::convert::num2int(mrb, value);
     };
     match name.strip_prefix("SOCK_").unwrap_or(&name) {
         "STREAM" => Ok(SOCK_STREAM),
@@ -353,7 +353,7 @@ fn parts_of(
     let named = Family::Named(bare_family(&named).to_string())
         .ip_number()
         .ok_or_else(|| socket_error(mrb, &format!("unknown address family: {named}")))?;
-    let number = i64::from(crate::convert::num2int(mrb, parts.entry(mrb, 1)?)?);
+    let number = crate::convert::num2int(mrb, parts.entry(mrb, 1)?)?;
     let host: Value = parts.entry(mrb, 2)?;
     let host = (!host.is_nil())
         .then(|| string_value_of(mrb, host)?.to_string(mrb))

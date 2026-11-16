@@ -146,7 +146,7 @@ fn to_number(mrb: &Mrb, class: Value) -> Option<i32> {
 /// does; anything else names no number.
 fn errno_number(mrb: &Mrb, number: Value) -> Result<Option<i32>, Error> {
     Integer::from_value(number)
-        .map(|_| crate::convert::num2int(mrb, number))
+        .map(|_| crate::convert::num2int(mrb, number).map(|number| number as i32))
         .transpose()
 }
 

@@ -1043,3 +1043,16 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount holding a file |
 | When | the script reads it by `2.5`, preads it by `2.5`, and reads it by NaN |
 | Then | each read answers its first two bytes, and NaN raises `RangeError`, as CRuby's `NUM2LONG` reads the length |
+
+## `FL-106` A seek by a whence past C's int raises RangeError
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-085` |
+| relates | `FL-086` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding a file |
+| When | the script seeks by the whence `2**40` |
+| Then | it raises `RangeError`, as CRuby's `NUM2INT` refuses an Integer past C's `int` |

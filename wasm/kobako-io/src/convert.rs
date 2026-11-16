@@ -3,7 +3,7 @@
 //! that names the conversion, asked only when the value answers it.
 
 use beni::prelude::*;
-use beni::{Error, Mrb, RString, Symbol, Value};
+use beni::{Error, Integer, IntoValue, Mrb, RString, Symbol, TryConvert, Value};
 
 use crate::errno;
 
@@ -55,24 +55,60 @@ pub(crate) fn string_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error>
     Ok(unsafe { string.as_slice(mrb) }.to_vec())
 }
 
+/// The Integer `obj` stands for, as CRuby's `rb_num2long` reads it: an
+/// Integer as itself, a Float truncated, NaN, an infinity, or a Float past
+/// what an Integer holds raising `RangeError`, and anything else through its
+/// `to_int`, as `rb_to_int` asks; one with no `to_int`, or whose `to_int`
+/// answers no Integer, raises the `TypeError` mruby's own coercion words.
+pub(crate) fn to_int(mrb: &Mrb, obj: Value) -> Result<Integer, Error> {
+    if let Some(int) = Integer::from_value(obj) {
+        return Ok(int);
+    }
+    if let Some(float) = f64::from_value(obj) {
+        // `i64::MIN as f64` is exactly -2⁶³, and `i64::MAX as f64` rounds up
+        // to 2⁶³, the first value past it.
+        if float >= i64::MIN as f64 && float < i64::MAX as f64 {
+            return Integer::try_convert((float.trunc() as i64).into_value(mrb), mrb);
+        }
+        let shown = obj
+            .funcall::<_, _, Value>(mrb, c"to_s", ())?
+            .to_r_string(mrb)?
+            .to_string(mrb)?;
+        return Err(crate::errno::to_error(
+            mrb,
+            mrb.exception_range_error(),
+            &format!("float {shown} out of range of integer"),
+        ));
+    }
+    if !obj.is_nil() {
+        if let Some(int) =
+            check_funcall(mrb, obj, c"to_int")?.and_then(Integer::from_value)
+        {
+            return Ok(int);
+        }
+    }
+    Integer::try_convert(obj, mrb)
+}
+
 /// `value` as CRuby's `NUM2INT` reads it: `rb_to_int`'s Integer, past C's
-/// `int` raising `RangeError` too big above and too small below.
-pub(crate) fn num2int(mrb: &Mrb, value: Value) -> Result<i32, Error> {
-    let number = crate::io::to_int(mrb, value)?.to_i64(mrb)?;
+/// `int` raising `RangeError` too big above and too small below. It answers
+/// the Integer mruby holds, inside `int`'s range.
+pub(crate) fn num2int(mrb: &Mrb, value: Value) -> Result<i64, Error> {
+    let number = to_int(mrb, value)?.to_i64(mrb)?;
     ensure_fits(
         mrb,
         number,
         i64::from(i32::MIN)..=i64::from(i32::MAX),
         "int",
     )?;
-    Ok(number as i32)
+    Ok(number)
 }
 
 /// `value` as CRuby's `NIL_P(value) ? 0 : NUM2INT(value)` reads an optional
 /// int, `nil` or none being 0.
 pub(crate) fn num2int_or_zero(mrb: &Mrb, value: Option<Value>) -> Result<i64, Error> {
     match value.filter(|value| !value.is_nil()) {
-        Some(value) => num2int(mrb, value).map(i64::from),
+        Some(value) => num2int(mrb, value),
         None => Ok(0),
     }
 }
