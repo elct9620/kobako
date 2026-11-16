@@ -69,7 +69,7 @@ A Host App replaces a part only where the rules above it still hold, whatever th
 | Resolver | above it: connect judges each answer again | hands its own |
 | L7 proxy's sender | inside it: they hold only while it dials through the socket layer | keeps kobako's |
 
-For a test, kobako's own Mock stands as both backends. It answers names from a table and dials only its routes, so a script naming a real host reaches a server the test runs. A lookup and an HTTP dial run off the guest thread, so the Mock never calls back into the Host App. A Ruby test writes it as data.
+For a test, kobako's own Mock stands as both backends. It answers names from a table and dials only its routes, so a script naming a real host reaches a server the test runs. A lookup's answer and an HTTP dial come on the reactor, so the Mock never calls back into the Host App. A Ruby test writes it as data.
 
 ```
 guest names api.example.com
