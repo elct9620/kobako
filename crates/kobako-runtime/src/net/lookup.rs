@@ -214,15 +214,16 @@ impl FileOperations for LookupFile {
 }
 
 /// A lookup of `name` in `net`. The name is read as a URL host: one spelling
-/// an address answers that address as-is, with no query, as WIT returns an
-/// address string. Each entry's `resolve` policy and the endpoints judge any
+/// an address answers that address, with no query, as WIT returns an address
+/// string; an IPv4-mapped one answers its IPv4 address, as WIT never returns a
+/// mapped one. Each entry's `resolve` policy and the endpoints judge any
 /// other, as a DNS proxy judges a query before it forwards one; a refused or
 /// unmatched name answers as NXDOMAIN before any query, as a real one would.
 /// A name the Invocation already translated answers its first real addresses
 /// again, with no query, so a resolver cannot rebind it.
 pub fn resolve(net: &Namespace, name: &str) -> Result<Arc<NameLookup>, LookupError> {
     let name = match Host::parse(name).ok_or(LookupError::InvalidName)? {
-        Host::Address(ip) => return Ok(NameLookup::from_address(ip)),
+        Host::Address(ip) => return Ok(NameLookup::from_address(ip.to_canonical())),
         Host::Name(name) => name,
     };
     if !allows_lookup(net, &name) || !net.ruleset().admits_name(&name) {

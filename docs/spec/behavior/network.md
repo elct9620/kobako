@@ -2520,8 +2520,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a guest given the network |
-| When | it looks up an IPv4 address in full and in a short form such as `127.1`. It looks up a bare IPv6 address |
-| Then | each answers the address it spells as-is, with no query, as WIT returns an address string. The guest reads a short form as `inet_aton` does, so it needs no network. An HTTP authority spelled the same way is judged as that address, as `NW-013` judges a literal |
+| When | it looks up an IPv4 address in full and in a short form such as `127.1`. It looks up a bare IPv6 address and an IPv4-mapped one |
+| Then | each answers the address it spells, with no query, as WIT returns an address string. An IPv4-mapped address answers its IPv4 address, as WIT never returns a mapped one. The guest reads a short form as `inet_aton` does, so it needs no network. An HTTP authority spelled the same way is judged as that address, as `NW-013` judges a literal |
 
 ## `NW-202` A TCP socket's send buffer grows once it connects
 

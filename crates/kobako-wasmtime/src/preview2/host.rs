@@ -1714,15 +1714,18 @@ mod tests {
                 answer_of("127.1"),
                 answer_of("0x7f.1"),
                 answer_of("::1"),
+                answer_of("::ffff:10.1.2.3"),
             ],
             [
                 vec![IpAddress::Ipv4((10, 1, 2, 3))],
                 vec![IpAddress::Ipv4((127, 0, 0, 1))],
                 vec![IpAddress::Ipv4((127, 0, 0, 1))],
                 vec![IpAddress::Ipv6((0, 0, 0, 0, 0, 0, 0, 1))],
+                vec![IpAddress::Ipv4((10, 1, 2, 3))],
             ],
             "resolve-addresses of an IPv4 address in full and in a short form, and of a bare \
-             IPv6 address, must each answer the address it spells as-is"
+             IPv6 address, must each answer the address it spells, and an IPv4-mapped IPv6 \
+             address its IPv4 address"
         );
     }
 
