@@ -142,59 +142,95 @@ fn io_wait_writable(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Er
     wait_for(mrb, self_, args, POLLWRNORM)
 }
 
-/// `wait(timeout = nil, *modes)` answers the IO once it is ready for any of
-/// `modes`, `:read` when none is named, `true` when its buffer already holds
-/// bytes to read, or `nil` at the timeout, as CRuby's `io_wait` does. A
-/// `nil` timeout raises `TypeError`, as CRuby reads it as a time interval.
+/// `IO::READABLE` and `IO::WRITABLE`, the event bits `IO#wait` takes.
+const IO_READABLE: i64 = 1;
+const IO_WRITABLE: i64 = 4;
+
+/// `wait(events, timeout)` answers the events that came ready, and
+/// `wait(timeout = nil, *modes)` the IO, `:read` when no mode is named, as
+/// CRuby's `io_wait` reads them: two arguments, neither a Symbol, are the
+/// events and the timeout; otherwise each Symbol is a mode and the one other
+/// argument the timeout, which `rb_time_interval` reads, so `nil` raises
+/// `TypeError`. Bytes already buffered answer at once, `true` in the second
+/// form. A timeout answers `nil`.
 fn io_wait(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    let timeout = match args.first() {
-        Some(timeout) if timeout.is_nil() => {
-            return Err(errno::to_error(
-                mrb,
-                mrb.exception_type_error(),
-                "can't convert NilClass into time interval",
-            ))
-        }
-        timeout => timeout.copied(),
-    };
-    let mut events = Vec::new();
-    for mode in args.iter().skip(1) {
-        let Some(name) = Symbol::from_value(*mode)
-            .map(|mode| mode.name(mrb))
-            .transpose()?
-        else {
-            return Err(crate::io::argument_error(
-                mrb,
-                "Events must be positive integer!",
-            ));
-        };
-        events.extend_from_slice(match name.as_str() {
-            "r" | "read" | "readable" => &[POLLRDNORM][..],
-            "w" | "write" | "writable" => &[POLLWRNORM][..],
-            "rw" | "read_write" | "readable_writable" => &[POLLRDNORM, POLLWRNORM][..],
-            _ => {
+    let fast = args.len() == 2 && args.iter().all(|arg| Symbol::from_value(*arg).is_none());
+    let (events, timeout) = match fast {
+        true => {
+            let events = crate::io::to_int(mrb, args[0])?.to_i64(mrb)?;
+            if events <= 0 {
                 return Err(crate::io::argument_error(
                     mrb,
-                    &format!("unsupported mode: {name}"),
-                ))
+                    "Events must be positive integer!",
+                ));
             }
+            (events, Some(args[1]).filter(|timeout| !timeout.is_nil()))
+        }
+        false => modes_and_timeout(mrb, args)?,
+    };
+    if events & IO_READABLE != 0 && socket::holds_buffered(mrb, self_) {
+        return Ok(match fast {
+            true => IO_READABLE.into_value(mrb),
+            false => true.into_value(mrb),
         });
     }
-    if events.is_empty() {
-        events.push(POLLRDNORM);
-    }
-    if events.contains(&POLLRDNORM) && socket::holds_buffered(mrb, self_) {
-        return Ok(true.into_value(mrb));
-    }
-    let targets = events
+    let asked = [(IO_READABLE, POLLRDNORM), (IO_WRITABLE, POLLWRNORM)]
+        .into_iter()
+        .filter(|(bit, _)| events & bit != 0)
+        .collect::<Vec<_>>();
+    let targets = asked
         .iter()
-        .map(|events| Ok((wait_target_of(mrb, self_, *events)?, *events)))
+        .map(|(_, poll)| Ok((wait_target_of(mrb, self_, *poll)?, *poll)))
         .collect::<Result<Vec<_>, Error>>()?;
     let ready = wait_any(mrb, &targets, to_millis(mrb, timeout)?)?;
-    Ok(match ready.contains(&true) {
-        true => self_,
-        false => qnil().as_value(),
+    let mask = asked
+        .iter()
+        .zip(&ready)
+        .filter(|(_, ready)| **ready)
+        .fold(0, |mask, ((bit, _), _)| mask | bit);
+    Ok(match (mask, fast) {
+        (0, _) => qnil().as_value(),
+        (mask, true) => mask.into_value(mrb),
+        (_, false) => self_,
     })
+}
+
+/// The events each Symbol of `args` names and the one other argument, the
+/// timeout, as `io_wait` reads them past its two-argument form: no mode is
+/// `IO::READABLE`, an unknown one raises `ArgumentError`, and a second
+/// timeout too.
+fn modes_and_timeout(mrb: &Mrb, args: &[Value]) -> Result<(i64, Option<Value>), Error> {
+    let mut events = 0;
+    let mut timeout = None;
+    for arg in args {
+        if let Some(mode) = Symbol::from_value(*arg) {
+            let name = mode.name(mrb)?;
+            events |= match name.as_str() {
+                "r" | "read" | "readable" => IO_READABLE,
+                "w" | "write" | "writable" => IO_WRITABLE,
+                "rw" | "read_write" | "readable_writable" => IO_READABLE | IO_WRITABLE,
+                _ => {
+                    let message = format!("unsupported mode: {name}");
+                    return Err(crate::io::argument_error(mrb, &message));
+                }
+            };
+        } else if timeout.is_none() {
+            if arg.is_nil() {
+                return Err(errno::to_error(
+                    mrb,
+                    mrb.exception_type_error(),
+                    "can't convert NilClass into time interval",
+                ));
+            }
+            timeout = Some(*arg);
+        } else {
+            return Err(crate::io::argument_error(
+                mrb,
+                "timeout given more than once",
+            ));
+        }
+    }
+    Ok((if events == 0 { IO_READABLE } else { events }, timeout))
 }
 
 fn wait_for(mrb: &Mrb, self_: Value, args: &[Value], events: c_short) -> Result<Value, Error> {

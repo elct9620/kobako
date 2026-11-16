@@ -42,19 +42,25 @@ class TestE2ENetworkSocketConstantsCruby < Minitest::Test
     [answer.call { socket.wait(0.01) }, answer.call { socket.wait(1, :write) },
      answer.call { socket.wait(1, :read, :w) }, answer.call { socket.wait(0.01, :bogus) },
      answer.call { socket.wait(0.01, "read") }, answer.call { socket.wait(nil) },
+     answer.call { socket.wait(:w, 1) }, answer.call { socket.wait(4, 1) }, answer.call { socket.wait(1, 0.01) },
+     answer.call { socket.wait(1, :read, 2) },
      IPSocket.getaddress("127.1"), IPSocket.getaddress("::1"), answer.call { IPSocket.getaddress("unnamed.test") }]
   RUBY
+
+  # What CRuby 3.4.7 on Linux answers for each of WAITS.
+  WAIT_ANSWERS = [nil, :self, :self, ["ArgumentError", "unsupported mode: bogus"],
+                  ["ArgumentError", "Events must be positive integer!"],
+                  ["TypeError", "can't convert NilClass into time interval"], :self, 4, nil,
+                  ["ArgumentError", "timeout given more than once"], "127.0.0.1", "::1",
+                  ["Socket::ResolutionError", "getaddrinfo: Name or service not known"]].freeze
 
   # @behavior NW-224
   def test_a_script_waits_and_looks_an_address_up_as_crubys
     with_listening_server do |port|
-      assert_equal [nil, :self, :self, ["ArgumentError", "unsupported mode: bogus"],
-                    ["ArgumentError", "Events must be positive integer!"],
-                    ["TypeError", "can't convert NilClass into time interval"], "127.0.0.1", "::1",
-                    ["Socket::ResolutionError", "getaddrinfo: Name or service not known"]],
-                   loopback_sandbox(port).eval(format(WAITS, port: port)).value,
-                   "IO#wait must answer nil at its timeout and the IO once ready for any mode named, raise " \
-                   "ArgumentError for an unknown mode or a String and TypeError for a nil timeout, and " \
+      assert_equal WAIT_ANSWERS, loopback_sandbox(port).eval(format(WAITS, port: port)).value,
+                   "IO#wait must answer nil at its timeout and the IO once ready for any mode named in any " \
+                   "place, the ready events for (events, timeout), raise ArgumentError for an unknown mode, " \
+                   "events no positive Integer, or a second timeout, and TypeError for a nil timeout, and " \
                    "IPSocket.getaddress must answer the address a host spells, as CRuby's on Linux do"
     end
   end

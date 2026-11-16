@@ -233,13 +233,18 @@ fn data_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
     string_bytes_of(mrb, value)
 }
 
-/// The `int` a value of `bytes` carries for `setsockopt(2)` at `level`,
-/// which reads the first four bytes. An IP option shorter than that reads
-/// its first byte, as `do_ip_setsockopt` takes an `unsigned char`; any other
-/// short value raises `EINVAL`.
-fn int_of(mrb: &Mrb, level: i32, bytes: &[u8]) -> Result<i32, Error> {
+/// The `int` a value of `bytes` carries for `setsockopt(2)` at `level` on
+/// a socket of `protocol`, which reads the first four bytes. Linux judges
+/// the level before the length: one the socket does not take raises
+/// `ENOPROTOOPT`, as `ip_setsockopt` refuses a level that is not `SOL_IP`.
+/// An IP option shorter than four bytes reads its first byte, as
+/// `do_ip_setsockopt` takes an `unsigned char`; any other short value raises
+/// `EINVAL`.
+fn int_of(mrb: &Mrb, (level, protocol): (i32, i32), bytes: &[u8]) -> Result<i32, Error> {
+    let taken = [SOL_SOCKET, IPPROTO_IP, protocol].contains(&level);
     match (bytes.get(..4), bytes.first()) {
         (Some(first), _) => Ok(i32::from_le_bytes(first.try_into().expect("four bytes"))),
+        _ if !taken => Err(errno::error_by_name(mrb, c"ENOPROTOOPT", "setsockopt(2)")),
         (None, Some(byte)) if level == IPPROTO_IP => Ok(i32::from(*byte)),
         _ => Err(errno::error_by_name(mrb, c"EINVAL", "setsockopt(2)")),
     }
@@ -262,7 +267,7 @@ fn socket_setsockopt(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, E
         }
         _ => return Err(Error::argnum(mrb, args.len(), 3, 3)),
     };
-    let int = int_of(mrb, level, &data)?;
+    let int = int_of(mrb, (level, socket.kind().1 as i32), &data)?;
     let option = (level, optname);
     socket
         .set_option(mrb, option, int)?

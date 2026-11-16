@@ -33,6 +33,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_order_cruby.rb`
 - `test/e2e/test_network_socket_corners_cruby.rb`
 - `test/e2e/test_network_lookup_arguments_cruby.rb`
+- `test/e2e/test_network_addrinfo_array_cruby.rb`
 - `test/e2e/test_network_addrinfo_kinds.rb`
 - `test/e2e/test_network_socket_constants_cruby.rb`
 - `test/e2e/test_network_socket_args_cruby.rb`
@@ -1471,7 +1472,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP and a UDP endpoint naming loopback peers |
 | When | the script names `"0.0.0.0"` port 0 as a `TCPSocket`'s local end and binds a `UDPSocket` to `"<any>"` port `"0"`. It binds that socket again, then binds another to `127.0.0.1` |
-| Then | the TCP socket connects and the first bind passes, as CRuby reads each with `AI_PASSIVE`. The second bind raises `Errno::EINVAL`, as Linux's. The bind to `127.0.0.1` raises `Errno::EACCES`, as the host refuses it. A bind to `nil` takes the loopback, as CRuby reads it with no `AI_PASSIVE`, so it raises `Errno::EACCES` too |
+| Then | the TCP socket connects and the first bind passes, as CRuby's `host_str` reads each as any address. The second bind raises `Errno::EINVAL`, as Linux's. The bind to `127.0.0.1` raises `Errno::EACCES`, as the host refuses it. A bind to `nil` takes the loopback, as CRuby reads it with no `AI_PASSIVE`, so it raises `Errno::EACCES` too |
 
 ## `NW-118` A script's socket answers IO's edge calls as CRuby's
 
@@ -1769,7 +1770,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a network entry naming `localhost` |
 | When | the script calls `Addrinfo.getaddrinfo` and `Socket.getaddrinfo` for a literal and for `localhost`, with and without a family, kind, and `AI_CANONNAME`. It looks up a name no entry names |
-| Then | each answers one entry per kind CRuby's does, for the virtual address a name leads to. The canonical name comes on the first entry. An empty host, `<any>`, and `<broadcast>` read as the literals CRuby makes of them. The unnamed one raises `Socket::ResolutionError`, as CRuby's does. `timeout:` is taken and never read, as CRuby's `call_getaddrinfo` on Linux reads none. A `reverse_lookup` flag CRuby's refuses raises before the lookup. Naming neither host nor service raises `EAI_NONAME`, and `AI_CANONNAME` with no host `EAI_BADFLAGS`. A kind or protocol glibc's table has no entry for raises `EAI_SOCKTYPE`, before the name or service is read. `SOCK_SEQPACKET` raises it too, where glibc answers SCTP, since WASI has no such socket |
+| Then | each answers one entry per kind CRuby's does, for the virtual address a name leads to. The canonical name comes on the first entry. An empty host, `<any>`, and `<broadcast>` read as the literals CRuby makes of them. The unnamed one raises `Socket::ResolutionError`, as CRuby's does. `timeout:` is taken and never read, as CRuby's `call_getaddrinfo` on Linux reads none. A `reverse_lookup` flag CRuby's refuses raises before the lookup. Naming neither host nor service raises `EAI_NONAME`, and `AI_CANONNAME` with no host `EAI_BADFLAGS`. A kind or protocol glibc's table has no entry for raises `EAI_SOCKTYPE`, before the name or service is read. So do `SOCK_SEQPACKET`, SCTP, UDP-Lite, and DCCP, where glibc answers them, since WASI has no such socket. `"*"` names no host or service, as glibc reads it |
 
 ## `NW-142` A script reads a socket's ends as Addrinfos
 

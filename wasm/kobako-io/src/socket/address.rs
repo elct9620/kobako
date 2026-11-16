@@ -71,39 +71,42 @@ pub(super) fn no_timeout() -> Result<Option<Duration>, Error> {
     Ok(None)
 }
 
-/// The host `host` names, as CRuby's `host_str` reads it for `getaddrinfo`:
-/// an Integer is the IPv4 address it numbers, as `NUM2UINT` reads it,
+/// The text CRuby's `host_str` hands `getaddrinfo` for `host`: `None` for
+/// `nil`; an Integer is the IPv4 address it numbers, as `NUM2UINT` reads it,
 /// raising `RangeError` past an `unsigned int`; `""` and `"<any>"` are any
-/// address and `"<broadcast>"` the broadcast one; any other value converts as
-/// `StringValueCStr` does, so a Symbol raises `TypeError` and a NUL
-/// `ArgumentError`, and one past `NI_MAXHOST` raises `ArgumentError`. `nil`
-/// names none, which `getaddrinfo` reads as the loopback, or any address
-/// when `passive`.
-pub(super) fn host_of(mrb: &Mrb, host: Value, passive: bool) -> Result<String, Error> {
+/// address and `"<broadcast>"` the broadcast one; any other value converts
+/// as `StringValueCStr` does, so a Symbol raises `TypeError` and a NUL
+/// `ArgumentError`, and one of `NI_MAXHOST` bytes raises `ArgumentError`.
+pub(super) fn host_text_of(mrb: &Mrb, host: Value) -> Result<Option<String>, Error> {
     if host.is_nil() {
-        let ip = match passive {
-            true => Ipv4Addr::UNSPECIFIED,
-            false => Ipv4Addr::LOCALHOST,
-        };
-        return Ok(ip.to_string());
+        return Ok(None);
     }
     if Integer::from_value(host).is_some() {
         let number = i64::try_convert(host, mrb)?;
         ensure_fits(mrb, number, INT_TO_UINT, "unsigned int")?;
-        return Ok(Ipv4Addr::from(number as u32).to_string());
+        return Ok(Some(Ipv4Addr::from(number as u32).to_string()));
     }
-    let text = cstr_text_of(mrb, host)?;
-    if text.len() >= NI_MAXHOST {
-        return Err(argument_error(
-            mrb,
-            &format!("hostname too long ({})", text.len()),
-        ));
+    let bytes = cstr_bytes_of(mrb, host)?;
+    if bytes.len() >= NI_MAXHOST {
+        let message = format!("hostname too long ({})", bytes.len());
+        return Err(argument_error(mrb, &message));
     }
-    Ok(match text.as_str() {
-        "" | "<any>" => Ipv4Addr::UNSPECIFIED.to_string(),
-        "<broadcast>" => Ipv4Addr::BROADCAST.to_string(),
-        _ => text,
-    })
+    Ok(Some(match &bytes[..] {
+        b"" | b"<any>" => Ipv4Addr::UNSPECIFIED.to_string(),
+        b"<broadcast>" => Ipv4Addr::BROADCAST.to_string(),
+        _ => String::from_utf8_lossy(&bytes).into_owned(),
+    }))
+}
+
+/// The host `getaddrinfo` looks up for `text`: a host it is not given, or
+/// `"*"`, which glibc reads as none, is the loopback, or any address when
+/// `passive`.
+pub(super) fn node_of(text: Option<String>, passive: bool) -> String {
+    match text.filter(|text| text != "*") {
+        Some(text) => text,
+        None if passive => Ipv4Addr::UNSPECIFIED.to_string(),
+        None => Ipv4Addr::LOCALHOST.to_string(),
+    }
 }
 
 /// What CRuby's `NUM2UINT` takes, wrapping a negative one: an `int`'s least
@@ -113,12 +116,12 @@ const INT_TO_UINT: core::ops::RangeInclusive<i64> = i32::MIN as i64..=u32::MAX a
 /// The bytes CRuby's `host_str` holds a host in, its NUL among them.
 const NI_MAXHOST: usize = 1025;
 
-/// The text of `value` as `StringValueCStr` takes it: a NUL inside raises
+/// The bytes of `value` as `StringValueCStr` takes them: a NUL inside raises
 /// `ArgumentError`.
-fn cstr_text_of(mrb: &Mrb, value: Value) -> Result<String, Error> {
+fn cstr_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
     let bytes = string_bytes_of(mrb, value)?;
     ensure_no_nul(mrb, &bytes)?;
-    Ok(String::from_utf8_lossy(&bytes).into_owned())
+    Ok(bytes)
 }
 
 /// The address `text` spells, as glibc's `getaddrinfo` reads a numeric host:
@@ -172,46 +175,36 @@ fn inet_aton_exact(text: &str) -> Option<Ipv4Addr> {
     Some(Ipv4Addr::from(high | last))
 }
 
-/// The peers `host` and `port` name for `call`, for a connect to try in turn:
-/// the IPv4 address `host` spells, or each one its name leads to within what
-/// `resolv_timeout` reads, with the words CRuby's `Errno` carries for them.
-/// The timeout is read only for a name, as CRuby reads its resolve timeout
-/// only where it must resolve one.
-pub(super) fn peers_of(
+/// The ends `host` and `port` name for `call`, for a connect or a bind to
+/// try in turn: the IPv4 address `host` spells, or each one its name leads
+/// to within what `resolv_timeout` reads, with the words CRuby's `Errno`
+/// carries for them. Each is read as CRuby's `rsock_addrinfo` reads them
+/// with no `AI_PASSIVE`, so `nil` is the loopback. The timeout is read only
+/// for a name, as CRuby reads its resolve timeout only where it must resolve
+/// one.
+pub(super) fn ends_of(
     mrb: &Mrb,
     host: Value,
     port: Value,
     resolv_timeout: &dyn Fn() -> Result<Option<Duration>, Error>,
     call: &str,
 ) -> Result<(Vec<Ipv4Addr>, u16, String), Error> {
-    ends_of_host(mrb, host, port, resolv_timeout, call)
-}
-
-/// The ends `host` and `port` name for `call`.
-fn ends_of_host(
-    mrb: &Mrb,
-    host: Value,
-    port: Value,
-    resolv_timeout: &dyn Fn() -> Result<Option<Duration>, Error>,
-    call: &str,
-) -> Result<(Vec<Ipv4Addr>, u16, String), Error> {
-    let host_text = host_of(mrb, host, false)?;
-    let (port_number, port_text) = port_of(mrb, port)?;
-    ensure_named(mrb, host, port)?;
-    let port = port_number;
-    let call = to_peer_message(mrb, call, host, port_text);
+    let host_text = host_text_of(mrb, host)?;
+    let service = service_text_of(mrb, port)?;
+    ensure_named(mrb, &host_text, &service)?;
+    let port_number = port_of_service(mrb, service.as_deref())?;
+    let host_text = node_of(host_text, false);
+    let call = to_peer_message(mrb, call, host, service.unwrap_or_default());
     let ips = match literal_of(&host_text) {
         Some(IpAddr::V4(ip)) => vec![ip],
         Some(IpAddr::V6(_)) => return Err(errno::error_by_name(mrb, c"EAFNOSUPPORT", &call)),
         None => resolve(mrb, &host_text, resolv_timeout()?, &call)?,
     };
-    Ok((ips, port, call))
+    Ok((ips, port_number, call))
 }
 
 /// The local end `host` and `port` name for a bind, and the text naming it in
-/// an error, as CRuby's `rsock_addrinfo` reads them with no `AI_PASSIVE`:
-/// `nil` is the loopback, as `getaddrinfo` reads a host it is not given,
-/// and the rest as `host_of` reads it, a name binding the first address it
+/// an error, as `ends_of` reads them, a name binding the first address it
 /// leads to, as `init_inetsock_internal` takes the first of the peer's
 /// family. The host decides which end a bind may take.
 pub(super) fn local_of(
@@ -219,51 +212,72 @@ pub(super) fn local_of(
     host: Value,
     port: Value,
 ) -> Result<(Ipv4Addr, u16, String), Error> {
-    let (ips, port, call) = ends_of_host(mrb, host, port, &no_timeout, "bind(2)")?;
+    let (ips, port, call) = ends_of(mrb, host, port, &no_timeout, "bind(2)")?;
     Ok((ips[0], port, call))
 }
 
-/// The port `port` names, and its text, as glibc's `getaddrinfo` reads the
-/// text CRuby's `port_str` hands it: `nil` or `""` is port 0, an Integer is
-/// its decimal digits, and a String of 32 bytes or more raises
-/// `ArgumentError`. glibc reads the digits with `strtoul`, a sign and leading
-/// space allowed, keeps them in an `int`, refuses a negative one, and takes
-/// its low 16 bits. The guest has no services database, so any other String
-/// raises `EAI_SERVICE`, as Linux without one does. An Integer past a Fixnum
-/// raises `TypeError`, as `port_str` takes it as a String.
+/// The port `port` names, and its text, as `service_text_of` and then
+/// `port_of_service` read it.
 pub(crate) fn port_of(mrb: &Mrb, port: Value) -> Result<(u16, String), Error> {
-    let text = if port.is_nil() {
-        String::new()
-    } else if Integer::from_value(port).is_some() {
+    let text = service_text_of(mrb, port)?;
+    Ok((
+        port_of_service(mrb, text.as_deref())?,
+        text.unwrap_or_default(),
+    ))
+}
+
+/// The text CRuby's `port_str` hands `getaddrinfo` for `port`: `None` for
+/// `nil`, an Integer's decimal digits, and a String as `StringValueCStr`
+/// takes it, one of 32 bytes or more raising `ArgumentError`. An Integer
+/// past a Fixnum raises `TypeError`, as `port_str` takes it as a String.
+pub(super) fn service_text_of(mrb: &Mrb, port: Value) -> Result<Option<String>, Error> {
+    if port.is_nil() {
+        return Ok(None);
+    }
+    if Integer::from_value(port).is_some() {
         let number = i64::try_convert(port, mrb)
             .ok()
             .filter(|number| (FIXNUM_MIN..=FIXNUM_MAX).contains(number));
-        number
-            .ok_or_else(|| errno::type_error(mrb, port))?
-            .to_string()
-    } else {
-        cstr_text_of(mrb, port)?
-    };
-    if text.is_empty() {
-        return Ok((0, text));
-    }
-    if text.len() >= SERVICE_TEXT_MAX {
-        return Err(argument_error(
-            mrb,
-            &format!("service name too long ({})", text.len()),
+        return Ok(Some(
+            number
+                .ok_or_else(|| errno::type_error(mrb, port))?
+                .to_string(),
         ));
     }
-    let number = strtoul(&text).ok_or_else(|| resolution_error(mrb, EAI_SERVICE))?;
+    let bytes = cstr_bytes_of(mrb, port)?;
+    if bytes.len() >= SERVICE_TEXT_MAX {
+        let message = format!("service name too long ({})", bytes.len());
+        return Err(argument_error(mrb, &message));
+    }
+    Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
+}
+
+/// The port glibc's `getaddrinfo` reads from `service`: none, `""`, or
+/// `"*"` is port 0; digits are read with `strtoul`, a sign and leading space
+/// allowed, kept in an `int`, a negative one refused, and its low 16 bits
+/// taken. The guest has no services database, so any other text raises
+/// `EAI_SERVICE`, as Linux without one does.
+pub(super) fn port_of_service(mrb: &Mrb, service: Option<&str>) -> Result<u16, Error> {
+    let Some(text) = service.filter(|text| !text.is_empty() && *text != "*") else {
+        return Ok(0);
+    };
+    let number = strtoul(text).ok_or_else(|| resolution_error(mrb, EAI_SERVICE))?;
     if (number as u32 as i32) < 0 {
         return Err(resolution_error(mrb, EAI_SERVICE));
     }
-    Ok((number as u16, text))
+    Ok(number as u16)
 }
 
 /// Refuse a call naming neither a host nor a service, as glibc's
-/// `getaddrinfo` answers `EAI_NONAME` before anything else.
-pub(super) fn ensure_named(mrb: &Mrb, host: Value, service: Value) -> Result<(), Error> {
-    match host.is_nil() && service.is_nil() {
+/// `getaddrinfo` answers `EAI_NONAME` before anything else, `"*"` naming
+/// none.
+pub(super) fn ensure_named(
+    mrb: &Mrb,
+    host: &Option<String>,
+    service: &Option<String>,
+) -> Result<(), Error> {
+    let none = |text: &Option<String>| matches!(text.as_deref(), None | Some("*"));
+    match none(host) && none(service) {
         true => Err(resolution_error(mrb, EAI_NONAME)),
         false => Ok(()),
     }
@@ -277,10 +291,11 @@ const FIXNUM_MAX: i64 = (1 << 62) - 1;
 const FIXNUM_MIN: i64 = -(1 << 62);
 
 /// The number `text` spells all through, as C's `strtoul` reads it: leading
-/// space, then a sign, then digits, a minus negating it and one past
-/// `unsigned long` answering the largest; `None` when anything else stands.
+/// space as `isspace` takes it, then a sign, then digits, a minus negating
+/// it and one past `unsigned long` answering the largest; `None` when
+/// anything else stands.
 pub(super) fn strtoul(text: &str) -> Option<u64> {
-    let text = text.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let text = text.trim_start_matches([' ', '\t', '\n', '\u{b}', '\u{c}', '\r']);
     let (negative, digits) = match text.as_bytes().first() {
         Some(b'-') => (true, &text[1..]),
         Some(b'+') => (false, &text[1..]),
@@ -310,7 +325,7 @@ pub(super) fn init(mrb: &Mrb, socket: RClass) -> Result<(), Error> {
     Ok(())
 }
 
-/// The addresses `host` names once `host_of` read it: a literal is itself,
+/// The addresses `host` names once `node_of` read it: a literal is itself,
 /// and a name each address it leads to.
 pub(super) fn addresses_of(mrb: &Mrb, host: &str) -> Result<Vec<IpAddr>, Error> {
     Ok(match literal_of(host) {
@@ -372,11 +387,11 @@ pub(super) fn end_of(mrb: &Mrb, sockaddr: Value) -> Result<(IpAddr, u16), Error>
 /// `Socket.sockaddr_in(port, host)` packs the end `host` and `port` name, a
 /// name's first address, as CRuby's packs the first `getaddrinfo` answers.
 fn socket_s_sockaddr_in(mrb: &Mrb, _self: Value, port: Value, host: Value) -> Result<Value, Error> {
-    let (number, _) = port_of(mrb, port)?;
-    let host_text = host_of(mrb, host, false)?;
-    ensure_named(mrb, host, port)?;
-    let ip = addresses_of(mrb, &host_text)?[0];
-    let port = number;
+    let host_text = host_text_of(mrb, host)?;
+    let service = service_text_of(mrb, port)?;
+    ensure_named(mrb, &host_text, &service)?;
+    let port = port_of_service(mrb, service.as_deref())?;
+    let ip = addresses_of(mrb, &node_of(host_text, false))?[0];
     Ok(mrb.str_new(&to_sockaddr(ip, port)).as_value())
 }
 

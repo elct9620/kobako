@@ -6,7 +6,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use beni::prelude::*;
 use beni::{Error, IntoValue, Mrb, Qtrue, RArray, RClass, Symbol, Value};
 
-use super::address::{addresses_of, host_of, ipv4_end_of};
+use super::address::{addresses_of, ensure_named, host_text_of, ipv4_end_of, node_of};
 use super::basic::{open_socket_of, receive_past_buffer, PastBuffer, Wait};
 use super::to_error;
 use crate::io::argument_error;
@@ -115,6 +115,8 @@ pub(super) fn to_addr_array(
 /// CRuby's looks it up and spells the first answer; a name answers its
 /// virtual address.
 fn ip_socket_s_getaddress(mrb: &Mrb, _self: Value, host: Value) -> Result<Value, Error> {
-    let ip = addresses_of(mrb, &host_of(mrb, host, false)?)?[0];
+    let host_text = host_text_of(mrb, host)?;
+    ensure_named(mrb, &host_text, &None)?;
+    let ip = addresses_of(mrb, &node_of(host_text, false))?[0];
     Ok(mrb.str_new(ip.to_string().as_bytes()).as_value())
 }

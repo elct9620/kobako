@@ -11,7 +11,8 @@ use beni::value::qnil;
 use beni::{Error, Integer, IntoValue, Module, Mrb, RArray, RClass, TryConvert, TypedData, Value};
 
 use super::address::{
-    addresses_of, end_of, ensure_named, host_of, literal_of, port_of, strtoul, to_sockaddr,
+    addresses_of, end_of, ensure_named, host_text_of, literal_of, node_of, port_of_service,
+    service_text_of, strtoul, to_sockaddr,
 };
 use super::basic::open_socket_of;
 use super::ip::ensure_reverse_lookup_flag;
@@ -61,8 +62,8 @@ const AI_NUMERICHOST: i64 = 4;
 const AI_NUMERICSERV: i64 = 0x400;
 const NI_NUMERICHOST: i64 = 1;
 const NI_NUMERICSERV: i64 = 2;
-/// Every flag glibc's `getnameinfo` takes, `NI_NUMERICHOST` through `NI_IDN`.
-const NI_FLAGS: i64 = 0x3f;
+/// Every flag glibc's `getnameinfo` takes, its `NI_IDN` ones among them.
+const NI_FLAGS: i64 = 0xff;
 
 /// glibc's `EAI_BADFLAGS`, `EAI_SOCKTYPE`, `EAI_FAMILY`, and
 /// `EAI_ADDRFAMILY`, with `gai_strerror`'s words for each.
@@ -250,23 +251,24 @@ struct Hints {
 /// asked. A name leads to its virtual addresses, and `nil` to the loopback,
 /// or to any address with `AI_PASSIVE`.
 fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<Addrinfo>, Error> {
-    ensure_named(mrb, node, service)?;
+    // CRuby's `host_str` and `port_str` read both before glibc is asked,
+    // which then refuses in `getaddrinfo`'s order: no name, a flag, a
+    // service `AI_NUMERICSERV` refuses, a kind, then the service itself.
+    let host_text = host_text_of(mrb, node)?;
+    let service_text = service_text_of(mrb, service)?;
+    ensure_named(mrb, &host_text, &service_text)?;
     if hints.flags & AI_CANONNAME != 0 && node.is_nil() {
         return Err(resolution_error(mrb, EAI_BADFLAGS));
     }
-    let kinds = kinds_of(mrb, hints)?;
-    // `AI_NUMERICSERV` takes digits alone, as glibc answers any other service
-    // `EAI_NONAME`.
-    if hints.flags & AI_NUMERICSERV != 0
-        && !service.is_nil()
-        && Integer::from_value(service).is_none()
-    {
-        let text = string_value_of(mrb, service)?.to_string(mrb)?;
-        if !text.is_empty() && strtoul(&text).is_none() {
-            return Err(resolution_error(mrb, EAI_NONAME));
-        }
+    let numeric_service = service_text
+        .as_deref()
+        .is_none_or(|text| text.is_empty() || strtoul(text).is_some());
+    if hints.flags & AI_NUMERICSERV != 0 && !numeric_service {
+        return Err(resolution_error(mrb, EAI_NONAME));
     }
-    let (port, service_text) = port_of(mrb, service)?;
+    let kinds = kinds_of(mrb, hints)?;
+    let port = port_of_service(mrb, service_text.as_deref())?;
+    let service_text = service_text.unwrap_or_default();
     let passive = hints.flags & AI_PASSIVE != 0;
     // The node as written, which `inspect` shows, as CRuby's
     // `make_inspectname` keeps what the script spelled.
@@ -274,9 +276,9 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
         true => None,
         false => Some(string_value_of(mrb, node)?.to_string(mrb)?),
     };
-    // The node as `host_of` reads it, so `""`, `<any>`, and `<broadcast>`
-    // are the literals CRuby's `host_str` makes of them.
-    let host = host_of(mrb, node, passive)?;
+    // The node as `host_str` and glibc read it, so `""`, `<any>`, and
+    // `<broadcast>` are the literals CRuby makes of them.
+    let host = node_of(host_text, passive);
     let numeric = literal_of(&host).is_some();
     if hints.flags & AI_NUMERICHOST != 0 && !numeric {
         return Err(resolution_error(mrb, EAI_NONAME));
@@ -328,8 +330,14 @@ fn parts_of(
     socktype: Option<Value>,
     protocol: Option<Value>,
 ) -> Result<(IpAddr, u16, Option<String>), Error> {
+    // CRuby reads each part, then the kind, before glibc's numeric lookup
+    // judges the kind, the service, and the address in turn.
     let named = string_value_of(mrb, parts.entry(mrb, 0)?)?.to_string(mrb)?;
-    let named = match named.trim_start_matches("AF_").trim_start_matches("PF_") {
+    let bare = named
+        .strip_prefix("AF_")
+        .or_else(|| named.strip_prefix("PF_"))
+        .unwrap_or(&named);
+    let named = match bare {
         "INET" => AF_INET,
         "INET6" => AF_INET6,
         _ => {
@@ -340,19 +348,17 @@ fn parts_of(
         }
     };
     let number = to_int(mrb, parts.entry(mrb, 1)?)?.to_i64(mrb)?;
+    crate::convert::ensure_fits(
+        mrb,
+        number,
+        i64::from(i32::MIN)..=i64::from(i32::MAX),
+        "int",
+    )?;
     let host: Value = parts.entry(mrb, 2)?;
     let host = (!host.is_nil())
         .then(|| string_value_of(mrb, host)?.to_string(mrb))
         .transpose()?;
     let address = string_value_of(mrb, parts.entry(mrb, 3)?)?.to_string(mrb)?;
-    let ip = literal_of(&address).ok_or_else(|| resolution_error(mrb, EAI_NONAME))?;
-    if [Some(named), family]
-        .into_iter()
-        .flatten()
-        .any(|family| family != afamily_of(ip))
-    {
-        return Err(resolution_error(mrb, EAI_ADDRFAMILY));
-    }
     let protocol = match protocol.filter(|protocol| !protocol.is_nil()) {
         Some(protocol) => to_int(mrb, protocol)?.to_i64(mrb)?,
         None => 0,
@@ -364,7 +370,15 @@ fn parts_of(
         flags: 0,
     };
     kinds_of(mrb, &hints)?;
-    let port = number as u16;
+    let port = port_of_service(mrb, Some(&number.to_string()))?;
+    let ip = literal_of(&address).ok_or_else(|| resolution_error(mrb, EAI_NONAME))?;
+    if [Some(named), family]
+        .into_iter()
+        .flatten()
+        .any(|family| family != afamily_of(ip))
+    {
+        return Err(resolution_error(mrb, EAI_ADDRFAMILY));
+    }
     let mut inspectname = host.filter(|host| *host != ip.to_string());
     if number != i64::from(port) {
         inspectname = Some(format!("{}:{number}", inspectname.unwrap_or_default()));

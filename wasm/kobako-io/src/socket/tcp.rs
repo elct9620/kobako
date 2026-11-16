@@ -11,7 +11,7 @@ use beni::scan_args::get_kwargs;
 use beni::value::qnil;
 use beni::{Error, ExceptionClass, Module, Mrb, RClass, RHash, TryConvert, TypedData, Value};
 
-use super::address::{ipv4_end_of, local_of, peers_of, to_ip_socket_address};
+use super::address::{ends_of, ipv4_end_of, local_of, to_ip_socket_address};
 use super::addrinfo::{IPPROTO_TCP, SOCK_STREAM};
 use super::basic::{IoState, Readiness, SocketIo, Wait};
 use super::ip::local_end_of;
@@ -275,7 +275,7 @@ fn dial(mrb: &Mrb, args: &[Value], caller: Caller) -> Result<Connection, Error> 
         (Some(sec), Caller::TcpSocketNew) => time_interval_of(mrb, sec),
         (Some(sec), Caller::SocketTcp) => deadline_of(mrb, sec),
     };
-    let (ips, port, quoted) = peers_of(mrb, host, port, &resolv_timeout, "connect(2)")?;
+    let (ips, port, quoted) = ends_of(mrb, host, port, &resolv_timeout, "connect(2)")?;
     let local = match local.iter().any(|end| !end.is_nil()) {
         true => {
             let none = qnil().as_value();

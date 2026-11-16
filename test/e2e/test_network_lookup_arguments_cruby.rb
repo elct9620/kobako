@@ -68,44 +68,35 @@ class TestE2ENetworkLookupArgumentsCruby < Minitest::Test
     "-> { Addrinfo.getaddrinfo(nil, 80, nil, :STREAM, nil, Socket::AI_CANONNAME) }",
     "-> { Addrinfo.getaddrinfo('127.1', 80, nil, :STREAM, nil, Socket::AI_NUMERICHOST) }",
     "-> { Addrinfo.tcp('127.0.0.1', 80).getnameinfo(nil) }",
-    "-> { Addrinfo.tcp('127.0.0.1', 80).getnameinfo(-1) }"
+    "-> { Addrinfo.tcp('127.0.0.1', 80).getnameinfo(-1) }",
+    "-> { Addrinfo.getaddrinfo('127.0.0.1', 'a' * 40, nil, :DGRAM, 6) }",
+    "-> { Addrinfo.getaddrinfo('127.0.0.1', 'http', nil, :DGRAM, 6, Socket::AI_NUMERICSERV) }",
+    "-> { Addrinfo.getaddrinfo('127.0.0.1', 80, nil, :STREAM, 132) }",
+    "-> { [Addrinfo.tcp('127.0.0.1', \"\\v80\").ip_port, Addrinfo.tcp('127.0.0.1', '*').ip_port] }",
+    "-> { Addrinfo.getaddrinfo('*', 80, nil, :STREAM) }", "-> { Addrinfo.tcp('127.0.0.1', \"\\xff\" * 11) }",
+    "-> { IPSocket.getaddress(nil) }", "-> { Addrinfo.tcp('127.0.0.1', 80).getnameinfo(0x80) }"
+  ].freeze
+
+  NAMELESS = ["Socket::ResolutionError", -2, "getaddrinfo: Name or service not known"].freeze
+
+  LOOKUP_ANSWERS = [
+    NAMELESS, NAMELESS, NAMELESS, ["Socket::ResolutionError", -1, "getaddrinfo: Bad value for ai_flags"],
+    ["#<Addrinfo: 127.0.0.1:80 TCP (127.1)>"], %w[127.0.0.1 80],
+    ["Socket::ResolutionError", -1, "getnameinfo: Bad value for ai_flags"],
+    ["ArgumentError", nil, "service name too long (40)"], NAMELESS,
+    ["Socket::ResolutionError", -7, "getaddrinfo: ai_socktype not supported"], [80, 0],
+    ["#<Addrinfo: 127.0.0.1:80 TCP (*)>"],
+    ["Socket::ResolutionError", -8, "getaddrinfo: Servname not supported for ai_socktype"],
+    NAMELESS, %w[127.0.0.1 80]
   ].freeze
 
   # @behavior NW-141
   def test_a_lookup_refuses_what_glibcs_getaddrinfo_refuses_first
-    nameless = resolution(-2, "Name or service not known")
-    assert_equal [nameless, nameless, nameless, resolution(-1, "Bad value for ai_flags"),
-                  ["#<Addrinfo: 127.0.0.1:80 TCP (127.1)>"], %w[127.0.0.1 80],
-                  ["Socket::ResolutionError", -1, "getnameinfo: Bad value for ai_flags"]], answers_of(LOOKUPS),
+    assert_equal LOOKUP_ANSWERS, answers_of(LOOKUPS),
                  "a lookup naming neither host nor service must raise EAI_NONAME, AI_CANONNAME with no host " \
-                 "EAI_BADFLAGS, and AI_NUMERICHOST must take a short IPv4 form; getnameinfo must take nil as no " \
-                 "flags and raise EAI_BADFLAGS for a flag glibc's lacks, as CRuby's on Linux do"
-  end
-
-  ARRAYS = [
-    '["AF_INET6", 80, nil, "1.2.3.4"]', '["FOO", 80, nil, "1.2.3.4"]', '[2, 80, nil, "1.2.3.4"]',
-    '["AF_INET", 80, :h, "1.2.3.4"]', '["AF_INET", 70000, nil, "1.2.3.4"]', '["AF_INET", 80, nil, "127.1"]',
-    '["AF_INET", 80, nil, nil]', '["PF_INET", 80, nil, "1.2.3.4"]',
-    '["AF_INET", 80, nil, "1.2.3.4"], :INET6', '["AF_INET", 80, nil, "1.2.3.4"], nil, :STREAM, 17'
-  ].map { |parts| "-> { Addrinfo.new(#{parts}) }" }.freeze
-
-  UNMATCHED = ["Socket::ResolutionError", -9, "getaddrinfo: Address family for hostname not supported"].freeze
-
-  ARRAY_ANSWERS = [
-    UNMATCHED, ["SocketError", nil, "unknown address family: FOO"],
-    ["TypeError", nil, "no implicit conversion of Integer into String"],
-    ["TypeError", nil, "no implicit conversion of Symbol into String"],
-    "#<Addrinfo: 1.2.3.4:4464 (:70000)>", "#<Addrinfo: 127.0.0.1:80>",
-    ["TypeError", nil, "no implicit conversion of nil into String"], "#<Addrinfo: 1.2.3.4:80>",
-    UNMATCHED, ["Socket::ResolutionError", -7, "getaddrinfo: ai_socktype not supported"]
-  ].freeze
-
-  # @behavior NW-140
-  def test_an_addrinfo_reads_its_array_as_crubys
-    assert_equal ARRAY_ANSWERS, answers_of(ARRAYS),
-                 "Addrinfo.new must read an array as CRuby's numeric lookup of it: a family it does not hold, " \
-                 "by its first element or by family, raises EAI_ADDRFAMILY, an unnamed family SocketError, a " \
-                 "part of the wrong class TypeError, a port its low 16 bits, and a kind glibc's table lacks " \
-                 "EAI_SOCKTYPE"
+                 "EAI_BADFLAGS, and AI_NUMERICSERV a service name EAI_NONAME, after the host and the service " \
+                 "are read and before the kind is judged; AI_NUMERICHOST must take a short IPv4 form, \"*\" " \
+                 "names none, a port reads past C's spaces, and getnameinfo must take nil as no flags and " \
+                 "raise EAI_BADFLAGS for a flag glibc's lacks, as CRuby's on Linux do; SCTP is refused"
   end
 end

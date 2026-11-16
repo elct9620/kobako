@@ -79,18 +79,20 @@ class TestE2ENetworkSocketCornersCruby < Minitest::Test
      answer.call { udp.setsockopt(999, 1, 1) }, answer.call { tcp.getsockopt(999, 1) },
      answer.call { tcp.setsockopt(:IP, :TTL, "\\x07"); tcp.getsockopt(:IP, :TTL).int },
      answer.call { tcp.setsockopt(:IP, :TTL, "ab"); tcp.getsockopt(:IP, :TTL).int },
-     answer.call { tcp.setsockopt(:IP, :TTL, "") }, answer.call { tcp.setsockopt(:SOCKET, :KEEPALIVE, "\\x01") }]
+     answer.call { tcp.setsockopt(:IP, :TTL, "") }, answer.call { tcp.setsockopt(:SOCKET, :KEEPALIVE, "\\x01") },
+     answer.call { udp.setsockopt(999, 1, "\\x01") }, answer.call { udp.setsockopt(:TCP, :NODELAY, "\\x01") }]
   RUBY
 
   # @behavior NW-126
   def test_an_option_level_and_a_short_value_answer_as_linuxs
     with_listening_server do |port|
       assert_equal ["Errno::ENOPROTOOPT", "Errno::ENOPROTOOPT", "Errno::ENOPROTOOPT", "Errno::ENOTSUP", 7, 97,
-                    "Errno::EINVAL", "Errno::EINVAL"],
+                    "Errno::EINVAL", "Errno::EINVAL", "Errno::ENOPROTOOPT", "Errno::ENOPROTOOPT"],
                    loopback_sandbox(port).eval(format(OPTION_EDGES, port: port)).value,
                    "setsockopt at a level a socket does not take must raise ENOPROTOOPT and getsockopt ENOTSUP, " \
                    "and an IP option shorter than an int must read its first byte, as Linux's do_ip_setsockopt; an " \
-                   "empty value, or a short SOL_SOCKET one, raises EINVAL"
+                   "empty value, or a short SOL_SOCKET one, raises EINVAL, " \
+                   "but only once the level is one the socket takes"
     end
   end
 
