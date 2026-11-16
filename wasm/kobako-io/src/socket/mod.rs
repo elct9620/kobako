@@ -277,7 +277,7 @@ fn to_error(mrb: &Mrb, code: ErrorCode, call: &str) -> Error {
         ErrorCode::OutOfMemory => c"ENOMEM",
         ErrorCode::InvalidState | ErrorCode::NotInProgress => c"ENOTCONN",
         ErrorCode::ConcurrencyConflict => c"EALREADY",
-        _ => c"EIO",
+        _ => c"EOPNOTSUPP",
     };
     errno::error_by_name(mrb, name, call)
 }

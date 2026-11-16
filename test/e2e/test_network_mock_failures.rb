@@ -19,13 +19,13 @@ class TestE2ENetworkMockFailures < Minitest::Test
     end
   RUBY
 
-  # Each errno a host socket's dial fails with, and the Errno the guest raises for
-  # the wasi:sockets code it answers, read through wasi-libc's mapping:
-  # unknown reads as EIO, remote-unreachable as EHOSTUNREACH,
-  # out-of-memory as ENOMEM, invalid-state as ENOTCONN, and not-supported
-  # as ENOTSUP.
+  # Each errno a host socket's dial fails with, and the Errno the guest raises
+  # for the wasi:sockets code it answers, read through wasi-libc's mapping:
+  # unknown reads as EOPNOTSUPP, which Linux names ENOTSUP too,
+  # remote-unreachable as EHOSTUNREACH, out-of-memory as ENOMEM, invalid-state
+  # as ENOTCONN, and not-supported as ENOTSUP.
   HOST_FAILURES = {
-    "EPIPE" => "Errno::EIO", "EADDRINUSE" => "Errno::EADDRINUSE", "ECONNRESET" => "Errno::ECONNRESET",
+    "EPIPE" => "Errno::ENOTSUP", "EADDRINUSE" => "Errno::EADDRINUSE", "ECONNRESET" => "Errno::ECONNRESET",
     "ENETDOWN" => "Errno::EHOSTUNREACH", "ENOBUFS" => "Errno::ENOMEM", "EDESTADDRREQ" => "Errno::ENOTCONN",
     "ENOPROTOOPT" => "Errno::ENOTSUP", "EINVAL" => "Errno::EINVAL"
   }.freeze
