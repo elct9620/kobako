@@ -2822,7 +2822,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | an HTTP request whose dial the host fails |
 | When | the guest reads why the request has no response |
-| Then | ECONNREFUSED answers `connection-refused`. EHOSTUNREACH, ENETUNREACH, ENETDOWN, and EAFNOSUPPORT answer `destination-unavailable`, which `Net::HTTP` raises as `Errno::EHOSTUNREACH`. A TLS alert the server sends answers `TLS-alert-received` with its id. A handshake the server ends answers `connection-terminated` |
+| Then | ECONNREFUSED answers `connection-refused`. EHOSTUNREACH, ENETUNREACH, ENETDOWN, and EAFNOSUPPORT answer `destination-unavailable`, which `Net::HTTP` raises as `Errno::EHOSTUNREACH`. A TLS alert the server sends answers `TLS-alert-received` with its id. A handshake the server ends answers `connection-terminated`. `Net::HTTP` raises it as `EOFError`, as WASI names no handshake apart from the response |
 
 ## `NW-226` A request whose credential cannot answer is refused unsent
 
