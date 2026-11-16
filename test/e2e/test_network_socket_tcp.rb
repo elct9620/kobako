@@ -3,8 +3,8 @@
 require "test_helper"
 
 # E2E — a script connecting with Socket.tcp, through the real Guest Binary
-# against a loopback server: the socket it answers, the block form, and a
-# refusal.
+# against a loopback server: the socket it answers, the block form, a
+# refusal, and a lookup's deadline.
 class TestE2ENetworkSocketTcp < Minitest::Test
   include E2eGuestHelper
   include NetworkLoopback
@@ -26,30 +26,42 @@ class TestE2ENetworkSocketTcp < Minitest::Test
     rescue StandardError => e
       e.class.to_s
     end
-    [[plain.class.to_s, plain.closed?, plain.peeraddr[1]], answered, held.closed?, refused, past]
+    stalled = [0.2, -1].map do |sec|
+      Socket.tcp("stall.test", %<open>d, resolv_timeout: sec)
+    rescue SystemCallError => e
+      [e.class.to_s, e.message]
+    end
+    [[plain.class.to_s, plain.closed?, plain.peeraddr[1]], answered, held.closed?, refused, past, stalled]
   RUBY
 
-  # A Sandbox reaching loopback at +open+ and +closed+, whose Mock routes
-  # +open+ alone, so a dial to +closed+ is refused whatever listens there on
-  # the host.
-  def open_and_closed_sandbox(open, closed)
-    mock = Kobako::Network::Mock.new
+  # What CRuby's Socket.tcp raises for a lookup still waiting at its
+  # resolv_timeout: deadline.
+  TIMED_OUT = ["Errno::ETIMEDOUT", "Connection timed out - user specified timeout"].freeze
+
+  # What CONNECTS answers in a Sandbox reaching loopback at +open+ and
+  # +closed+, and `stall.test` at +open+, through a Mock that routes +open+
+  # alone, so a dial to +closed+ is refused whatever listens there on the
+  # host, and holds each lookup of `stall.test` until the run ends.
+  def connects(open, closed)
+    mock = mock_resolving({ "stall.test" => "127.0.0.1" })
     mock.route("127.0.0.1", open, to: ["127.0.0.1", open])
-    loopback_sandbox(open, closed, network: mock)
+    sandbox = loopback_sandbox(open, closed, network: mock, timeout: 10).network(:stall) do |net|
+      net.endpoint "stall.test", port: open, protocol: :tcp, addresses: [:local]
+    end
+    mock.hold("stall.test") { sandbox.eval(format(CONNECTS, open: open, closed: closed)).value }
   end
 
   # @behavior NW-143
   def test_a_script_connects_with_socket_tcp_as_crubys
     with_listening_server do |open|
       closed = other_port(open)
-      value = open_and_closed_sandbox(open, closed).eval(format(CONNECTS, open: open, closed: closed)).value
-
       assert_equal [["TCPSocket", false, open], false, true,
                     ["Errno::ECONNREFUSED", "Connection refused - connect(2) for 127.0.0.1:#{closed}"],
-                    "Socket::ResolutionError"], value,
+                    "Socket::ResolutionError", [TIMED_OUT, TIMED_OUT]], connects(open, closed),
                    "Socket.tcp must answer a connected TCPSocket, close the block's socket after it and answer the " \
-                   "block's value, name a refused end as host:port, and read a negative resolv_timeout: as a " \
-                   "deadline already past, so a lookup answered at once still answers"
+                   "block's value, name a refused end as host:port, and read resolv_timeout: as a deadline: a " \
+                   "lookup still waiting at it raises Errno::ETIMEDOUT, and a negative one is already past, so " \
+                   "a lookup answered at once still answers"
     end
   end
 end

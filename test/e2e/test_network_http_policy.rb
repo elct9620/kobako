@@ -80,9 +80,10 @@ class TestE2ENetworkHttpPolicy < Minitest::Test
   def test_a_request_policy_is_handed_the_request_and_refuses_it
     value, request = handed_post
 
-    assert_equal [:refused, "POST", "http", "/items", %w[x-probe accept user-agent content-type]],
-                 [value, request&.method, request&.scheme, request&.path, request&.header_names],
-                 "a policy(:request) block must be handed the method, scheme, path with no query, and header " \
-                 "names, and its refusal must raise Errno::EACCES"
+    assert_equal [:refused, Kobako::Network::Request, "POST", "http", "/items",
+                  %w[x-probe accept user-agent content-type]],
+                 [value, request.class, request&.method, request&.scheme, request&.path, request&.header_names],
+                 "a policy(:request) block must be handed a Kobako::Network::Request with the method, scheme, " \
+                 "path with no query, and header names, and its refusal must raise Errno::EACCES"
   end
 end

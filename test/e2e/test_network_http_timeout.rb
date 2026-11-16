@@ -24,10 +24,31 @@ class TestE2ENetworkHttpTimeout < Minitest::Test
       sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 10)
                                .network(:web) { |net| net.endpoint "127.0.0.1", port: port }
 
-      assert_equal [[60, 60, 60], true, true], sandbox.eval(format(SILENT_SERVER, port: port)).value,
+      assert_equal [[[60, 60, 60], true, true], ["Net::OpenTimeout", true]],
+                   [sandbox.eval(format(SILENT_SERVER, port: port)).value, stalled_open],
                    "Net::HTTP#get with read_timeout 0.1 against a server that never answers must raise " \
-                   "Net::ReadTimeout, a Timeout::Error and a RuntimeError, and each timeout must start at 60"
+                   "Net::ReadTimeout, a Timeout::Error and a RuntimeError, each timeout must start at 60, and " \
+                   "one with open_timeout 0.1 whose connect never opens must raise Net::OpenTimeout"
     end
+  end
+
+  STALLED_OPEN = <<~RUBY
+    http = Net::HTTP.new("stall.test", 80)
+    http.open_timeout = 0.1
+    begin
+      http.get("/")
+    rescue Net::OpenTimeout => e
+      [e.class.to_s, e.is_a?(Timeout::Error)]
+    end
+  RUBY
+
+  # What a GET with open_timeout 0.1 to a name whose lookup never returns
+  # raises.
+  def stalled_open
+    mock = Kobako::Network::Mock.new
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 10, network: mock)
+                             .network(:web) { |net| net.endpoint "stall.test", port: 80 }
+    mock.hold("stall.test") { sandbox.eval(STALLED_OPEN).value }
   end
 
   NEGATIVE_READ = <<~RUBY

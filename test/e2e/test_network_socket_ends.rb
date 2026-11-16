@@ -61,7 +61,8 @@ class TestE2ENetworkSocketEnds < Minitest::Test
     udp = UDPSocket.new
     unconnected = [unpack.call(udp.getsockname), outcome.call { udp.getpeername }, outcome.call { udp.peeraddr }]
     udp.connect("127.0.0.1", %<udp>d)
-    [tcp_ends, closed, unconnected, [unpack.call(udp.getpeername), udp.peeraddr(:numeric)]]
+    [tcp_ends, closed, unconnected,
+     [unpack.call(udp.getpeername), udp.peeraddr(:numeric), unpack.call(udp.getsockname), udp.addr(:numeric)]]
   RUBY
 
   # @behavior NW-139
@@ -70,17 +71,17 @@ class TestE2ENetworkSocketEnds < Minitest::Test
       with_quiet_udp_peer do |udp|
         value = tcp_and_udp_sandbox(tcp, udp).eval(format(ENDS, tcp: tcp, udp: udp)).value
 
-        assert_equal answered_ends(tcp, udp, value.dig(0, 1, 1)), value,
+        assert_equal answered_ends(tcp, udp, value.dig(0, 1, 1), value.dig(3, 3, 1)), value,
                      "#getsockname and #getpeername must unpack to what #addr and #peeraddr answer, the virtual " \
-                     "own end included; a UDPSocket with no peer must raise Errno::ENOTCONN for its peer, and a " \
-                     "closed socket IOError"
+                     "own end included, a UDPSocket's after connect too; a UDPSocket with no peer must raise " \
+                     "Errno::ENOTCONN for its peer, and a closed socket IOError"
       end
     end
   end
 
-  # What ENDS answers for the loopback ports, its own end on the virtual
-  # address at +local_port+.
-  def answered_ends(tcp, udp, local_port)
+  # What ENDS answers for the loopback ports, its own ends on the virtual
+  # address at +local_port+ for TCP and +udp_port+ for UDP once connected.
+  def answered_ends(tcp, udp, local_port, udp_port)
     own = "198.19.255.254"
     unconnected = ["Errno::ENOTCONN", "Transport endpoint is not connected - getpeername(2)"]
     [
@@ -88,7 +89,7 @@ class TestE2ENetworkSocketEnds < Minitest::Test
        ["AF_INET", tcp, "127.0.0.1", "127.0.0.1"]],
       [["IOError", "closed stream"]] * 2,
       [[0, "0.0.0.0"], unconnected, unconnected],
-      [[udp, "127.0.0.1"], ["AF_INET", udp, "127.0.0.1", "127.0.0.1"]]
+      [[udp, "127.0.0.1"], ["AF_INET", udp, "127.0.0.1", "127.0.0.1"], [udp_port, own], ["AF_INET", udp_port, own, own]]
     ]
   end
 end

@@ -65,17 +65,19 @@ class TestE2ENetworkHttpCruby < Minitest::Test
   SESSION_SHAPE = <<~RUBY
     class Session < Net::HTTP; end
     session = Session.new("127.0.0.1", "%<port>d")
-    response = session.get("/")
-    [session.inspect, response.code, response.body { |_| raise "body passed its block" }]
+    response = session.request(request = Net::HTTP::Get.new("/"))
+    [session.inspect, response.code, response.body { |_| raise "body passed its block" },
+     request["host"], request["connection"]]
   RUBY
 
   # @behavior NW-208
   def test_a_session_reads_its_port_inspect_and_body_as_crubys
     with_http_server do |port, _seen|
-      assert_equal ["#<Session 127.0.0.1:#{port} open=false>", "201", "ok"],
+      assert_equal ["#<Session 127.0.0.1:#{port} open=false>", "201", "ok", nil, nil],
                    http_sandbox(port).eval(format(SESSION_SHAPE, port: port)).value,
                    "Net::HTTP given its port as a String must reach the server, inspect must name the subclass " \
-                   "and the port as text, and body with a block must pass none and answer the body"
+                   "and the port as text, body with a block must pass none and answer the body, and the request " \
+                   "sent must carry no Host or Connection written back"
     end
   end
 
@@ -104,10 +106,15 @@ class TestE2ENetworkHttpCruby < Minitest::Test
 
   # @behavior NW-063
   def test_value_raises_the_error_cruby_raises_for_the_family
-    with_answering_server("HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n") do |port|
-      assert_equal ["Net::HTTPClientException", "404 \"Not Found\"", "404", true, true],
-                   http_sandbox(port).eval(format(FAILED_RESPONSE, port: port)).value,
-                   "Net::HTTPResponse#value of a 404 must raise Net::HTTPClientException carrying the response"
+    raised = ["404 Not Found", "503 Service Unavailable"].map do |status|
+      with_answering_server("HTTP/1.1 #{status}\r\ncontent-length: 0\r\n\r\n") do |port|
+        http_sandbox(port).eval(format(FAILED_RESPONSE, port: port)).value
+      end
     end
+
+    assert_equal [["Net::HTTPClientException", "404 \"Not Found\"", "404", true, true],
+                  ["Net::HTTPFatalError", "503 \"Service Unavailable\"", "503", false, true]], raised,
+                 "Net::HTTPResponse#value must raise Net::HTTPClientException for a 404 and Net::HTTPFatalError " \
+                 "for a 503, each carrying the response"
   end
 end

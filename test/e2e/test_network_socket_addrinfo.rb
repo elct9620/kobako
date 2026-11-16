@@ -22,7 +22,7 @@ class TestE2ENetworkSocketAddrinfo < Minitest::Test
     udp.connect("127.0.0.1", %<udp>d)
     kinds = [tcp, udp].map { |socket| [socket.remote_address.socktype, socket.remote_address.protocol] }
     [tcp.local_address.inspect, tcp.addr[1], tcp.remote_address.inspect, local, unconnected, udp.remote_address.inspect,
-     kinds]
+     kinds, udp.local_address.inspect, udp.addr[1]]
   RUBY
 
   # @behavior NW-142
@@ -33,7 +33,7 @@ class TestE2ENetworkSocketAddrinfo < Minitest::Test
 
         assert_equal ["#<Addrinfo: 198.19.255.254:#{value[1]} TCP>", value[1], "#<Addrinfo: 127.0.0.1:#{tcp} TCP>",
                       "#<Addrinfo: 0.0.0.0 UDP>", "Errno::ENOTCONN", "#<Addrinfo: 127.0.0.1:#{udp} UDP>",
-                      [[1, 6], [2, 17]]], value,
+                      [[1, 6], [2, 17]], "#<Addrinfo: 198.19.255.254:#{value[8]} UDP>", value[8]], value,
                      "#local_address and #remote_address must answer the Addrinfo of the end #addr and #peeraddr " \
                      "answer, of the socket's kind, and a UDPSocket with no peer raise Errno::ENOTCONN"
       end
