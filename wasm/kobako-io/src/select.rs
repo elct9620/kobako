@@ -7,7 +7,7 @@
 use beni::prelude::*;
 use beni::scan_args::scan_args;
 use beni::value::qnil;
-use beni::{Error, Integer, IntoValue, Mrb, RArray, RClass, TryConvert, Value};
+use beni::{Error, Integer, IntoValue, Mrb, RArray, RClass, Symbol, TryConvert, Value};
 use core::ffi::{c_int, c_short};
 
 use crate::io::{time_interval_of, Direction};
@@ -40,6 +40,7 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
     io.define_singleton_method(mrb, c"select", beni::method!(io_s_select, -1))?;
     io.define_method(mrb, c"wait_readable", beni::method!(io_wait_readable, -1))?;
     io.define_method(mrb, c"wait_writable", beni::method!(io_wait_writable, -1))?;
+    io.define_method(mrb, c"wait", beni::method!(io_wait, -1))?;
     Ok(())
 }
 
@@ -139,6 +140,50 @@ fn io_wait_readable(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Er
 /// or `nil` at the timeout.
 fn io_wait_writable(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     wait_for(mrb, self_, args, POLLWRNORM)
+}
+
+/// `wait(timeout = nil, *modes)` answers the IO once it is ready for any of
+/// `modes`, `:read` when none is named, `true` when its buffer already holds
+/// bytes to read, or `nil` at the timeout, as CRuby's `io_wait` does. A
+/// `nil` timeout raises `TypeError`, as CRuby reads it as a time interval.
+fn io_wait(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
+    let timeout = match args.first() {
+        Some(timeout) if timeout.is_nil() => {
+            return Err(errno::to_error(
+                mrb,
+                mrb.exception_type_error(),
+                "can't convert NilClass into time interval",
+            ))
+        }
+        timeout => timeout.copied(),
+    };
+    let mut events = Vec::new();
+    for mode in args.iter().skip(1) {
+        let Some(name) = Symbol::from_value(*mode).map(|mode| mode.name(mrb)).transpose()? else {
+            return Err(crate::io::argument_error(mrb, "Events must be positive integer!"));
+        };
+        events.extend_from_slice(match name.as_str() {
+            "r" | "read" | "readable" => &[POLLRDNORM][..],
+            "w" | "write" | "writable" => &[POLLWRNORM][..],
+            "rw" | "read_write" | "readable_writable" => &[POLLRDNORM, POLLWRNORM][..],
+            _ => return Err(crate::io::argument_error(mrb, &format!("unsupported mode: {name}"))),
+        });
+    }
+    if events.is_empty() {
+        events.push(POLLRDNORM);
+    }
+    if events.contains(&POLLRDNORM) && socket::holds_buffered(mrb, self_) {
+        return Ok(true.into_value(mrb));
+    }
+    let targets = events
+        .iter()
+        .map(|events| Ok((wait_target_of(mrb, self_, *events)?, *events)))
+        .collect::<Result<Vec<_>, Error>>()?;
+    let ready = wait_any(mrb, &targets, to_millis(mrb, timeout)?)?;
+    Ok(match ready.contains(&true) {
+        true => self_,
+        false => qnil().as_value(),
+    })
 }
 
 fn wait_for(mrb: &Mrb, self_: Value, args: &[Value], events: c_short) -> Result<Value, Error> {

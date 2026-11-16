@@ -27,7 +27,7 @@ mod udp;
 
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{Error, Exception, ExceptionClass, Module, Mrb, RClass, Symbol, Value};
+use beni::{Error, Exception, ExceptionClass, IntoValue, Module, Mrb, RClass, RModule, Symbol, Value};
 
 pub(crate) use address::port_of;
 pub(crate) use basic::{is_open_socket, readiness_of, select_readiness_of, Readiness};
@@ -42,21 +42,20 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
         mrb.class_object()
             .define_error(mrb, c"SocketError", mrb.exception_standard_error())?;
     let socket_class = mrb.define_class(c"Socket", mrb.class_object())?;
-    socket_class.const_set(mrb, c"AF_INET", AF_INET)?;
-    socket_class.const_set(mrb, c"AF_INET6", AF_INET6)?;
-    // Linux's `shutdown(2)` sides.
-    socket_class.const_set(mrb, c"SHUT_RD", 0)?;
-    socket_class.const_set(mrb, c"SHUT_WR", 1)?;
-    socket_class.const_set(mrb, c"SHUT_RDWR", 2)?;
+    let constants = Constants {
+        socket: socket_class,
+        module: socket_class.define_module(mrb, c"Constants")?,
+    };
+    constants.set_all(mrb, SOCKET_CONSTANTS)?;
     let resolution = socket_class.define_error(mrb, c"ResolutionError", socket_error)?;
     resolution.define_method(mrb, c"error_code", beni::method!(resolution_error_code, 0))?;
     io.define_error(mrb, c"TimeoutError", mrb.exc_get(c"IOError")?)?;
     // A socket is an IO, as CRuby's `TCPSocket < IPSocket < BasicSocket < IO`.
     let basic = mrb.define_class(c"BasicSocket", io)?;
     basic::init(mrb, basic)?;
-    option::init(mrb, socket_class, basic)?;
+    option::init(mrb, &constants, basic)?;
     address::init(mrb, socket_class)?;
-    addrinfo::init(mrb, socket_class, basic)?;
+    addrinfo::init(mrb, &constants, basic)?;
     let ip = mrb.define_class(c"IPSocket", basic)?;
     ip::init(mrb, ip)?;
     tcp::init(mrb, socket_class, ip)?;
@@ -74,6 +73,61 @@ pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
 /// Linux's address families, the numbers CRuby's `Socket` names them by.
 const AF_INET: i64 = 2;
 const AF_INET6: i64 = 10;
+
+/// Where a `Socket` constant is defined: on `Socket` and on
+/// `Socket::Constants` alike, as CRuby's `rsock_init_socket_constants`
+/// defines each in both.
+pub(super) struct Constants {
+    socket: RClass,
+    pub(super) module: RModule,
+}
+
+impl Constants {
+    pub(super) fn set(&self, mrb: &Mrb, name: &str, value: impl IntoValue + Copy) -> Result<(), Error> {
+        self.socket.const_set(mrb, name, value)?;
+        self.module.const_set(mrb, name, value)
+    }
+
+    pub(super) fn set_all(&self, mrb: &Mrb, constants: &[(&str, i64)]) -> Result<(), Error> {
+        constants
+            .iter()
+            .try_for_each(|(name, value)| self.set(mrb, name, *value))
+    }
+}
+
+/// The constants every socket class shares, at Linux's numbers: the IP
+/// families, `shutdown(2)`'s sides, the one message flag the guest takes,
+/// the IPv4 addresses CRuby names, and `getaddrinfo`'s and
+/// `getnameinfo`'s codes and sizes.
+const SOCKET_CONSTANTS: &[(&str, i64)] = &[
+    ("AF_UNSPEC", 0),
+    ("PF_UNSPEC", 0),
+    ("AF_INET", AF_INET),
+    ("PF_INET", AF_INET),
+    ("AF_INET6", AF_INET6),
+    ("PF_INET6", AF_INET6),
+    ("SHUT_RD", 0),
+    ("SHUT_WR", 1),
+    ("SHUT_RDWR", 2),
+    ("MSG_DONTWAIT", basic::MSG_DONTWAIT),
+    ("INADDR_ANY", 0),
+    ("INADDR_LOOPBACK", 0x7f00_0001),
+    ("INADDR_BROADCAST", 0xffff_ffff),
+    ("INADDR_NONE", 0xffff_ffff),
+    ("EAI_BADFLAGS", -1),
+    ("EAI_NONAME", EAI_NONAME.0 as i64),
+    ("EAI_AGAIN", EAI_AGAIN.0 as i64),
+    ("EAI_FAIL", EAI_FAIL.0 as i64),
+    ("EAI_FAMILY", -6),
+    ("EAI_SOCKTYPE", -7),
+    ("EAI_SERVICE", EAI_SERVICE.0 as i64),
+    ("EAI_ADDRFAMILY", -9),
+    ("EAI_MEMORY", -10),
+    ("EAI_SYSTEM", -11),
+    ("EAI_OVERFLOW", -12),
+    ("NI_MAXHOST", 1025),
+    ("NI_MAXSERV", 32),
+];
 
 /// The address families CRuby's `Socket` names, each also spelled with `AF_`
 /// or `PF_` before it, as `ext/socket/mkconstants.rb` lists them.

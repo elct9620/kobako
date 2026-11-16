@@ -286,7 +286,7 @@ const FIXNUM_MIN: i64 = -(1 << 62);
 /// The number `text` spells all through, as C's `strtoul` reads it: leading
 /// space, then a sign, then digits, a minus negating it and one past
 /// `unsigned long` answering the largest; `None` when anything else stands.
-fn strtoul(text: &str) -> Option<u64> {
+pub(super) fn strtoul(text: &str) -> Option<u64> {
     let text = text.trim_start_matches(|c: char| c.is_ascii_whitespace());
     let (negative, digits) = match text.as_bytes().first() {
         Some(b'-') => (true, &text[1..]),

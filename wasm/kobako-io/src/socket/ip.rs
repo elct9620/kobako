@@ -6,14 +6,16 @@ use std::net::{IpAddr, Ipv4Addr};
 use beni::prelude::*;
 use beni::{Error, IntoValue, Mrb, Qtrue, RArray, RClass, Symbol, Value};
 
-use super::address::ipv4_end_of;
+use super::address::{addresses_of, host_of, ipv4_end_of};
 use super::basic::{open_socket_of, receive_past_buffer, PastBuffer, Wait};
 use super::to_error;
 use crate::io::argument_error;
 use crate::wasi::wasi::sockets::network::{ErrorCode, IpSocketAddress};
 
-/// Define `IPSocket#addr`, `IPSocket#peeraddr`, and `IPSocket#recvfrom`.
+/// Define `IPSocket.getaddress`, `IPSocket#addr`, `IPSocket#peeraddr`, and
+/// `IPSocket#recvfrom`.
 pub(super) fn init(mrb: &Mrb, ip: RClass) -> Result<(), Error> {
+    ip.define_singleton_method(mrb, c"getaddress", beni::method!(ip_socket_s_getaddress, 1))?;
     ip.define_method(mrb, c"addr", beni::method!(ip_socket_addr, -1))?;
     ip.define_method(mrb, c"peeraddr", beni::method!(ip_socket_peeraddr, -1))?;
     ip.define_method(mrb, c"recvfrom", beni::method!(ip_socket_recvfrom, -1))?;
@@ -107,4 +109,12 @@ pub(super) fn to_addr_array(
     addr.push(mrb, host)?;
     addr.push(mrb, host)?;
     Ok(addr)
+}
+
+/// `IPSocket.getaddress(host)` answers the first address `host` leads to, as
+/// CRuby's looks it up and spells the first answer; a name answers its
+/// virtual address.
+fn ip_socket_s_getaddress(mrb: &Mrb, _self: Value, host: Value) -> Result<Value, Error> {
+    let ip = addresses_of(mrb, &host_of(mrb, host, false)?)?[0];
+    Ok(mrb.str_new(ip.to_string().as_bytes()).as_value())
 }

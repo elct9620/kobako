@@ -443,7 +443,7 @@ pub(super) fn send_args_of<'a>(
 
 /// Linux's `MSG_DONTWAIT`, the one flag a guest's receive or send takes; it
 /// waits all the same, as CRuby's `recv` waits again on `EAGAIN`.
-const MSG_DONTWAIT: i64 = 0x40;
+pub(super) const MSG_DONTWAIT: i64 = 0x40;
 
 /// Refuse a `flags` WASI carries none of with `Errno::ENOTSUP`, naming
 /// `call`, as a receive and a send both take only `MSG_DONTWAIT`.

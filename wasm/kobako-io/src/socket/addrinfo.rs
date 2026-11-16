@@ -11,13 +11,13 @@ use beni::value::qnil;
 use beni::{Error, Integer, IntoValue, Module, Mrb, RArray, RClass, TryConvert, TypedData, Value};
 
 use super::address::{
-    addresses_of, end_of, ensure_named, host_of, literal_of, port_of, to_sockaddr,
+    addresses_of, end_of, ensure_named, host_of, literal_of, port_of, strtoul, to_sockaddr,
 };
 use super::basic::open_socket_of;
 use super::ip::ensure_reverse_lookup_flag;
 use super::{
-    family_of, name_of, resolution_error, socket_error, to_resolution_error, Family, AF_INET,
-    AF_INET6, EAI_NONAME,
+    family_of, name_of, resolution_error, socket_error, to_resolution_error, Constants, Family,
+    AF_INET, AF_INET6, EAI_NONAME,
 };
 use crate::convert::string_value_of;
 use crate::errno;
@@ -59,6 +59,7 @@ const IP_PROTOCOLS: &[(i64, &str)] = &[
 const AI_PASSIVE: i64 = 1;
 const AI_CANONNAME: i64 = 2;
 const AI_NUMERICHOST: i64 = 4;
+const AI_NUMERICSERV: i64 = 0x400;
 const NI_NUMERICHOST: i64 = 1;
 const NI_NUMERICSERV: i64 = 2;
 /// Every flag glibc's `getnameinfo` takes, `NI_NUMERICHOST` through `NI_IDN`.
@@ -121,20 +122,26 @@ fn from_end(mrb: &Mrb, (ip, port): (Ipv4Addr, u16), kind: (i64, i64)) -> Result<
     Addrinfo::new(ip.into(), port, kind).wrap(mrb)
 }
 
-pub(super) fn init(mrb: &Mrb, socket: RClass, basic: RClass) -> Result<(), Error> {
-    for (name, value) in [
-        (c"SOCK_STREAM", SOCK_STREAM),
-        (c"SOCK_DGRAM", SOCK_DGRAM),
-        (c"SOCK_RAW", SOCK_RAW),
-        (c"IPPROTO_UDP", IPPROTO_UDP),
-        (c"AI_PASSIVE", AI_PASSIVE),
-        (c"AI_CANONNAME", AI_CANONNAME),
-        (c"AI_NUMERICHOST", AI_NUMERICHOST),
-        (c"NI_NUMERICHOST", NI_NUMERICHOST),
-        (c"NI_NUMERICSERV", NI_NUMERICSERV),
-    ] {
-        socket.const_set(mrb, name, value)?;
-    }
+pub(super) fn init(mrb: &Mrb, constants: &Constants, basic: RClass) -> Result<(), Error> {
+    constants.set_all(
+        mrb,
+        &[
+            ("SOCK_STREAM", SOCK_STREAM),
+            ("SOCK_DGRAM", SOCK_DGRAM),
+            ("SOCK_RAW", SOCK_RAW),
+            ("IPPROTO_UDP", IPPROTO_UDP),
+            ("AI_PASSIVE", AI_PASSIVE),
+            ("AI_CANONNAME", AI_CANONNAME),
+            ("AI_NUMERICHOST", AI_NUMERICHOST),
+            ("AI_NUMERICSERV", AI_NUMERICSERV),
+            ("NI_NUMERICHOST", NI_NUMERICHOST),
+            ("NI_NUMERICSERV", NI_NUMERICSERV),
+            ("NI_NOFQDN", 4),
+            ("NI_NAMEREQD", 8),
+            ("NI_DGRAM", 16),
+        ],
+    )?;
+    let socket = mrb.class_get(c"Socket")?;
     socket.define_singleton_method(mrb, c"getaddrinfo", beni::method!(socket_s_getaddrinfo, -1))?;
     basic.define_method(
         mrb,
@@ -249,6 +256,17 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
         return Err(resolution_error(mrb, EAI_BADFLAGS));
     }
     let kinds = kinds_of(mrb, hints)?;
+    // `AI_NUMERICSERV` takes digits alone, as glibc answers any other service
+    // `EAI_NONAME`.
+    if hints.flags & AI_NUMERICSERV != 0
+        && !service.is_nil()
+        && Integer::from_value(service).is_none()
+    {
+        let text = string_value_of(mrb, service)?.to_string(mrb)?;
+        if !text.is_empty() && strtoul(&text).is_none() {
+            return Err(resolution_error(mrb, EAI_NONAME));
+        }
+    }
     let (port, service_text) = port_of(mrb, service)?;
     let passive = hints.flags & AI_PASSIVE != 0;
     // The node as written, which `inspect` shows, as CRuby's

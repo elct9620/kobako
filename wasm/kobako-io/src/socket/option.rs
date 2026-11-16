@@ -9,7 +9,7 @@ use beni::{
 };
 
 use super::basic::open_socket_of;
-use super::{family_of, name_of, socket_error, to_error, Family, AF_INET, AF_INET6};
+use super::{family_of, name_of, socket_error, to_error, Constants, Family, AF_INET, AF_INET6};
 use crate::convert::string_bytes_of;
 use crate::errno;
 use crate::io::to_int;
@@ -137,13 +137,14 @@ fn size_error(mrb: &Mrb, len: usize) -> Error {
 
 /// Define the level and option constants on `Socket`, `Socket::Option`, and
 /// the two `BasicSocket` methods.
-pub(super) fn init(mrb: &Mrb, socket: RClass, basic: RClass) -> Result<(), Error> {
+pub(super) fn init(mrb: &Mrb, constants: &Constants, basic: RClass) -> Result<(), Error> {
     for level in &LEVELS {
-        socket.const_set(mrb, format!("{}{}", level.prefix, level.name), level.number)?;
+        constants.set(mrb, &format!("{}{}", level.prefix, level.name), level.number)?;
         for (name, number) in level.options {
-            socket.const_set(mrb, format!("{}{name}", level.option_prefix), *number)?;
+            constants.set(mrb, &format!("{}{name}", level.option_prefix), *number)?;
         }
     }
+    let socket = mrb.class_get(c"Socket")?;
     let option = socket.define_class(mrb, c"Option", mrb.class_object())?;
     SockOption::mark_carriers(mrb)?;
     option.define_singleton_method(mrb, c"new", beni::method!(option_s_new, 4))?;

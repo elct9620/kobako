@@ -34,6 +34,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_corners_cruby.rb`
 - `test/e2e/test_network_lookup_arguments_cruby.rb`
 - `test/e2e/test_network_addrinfo_kinds.rb`
+- `test/e2e/test_network_socket_constants_cruby.rb`
 - `test/e2e/test_network_socket_args_cruby.rb`
 - `test/e2e/test_network_socket_nonblock.rb`
 - `test/e2e/test_network_socket_wait.rb`
@@ -2795,3 +2796,15 @@ endpoint "api.example.com", port: 443
 | Given | a `UDPSocket` connected to a peer that sends it empty datagrams |
 | When | the script reads each one with `readpartial`, `sysread`, `read`, `gets`, `eof?`, `read_nonblock`, and `readline` |
 | Then | each reads it as the end, as CRuby reads `read(2)` answering 0. The next read takes the next datagram |
+
+## `NW-224` A script names the socket constants and waits as CRuby's
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-141` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest's `Socket` and `IPSocket` |
+| When | the script names each constant the guest takes, waits on a socket with `IO#wait`, and calls `IPSocket.getaddress` |
+| Then | each constant holds CRuby's number on Linux, on `Socket` and on `Socket::Constants`. `IO#wait` answers each mode as CRuby's. `getaddress` answers the address a host spells |
