@@ -12,8 +12,8 @@ use kobako_runtime::memcg::MemoryCharge;
 use kobako_runtime::net::{self, Exchange, FieldError, RequestBody};
 
 use super::bindings::wasi_http_types_0_2_12::{
-    ErrorCode, Fields, FutureIncomingResponse, FutureTrailers, HeaderError, IncomingBody,
-    IncomingResponse, Method, OutgoingBody, OutgoingRequest, RequestOptions, Scheme,
+    DNSErrorPayload, ErrorCode, Fields, FutureIncomingResponse, FutureTrailers, HeaderError,
+    IncomingBody, IncomingResponse, Method, OutgoingBody, OutgoingRequest, RequestOptions, Scheme,
     TLSAlertReceivedPayload,
 };
 use super::bindings::wasi_io_poll_0_2_12::Pollable;
@@ -157,7 +157,11 @@ fn to_nanos(timeout: Option<Duration>) -> Option<u64> {
 fn to_error_code(err: net::HttpError) -> ErrorCode {
     match err {
         net::HttpError::Denied => ErrorCode::HTTPRequestDenied,
-        net::HttpError::DestinationNotFound => ErrorCode::DestinationNotFound,
+        // wasmtime-wasi-http answers a lookup that failed this way.
+        net::HttpError::DnsError => ErrorCode::DNSError(DNSErrorPayload {
+            rcode: Some("address not available".to_string()),
+            info_code: None,
+        }),
         net::HttpError::DestinationUnavailable => ErrorCode::DestinationUnavailable,
         net::HttpError::ConnectionRefused => ErrorCode::ConnectionRefused,
         net::HttpError::ConnectionTimeout => ErrorCode::ConnectionTimeout,
@@ -725,6 +729,20 @@ mod tests {
     use super::super::IntoAnswer;
     use super::*;
     use crate::preview2::bindings::{Host as _, IoHost};
+
+    // @behavior NW-225
+    #[test]
+    fn a_lookup_that_failed_answers_dns_error_as_wasmtime_wasi_http_does() {
+        assert!(
+            matches!(
+                to_error_code(net::HttpError::DnsError),
+                ErrorCode::DNSError(DNSErrorPayload { rcode: Some(rcode), info_code: None })
+                    if rcode == "address not available"
+            ),
+            "a request whose name has no address must answer DNS-error with the rcode \
+             wasmtime-wasi-http gives a failed lookup"
+        );
+    }
 
     /// A hermetic invocation whose network holds `endpoints`, or none at all.
     fn guest(endpoints: Option<Vec<network::Endpoint>>) -> Invocation {

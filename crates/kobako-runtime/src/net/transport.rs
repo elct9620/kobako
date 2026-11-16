@@ -100,7 +100,7 @@ impl Connector {
                 let lookup = lookup.as_ref().map_err(|err| *err)?;
                 poll_fn(|cx| lookup.poll_answer(cx))
                     .await
-                    .map_err(|_| HttpError::DestinationNotFound)?
+                    .map_err(|_| HttpError::DnsError)?
                     .into_iter()
                     .map(|real| Destination::Named {
                         name: lookup.name().to_string(),

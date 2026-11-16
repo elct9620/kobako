@@ -415,8 +415,8 @@ impl FileOperations for RequestBodyFile {
 pub enum HttpError {
     /// No entry lets the guest send it.
     Denied,
-    /// The authority's name resolves to nothing.
-    DestinationNotFound,
+    /// The authority's name has no address.
+    DnsError,
     /// No route reaches the authority's address.
     DestinationUnavailable,
     /// The authority refused the connection.
@@ -1216,6 +1216,32 @@ mod tests {
                 Err(_) => return Err(HttpError::ConnectionTerminated),
             }
         }
+    }
+
+    // @behavior NW-225
+    #[test]
+    fn a_request_to_a_name_with_no_address_answers_dns_error_undialed() {
+        let mut entry = Builder::default();
+        entry.endpoint(Endpoint::new("missing.test", 80).unwrap());
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let family = Arc::new(CountsDials::default());
+        let namespace = Namespace::for_network(
+            &network,
+            family.clone(),
+            Arc::new(HyperOutbound { tls: None }),
+        );
+        let exchange = crate::net::send(
+            &namespace,
+            &prepare_creds(&[], None),
+            greeting_request("missing.test"),
+        )
+        .expect("the endpoint admits it");
+        assert_eq!(
+            (read_response(&exchange).err(), family.dials()),
+            (Some(HttpError::DnsError), 0),
+            "a request to a name its resolver finds no address for must answer DNS-error, as \
+             wasmtime-wasi-http answers a failed lookup, and dial nothing"
+        );
     }
 
     #[test]
