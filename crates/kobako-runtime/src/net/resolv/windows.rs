@@ -39,9 +39,11 @@ struct QueryContext {
     overlapped: UnsafeCell<OVERLAPPED>,
     result: UnsafeCell<*mut ADDRINFOEXW>,
     handle: UnsafeCell<HANDLE>,
-    /// Whether the query is pending, being cancelled, or done; a cancel and
-    /// the routine's end exclude each other, so a cancel never names a handle
-    /// the routine already ended.
+    /// Whether the query is pending, being cancelled, or done. A cancel and
+    /// the routine's end exclude each other, so no cancel follows a routine
+    /// that marked the query done; one racing Windows' own completion,
+    /// before the routine marks it, answers `WSA_INVALID_HANDLE` as
+    /// `GetAddrInfoExCancel` documents.
     phase: AtomicU8,
     state: Mutex<State>,
 }
