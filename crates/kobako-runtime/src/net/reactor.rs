@@ -2,8 +2,9 @@
 //! softirq hands each arriving segment to the socket it belongs to: an event
 //! calls its socket's `on_event`, which moves what it can without blocking and
 //! wakes the socket's wait queue. The same thread runs the tasks an HTTP
-//! exchange needs, so no socket holds a thread of its own. A forked child,
-//! which inherits no thread, starts a reactor of its own.
+//! exchange and a name lookup need, and wakes a task whose timer is due, so
+//! no socket holds a thread of its own. A forked child, which inherits no
+//! thread, starts a reactor of its own.
 
 use std::collections::{HashMap, VecDeque};
 use std::future::Future;
