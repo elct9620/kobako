@@ -59,10 +59,11 @@ pub(super) fn any_address_for(peer: SocketAddr) -> SocketAddr {
     }
 }
 
-/// `found` in the order RFC 6724 ranks destinations by its first rules,
-/// stable otherwise: one no address of the host's `local` can reach comes
-/// last (Rule 1), then IPv6 before IPv4, as the default policy table ranks
-/// them (Rule 6).
+/// `found` in the order glibc's `getaddrinfo` ranks destinations by its
+/// first rules, stable otherwise: one no address of the host's `local` can
+/// reach comes last (Rule 1), then IPv6 before IPv4, as glibc's default
+/// precedence table, after RFC 3484, ranks every IPv6 prefix above IPv4
+/// (Rule 6).
 #[cfg(unix)]
 fn sort_destinations(found: &mut [IpAddr], local: &[IpAddr]) {
     found.sort_by_key(|dest| (!is_reachable(dest, local), dest.is_ipv4()));

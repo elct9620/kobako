@@ -5,6 +5,7 @@
 //! closes them, which glibc's blocking `getaddrinfo` cannot offer.
 
 use std::collections::hash_map::RandomState;
+use std::collections::{HashMap, HashSet};
 use std::future::poll_fn;
 use std::hash::{BuildHasher, Hasher};
 use std::io::{self, Read, Write};
@@ -38,12 +39,36 @@ const MAX_UDP_REPLY: usize = 512;
 
 pub(super) fn resolve(name: &str) -> Resolving {
     let bare = name.strip_suffix('.').unwrap_or(name).to_string();
-    let hosts = std::fs::read_to_string("/etc/hosts").unwrap_or_default();
-    if let Some(found) = hosts_answer_of(&hosts, &bare) {
+    if let Some(found) = hosts_answer_of(&read_config("/etc/hosts"), &bare) {
         return Box::pin(std::future::ready(Ok(found)));
     }
-    let conf = Conf::parse(&std::fs::read_to_string("/etc/resolv.conf").unwrap_or_default());
+    if !is_host_name(&bare) {
+        return Box::pin(std::future::ready(Err(LookupError::NoName)));
+    }
+    let conf = Conf::parse(&read_config("/etc/resolv.conf"));
     Box::pin(ask(conf, bare))
+}
+
+/// The text of the configuration at `path`, read as bytes as glibc reads
+/// it, so a byte no encoding spells voids that byte alone, not the file.
+fn read_config(path: &str) -> String {
+    std::fs::read(path)
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+        .unwrap_or_default()
+}
+
+/// Whether `name` is a host name glibc's DNS backend asks about, as
+/// `res_hnok` judges: each label non-empty, of letters, digits, `-`, and
+/// `_`, the name not starting with `-`. `check_name` answers any other
+/// `HOST_NOT_FOUND` with no query.
+fn is_host_name(name: &str) -> bool {
+    !name.starts_with('-')
+        && name.split('.').all(|label| {
+            !label.is_empty()
+                && label
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+        })
 }
 
 /// What `/etc/resolv.conf` says about the servers to ask, as `res_init`
@@ -56,6 +81,16 @@ struct Conf {
 }
 
 impl Conf {
+    /// How long the server at `place` in the list is waited for, as
+    /// `send_dg` gives it: doubled for each place down the list, and shared
+    /// among the servers past the first.
+    fn timeout_at(&self, place: usize) -> Duration {
+        match place {
+            0 => self.timeout,
+            _ => self.timeout * (1 << place) / self.nameservers.len() as u32,
+        }
+    }
+
     fn parse(text: &str) -> Self {
         let mut nameservers = Vec::new();
         let mut timeout = RES_TIMEOUT;
@@ -132,8 +167,8 @@ enum Reply {
 /// `NoName`, as `res_nmkquery` failing is.
 async fn ask(conf: Conf, name: String) -> Result<Vec<IpAddr>, LookupError> {
     for _ in 0..conf.attempts {
-        for server in &conf.nameservers {
-            match exchange(*server, &name, conf.timeout).await {
+        for (place, server) in conf.nameservers.iter().enumerate() {
+            match exchange(*server, &name, conf.timeout_at(place)).await {
                 Ok(Some(found)) => return Ok(found),
                 Err(err) if err.kind() == io::ErrorKind::InvalidInput => {
                     return Err(LookupError::NoName)
@@ -251,6 +286,10 @@ fn encode_query(id: u16, name: &str, rtype: TYPE) -> io::Result<Vec<u8>> {
 /// question does not match. An answer counts only on the chain of CNAMEs from
 /// the name asked, so a record for any other name is never taken.
 fn reply_of(bytes: &[u8], id: u16, name: &str, rtype: TYPE) -> Option<Reply> {
+    // The ID is read before the rest, so a stray datagram is never parsed.
+    if bytes.get(..2)? != id.to_be_bytes() {
+        return None;
+    }
     let packet = Packet::parse(bytes).ok()?;
     let question = packet.questions.first()?;
     let asked = packet.id() == id
@@ -270,16 +309,22 @@ fn reply_of(bytes: &[u8], id: u16, name: &str, rtype: TYPE) -> Option<Reply> {
         RCODE::NameError => return Some(Reply::Answered(Vec::new())),
         _ => return Some(Reply::Failed),
     }
-    let mut chain = vec![name.to_ascii_lowercase()];
-    for _ in 0..packet.answers.len() {
-        for record in &packet.answers {
-            if let RData::CNAME(target) = &record.rdata {
-                let target = target.0.to_string().to_ascii_lowercase();
-                if is_on_chain(&chain, &record.name) && !chain.contains(&target) {
-                    chain.push(target);
-                }
-            }
-        }
+    let aliases: HashMap<String, String> = packet
+        .answers
+        .iter()
+        .filter_map(|record| match &record.rdata {
+            RData::CNAME(target) => Some((
+                record.name.to_string().to_ascii_lowercase(),
+                target.0.to_string().to_ascii_lowercase(),
+            )),
+            _ => None,
+        })
+        .collect();
+    let mut chain = HashSet::from([name.to_ascii_lowercase()]);
+    let mut at = name.to_ascii_lowercase();
+    while let Some(target) = aliases.get(&at).filter(|target| !chain.contains(*target)) {
+        chain.insert(target.clone());
+        at = target.clone();
     }
     let mut found = Vec::new();
     for record in &packet.answers {
@@ -300,9 +345,8 @@ fn is_same_name(qname: &Name<'_>, name: &str) -> bool {
     qname.to_string().eq_ignore_ascii_case(name)
 }
 
-fn is_on_chain(chain: &[String], name: &Name<'_>) -> bool {
-    let name = name.to_string().to_ascii_lowercase();
-    chain.contains(&name)
+fn is_on_chain(chain: &HashSet<String>, name: &Name<'_>) -> bool {
+    chain.contains(&name.to_string().to_ascii_lowercase())
 }
 
 /// Draw a query ID no off-path sender can guess, as `res_mkquery` does.

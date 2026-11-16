@@ -338,3 +338,89 @@ fn a_truncated_reply_is_asked_again_over_tcp() {
         "a reply truncated over UDP must be asked again over TCP, and its answer taken"
     );
 }
+
+#[test]
+fn a_cname_chain_is_followed_in_any_order_and_a_loop_ends() {
+    let query = encode_query(7, "app.test", TYPE::A).unwrap();
+    let cname = |target: &'static str| RData::CNAME(CNAME(Name::new_unchecked(target)));
+    let reply = reply_to(
+        &query,
+        &[
+            ("edge.test", a([93, 184, 216, 34])),
+            ("hop.test", cname("edge.test")),
+            ("app.test", cname("hop.test")),
+            ("loop.test", cname("back.test")),
+            ("back.test", cname("loop.test")),
+        ],
+        RCODE::NoError,
+        false,
+    );
+    let looped = reply_to(
+        &encode_query(8, "loop.test", TYPE::A).unwrap(),
+        &[
+            ("loop.test", cname("back.test")),
+            ("back.test", cname("loop.test")),
+        ],
+        RCODE::NoError,
+        false,
+    );
+    assert_eq!(
+        (
+            reply_of(&reply, 7, "app.test", TYPE::A),
+            reply_of(&looped, 8, "loop.test", TYPE::A)
+        ),
+        (
+            Some(Reply::Answered(vec!["93.184.216.34".parse().unwrap()])),
+            Some(Reply::Answered(Vec::new()))
+        ),
+        "a reply's CNAME chain must be followed whatever order its records come in, and a chain \
+         looping back must end with the addresses it reached"
+    );
+}
+
+#[test]
+fn a_server_down_the_list_waits_as_send_dg_shares_the_time() {
+    let conf = Conf {
+        nameservers: vec![
+            "10.0.0.1:53".parse().unwrap(),
+            "10.0.0.2:53".parse().unwrap(),
+            "10.0.0.3:53".parse().unwrap(),
+        ],
+        timeout: Duration::from_secs(6),
+        attempts: 1,
+    };
+    assert_eq!(
+        [0, 1, 2].map(|place| conf.timeout_at(place)),
+        [6, 4, 8].map(Duration::from_secs),
+        "the first server must wait the whole timeout, and each after it the timeout doubled \
+         for its place, shared among the servers, as glibc's send_dg gives it"
+    );
+}
+
+#[test]
+fn a_name_res_hnok_refuses_answers_no_name_unasked() {
+    assert_eq!(
+        (
+            ["app_1.test", "a!b.test", "-app.test", "a..test"].map(is_host_name),
+            wait_for(resolve("a!b.test.")),
+        ),
+        ([true, false, false, false], Some(Err(LookupError::NoName))),
+        "a name of letters, digits, '-', and '_' in non-empty labels, not starting with '-', \
+         must be asked, and any other answer name-unresolvable at once, as glibc's res_hnok \
+         judges"
+    );
+}
+
+#[test]
+fn a_config_holding_a_byte_no_encoding_spells_still_reads() {
+    let path = std::env::temp_dir().join(format!("kobako-hosts-{}", std::process::id()));
+    std::fs::write(&path, b"# caf\xe9\n10.0.0.9 app.test\n").unwrap();
+    let hosts = read_config(path.to_str().unwrap());
+    std::fs::remove_file(&path).unwrap();
+    assert_eq!(
+        hosts_answer_of(&hosts, "app.test"),
+        Some(vec!["10.0.0.9".parse().unwrap()]),
+        "/etc/hosts holding a byte no encoding spells must still answer its other lines, as \
+         glibc reads it as bytes"
+    );
+}

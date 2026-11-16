@@ -96,7 +96,7 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Netwo
 # simple-dns reads and writes the DNS messages the Linux stub resolver sends
 # to a name server, its compression loops refused; it pulls in only bitflags.
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
-simple-dns = "0.13.0"
+simple-dns = "0.13.1"
 
 # libc asks macOS for the name a directory stores, which a Mount's Policy
 # judges in place of a spelling the host folds, and opens a directory
