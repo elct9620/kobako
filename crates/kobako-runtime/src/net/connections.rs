@@ -2,8 +2,8 @@
 //! process, as a cgroup's `pids.max` bounds the tasks beneath it, so one
 //! tenant cannot starve another of host sockets. A socket and an HTTP request
 //! each hold one place until released, and a request's connection still
-//! sending holds it until it closes; a name lookup's place is held by its
-//! resolver thread until the resolver returns, so it bounds those threads.
+//! sending holds it until it closes; a name lookup holds one until it answers
+//! or is dropped, which cancels its query.
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
@@ -90,7 +90,10 @@ pub(crate) fn open(sandbox: &Arc<OpenConnections>) -> Option<Place> {
 
 /// A place counted against `sandbox` and then `process`, or `None`, counting
 /// nothing, when either is full.
-fn open_within(sandbox: &Arc<OpenConnections>, process: &Arc<OpenConnections>) -> Option<Place> {
+pub(super) fn open_within(
+    sandbox: &Arc<OpenConnections>,
+    process: &Arc<OpenConnections>,
+) -> Option<Place> {
     let pid = std::process::id();
     if !sandbox.try_open() {
         return None;

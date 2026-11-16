@@ -8,7 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use kobako_runtime::grant::Grant;
-use kobako_runtime::net::{Backends, Mock, ProtocolFamily, Resolver};
+use kobako_runtime::net::{Backends, Mock, ProtocolFamily, Resolver, Resolving};
 use kobako_runtime::network::{Builder, Endpoint, Network, Protocol};
 use kobako_runtime::snapshot::Completion;
 use kobako_runtime::{Entry, Errno, Runtime};
@@ -42,12 +42,12 @@ impl ProtocolFamily for Recorded {
 }
 
 impl Resolver for Recorded {
-    fn resolve(&self, name: &str) -> io::Result<Vec<IpAddr>> {
+    fn resolve(&self, name: &str) -> Resolving {
         self.resolved.lock().unwrap().push(name.to_string());
-        Ok(vec![match name {
+        Box::pin(std::future::ready(Ok(vec![match name {
             "app.test" => IpAddr::from(PUBLIC),
             _ => IpAddr::from([169, 254, 169, 254]),
-        }])
+        }])))
     }
 }
 

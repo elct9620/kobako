@@ -12,6 +12,7 @@ mod lookup;
 mod mock;
 mod namespace;
 mod reactor;
+mod resolv;
 mod socket;
 mod tcp;
 mod tls;
@@ -29,7 +30,7 @@ pub use http::{
     FieldError, Fields, HttpError, Outbound, OutgoingRequest, RequestBody, Response, ResponseBody,
     ResponseFuture, ResponseHead, Scheme, Timeouts, MAX_FIELD_SIZE,
 };
-pub use lookup::{resolve, LookupError, NameLookup, Resolver};
+pub use lookup::{resolve, LookupError, NameLookup, Resolver, Resolving};
 pub use mock::{Hold, Mock};
 pub use namespace::Namespace;
 pub use socket::{

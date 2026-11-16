@@ -232,7 +232,7 @@ One reactor thread per process waits on every host socket, as a softirq fills a 
 |---|---|
 | TCP and UDP I/O | the reactor |
 | HTTP | hyper's HTTP/1 client, a task on the reactor |
-| a name lookup | a thread of its own, as a resolver blocks |
+| a name lookup | the resolver's query, a task on the reactor that dropping the lookup cancels |
 | a guest's timeout | a clock the guest polls beside the socket |
 | an HTTP request's timeout | the exchange's next deadline, read as the wait turns |
 

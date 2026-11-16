@@ -114,17 +114,16 @@ class TestE2ENetworkMockFailures < Minitest::Test
   RUBY
 
   # @behavior NW-085
-  def test_a_requests_lookup_holds_its_place_until_the_resolver_returns
+  def test_a_given_up_requests_lookup_gives_its_place_back_at_once
     mock = mock_resolving({ "slow.test" => PUBLIC, "next.test" => PUBLIC })
     sandbox = mock_sandbox(mock, open_connection_limit: 1) do |net|
       %w[slow.test next.test].each { |host| net.endpoint host, port: 80 }
     end
     held = mock.hold("slow.test") { sandbox.eval(format(SLOW_THEN_NEXT, first: "slow.test")).value }
-    released = sandbox.eval(format(SLOW_THEN_NEXT, first: "next.test")).value
 
-    assert_equal [%w[Net::OpenTimeout Errno::EAGAIN], %w[Errno::ECONNREFUSED Errno::ECONNREFUSED]], [held, released],
-                 "with open_connection_limit 1, a request sent after one whose name is still resolving was given " \
-                 "up must raise Errno::EAGAIN until the resolver returns, then dial"
+    assert_equal %w[Net::OpenTimeout Errno::ECONNREFUSED], held,
+                 "with open_connection_limit 1, a request sent after one given up while its name still resolves " \
+                 "must take the place at once and dial, though the resolver has not answered"
   end
 
   # @behavior NW-154

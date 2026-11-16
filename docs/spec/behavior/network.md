@@ -1074,17 +1074,18 @@ endpoint "api.example.com", port: 443
 | When | the guest sends one datagram a byte past what IPv4 UDP carries, to the peer and to another address |
 | Then | each send answers `datagram-too-large`, as Linux's `udp_sendmsg` answers `EMSGSIZE`. The size is judged before the address, as wasmtime's `send` judges it |
 
-## `NW-085` A request's name lookup holds its place until the resolver returns
+## `NW-085` A lookup nobody waits for gives its place back at once
 
 | Attribute | Value |
 | --- | --- |
 | refines | `NW-059` |
+| relates | `NW-022`, `NW-218` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox whose `open_connection_limit` is 1, and a host resolver that has not answered |
-| When | the guest releases a request whose authority is still resolving, then sends another |
-| Then | the second answers `connection-limit-reached` until the resolver returns, since the lookup's thread holds the first request's place |
+| When | a lookup still resolving is dropped, by the guest, by a released request, or by its invocation's end |
+| Then | the resolver's query is cancelled, and the lookup's place returns at once to the invocation's count and the process's. No lookup outlives the invocation that asked, as a process's own `getaddrinfo` ends with it |
 
 ## `NW-086` A zero-byte read keeps a UDP socket's datagram
 

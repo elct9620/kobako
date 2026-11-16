@@ -6,12 +6,14 @@
 //! Mock, as neither frontend depends on the other.
 
 use std::collections::HashMap;
+use std::future::poll_fn;
 use std::io;
 use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
-use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
+use std::task::{Poll, Waker};
 
 use super::family::{same_family, HostInet, ProtocolFamily};
-use super::lookup::{LookupError, Resolver};
+use super::lookup::{LookupError, Resolver, Resolving};
 use super::socket::CarriedErrno;
 use crate::network::{Host, Protocol};
 use crate::Errno;
@@ -19,8 +21,7 @@ use crate::Errno;
 /// A table of names, routes, and refusals, answering the guest's network in
 /// place of the host's.
 pub struct Mock {
-    state: Mutex<State>,
-    released: Condvar,
+    state: Arc<Mutex<State>>,
     local_addresses: Option<Vec<IpAddr>>,
 }
 
@@ -30,6 +31,8 @@ struct State {
     routes: HashMap<(Transport, SocketAddr), Dial>,
     /// How many holds each held name has.
     held: HashMap<String, usize>,
+    /// The lookups waiting for a hold to drop.
+    waiting: Vec<Waker>,
     lookups: Vec<String>,
     dials: Vec<SocketAddr>,
 }
@@ -62,8 +65,7 @@ impl Default for Mock {
     /// addresses of its own.
     fn default() -> Self {
         Self {
-            state: Mutex::default(),
-            released: Condvar::new(),
+            state: Arc::default(),
             local_addresses: Some(Vec::new()),
         }
     }
@@ -160,8 +162,7 @@ impl Drop for Hold<'_> {
                 state.held.remove(&self.name);
             }
         }
-        drop(state);
-        self.mock.released.notify_all();
+        state.waiting.drain(..).for_each(Waker::wake);
     }
 }
 
@@ -203,19 +204,20 @@ impl ProtocolFamily for Mock {
 impl Resolver for Mock {
     /// The table's answer for `name` once no hold keeps it; a name the table
     /// does not hold resolves to nothing.
-    fn resolve(&self, name: &str) -> io::Result<Vec<IpAddr>> {
-        let mut state = self.state();
-        state.lookups.push(name.to_string());
+    fn resolve(&self, name: &str) -> Resolving {
+        self.state().lookups.push(name.to_string());
         let Ok(key) = to_key(name) else {
-            return Ok(Vec::new());
+            return Box::pin(std::future::ready(Ok(Vec::new())));
         };
-        while state.held.contains_key(&key) {
-            state = self
-                .released
-                .wait(state)
-                .unwrap_or_else(PoisonError::into_inner);
-        }
-        Ok(state.answers.get(&key).cloned().unwrap_or_default())
+        let state = self.state.clone();
+        Box::pin(poll_fn(move |cx| {
+            let mut state = state.lock().unwrap_or_else(PoisonError::into_inner);
+            if state.held.contains_key(&key) {
+                state.waiting.push(cx.waker().clone());
+                return Poll::Pending;
+            }
+            Poll::Ready(Ok(state.answers.get(&key).cloned().unwrap_or_default()))
+        }))
     }
 }
 
@@ -230,31 +232,29 @@ fn to_key(name: &str) -> Result<String, LookupError> {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::mpsc;
-    use std::sync::Arc;
-    use std::thread;
-    use std::time::Duration;
+    use std::task::Context;
 
     use super::*;
 
     #[test]
     fn a_name_held_twice_waits_until_both_holds_drop() {
-        let mock = Arc::new(Mock::default());
+        let mock = Mock::default();
         mock.resolve_to_addrs("held.test", vec![IpAddr::from([93, 184, 216, 34])])
             .unwrap();
         let outer = mock.hold("held.test").unwrap();
         let inner = mock.hold("held.test").unwrap();
-        let (done, answered) = mpsc::channel();
-        let resolving = mock.clone();
-        thread::spawn(move || {
-            let _ = done.send(resolving.resolve("held.test").map(|found| found.len()).ok());
-        });
+        let mut resolving = mock.resolve("held.test");
+        let mut cx = Context::from_waker(Waker::noop());
         drop(inner);
-        let waited = answered.recv_timeout(Duration::from_millis(100)).is_err();
+        let waited = resolving.as_mut().poll(&mut cx).is_pending();
         drop(outer);
+        let answered = match resolving.as_mut().poll(&mut cx) {
+            Poll::Ready(found) => found.ok().map(|found| found.len()),
+            Poll::Pending => None,
+        };
         assert_eq!(
-            (waited, answered.recv_timeout(Duration::from_secs(10)).ok()),
-            (true, Some(Some(1))),
+            (waited, answered),
+            (true, Some(1)),
             "a lookup of a name held twice must wait while either hold lives, and answer once both \
              have dropped"
         );

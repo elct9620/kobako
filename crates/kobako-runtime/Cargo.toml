@@ -68,8 +68,9 @@ tokio-rustls = { version = "0.26.4", default-features = false, features = ["ring
 rustls = { version = "0.23.46", default-features = false, features = ["std", "ring", "tls12"] }
 rustls-platform-verifier = "0.7.1"
 # The reactor: one thread waits on every host socket without blocking on
-# any, on epoll, kqueue, or IOCP alike.
-mio = { version = "1.2.0", features = ["os-poll", "net"] }
+# any, on epoll, kqueue, or IOCP alike, and on the socket macOS answers a
+# name lookup through.
+mio = { version = "1.2.0", features = ["os-poll", "os-ext", "net"] }
 # Sets the socket options a guest asks for, such as SO_KEEPALIVE, on the host
 # socket it dials, on POSIX and Windows alike; std sets only a few.
 socket2 = { version = "0.6.3", features = ["all"] }

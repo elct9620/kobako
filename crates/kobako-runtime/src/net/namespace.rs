@@ -802,9 +802,9 @@ mod tests {
     }
 
     impl Resolver for ResolvesNames {
-        fn resolve(&self, _name: &str) -> io::Result<Vec<IpAddr>> {
+        fn resolve(&self, _name: &str) -> crate::net::Resolving {
             self.lookups.fetch_add(1, Ordering::SeqCst);
-            Ok(self.answers.lock().unwrap().clone())
+            Box::pin(std::future::ready(Ok(self.answers.lock().unwrap().clone())))
         }
     }
 
@@ -944,8 +944,8 @@ mod tests {
     }
 
     impl Resolver for SaysNoLocalAddresses {
-        fn resolve(&self, _name: &str) -> io::Result<Vec<IpAddr>> {
-            Ok(vec!["8.8.8.8".parse().unwrap()])
+        fn resolve(&self, _name: &str) -> crate::net::Resolving {
+            Box::pin(std::future::ready(Ok(vec!["8.8.8.8".parse().unwrap()])))
         }
     }
 

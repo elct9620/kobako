@@ -1085,9 +1085,9 @@ mod tests {
     use std::thread;
     use std::time::Duration;
 
-    use std::net::{IpAddr, SocketAddr};
+    use std::net::SocketAddr;
 
-    use super::super::family::testing::CountsDials;
+    use super::super::family::testing::{CountsDials, StallsLookups};
     use super::*;
     use crate::net::{HostInet, Namespace, OpenConnections, ProtocolFamily};
     use crate::network::Protocol;
@@ -1218,26 +1218,6 @@ mod tests {
         }
     }
 
-    /// A host whose resolver says it started, then answers only once released.
-    struct StallsLookups {
-        starts: Mutex<std::sync::mpsc::Sender<()>>,
-        releases: Mutex<std::sync::mpsc::Receiver<()>>,
-    }
-
-    impl ProtocolFamily for StallsLookups {
-        fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
-            Err(io::ErrorKind::ConnectionRefused.into())
-        }
-    }
-
-    impl crate::net::Resolver for StallsLookups {
-        fn resolve(&self, _name: &str) -> io::Result<Vec<IpAddr>> {
-            let _ = self.starts.lock().unwrap().send(());
-            let _ = self.releases.lock().unwrap().recv();
-            Ok(Vec::new())
-        }
-    }
-
     #[test]
     fn an_https_request_without_trust_roots_dials_nothing() {
         let mut entry = Builder::default();
@@ -1323,20 +1303,15 @@ mod tests {
 
     // @behavior NW-085
     #[test]
-    fn a_requests_lookup_holds_its_place_until_the_resolver_returns() {
-        let (release, released) = std::sync::mpsc::channel();
+    fn a_released_requests_lookup_is_cancelled_and_gives_its_place_back_at_once() {
         let (started, resolving) = std::sync::mpsc::channel();
         let mut entry = Builder::default();
         entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
         let network = Network::new("web", Arc::new(entry)).unwrap();
-        let family = StallsLookups {
-            starts: Mutex::new(started),
-            releases: Mutex::new(released),
-        };
-        let family = Arc::new(family);
+        let family = Arc::new(StallsLookups::new(started));
         let namespace = Namespace::new(
             [&network],
-            &crate::net::Backends::new(family.clone(), family),
+            &crate::net::Backends::new(family.clone(), family.clone()),
             OpenConnections::new(Some(1)),
             None,
         )
@@ -1348,32 +1323,19 @@ mod tests {
             .recv_timeout(Duration::from_secs(5))
             .expect("the request's lookup starts");
         first.release();
-        let while_resolving =
-            crate::net::send(&namespace, &cred, greeting_request("api.example.com")).err();
-        release.send(()).unwrap();
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        let once_returned = loop {
-            match crate::net::send(&namespace, &cred, greeting_request("api.example.com")) {
-                Ok(_) => break true,
-                Err(_) if std::time::Instant::now() < deadline => {
-                    thread::sleep(Duration::from_millis(1))
-                }
-                Err(_) => break false,
-            }
-        };
+        let next = crate::net::send(&namespace, &cred, greeting_request("api.example.com"));
         assert_eq!(
-            (while_resolving, once_returned),
-            (Some(HttpError::ConnectionLimitReached), true),
-            "a guest's request past an open_connection_limit of 1 must answer \
-             ConnectionLimitReached while a released request's lookup still resolves, and send \
-             once the resolver returned"
+            (next.is_ok(), family.cancelled()),
+            (true, 1),
+            "with an open_connection_limit of 1, a request sent after one released while its \
+             authority still resolves must take the place at once, the released request's query \
+             cancelled though the resolver never answered"
         );
     }
 
     // @behavior NW-022
     #[test]
     fn a_lookup_or_a_request_holding_the_last_place_makes_a_connect_answer_eagain() {
-        let (release, released) = std::sync::mpsc::channel();
         let (started, resolving) = std::sync::mpsc::channel();
         let mut entry = Builder::default();
         entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
@@ -1383,10 +1345,7 @@ mod tests {
                 .with_protocol(Protocol::Tcp),
         );
         let network = Network::new("web", Arc::new(entry)).unwrap();
-        let family = Arc::new(StallsLookups {
-            starts: Mutex::new(started),
-            releases: Mutex::new(released),
-        });
+        let family = Arc::new(StallsLookups::new(started));
         let namespace = Namespace::new(
             [&network],
             &crate::net::Backends::new(family.clone(), family),
@@ -1406,7 +1365,6 @@ mod tests {
             .recv_timeout(Duration::from_secs(5))
             .expect("the guest's lookup reaches the resolver");
         let past_lookup = connect().err();
-        release.send(()).unwrap();
         drop(lookup);
         let deadline = std::time::Instant::now() + Duration::from_secs(5);
         let request = loop {
@@ -1422,7 +1380,7 @@ mod tests {
             .recv_timeout(Duration::from_secs(5))
             .expect("the request's lookup reaches the resolver");
         let past_request = connect().err();
-        drop((release, request));
+        drop(request);
         assert_eq!(
             (past_lookup, past_request),
             (Some(Errno::WouldBlock), Some(Errno::WouldBlock)),
@@ -1697,7 +1655,7 @@ mod tests {
             }
         }
         impl crate::net::Resolver for KeepsStreams {
-            fn resolve(&self, name: &str) -> io::Result<Vec<IpAddr>> {
+            fn resolve(&self, name: &str) -> crate::net::Resolving {
                 crate::net::Resolver::resolve(&HostInet, name)
             }
         }

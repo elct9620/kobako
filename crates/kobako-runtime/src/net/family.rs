@@ -6,9 +6,9 @@
 //! thread.
 
 use std::io;
-use std::net::{IpAddr, SocketAddr, TcpStream, ToSocketAddrs, UdpSocket};
+use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
 
-use super::lookup::Resolver;
+use super::lookup::{Resolver, Resolving};
 use crate::network::{Protocol, Ruleset};
 
 /// What dials the host network.
@@ -84,14 +84,8 @@ impl ProtocolFamily for HostInet {
 impl Resolver for HostInet {
     /// The host's resolver, asked for `name` with its trailing dot, so no
     /// search domain lengthens it.
-    fn resolve(&self, name: &str) -> io::Result<Vec<IpAddr>> {
-        let mut addresses = Vec::new();
-        for addr in (format!("{name}."), 0).to_socket_addrs()? {
-            if !addresses.contains(&addr.ip()) {
-                addresses.push(addr.ip());
-            }
-        }
-        Ok(addresses)
+    fn resolve(&self, name: &str) -> Resolving {
+        super::resolv::resolve(&format!("{name}."))
     }
 }
 
@@ -117,9 +111,13 @@ pub(crate) fn admitted_addresses_of(
 /// Protocol Families the net tests share.
 #[cfg(test)]
 pub(crate) mod testing {
+    use std::future::Future;
     use std::io;
-    use std::net::{SocketAddr, TcpStream, UdpSocket};
+    use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
+    use std::pin::Pin;
     use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{mpsc, Arc, Mutex};
+    use std::task::{Context, Poll};
 
     use super::{ProtocolFamily, Resolver};
 
@@ -148,8 +146,59 @@ pub(crate) mod testing {
     }
 
     impl Resolver for CountsDials {
-        fn resolve(&self, _name: &str) -> io::Result<Vec<std::net::IpAddr>> {
-            Err(io::ErrorKind::Unsupported.into())
+        fn resolve(&self, _name: &str) -> crate::net::Resolving {
+            Box::pin(std::future::ready(Err(io::ErrorKind::Unsupported.into())))
+        }
+    }
+
+    /// A host refusing every dial, whose resolver says each query started,
+    /// then never answers, counting the queries dropped.
+    pub(crate) struct StallsLookups {
+        starts: Mutex<mpsc::Sender<()>>,
+        cancelled: Arc<AtomicUsize>,
+    }
+
+    impl StallsLookups {
+        pub(crate) fn new(starts: mpsc::Sender<()>) -> Self {
+            Self {
+                starts: Mutex::new(starts),
+                cancelled: Arc::default(),
+            }
+        }
+
+        /// How many queries were dropped unanswered.
+        pub(crate) fn cancelled(&self) -> usize {
+            self.cancelled.load(Ordering::SeqCst)
+        }
+    }
+
+    impl ProtocolFamily for StallsLookups {
+        fn connect(&self, _addr: SocketAddr) -> io::Result<TcpStream> {
+            Err(io::ErrorKind::ConnectionRefused.into())
+        }
+    }
+
+    impl Resolver for StallsLookups {
+        fn resolve(&self, _name: &str) -> crate::net::Resolving {
+            let _ = self.starts.lock().unwrap().send(());
+            Box::pin(Stalled(self.cancelled.clone()))
+        }
+    }
+
+    /// One query that never answers, counted as it drops.
+    struct Stalled(Arc<AtomicUsize>);
+
+    impl Future for Stalled {
+        type Output = io::Result<Vec<IpAddr>>;
+
+        fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
+            Poll::Pending
+        }
+    }
+
+    impl Drop for Stalled {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
         }
     }
 }
