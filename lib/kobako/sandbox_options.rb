@@ -20,10 +20,11 @@ module Kobako
   #                   standard ones and each Mount's included; 1024.
   # [+open_connection_limit+]
   #                   Integer connections one invocation holds open at once, each
-  #                   socket, HTTP request, and name lookup in flight one; 6.
+  #                   socket once it dials, HTTP request, and name lookup in
+  #                   flight one; 6.
   # [+connection_limit+]
   #                   Integer connections one invocation makes in all, each
-  #                   socket and HTTP request one; 50.
+  #                   socket's dial and HTTP request one; 50.
   # [+profile+]       The isolation the runtime must provide at least:
   #                   +:hermetic+, which denies the guest the clock and
   #                   entropy, or the weaker +:permissive+, which leaves them

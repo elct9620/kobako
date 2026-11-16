@@ -58,8 +58,8 @@ connection past any of them raises `Errno::EAGAIN` in the guest, a lookup
 
 | Limit | Measures |
 |---|---|
-| `open_connection_limit` | each socket, request, and lookup one run holds open at once |
-| `connection_limit` | each socket and request one run makes, closed ones included |
+| `open_connection_limit` | each dialed socket, request, and lookup one run holds open at once |
+| `connection_limit` | each socket dial and request one run makes, closed ones included |
 | the process's | every Sandbox's open connections together, 512 by default |
 
 Only a Rust Host App moves the process's limit. Lowering it closes nothing
