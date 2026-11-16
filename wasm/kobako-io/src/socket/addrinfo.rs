@@ -17,6 +17,7 @@ use super::{
     family_of, name_of, resolution_error, socket_error, Family, AF_INET, AF_INET6, EAI_NONAME,
 };
 use crate::convert::string_value_of;
+use crate::errno;
 use crate::io::{argument_error, split_options, to_int};
 
 /// Linux's socket kinds, and the protocols each IP kind carries.
@@ -288,6 +289,34 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
     Ok(found)
 }
 
+/// The `Addrinfo`s a lookup answers, as `lookup` does, once an Integer
+/// `service` fits an `int`: CRuby's `make_inspectname` reads it so for each
+/// entry it made, raising `RangeError` past one after the lookup.
+fn addrinfos_of(
+    mrb: &Mrb,
+    node: Value,
+    service: Value,
+    hints: &Hints,
+) -> Result<Vec<Addrinfo>, Error> {
+    let found = lookup(mrb, node, service, hints)?;
+    if Integer::from_value(service).is_some() {
+        let number = i64::try_convert(service, mrb)?;
+        let side = match number {
+            n if n > i64::from(u32::MAX) => Some("big"),
+            n if n < i64::from(i32::MIN) => Some("small"),
+            _ => None,
+        };
+        if let Some(side) = side {
+            return Err(errno::to_error(
+                mrb,
+                mrb.exception_range_error(),
+                &format!("integer {number} too {side} to convert to 'int'"),
+            ));
+        }
+    }
+    Ok(found)
+}
+
 /// The kinds and protocols `hints` leave open, from glibc's table, where a
 /// raw socket takes whichever protocol is asked. None left raises
 /// `EAI_SOCKTYPE` before the service or the node is read, as `gaih_inet`
@@ -345,7 +374,7 @@ fn addrinfo_s_getaddrinfo(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Val
         [node, service, rest @ ..] if rest.len() <= 4 => (*node, *service, rest),
         _ => return Err(Error::argnum(mrb, args.len(), 2, 6)),
     };
-    let found = lookup(mrb, node, service, &hints_of(mrb, rest)?)?;
+    let found = addrinfos_of(mrb, node, service, &hints_of(mrb, rest)?)?;
     let answer = mrb.ary_new();
     for info in found {
         answer.push(mrb, info.wrap(mrb)?)?;
@@ -367,8 +396,7 @@ fn first_of(
         protocol,
         flags: 0,
     };
-    let mut found = lookup(mrb, host, port, &hints)?;
-    found.remove(0).wrap(mrb)
+    addrinfos_of(mrb, host, port, &hints)?.remove(0).wrap(mrb)
 }
 
 /// `Addrinfo.tcp(host, port)` answers the TCP `Addrinfo` they lead to.
@@ -628,7 +656,7 @@ fn addrinfo_family_addrinfo(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<V
         protocol: info.protocol,
         flags: 0,
     };
-    lookup(mrb, host, port, &hints)?.remove(0).wrap(mrb)
+    addrinfos_of(mrb, host, port, &hints)?.remove(0).wrap(mrb)
 }
 
 /// `Socket.getaddrinfo(host, service, family = nil, socktype = nil, protocol

@@ -1247,7 +1247,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server |
 | When | the script opens a `TCPSocket` to the server's port as a String, and as an Integer past 16 bits. Then it names a service |
-| Then | the String and the Integer reach the port Linux's `getaddrinfo` reads from them. The service name raises `Socket::ResolutionError` with `EAI_SERVICE`, where CRuby looks it up, since the guest has no services database |
+| Then | the String and the Integer reach the port Linux's `getaddrinfo` reads from them. The service name raises `Socket::ResolutionError` with `EAI_SERVICE`, where CRuby looks it up, since the guest has no services database. A port of 32 bytes raises `ArgumentError`, and an `Addrinfo`'s Integer past an `int` raises `RangeError`, as CRuby's do |
 
 ## `NW-100` A script's TCPSocket bounds its name lookup by resolv_timeout
 

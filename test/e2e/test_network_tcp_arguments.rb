@@ -17,18 +17,38 @@ class TestE2ENetworkTcpArguments < Minitest::Test
         TCPSocket.new("127.0.0.1", "http")
       rescue Socket::ResolutionError => e
         [e.error_code, e.message]
+      end,
+      ["4294967296", "-0", "-4294967216", " +80"].map { |text| Addrinfo.tcp("127.0.0.1", text).ip_port },
+      Socket.unpack_sockaddr_in(Socket.sockaddr_in(4_294_967_296 + 80, "1.2.3.4"))[0],
+      ["2147483648", 4_294_967_295, -1, "9" * 20, "0" * 32, 4_294_967_296, -2_147_483_649, 2**62].map do |port|
+        Addrinfo.tcp("127.0.0.1", port)
+      rescue StandardError => e
+        [e.class.to_s, e.message]
       end
     ]
   RUBY
+
+  SERVICE = [-8, "getaddrinfo: Servname not supported for ai_socktype"].freeze
+
+  BOUNDS = [
+    ["Socket::ResolutionError", SERVICE[1]], ["Socket::ResolutionError", SERVICE[1]],
+    ["Socket::ResolutionError", SERVICE[1]], ["Socket::ResolutionError", SERVICE[1]],
+    ["ArgumentError", "service name too long (32)"],
+    ["RangeError", "integer 4294967296 too big to convert to 'int'"],
+    ["RangeError", "integer -2147483649 too small to convert to 'int'"],
+    ["TypeError", "no implicit conversion of Integer into String"]
+  ].freeze
 
   # @behavior NW-099
   def test_a_port_is_read_as_linux_reads_a_service
     with_listening_server do |port|
       value = loopback_sandbox(port).eval(format(PORTS, port: port)).value
 
-      assert_equal [port, port, [-8, "getaddrinfo: Servname not supported for ai_socktype"]], value,
+      assert_equal [port, port, SERVICE, [0, 0, 80, 80], 80, BOUNDS], value,
                    "TCPSocket.new must reach the port a String of digits names and the low 16 bits of an " \
-                   "Integer, and a service name must raise Socket::ResolutionError with EAI_SERVICE"
+                   "Integer, and a service name must raise Socket::ResolutionError with EAI_SERVICE. As glibc " \
+                   "keeps the digits in an int, one negative there raises EAI_SERVICE; a service of 32 bytes " \
+                   "raises ArgumentError, an Addrinfo's Integer past an int RangeError, and a Bignum TypeError"
     end
   end
 

@@ -147,28 +147,66 @@ pub(super) fn local_of(
     Ok((ips[0], port, call))
 }
 
-/// The port `port` names, and its text, as Linux's `getaddrinfo` reads what
-/// CRuby hands it: `nil` or `""` is port 0, and an Integer or a String of
-/// digits keeps its low 16 bits. The guest has no services database, so any
-/// other String raises `EAI_SERVICE`, as Linux without one does.
+/// The port `port` names, and its text, as glibc's `getaddrinfo` reads the
+/// text CRuby's `port_str` hands it: `nil` or `""` is port 0, an Integer is
+/// its decimal digits, and a String of 32 bytes or more raises
+/// `ArgumentError`. glibc reads the digits with `strtoul`, a sign and leading
+/// space allowed, keeps them in an `int`, refuses a negative one, and takes
+/// its low 16 bits. The guest has no services database, so any other String
+/// raises `EAI_SERVICE`, as Linux without one does. An Integer past a Fixnum
+/// raises `TypeError`, as `port_str` takes it as a String.
 pub(crate) fn port_of(mrb: &Mrb, port: Value) -> Result<(u16, String), Error> {
     let text = if port.is_nil() {
         String::new()
     } else if Integer::from_value(port).is_some() {
-        i64::try_convert(port, mrb)?.to_string()
+        let number = i64::try_convert(port, mrb).ok().filter(|number| {
+            (FIXNUM_MIN..=FIXNUM_MAX).contains(number)
+        });
+        number.ok_or_else(|| errno::type_error(mrb, port))?.to_string()
     } else {
         String::from_utf8_lossy(&string_bytes_of(mrb, port)?).into_owned()
     };
     if text.is_empty() {
         return Ok((0, text));
     }
-    let digits = text.trim_start_matches(|c: char| c.is_ascii_whitespace());
-    let digits = digits.strip_prefix('+').unwrap_or(digits);
-    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+    if text.len() >= SERVICE_TEXT_MAX {
+        return Err(argument_error(
+            mrb,
+            &format!("service name too long ({})", text.len()),
+        ));
+    }
+    let number = strtoul(&text).ok_or_else(|| resolution_error(mrb, EAI_SERVICE))?;
+    if (number as u32 as i32) < 0 {
         return Err(resolution_error(mrb, EAI_SERVICE));
     }
-    let number = digits.parse::<u64>().unwrap_or(u64::MAX);
     Ok((number as u16, text))
+}
+
+/// The bytes CRuby's `port_str` holds a service in, its NUL among them.
+const SERVICE_TEXT_MAX: usize = 32;
+
+/// What a Fixnum holds on a 64-bit CRuby, past which an Integer is a Bignum.
+const FIXNUM_MAX: i64 = (1 << 62) - 1;
+const FIXNUM_MIN: i64 = -(1 << 62);
+
+/// The number `text` spells all through, as C's `strtoul` reads it: leading
+/// space, then a sign, then digits, a minus negating it and one past
+/// `unsigned long` answering the largest; `None` when anything else stands.
+fn strtoul(text: &str) -> Option<u64> {
+    let text = text.trim_start_matches(|c: char| c.is_ascii_whitespace());
+    let (negative, digits) = match text.as_bytes().first() {
+        Some(b'-') => (true, &text[1..]),
+        Some(b'+') => (false, &text[1..]),
+        _ => (false, text),
+    };
+    if digits.is_empty() || !digits.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    Some(match digits.parse::<u64>() {
+        Ok(number) if negative => number.wrapping_neg(),
+        Ok(number) => number,
+        Err(_) => u64::MAX,
+    })
 }
 
 /// Define `Socket.sockaddr_in`, `Socket.pack_sockaddr_in`, and
