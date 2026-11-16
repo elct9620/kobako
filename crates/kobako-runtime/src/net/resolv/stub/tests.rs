@@ -112,7 +112,7 @@ fn a_resolv_conf_naming_no_server_asks_the_local_one() {
 }
 
 #[test]
-fn hosts_answers_each_address_naming_the_name_ipv6_first() {
+fn hosts_answers_each_address_naming_the_name() {
     let hosts = "127.0.0.1 localhost\n# ::2 localhost\n::1 ip6-localhost LOCALHOST\n\
                  10.0.0.9 other\n127.0.0.1 localhost.localdomain localhost\n";
     assert_eq!(
@@ -121,11 +121,11 @@ fn hosts_answers_each_address_naming_the_name_ipv6_first() {
             hosts_answer_of(hosts, "missing")
         ),
         (
-            Some(vec!["::1".parse().unwrap(), "127.0.0.1".parse().unwrap()]),
+            Some(vec!["127.0.0.1".parse().unwrap(), "::1".parse().unwrap()]),
             None
         ),
-        "/etc/hosts must answer every address an alias names, in any case, once each, IPv6 \
-         first, skipping comments, and answer nothing for a name it lacks"
+        "/etc/hosts must answer every address an alias names, in any case, once each, in its \
+         order, skipping comments, and answer nothing for a name it lacks"
     );
 }
 
@@ -190,7 +190,7 @@ fn a_reply_tells_a_missing_name_a_failing_server_and_a_truncation_apart() {
 }
 
 #[test]
-fn a_server_answers_ipv6_before_ipv4() {
+fn a_server_answers_both_questions() {
     let server = serve_udp(|query| {
         let answer = match rtype_of(query) {
             TYPE::A => a([93, 184, 216, 34]),
@@ -209,7 +209,31 @@ fn a_server_answers_ipv6_before_ipv4() {
             "2606:2800::1".parse().unwrap(),
             "93.184.216.34".parse().unwrap()
         ])),
-        "a name server's answers must come back IPv6 first, as RFC 6724 ranks them"
+        "a name server's AAAA and A answers must both come back"
+    );
+}
+
+#[test]
+fn a_server_answering_one_question_gives_that_answer() {
+    let answered = |failing: RCODE| {
+        let server = serve_udp(move |query| match rtype_of(query) {
+            TYPE::A => Some(reply_to(
+                query,
+                &[("app.test", a([93, 184, 216, 34]))],
+                RCODE::NoError,
+                false,
+            )),
+            _ if failing == RCODE::NoError => None,
+            _ => Some(reply_to(query, &[], failing, false)),
+        });
+        wait_for(ask(conf_of(vec![server]), "app.test".into())).map(|found| found.ok())
+    };
+    let a_only = Some(Some(vec!["93.184.216.34".parse().unwrap()]));
+    assert_eq!(
+        (answered(RCODE::NoError), answered(RCODE::ServerFailure)),
+        (a_only.clone(), a_only),
+        "a server that answers A but drops or fails AAAA must still give the A answer, as \
+         glibc's send_dg takes the one reply it has"
     );
 }
 

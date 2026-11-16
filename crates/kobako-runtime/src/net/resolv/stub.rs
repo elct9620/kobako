@@ -98,8 +98,8 @@ impl Conf {
     }
 }
 
-/// The addresses `/etc/hosts` holds for `name`, IPv6 before IPv4 as RFC
-/// 6724's default policy table ranks them, or `None` when it names none.
+/// The addresses `/etc/hosts` holds for `name`, in its order, or `None` when
+/// it names none.
 fn hosts_answer_of(hosts: &str, name: &str) -> Option<Vec<IpAddr>> {
     let mut found: Vec<IpAddr> = Vec::new();
     for line in hosts.lines() {
@@ -112,7 +112,6 @@ fn hosts_answer_of(hosts: &str, name: &str) -> Option<Vec<IpAddr>> {
             found.push(ip);
         }
     }
-    found.sort_by_key(IpAddr::is_ipv4);
     (!found.is_empty()).then_some(found)
 }
 
@@ -144,8 +143,9 @@ async fn ask(conf: Conf, name: String) -> io::Result<Vec<IpAddr>> {
     ))
 }
 
-/// Ask `server` for `name`'s AAAA and A records, answered as IPv6 before
-/// IPv4; `None` when either question went unanswered.
+/// Ask `server` for `name`'s AAAA and A records. One question answered is enough, as glibc's `send_dg` takes the one
+/// reply it has once the other fails or the time runs out; `None` when
+/// neither was, so the next server is asked.
 async fn exchange(
     server: SocketAddr,
     name: &str,
@@ -162,7 +162,7 @@ async fn exchange(
     let mut buffer = [0u8; MAX_UDP_REPLY];
     while replies.iter().any(Option::is_none) {
         let Some(read) = socket.recv(&mut buffer, deadline).await? else {
-            return Ok(None);
+            break;
         };
         for (slot, (id, rtype)) in replies.iter_mut().zip(questions) {
             if slot.is_none() {
@@ -170,18 +170,20 @@ async fn exchange(
             }
         }
     }
-    let mut found = Vec::new();
+    let mut found = None::<Vec<IpAddr>>;
     for (reply, (id, rtype)) in replies.into_iter().zip(questions) {
         let reply = match reply {
-            Some(Reply::Truncated) => ask_over_tcp(server, id, name, rtype, deadline).await?,
+            Some(Reply::Truncated) => ask_over_tcp(server, id, name, rtype, deadline)
+                .await
+                .ok()
+                .flatten(),
             reply => reply,
         };
-        match reply {
-            Some(Reply::Answered(addresses)) => found.extend(addresses),
-            _ => return Ok(None),
+        if let Some(Reply::Answered(addresses)) = reply {
+            found.get_or_insert_with(Vec::new).extend(addresses);
         }
     }
-    Ok(Some(found))
+    Ok(found)
 }
 
 /// Ask `server` the one question again over TCP, as `send_vc` does.

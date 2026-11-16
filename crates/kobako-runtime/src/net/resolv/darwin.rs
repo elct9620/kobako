@@ -1,9 +1,7 @@
 //! macOS answers every lookup through mDNSResponder, which its own
 //! `getaddrinfo` asks too: `DNSServiceGetAddrInfo` hands back a socket the
 //! reactor waits on, and `DNSServiceRefDeallocate` cancels the query. One
-//! query asks for IPv6 and one for IPv4, so each knows when it is answered,
-//! and the answer lists IPv6 first, as RFC 6724's default policy table ranks
-//! it above IPv4 and the system's `getaddrinfo` sorts.
+//! query asks for IPv6 and one for IPv4, so each knows when it is answered.
 
 use std::ffi::{c_char, c_int, c_void, CString};
 use std::future::Future;
@@ -114,6 +112,8 @@ impl Query {
             )
         };
         if err != K_DNS_SERVICE_ERR_NO_ERROR {
+            // No query holds the context, so no reply can land in it.
+            drop(unsafe { Box::from_raw(replies.as_ptr()) });
             return Err(io::Error::other(format!(
                 "DNSServiceGetAddrInfo failed: {err}"
             )));

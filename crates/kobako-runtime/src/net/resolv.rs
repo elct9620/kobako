@@ -11,22 +11,62 @@ mod stub;
 mod windows;
 
 #[cfg(unix)]
+use std::net::{IpAddr, Ipv6Addr};
+#[cfg(unix)]
 use std::sync::{Mutex, PoisonError};
 #[cfg(unix)]
 use std::task::{Context, Poll, Waker};
 
+#[cfg(unix)]
+use super::family::ProtocolFamily;
 use super::lookup::Resolving;
 #[cfg(unix)]
 use super::reactor::Ready;
 
 /// The host's addresses for `name`, a fully qualified name with its root.
+/// Windows sorts its own answer; on a Unix host they are sorted here, as
+/// glibc's `getaddrinfo` sorts what its backends answer.
 pub(super) fn resolve(name: &str) -> Resolving {
-    #[cfg(target_os = "macos")]
-    return darwin::resolve(name);
     #[cfg(windows)]
     return windows::resolve(name);
-    #[cfg(all(unix, not(target_os = "macos")))]
-    return stub::resolve(name);
+    #[cfg(unix)]
+    {
+        #[cfg(target_os = "macos")]
+        let resolving = darwin::resolve(name);
+        #[cfg(not(target_os = "macos"))]
+        let resolving = stub::resolve(name);
+        let local = super::family::HostInet
+            .local_addresses()
+            .unwrap_or_default();
+        Box::pin(async move {
+            let mut found = resolving.await?;
+            sort_destinations(&mut found, &local);
+            Ok(found)
+        })
+    }
+}
+
+/// `found` in the order RFC 6724 ranks destinations by its first rules,
+/// stable otherwise: one no address of the host's `local` can reach comes
+/// last (Rule 1), then IPv6 before IPv4, as the default policy table ranks
+/// them (Rule 6).
+#[cfg(unix)]
+fn sort_destinations(found: &mut [IpAddr], local: &[IpAddr]) {
+    found.sort_by_key(|dest| (!is_reachable(dest, local), dest.is_ipv4()));
+}
+
+/// Whether the host holds an address `dest` can be reached from: an IPv4
+/// one for IPv4, `::1` for `::1`, and a global IPv6 one for any other IPv6.
+#[cfg(unix)]
+fn is_reachable(dest: &IpAddr, local: &[IpAddr]) -> bool {
+    match dest {
+        IpAddr::V4(_) => local.iter().any(IpAddr::is_ipv4),
+        IpAddr::V6(dest) if dest.is_loopback() => local.contains(&IpAddr::V6(Ipv6Addr::LOCALHOST)),
+        IpAddr::V6(_) => local.iter().any(|ip| match ip {
+            IpAddr::V6(ip) => !ip.is_loopback() && !ip.is_unicast_link_local(),
+            IpAddr::V4(_) => false,
+        }),
+    }
 }
 
 /// Wakes the task waiting on a resolver's socket, keeping a change that came
@@ -99,6 +139,32 @@ mod tests {
     /// `name`'s answer, or `None` once ten seconds pass unanswered.
     fn answer_of(name: &str) -> Option<io::Result<Vec<IpAddr>>> {
         wait_for(resolve(name))
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_unreachable_destination_sorts_after_a_reachable_one() {
+        let v4_only: Vec<IpAddr> = vec!["127.0.0.1".parse().unwrap(), "10.0.0.2".parse().unwrap()];
+        let dual: Vec<IpAddr> = vec![
+            "127.0.0.1".parse().unwrap(),
+            "::1".parse().unwrap(),
+            "2001:db8::2".parse().unwrap(),
+        ];
+        let sorted = |local: &[IpAddr]| {
+            let mut found: Vec<IpAddr> =
+                vec!["192.0.2.1".parse().unwrap(), "2001:db8::1".parse().unwrap()];
+            super::sort_destinations(&mut found, local);
+            found
+        };
+        assert_eq!(
+            (sorted(&v4_only), sorted(&dual)),
+            (
+                vec!["192.0.2.1".parse().unwrap(), "2001:db8::1".parse().unwrap()],
+                vec!["2001:db8::1".parse().unwrap(), "192.0.2.1".parse().unwrap()]
+            ),
+            "a host with no global IPv6 address must sort IPv4 first, as RFC 6724's Rule 1 \
+             puts an unusable destination last, and one with it must sort IPv6 first"
+        );
     }
 
     #[test]
