@@ -18,7 +18,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::connections::Place;
 use super::http::HttpError;
-use super::lookup::{NameLookup, Resolver};
+use super::lookup::NameLookup;
 use super::namespace::TcpSockets;
 use super::socket::{BindHash, CarriedErrno, Destination};
 use super::{Namespace, ProtoOps, ProtocolFamily, SockOpt, TcpSock};
@@ -35,7 +35,10 @@ pub struct Connector {
     port: u16,
     ruleset: Arc<Ruleset>,
     family: Arc<dyn ProtocolFamily>,
-    resolver: Arc<dyn Resolver>,
+    /// The lookup of a named authority, started on the thread that sends the
+    /// request, as a guest's own lookup is, so the reactor never makes the
+    /// call a Resolver may block on.
+    lookup: Option<Result<Arc<NameLookup>, HttpError>>,
     ports: Arc<BindHash>,
     tcp_sockets: Arc<TcpSockets>,
     cred: Arc<Cred>,
@@ -51,7 +54,8 @@ pub struct Connector {
 
 impl Connector {
     /// The connector for `host` at `port` in `net`, dialing as `cred` and
-    /// holding the request's `place`.
+    /// holding the request's `place`, which a lookup of a named host holds
+    /// too.
     pub(crate) fn new(
         net: &Namespace,
         cred: &Arc<Cred>,
@@ -59,12 +63,19 @@ impl Connector {
         port: u16,
         place: Arc<Place>,
     ) -> Self {
+        let lookup = match &host {
+            Host::Name(name) => Some(
+                NameLookup::start_holding(net.resolver().clone(), name.clone(), place.clone())
+                    .map_err(|_| HttpError::ConnectionLimitReached),
+            ),
+            Host::Address(_) => None,
+        };
         Self {
             host,
             port,
             ruleset: net.ruleset().clone(),
             family: net.family().clone(),
-            resolver: net.resolver().clone(),
+            lookup,
             ports: net.ports_of(Protocol::Http).clone(),
             tcp_sockets: net.tcp_sockets().clone(),
             cred: cred.clone(),
@@ -88,7 +99,7 @@ impl Connector {
         let dests = match &self.host {
             Host::Address(ip) => vec![Destination::Literal(SocketAddr::new(*ip, self.port))],
             Host::Name(name) => self
-                .resolve(name)
+                .resolved()
                 .await?
                 .into_iter()
                 .map(|real| Destination::Named {
@@ -130,13 +141,14 @@ impl Connector {
         Err(last)
     }
 
-    /// The host's answer for `name`, the authority's, from a lookup holding
-    /// the request's own place, as a guest's lookup holds one, so its thread
-    /// counts against the caps until the resolver returns.
-    async fn resolve(&self, name: &str) -> Result<Vec<IpAddr>, HttpError> {
-        let lookup =
-            NameLookup::start_holding(self.resolver.clone(), name.to_string(), self.place.clone())
-                .map_err(|_| HttpError::ConnectionLimitReached)?;
+    /// The host's answer for the authority's name, from the lookup started
+    /// with the connector.
+    async fn resolved(&self) -> Result<Vec<IpAddr>, HttpError> {
+        let lookup = match &self.lookup {
+            Some(Ok(lookup)) => lookup,
+            Some(Err(err)) => return Err(*err),
+            None => return Err(HttpError::DestinationNotFound),
+        };
         poll_fn(|cx| lookup.poll_answer(cx))
             .await
             .map_err(|_| HttpError::DestinationNotFound)

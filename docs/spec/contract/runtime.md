@@ -160,7 +160,7 @@ pub trait Resolver: Send + Sync {}
 
 ## `Resolver::resolve`
 
-The addresses a fully qualified name resolves to, as a `Resolving` future the reactor polls. Dropping it cancels the query, and polling it never blocks.
+The addresses a fully qualified name resolves to, as a `Resolving` future the reactor polls. It is called on the asking thread, never the reactor. Dropping the future cancels the query, and polling it never blocks.
 
 ```rust
 pub trait Resolver {

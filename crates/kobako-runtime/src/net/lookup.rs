@@ -29,10 +29,12 @@ pub type Resolving = Pin<Box<dyn Future<Output = io::Result<Vec<IpAddr>>> + Send
 /// from the Protocol Family that dials what it answered. The guest's lookups
 /// and the L7 proxy both ask it.
 pub trait Resolver: Send + Sync {
-    /// The addresses `name`, a fully qualified name, resolves to. The future
-    /// runs on kobako's reactor, so polling it never blocks, and dropping it
-    /// cancels the query, so no query outlives the lookup that asked. A
-    /// resolver that resolves nothing answers `Unsupported`.
+    /// The addresses `name`, a fully qualified name, resolves to. It is
+    /// called on the thread that asks, never the reactor, so starting a query
+    /// may wait briefly as a system call does; the future runs on kobako's
+    /// reactor, so polling it never blocks, and dropping it cancels the
+    /// query, so no query outlives the lookup that asked. A resolver that
+    /// resolves nothing answers `Unsupported`.
     fn resolve(&self, name: &str) -> Resolving;
 }
 

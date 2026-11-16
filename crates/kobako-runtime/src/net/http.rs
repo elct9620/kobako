@@ -1301,6 +1301,53 @@ mod tests {
         );
     }
 
+    /// A host refusing every dial, whose resolver records the thread each
+    /// query starts on and never answers.
+    #[derive(Default)]
+    struct RecordsResolveThread(Mutex<Vec<thread::ThreadId>>);
+
+    impl ProtocolFamily for RecordsResolveThread {
+        fn connect(&self, _addr: SocketAddr) -> io::Result<std::net::TcpStream> {
+            Err(io::ErrorKind::ConnectionRefused.into())
+        }
+    }
+
+    impl crate::net::Resolver for RecordsResolveThread {
+        fn resolve(&self, _name: &str) -> crate::net::Resolving {
+            self.0.lock().unwrap().push(thread::current().id());
+            Box::pin(std::future::pending())
+        }
+    }
+
+    // The reactor never makes the call a Resolver may block on: a request's
+    // lookup starts on the thread that sends it.
+    #[test]
+    fn a_requests_lookup_starts_on_the_thread_that_sends_it() {
+        let mut entry = Builder::default();
+        entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let family = Arc::new(RecordsResolveThread::default());
+        let namespace = Namespace::new(
+            [&network],
+            &crate::net::Backends::new(family.clone(), family.clone()),
+            OpenConnections::new(None),
+            None,
+        )
+        .expect("the endpoints compile");
+        let cred = prepare_creds(&[], None);
+        let exchange = crate::net::send(&namespace, &cred, greeting_request("api.example.com"))
+            .expect("the endpoint admits it");
+        thread::sleep(Duration::from_millis(50));
+        let started_on = family.0.lock().unwrap().clone();
+        exchange.release();
+        assert_eq!(
+            started_on,
+            vec![thread::current().id()],
+            "a request's lookup must start once, on the thread that sends the request, never \
+             on the reactor"
+        );
+    }
+
     // @behavior NW-085
     #[test]
     fn a_released_requests_lookup_is_cancelled_and_gives_its_place_back_at_once() {
