@@ -3,10 +3,12 @@
 //! dropped, so no lookup holds a thread that outlives it, as glibc's
 //! `getaddrinfo` would.
 
-#[cfg(not(target_os = "macos"))]
+#[cfg(all(unix, not(target_os = "macos")))]
 mod blocking;
 #[cfg(target_os = "macos")]
 mod darwin;
+#[cfg(windows)]
+mod windows;
 
 use super::lookup::Resolving;
 
@@ -14,7 +16,9 @@ use super::lookup::Resolving;
 pub(super) fn resolve(name: &str) -> Resolving {
     #[cfg(target_os = "macos")]
     return darwin::resolve(name);
-    #[cfg(not(target_os = "macos"))]
+    #[cfg(windows)]
+    return windows::resolve(name);
+    #[cfg(all(unix, not(target_os = "macos")))]
     return blocking::resolve(name);
 }
 
