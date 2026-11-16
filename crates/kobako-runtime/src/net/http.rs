@@ -1019,8 +1019,11 @@ impl<T: AsyncWrite + Unpin> hyper::rt::Write for Wire<T> {
 }
 
 impl HttpError {
-    /// The code a failed dial or TLS handshake answers, from the rustls error
-    /// it carries, if any.
+    /// The code a failed TLS handshake answers, as wasmtime-wasi-http's
+    /// `p2_error_from_tls` names each: the rustls error it carries, a
+    /// connection the server ended as `connection-terminated`, and any other
+    /// as `TLS-protocol-error`; memory the socket could not reserve is the
+    /// seam's own failure.
     pub(crate) fn from_io(err: &io::Error) -> Self {
         match err
             .get_ref()
@@ -1033,10 +1036,16 @@ impl HttpError {
             Some(_) => return Self::TlsProtocol,
             None => {}
         }
-        if err.kind() == io::ErrorKind::InvalidData {
-            return Self::TlsProtocol;
+        if err.kind() == io::ErrorKind::UnexpectedEof {
+            return Self::ConnectionTerminated;
         }
-        Self::from_errno(&to_error(err))
+        match to_error(err) {
+            Errno::ConnectionReset | Errno::ConnectionAborted | Errno::BrokenPipe => {
+                Self::ConnectionTerminated
+            }
+            Errno::OutOfMemory => Self::Internal,
+            _ => Self::TlsProtocol,
+        }
     }
 
     /// The code a connection failing with `err` answers, as wasmtime-wasi-http
@@ -1087,41 +1096,64 @@ mod tests {
 
     #[test]
     fn a_failed_dial_answers_the_code_its_host_error_names() {
-        let codes = [
+        let dials = [
             io::ErrorKind::TimedOut,
             io::ErrorKind::ConnectionRefused,
             io::ErrorKind::ConnectionReset,
             io::ErrorKind::ConnectionAborted,
-            io::ErrorKind::InvalidData,
             io::ErrorKind::HostUnreachable,
             io::ErrorKind::NetworkUnreachable,
             io::ErrorKind::NetworkDown,
         ]
-        .map(|kind| HttpError::from_io(&io::Error::from(kind)));
+        .map(|kind| HttpError::from_errno(&to_error(&io::Error::from(kind))));
+        assert_eq!(
+            dials,
+            [
+                HttpError::ConnectionTimeout,
+                HttpError::ConnectionRefused,
+                HttpError::ConnectionTerminated,
+                HttpError::ConnectionTerminated,
+                HttpError::DestinationUnavailable,
+                HttpError::DestinationUnavailable,
+                HttpError::DestinationUnavailable,
+            ],
+            "a dial that timed out, was refused, reset, aborted, or found no route to its host or \
+             network must answer connection-timeout, connection-refused, connection-terminated \
+             twice, and destination-unavailable three times, as wasmtime-wasi-http names each"
+        );
+    }
+
+    // @behavior NW-225
+    #[test]
+    fn a_failed_tls_handshake_answers_the_code_wasmtime_wasi_http_gives_it() {
         let alert = io::Error::new(
             io::ErrorKind::InvalidData,
             rustls::Error::AlertReceived(rustls::AlertDescription::HandshakeFailure),
         );
+        let handshakes = [
+            io::ErrorKind::UnexpectedEof,
+            io::ErrorKind::ConnectionReset,
+            io::ErrorKind::BrokenPipe,
+            io::ErrorKind::InvalidData,
+            io::ErrorKind::TimedOut,
+        ]
+        .map(|kind| HttpError::from_io(&io::Error::from(kind)));
         assert_eq!(
-            (codes, HttpError::from_io(&alert)),
+            (handshakes, HttpError::from_io(&alert)),
             (
                 [
-                    HttpError::ConnectionTimeout,
-                    HttpError::ConnectionRefused,
+                    HttpError::ConnectionTerminated,
                     HttpError::ConnectionTerminated,
                     HttpError::ConnectionTerminated,
                     HttpError::TlsProtocol,
-                    HttpError::DestinationUnavailable,
-                    HttpError::DestinationUnavailable,
-                    HttpError::DestinationUnavailable,
+                    HttpError::TlsProtocol,
                 ],
                 HttpError::TlsAlertReceived(40)
             ),
-            "a dial that timed out, was refused, reset, aborted, sent bytes TLS could not read, or \
-             found no route to its host or network must answer connection-timeout, \
-             connection-refused, connection-terminated twice, TLS-protocol-error, and \
-             destination-unavailable three times, and a handshake_failure alert the server sent \
-             must answer TLS-alert-received with its id, as wasmtime-wasi-http names each"
+            "a TLS handshake the server ended by EOF, reset, or a broken pipe must answer \
+             connection-terminated, bytes TLS could not read or any other failure \
+             TLS-protocol-error, and a handshake_failure alert TLS-alert-received with its id, as \
+             wasmtime-wasi-http's p2_error_from_tls names each"
         );
     }
 
