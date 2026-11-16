@@ -122,19 +122,19 @@ fn cstr_text_of(mrb: &Mrb, value: Value) -> Result<String, Error> {
 }
 
 /// The address `text` spells, as glibc's `getaddrinfo` reads a numeric host:
-/// IPv6 as written, and IPv4 as `inet_aton` reads it, so `127.1`, `0x7f.1`,
-/// and `2130706433` are `127.0.0.1`.
+/// IPv6 as written, and IPv4 as `__inet_aton_exact` reads it, so `127.1`,
+/// `0x7f.1`, and `2130706433` are `127.0.0.1`.
 pub(super) fn literal_of(text: &str) -> Option<IpAddr> {
     if text.contains(':') {
         return text.parse::<Ipv6Addr>().ok().map(IpAddr::V6);
     }
-    inet_aton(text).map(IpAddr::V4)
+    inet_aton_exact(text).map(IpAddr::V4)
 }
 
-/// The IPv4 address `text` spells as glibc's `inet_aton` reads it: one to
-/// four parts, each in C's base 0 (`0x` hex, a leading `0` octal), the last
-/// filling the bytes the others leave.
-fn inet_aton(text: &str) -> Option<Ipv4Addr> {
+/// The IPv4 address `text` spells as glibc's `__inet_aton_exact` reads it,
+/// the whole text one address: one to four parts, each in C's base 0 (`0x`
+/// hex, a leading `0` octal), the last filling the bytes the others leave.
+fn inet_aton_exact(text: &str) -> Option<Ipv4Addr> {
     let parts = text.split('.').collect::<Vec<_>>();
     if parts.len() > 4 {
         return None;
