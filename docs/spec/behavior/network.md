@@ -31,6 +31,9 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_io_edges.rb`
 - `test/e2e/test_network_socket_open.rb`
 - `test/e2e/test_network_socket_order_cruby.rb`
+- `test/e2e/test_network_socket_corners_cruby.rb`
+- `test/e2e/test_network_lookup_arguments_cruby.rb`
+- `test/e2e/test_network_addrinfo_kinds.rb`
 - `test/e2e/test_network_socket_args_cruby.rb`
 - `test/e2e/test_network_socket_nonblock.rb`
 - `test/e2e/test_network_socket_wait.rb`
@@ -1247,7 +1250,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server |
 | When | the script opens a `TCPSocket` to the server's port as a String, and as an Integer past 16 bits. Then it names a service |
-| Then | the String and the Integer reach the port Linux's `getaddrinfo` reads from them. The service name raises `Socket::ResolutionError` with `EAI_SERVICE`, where CRuby looks it up, since the guest has no services database. A port of 32 bytes raises `ArgumentError`, and an `Addrinfo`'s Integer past an `int` raises `RangeError`, as CRuby's do |
+| Then | the String and the Integer reach the port Linux's `getaddrinfo` reads from them. The service name raises `Socket::ResolutionError` with `EAI_SERVICE`, where CRuby looks it up, since the guest has no services database. A port of 32 bytes raises `ArgumentError`, and an `Addrinfo`'s Integer past an `int` raises `RangeError`, as CRuby's do. Port 0 raises `Errno::EINVAL`, where CRuby's dials it, since WASI calls port 0 invalid |
 
 ## `NW-100` A script's TCPSocket bounds its name lookup by resolv_timeout
 
@@ -1467,7 +1470,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP and a UDP endpoint naming loopback peers |
 | When | the script names `"0.0.0.0"` port 0 as a `TCPSocket`'s local end and binds a `UDPSocket` to `"<any>"` port `"0"`. It binds that socket again, then binds another to `127.0.0.1` |
-| Then | the TCP socket connects and the first bind passes, as CRuby reads each with `AI_PASSIVE`. The second bind raises `Errno::EINVAL`, as Linux's. The bind to `127.0.0.1` raises `Errno::EACCES`, as the host refuses it |
+| Then | the TCP socket connects and the first bind passes, as CRuby reads each with `AI_PASSIVE`. The second bind raises `Errno::EINVAL`, as Linux's. The bind to `127.0.0.1` raises `Errno::EACCES`, as the host refuses it. A bind to `nil` takes the loopback, as CRuby reads it with no `AI_PASSIVE`, so it raises `Errno::EACCES` too |
 
 ## `NW-118` A script's socket answers IO's edge calls as CRuby's
 
@@ -1580,7 +1583,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP endpoint naming a loopback server |
 | When | the script sets `IP_TTL` on a `TCPSocket` and a `UDPSocket`, and a `UDPSocket`'s buffer sizes. It asks the `UDPSocket` for TCP options |
-| Then | each answers as CRuby's on Linux: 64 by default, EINVAL outside 1 to 255, and -1 back to 64. A TCP option on a `UDPSocket` raises `Errno::ENOTSUP` to read and `Errno::ENOPROTOOPT` to set |
+| Then | each answers as CRuby's on Linux: 64 by default, EINVAL outside 1 to 255, and -1 back to 64. A TCP option on a `UDPSocket` raises `Errno::ENOTSUP` to read and `Errno::ENOPROTOOPT` to set. So does any level a socket does not take. An IP option shorter than an `int` reads its first byte, as `do_ip_setsockopt` does |
 
 ## `NW-127` An option WASI has no call for raises where CRuby sets it
 
@@ -2779,3 +2782,16 @@ endpoint "api.example.com", port: 443
 | Given | a `TCPSocket` that shut its writing side and read to its peer's end |
 | When | the script calls `shutdown` by each side, `getpeername`, `peeraddr`, and `remote_address` |
 | Then | each raises `Errno::ENOTCONN`, as `tcp_done` leaves the socket in `TCP_CLOSE`. A read still answers the end. Linux waits for its FIN's acknowledgement first, which no host socket shows |
+
+## `NW-223` An empty datagram reads as the end of one read
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-125` |
+| relates | `NW-148` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a `UDPSocket` connected to a peer that sends it empty datagrams |
+| When | the script reads each one with `readpartial`, `sysread`, `read`, `gets`, `eof?`, `read_nonblock`, and `readline` |
+| Then | each reads it as the end, as CRuby reads `read(2)` answering 0. The next read takes the next datagram |

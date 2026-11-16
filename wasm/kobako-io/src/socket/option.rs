@@ -228,12 +228,15 @@ fn data_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
     string_bytes_of(mrb, value)
 }
 
-/// The `int` a value of `bytes` carries for `setsockopt(2)`, which takes at
-/// least that many bytes and reads the first.
-fn int_of(mrb: &Mrb, bytes: &[u8]) -> Result<i32, Error> {
-    match bytes.get(..4) {
-        Some(first) => Ok(i32::from_le_bytes(first.try_into().expect("four bytes"))),
-        None => Err(errno::error_by_name(mrb, c"EINVAL", "setsockopt(2)")),
+/// The `int` a value of `bytes` carries for `setsockopt(2)` at `level`,
+/// which reads the first four bytes. An IP option shorter than that reads
+/// its first byte, as `do_ip_setsockopt` takes an `unsigned char`; any other
+/// short value raises `EINVAL`.
+fn int_of(mrb: &Mrb, level: i32, bytes: &[u8]) -> Result<i32, Error> {
+    match (bytes.get(..4), bytes.first()) {
+        (Some(first), _) => Ok(i32::from_le_bytes(first.try_into().expect("four bytes"))),
+        (None, Some(byte)) if level == IPPROTO_IP => Ok(i32::from(*byte)),
+        _ => Err(errno::error_by_name(mrb, c"EINVAL", "setsockopt(2)")),
     }
 }
 
@@ -254,12 +257,12 @@ fn socket_setsockopt(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, E
         }
         _ => return Err(Error::argnum(mrb, args.len(), 3, 3)),
     };
-    let int = int_of(mrb, &data)?;
+    let int = int_of(mrb, level, &data)?;
     let option = (level, optname);
     socket
         .set_option(mrb, option, int)?
         .map(|()| 0.into_value(mrb))
-        .map_err(|refused| refused.into_error(mrb, level, "setsockopt(2)"))
+        .map_err(|refused| refused.into_error(mrb, level, Call::Set))
 }
 
 /// Why a socket answered no option: WASI's error, an option WASI has no call
@@ -277,14 +280,36 @@ impl From<ErrorCode> for Refusal {
 }
 
 impl Refusal {
-    /// The `Errno` Linux answers: an unknown option at a level it knows
-    /// raises ENOPROTOOPT, and a level it does not ENOTSUP.
-    fn into_error(self, mrb: &Mrb, level: i32, call: &str) -> Error {
+    /// The `Errno` Linux answers for `call`: a set raises ENOPROTOOPT for any
+    /// option it does not take, as `ip_setsockopt` refuses a level it does
+    /// not know; a read raises ENOPROTOOPT for an unknown option at a level
+    /// it knows, and ENOTSUP for a level it does not.
+    fn into_error(self, mrb: &Mrb, level: i32, call: Call) -> Error {
         let known = LEVELS.iter().any(|known| known.number == level);
+        let name = call.name();
+        match (self, call) {
+            (Self::Wasi(code), _) => to_error(mrb, code, name),
+            (_, Call::Set) => errno::error_by_name(mrb, c"ENOPROTOOPT", name),
+            (Self::Unknown, Call::Get) if known => errno::error_by_name(mrb, c"ENOPROTOOPT", name),
+            (Self::Unknown | Self::Unsupported, Call::Get) => {
+                errno::error_by_name(mrb, c"ENOTSUP", name)
+            }
+        }
+    }
+}
+
+/// Which option call a refusal answers.
+#[derive(Clone, Copy)]
+enum Call {
+    Get,
+    Set,
+}
+
+impl Call {
+    fn name(self) -> &'static str {
         match self {
-            Self::Wasi(code) => to_error(mrb, code, call),
-            Self::Unknown if known => errno::error_by_name(mrb, c"ENOPROTOOPT", call),
-            Self::Unknown | Self::Unsupported => errno::error_by_name(mrb, c"ENOTSUP", call),
+            Self::Get => "getsockopt(2)",
+            Self::Set => "setsockopt(2)",
         }
     }
 }
@@ -482,7 +507,7 @@ fn socket_getsockopt(
     let level = level_of(mrb, level)?;
     let optname = optname_of(mrb, level, optname)?;
     let read = socket.option_of(mrb, (level, optname))?;
-    let value = read.map_err(|refused| refused.into_error(mrb, level, "getsockopt(2)"))?;
+    let value = read.map_err(|refused| refused.into_error(mrb, level, Call::Get))?;
     let option = SockOption {
         family: AF_INET,
         level,

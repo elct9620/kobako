@@ -193,19 +193,18 @@ pub(super) fn peers_of(
     resolv_timeout: &dyn Fn() -> Result<Option<Duration>, Error>,
     call: &str,
 ) -> Result<(Vec<Ipv4Addr>, u16, String), Error> {
-    ends_of_host(mrb, host, false, port, resolv_timeout, call)
+    ends_of_host(mrb, host, port, resolv_timeout, call)
 }
 
-/// The ends `host`, read as `passive` asks, and `port` name for `call`.
+/// The ends `host` and `port` name for `call`.
 fn ends_of_host(
     mrb: &Mrb,
     host: Value,
-    passive: bool,
     port: Value,
     resolv_timeout: &dyn Fn() -> Result<Option<Duration>, Error>,
     call: &str,
 ) -> Result<(Vec<Ipv4Addr>, u16, String), Error> {
-    let host_text = host_of(mrb, host, passive)?;
+    let host_text = host_of(mrb, host, false)?;
     let (port_number, port_text) = port_of(mrb, port)?;
     ensure_named(mrb, host, port)?;
     let port = port_number;
@@ -219,16 +218,17 @@ fn ends_of_host(
 }
 
 /// The local end `host` and `port` name for a bind, and the text naming it in
-/// an error, as CRuby's `rsock_addrinfo` reads them with `AI_PASSIVE`: `nil`
-/// is any address, and the rest as `host_of` reads it, a name binding the
-/// first address it leads to, as `init_inetsock_internal` takes the first of
-/// the peer's family. The host decides which end a bind may take.
+/// an error, as CRuby's `rsock_addrinfo` reads them with no `AI_PASSIVE`:
+/// `nil` is the loopback, as `getaddrinfo` reads a host it is not given,
+/// and the rest as `host_of` reads it, a name binding the first address it
+/// leads to, as `init_inetsock_internal` takes the first of the peer's
+/// family. The host decides which end a bind may take.
 pub(super) fn local_of(
     mrb: &Mrb,
     host: Value,
     port: Value,
 ) -> Result<(Ipv4Addr, u16, String), Error> {
-    let (ips, port, call) = ends_of_host(mrb, host, true, port, &no_timeout, "bind(2)")?;
+    let (ips, port, call) = ends_of_host(mrb, host, port, &no_timeout, "bind(2)")?;
     Ok((ips[0], port, call))
 }
 

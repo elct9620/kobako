@@ -77,10 +77,12 @@ impl SocketIo for Datagrams {
     }
 
     /// The next datagram, cut to `max`, as a datagram socket's read fills
-    /// CRuby's buffer with one; a datagram socket has no end.
+    /// CRuby's buffer with one. An empty datagram is the end for that read
+    /// alone, as `read(2)` answering 0 is to CRuby's IO, and the next read
+    /// takes the next datagram.
     fn receive(&self, mrb: &Mrb, max: usize, wait: Wait) -> Result<Poll<Option<Vec<u8>>>, Error> {
         let received = self.with(mrb, |open| receive_from(mrb, open, max, "read(2)", wait))?;
-        Ok(received.map(|(data, _)| Some(data)))
+        Ok(received.map(|(data, _)| Some(data).filter(|data| !data.is_empty())))
     }
 
     /// The next datagram, cut to `max`, and the peer that sent it.
