@@ -139,7 +139,11 @@ fn size_error(mrb: &Mrb, len: usize) -> Error {
 /// the two `BasicSocket` methods.
 pub(super) fn init(mrb: &Mrb, constants: &Constants, basic: RClass) -> Result<(), Error> {
     for level in &LEVELS {
-        constants.set(mrb, &format!("{}{}", level.prefix, level.name), level.number)?;
+        constants.set(
+            mrb,
+            &format!("{}{}", level.prefix, level.name),
+            level.number,
+        )?;
         for (name, number) in level.options {
             constants.set(mrb, &format!("{}{name}", level.option_prefix), *number)?;
         }

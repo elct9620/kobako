@@ -8,7 +8,7 @@ use beni::prelude::*;
 use beni::{Error, Integer, IntoValue, Mrb, RClass, TryConvert, Value};
 
 use super::{resolution_error, to_error, EAI_AGAIN, EAI_FAIL, EAI_NONAME, EAI_SERVICE};
-use crate::convert::string_bytes_of;
+use crate::convert::{ensure_fits, ensure_no_nul, string_bytes_of};
 use crate::errno;
 use crate::io::argument_error;
 use crate::wasi::wait_within;
@@ -89,18 +89,7 @@ pub(super) fn host_of(mrb: &Mrb, host: Value, passive: bool) -> Result<String, E
     }
     if Integer::from_value(host).is_some() {
         let number = i64::try_convert(host, mrb)?;
-        let side = match number {
-            n if n > i64::from(u32::MAX) => Some("big"),
-            n if n < i64::from(i32::MIN) => Some("small"),
-            _ => None,
-        };
-        if let Some(side) = side {
-            return Err(errno::to_error(
-                mrb,
-                mrb.exception_range_error(),
-                &format!("integer {number} too {side} to convert to 'unsigned int'"),
-            ));
-        }
+        ensure_fits(mrb, number, INT_TO_UINT, "unsigned int")?;
         return Ok(Ipv4Addr::from(number as u32).to_string());
     }
     let text = cstr_text_of(mrb, host)?;
@@ -117,6 +106,10 @@ pub(super) fn host_of(mrb: &Mrb, host: Value, passive: bool) -> Result<String, E
     })
 }
 
+/// What CRuby's `NUM2UINT` takes, wrapping a negative one: an `int`'s least
+/// through an `unsigned int`'s most, as `check_uint` bounds it.
+const INT_TO_UINT: core::ops::RangeInclusive<i64> = i32::MIN as i64..=u32::MAX as i64;
+
 /// The bytes CRuby's `host_str` holds a host in, its NUL among them.
 const NI_MAXHOST: usize = 1025;
 
@@ -124,9 +117,7 @@ const NI_MAXHOST: usize = 1025;
 /// `ArgumentError`.
 fn cstr_text_of(mrb: &Mrb, value: Value) -> Result<String, Error> {
     let bytes = string_bytes_of(mrb, value)?;
-    if bytes.contains(&0) {
-        return Err(argument_error(mrb, "string contains null byte"));
-    }
+    ensure_no_nul(mrb, &bytes)?;
     Ok(String::from_utf8_lossy(&bytes).into_owned())
 }
 
@@ -244,10 +235,12 @@ pub(crate) fn port_of(mrb: &Mrb, port: Value) -> Result<(u16, String), Error> {
     let text = if port.is_nil() {
         String::new()
     } else if Integer::from_value(port).is_some() {
-        let number = i64::try_convert(port, mrb).ok().filter(|number| {
-            (FIXNUM_MIN..=FIXNUM_MAX).contains(number)
-        });
-        number.ok_or_else(|| errno::type_error(mrb, port))?.to_string()
+        let number = i64::try_convert(port, mrb)
+            .ok()
+            .filter(|number| (FIXNUM_MIN..=FIXNUM_MAX).contains(number));
+        number
+            .ok_or_else(|| errno::type_error(mrb, port))?
+            .to_string()
     } else {
         cstr_text_of(mrb, port)?
     };

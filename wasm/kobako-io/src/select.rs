@@ -159,14 +159,25 @@ fn io_wait(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     };
     let mut events = Vec::new();
     for mode in args.iter().skip(1) {
-        let Some(name) = Symbol::from_value(*mode).map(|mode| mode.name(mrb)).transpose()? else {
-            return Err(crate::io::argument_error(mrb, "Events must be positive integer!"));
+        let Some(name) = Symbol::from_value(*mode)
+            .map(|mode| mode.name(mrb))
+            .transpose()?
+        else {
+            return Err(crate::io::argument_error(
+                mrb,
+                "Events must be positive integer!",
+            ));
         };
         events.extend_from_slice(match name.as_str() {
             "r" | "read" | "readable" => &[POLLRDNORM][..],
             "w" | "write" | "writable" => &[POLLWRNORM][..],
             "rw" | "read_write" | "readable_writable" => &[POLLRDNORM, POLLWRNORM][..],
-            _ => return Err(crate::io::argument_error(mrb, &format!("unsupported mode: {name}"))),
+            _ => {
+                return Err(crate::io::argument_error(
+                    mrb,
+                    &format!("unsupported mode: {name}"),
+                ))
+            }
         });
     }
     if events.is_empty() {

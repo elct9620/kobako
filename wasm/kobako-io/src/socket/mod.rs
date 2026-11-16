@@ -27,7 +27,9 @@ mod udp;
 
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{Error, Exception, ExceptionClass, IntoValue, Module, Mrb, RClass, RModule, Symbol, Value};
+use beni::{
+    Error, Exception, ExceptionClass, IntoValue, Module, Mrb, RClass, RModule, Symbol, Value,
+};
 
 pub(crate) use address::port_of;
 pub(crate) use basic::{is_open_socket, readiness_of, select_readiness_of, Readiness};
@@ -83,7 +85,12 @@ pub(super) struct Constants {
 }
 
 impl Constants {
-    pub(super) fn set(&self, mrb: &Mrb, name: &str, value: impl IntoValue + Copy) -> Result<(), Error> {
+    pub(super) fn set(
+        &self,
+        mrb: &Mrb,
+        name: &str,
+        value: impl IntoValue + Copy,
+    ) -> Result<(), Error> {
         self.socket.const_set(mrb, name, value)?;
         self.module.const_set(mrb, name, value)
     }

@@ -321,9 +321,7 @@ fn path_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
     };
     // SAFETY: the bytes are copied before the next mruby call.
     let bytes = unsafe { path.as_slice(mrb) }.to_vec();
-    if bytes.contains(&0) {
-        return Err(argument_error(mrb, "string contains null byte"));
-    }
+    crate::convert::ensure_no_nul(mrb, &bytes)?;
     Ok(bytes)
 }
 

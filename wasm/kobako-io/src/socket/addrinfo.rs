@@ -20,7 +20,6 @@ use super::{
     AF_INET, AF_INET6, EAI_NONAME,
 };
 use crate::convert::string_value_of;
-use crate::errno;
 use crate::io::{argument_error, split_options, to_int};
 
 /// Linux's socket kinds, and the protocols each IP kind carries.
@@ -333,7 +332,12 @@ fn parts_of(
     let named = match named.trim_start_matches("AF_").trim_start_matches("PF_") {
         "INET" => AF_INET,
         "INET6" => AF_INET6,
-        _ => return Err(socket_error(mrb, &format!("unknown address family: {named}"))),
+        _ => {
+            return Err(socket_error(
+                mrb,
+                &format!("unknown address family: {named}"),
+            ))
+        }
     };
     let number = to_int(mrb, parts.entry(mrb, 1)?)?.to_i64(mrb)?;
     let host: Value = parts.entry(mrb, 2)?;
@@ -342,7 +346,11 @@ fn parts_of(
         .transpose()?;
     let address = string_value_of(mrb, parts.entry(mrb, 3)?)?.to_string(mrb)?;
     let ip = literal_of(&address).ok_or_else(|| resolution_error(mrb, EAI_NONAME))?;
-    if [Some(named), family].into_iter().flatten().any(|family| family != afamily_of(ip)) {
+    if [Some(named), family]
+        .into_iter()
+        .flatten()
+        .any(|family| family != afamily_of(ip))
+    {
         return Err(resolution_error(mrb, EAI_ADDRFAMILY));
     }
     let protocol = match protocol.filter(|protocol| !protocol.is_nil()) {
@@ -376,18 +384,12 @@ fn addrinfos_of(
     let found = lookup(mrb, node, service, hints)?;
     if Integer::from_value(service).is_some() {
         let number = i64::try_convert(service, mrb)?;
-        let side = match number {
-            n if n > i64::from(u32::MAX) => Some("big"),
-            n if n < i64::from(i32::MIN) => Some("small"),
-            _ => None,
-        };
-        if let Some(side) = side {
-            return Err(errno::to_error(
-                mrb,
-                mrb.exception_range_error(),
-                &format!("integer {number} too {side} to convert to 'int'"),
-            ));
-        }
+        crate::convert::ensure_fits(
+            mrb,
+            number,
+            i64::from(i32::MIN)..=i64::from(i32::MAX),
+            "int",
+        )?;
     }
     Ok(found)
 }
@@ -689,7 +691,11 @@ fn addrinfo_getnameinfo(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value
         };
         if flags & !NI_FLAGS != 0 {
             let (code, words) = EAI_BADFLAGS;
-            return Err(to_resolution_error(mrb, code, &format!("getnameinfo: {words}")));
+            return Err(to_resolution_error(
+                mrb,
+                code,
+                &format!("getnameinfo: {words}"),
+            ));
         }
     } else if !args.is_empty() {
         return Err(Error::argnum(mrb, args.len(), 0, 1));

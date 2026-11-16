@@ -457,14 +457,8 @@ fn to_putc_byte(mrb: &Mrb, obj: Value) -> Result<Option<u8>, Error> {
         return Ok(unsafe { s.as_slice(mrb) }.first().copied());
     }
     let wide = to_int(mrb, obj)?.to_i64(mrb)?;
-    let narrow = i32::try_from(wide).map_err(|_| {
-        errno::to_error(
-            mrb,
-            mrb.exception_range_error(),
-            &format!("integer {wide} too big to convert to 'int'"),
-        )
-    })?;
-    Ok(Some(narrow as u8))
+    crate::convert::ensure_fits(mrb, wide, i64::from(i32::MIN)..=i64::from(i32::MAX), "int")?;
+    Ok(Some(wide as u8))
 }
 
 /// The Integer `obj` stands for, as CRuby's `rb_num2long` reads it: an

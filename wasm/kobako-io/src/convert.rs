@@ -54,3 +54,33 @@ pub(crate) fn string_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error>
     // SAFETY: the bytes are copied out before any later mruby call.
     Ok(unsafe { string.as_slice(mrb) }.to_vec())
 }
+
+/// Raise `RangeError` for `number` outside what a C `c_type` holds, `range`,
+/// as CRuby's `check_int` and `rb_num2uint` word it: too big above, too
+/// small below.
+pub(crate) fn ensure_fits(
+    mrb: &Mrb,
+    number: i64,
+    range: core::ops::RangeInclusive<i64>,
+    c_type: &str,
+) -> Result<(), Error> {
+    let side = match number {
+        n if n > *range.end() => "big",
+        n if n < *range.start() => "small",
+        _ => return Ok(()),
+    };
+    Err(errno::to_error(
+        mrb,
+        mrb.exception_range_error(),
+        &format!("integer {number} too {side} to convert to '{c_type}'"),
+    ))
+}
+
+/// Raise `ArgumentError` for `bytes` holding a NUL, as CRuby's
+/// `StringValueCStr` refuses one.
+pub(crate) fn ensure_no_nul(mrb: &Mrb, bytes: &[u8]) -> Result<(), Error> {
+    match bytes.contains(&0) {
+        true => Err(crate::io::argument_error(mrb, "string contains null byte")),
+        false => Ok(()),
+    }
+}
