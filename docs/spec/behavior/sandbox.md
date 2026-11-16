@@ -1913,3 +1913,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | Sandbox options |
 | When | a count cap is given an Integer past what the host counts, or a deadline past what it times |
 | Then | it raises `RangeError`, as CRuby does for a number too large to convert. A cap of another class raises `TypeError` |
+
+## `S-215` An interrupt delivered while the guest computes stops the run's next wait
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-208` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a permissive Sandbox holding the GVL whose guest computes, then waits on a clock |
+| When | the process receives SIGINT while the guest computes |
+| Then | the wait ends at once, and the run raises `Interrupt` in the Host App. A signal pending as a Linux task sleeps ends that sleep |

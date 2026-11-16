@@ -43,11 +43,19 @@ where
     // run to end.
     let task = Task::current();
     let task_ptr = ptr::addr_of!(task).cast_mut().cast::<c_void>();
-    // SAFETY: `func` and `data` come from `call_via`, which keeps the
-    // closure alive across the call; `task` outlives it on this frame, and
-    // Ruby calls `interrupt_task` with it only while the region runs.
-    call_via(f, |func, data| unsafe {
-        rb_sys::rb_thread_call_without_gvl2(Some(func), data, Some(interrupt_task), task_ptr)
+    call_via(f, |func, data| {
+        // An interrupt that came before the region, which Ruby declines to
+        // start under and `call_via` holds, stops the waits as one inside it
+        // does, as a signal pending when a Linux task sleeps ends the sleep.
+        if escape::pending() {
+            task.interrupt();
+        }
+        // SAFETY: `func` and `data` come from `call_via`, which keeps the
+        // closure alive across the call; `task` outlives it on this frame,
+        // and Ruby calls `interrupt_task` with it only while the region runs.
+        unsafe {
+            rb_sys::rb_thread_call_without_gvl2(Some(func), data, Some(interrupt_task), task_ptr)
+        }
     })
 }
 
