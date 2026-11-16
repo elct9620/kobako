@@ -283,6 +283,8 @@ mod tests {
                 Errno::NoBufferSpace,
                 Errno::DestinationAddressRequired,
                 Errno::ProtocolNotAvailable,
+                Errno::WouldBlock,
+                Errno::InvalidInput,
             ]
             .map(|err| to_error_code(&err)),
             [
@@ -293,10 +295,13 @@ mod tests {
                 ErrorCode::OutOfMemory,
                 ErrorCode::InvalidState,
                 ErrorCode::NotSupported,
+                ErrorCode::WouldBlock,
+                ErrorCode::InvalidArgument,
             ],
-            "EPIPE, EADDRINUSE, ECONNRESET, ENETDOWN, ENOBUFS, EDESTADDRREQ, and ENOPROTOOPT \
-             must answer unknown, address-in-use, connection-reset, remote-unreachable, \
-             out-of-memory, invalid-state, and not-supported, as wasmtime-wasi maps them"
+            "EPIPE, EADDRINUSE, ECONNRESET, ENETDOWN, ENOBUFS, EDESTADDRREQ, ENOPROTOOPT, EAGAIN, \
+             and EINVAL must answer unknown, address-in-use, connection-reset, \
+             remote-unreachable, out-of-memory, invalid-state, not-supported, would-block, and \
+             invalid-argument, as wasmtime-wasi maps them"
         );
     }
 }

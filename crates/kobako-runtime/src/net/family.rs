@@ -97,13 +97,13 @@ pub(crate) fn admitted_addresses_of(
 #[cfg(test)]
 pub(crate) mod testing {
     use std::io;
-    use std::net::{SocketAddr, TcpStream};
+    use std::net::{SocketAddr, TcpStream, UdpSocket};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     use super::{ProtocolFamily, Resolver};
 
-    /// A family refusing every dial, counting how often it is asked, beside a
-    /// resolver that resolves nothing.
+    /// A family refusing every dial, TCP or UDP, counting how often it is
+    /// asked, beside a resolver that resolves nothing.
     #[derive(Default)]
     pub(crate) struct CountsDials(AtomicUsize);
 
@@ -116,6 +116,11 @@ pub(crate) mod testing {
 
     impl ProtocolFamily for CountsDials {
         fn connect(&self, _addr: SocketAddr) -> io::Result<TcpStream> {
+            self.0.fetch_add(1, Ordering::SeqCst);
+            Err(io::ErrorKind::ConnectionRefused.into())
+        }
+
+        fn connect_datagram(&self, _addr: SocketAddr) -> io::Result<UdpSocket> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Err(io::ErrorKind::ConnectionRefused.into())
         }

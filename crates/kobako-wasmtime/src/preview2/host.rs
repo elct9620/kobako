@@ -1969,14 +1969,15 @@ mod tests {
                 .udp_udp_socket_start_bind(udp, network, ipv4((0, 0, 0, 0), 0))
                 .into_answer()?
                 .expect("an ephemeral bind is the implicit one");
-            let binding = guest
-                .udp_udp_socket_local_address(udp)
-                .into_answer()?
-                .is_ok();
+            let binding = guest.udp_udp_socket_local_address(udp).into_answer()?.ok();
             guest
                 .udp_udp_socket_finish_bind(udp)
                 .into_answer()?
                 .expect("the bind settles");
+            let bound = guest
+                .udp_udp_socket_local_address(udp)
+                .into_answer()?
+                .expect("a bound socket answers its address");
             let (_, outgoing) = guest
                 .udp_udp_socket_stream(udp, Some(ipv4((127, 0, 0, 1), port)))
                 .into_answer()?
@@ -1999,14 +2000,27 @@ mod tests {
                 )
                 .into_answer()?
                 .ok();
-            Ok::<_, wasmtime::Error>((binding, permitted > 0, empty, kept))
+            let ephemeral = match bound {
+                IpSocketAddress::Ipv4(Ipv4SocketAddress { port, .. }) => port,
+                IpSocketAddress::Ipv6(_) => 0,
+            };
+            Ok::<_, wasmtime::Error>((binding, ephemeral, bound, permitted > 0, empty, kept))
         })()
         .expect("the socket streams");
+        let (binding, ephemeral, bound, permitted, empty, kept) = answers;
         assert_eq!(
-            answers,
-            (true, true, Some(0), Some(1)),
-            "a UDP socket must answer local-address once its bind began, and an empty send must \
-             answer 0 without spending check-send's permit, as wasmtime-wasi answers both"
+            (binding, ephemeral > 0, bound, permitted, empty, kept),
+            (
+                Some(ipv4((0, 0, 0, 0), ephemeral)),
+                true,
+                ipv4((0, 0, 0, 0), ephemeral),
+                true,
+                Some(0),
+                Some(1)
+            ),
+            "a UDP socket must answer local-address once its bind of 0.0.0.0:0 began, as the \
+             address and ephemeral port its finished bind answers, and an empty send must answer \
+             0 without spending check-send's permit, as wasmtime-wasi answers both"
         );
     }
 

@@ -1231,7 +1231,8 @@ mod tests {
         let mut request = OutgoingRequest::new("POST", Scheme::Http, &authority);
         request.path_with_query = "/".to_string();
         request.body = vec![b'b'; 32 * 1024 * 1024];
-        let exchange = crate::net::send(&namespace, &cred, request).expect("the endpoint admits it");
+        let exchange =
+            crate::net::send(&namespace, &cred, request).expect("the endpoint admits it");
         // The peer accepts and never reads, so the request's bytes stay queued.
         let (peer, _) = listener.accept().expect("the listener accepts");
         thread::sleep(Duration::from_millis(200));
@@ -1303,6 +1304,67 @@ mod tests {
             "a guest's request past an open_connection_limit of 1 must answer \
              ConnectionLimitReached while a released request's lookup still resolves, and send \
              once the resolver returned"
+        );
+    }
+
+    // @behavior NW-022
+    #[test]
+    fn a_lookup_or_a_request_holding_the_last_place_makes_a_connect_answer_eagain() {
+        let (release, released) = std::sync::mpsc::channel();
+        let (started, resolving) = std::sync::mpsc::channel();
+        let mut entry = Builder::default();
+        entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
+        entry.endpoint(
+            Endpoint::new("127.0.0.1", 4567)
+                .unwrap()
+                .with_protocol(Protocol::Tcp),
+        );
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let family = Arc::new(StallsLookups {
+            starts: Mutex::new(started),
+            releases: Mutex::new(released),
+        });
+        let namespace = Namespace::new(
+            [&network],
+            &crate::net::Backends::new(family.clone(), family),
+            OpenConnections::new(Some(1)),
+            None,
+        )
+        .expect("the endpoints compile");
+        let cred = prepare_creds(&[], None);
+        let connect = || {
+            let sock =
+                crate::net::TcpSock::create(&namespace, &cred, crate::net::AddressFamily::Inet)?;
+            let addr = "127.0.0.1:4567".parse().ok();
+            crate::net::sys_connect(&namespace, &cred, sock.as_ref(), addr)
+        };
+        let lookup = crate::net::resolve(&namespace, "api.example.com").expect("a lookup starts");
+        resolving
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the guest's lookup reaches the resolver");
+        let past_lookup = connect().err();
+        release.send(()).unwrap();
+        drop(lookup);
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        let request = loop {
+            match crate::net::send(&namespace, &cred, greeting_request("api.example.com")) {
+                Ok(request) => break request,
+                Err(_) if std::time::Instant::now() < deadline => {
+                    thread::sleep(Duration::from_millis(1))
+                }
+                Err(err) => panic!("the lookup's place never came back: {err:?}"),
+            }
+        };
+        resolving
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the request's lookup reaches the resolver");
+        let past_request = connect().err();
+        drop((release, request));
+        assert_eq!(
+            (past_lookup, past_request),
+            (Some(Errno::WouldBlock), Some(Errno::WouldBlock)),
+            "a socket's connect must answer EAGAIN while a guest's lookup, or a request's, holds \
+             the last place of an open_connection_limit of 1"
         );
     }
 
@@ -2019,19 +2081,36 @@ mod tests {
             placeholder: b"kobako-token".to_vec(),
             secret: crate::network::Secret::new("s3cret"),
         };
+        let masked = format!("{:?}", swap.secret);
+        let mut request = OutgoingRequest::new("GET", Scheme::Https, "api.example.com:443");
+        request.path_with_query = "/".to_string();
+        request.headers = vec![
+            ("Authorization".to_string(), b"Bearer kobako-token".to_vec()),
+            ("x-echo".to_string(), b"kobako-token".to_vec()),
+        ];
+        request.swaps = vec![swap];
+        let sent = to_hyper_request(request).expect("the request's headers are valid");
+        let header = |name| {
+            sent.headers()
+                .get(name)
+                .map(|value| value.as_bytes().to_vec())
+        };
         assert_eq!(
             (
-                swap.apply("Authorization", b"Bearer kobako-token"),
-                swap.apply("x-echo", b"kobako-token"),
-                format!("{:?}", swap.secret),
+                header("authorization"),
+                header("x-echo"),
+                sent.headers().len(),
+                masked
             ),
             (
-                b"Bearer s3cret".to_vec(),
-                b"kobako-token".to_vec(),
+                Some(b"Bearer s3cret".to_vec()),
+                Some(b"kobako-token".to_vec()),
+                3,
                 "Secret(**)".to_string()
             ),
-            "a credential must replace its placeholder in the header it names only, and its \
-             secret must print as a mask"
+            "the default outbound seam must send a request with its credential's placeholder \
+             replaced in the header the credential names only, every other header as the guest \
+             set it, and the secret must print as a mask"
         );
     }
 
@@ -2265,22 +2344,42 @@ mod tests {
         let unset_bound = unset
             .deadline()
             .map(|at| at.saturating_duration_since(sent).as_secs());
+        let unset_head = timed(Arc::new(DialsThenWaits), Timeouts::default());
+        let give_up = Instant::now() + Duration::from_secs(10);
+        let connected = loop {
+            match unset_head.connected.get() {
+                Some(at) => break *at,
+                None if Instant::now() < give_up => thread::sleep(Duration::from_millis(1)),
+                None => panic!(
+                    "the request never connected to the loopback listener, so look at the \
+                     reactor driving the dial before the head's bound"
+                ),
+            }
+        };
+        let unset_head_bound = unset_head
+            .deadline()
+            .map(|at| at.saturating_duration_since(connected).as_secs());
         assert_eq!(
             (
                 settled(&unconnected).err(),
                 settled(&unanswered).err(),
                 unset_bound,
-                unset.response()
+                unset.response(),
+                unset_head_bound,
+                unset_head.response()
             ),
             (
                 Some(HttpError::ConnectionTimeout),
                 Some(HttpError::ConnectionReadTimeout),
                 Some(600),
+                None,
+                Some(600),
                 None
             ),
             "a request whose connect outlasts its connect timeout must answer connection-timeout, \
              one connected whose head outlasts its first-byte timeout connection-read-timeout, \
-             and one setting no timeout must wait on, bounded 600 seconds after it was sent"
+             and one setting no timeout must wait on, its connect bounded 600 seconds after it \
+             was sent and its head 600 seconds after it connected"
         );
     }
 
@@ -2290,18 +2389,20 @@ mod tests {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let server = thread::spawn(move || {
-            let (stream, _) = listener.accept().unwrap();
-            let mut reader = BufReader::new(stream.try_clone().unwrap());
-            let mut line = String::new();
-            while reader.read_line(&mut line).unwrap() > 2 {
-                line.clear();
+            for _ in 0..2 {
+                let (stream, _) = listener.accept().unwrap();
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap() > 2 {
+                    line.clear();
+                }
+                (&stream)
+                    .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 10\r\n\r\n")
+                    .unwrap();
+                // Hold the connection open with the body unsent until the
+                // client lets it go.
+                let _ = reader.read_line(&mut line);
             }
-            (&stream)
-                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 10\r\n\r\n")
-                .unwrap();
-            // Hold the connection open with the body unsent until the client
-            // lets it go.
-            let _ = reader.read_line(&mut line);
         });
         let namespace = namespace(vec![Endpoint::new("127.0.0.1", port)
             .unwrap()
@@ -2316,13 +2417,26 @@ mod tests {
         let read = exchange.read(&mut buf);
         let readable = exchange.alloc_body_file(&cred).poll(None) == PollMask::IN;
         exchange.release();
+        let sent = Instant::now();
+        let unset = crate::net::send(
+            &namespace,
+            &cred,
+            greeting_request(&format!("127.0.0.1:{port}")),
+        )
+        .expect("the endpoint names the authority");
+        let unset_head = settled(&unset).map(|head| head.status);
+        let unset_bound = unset
+            .deadline()
+            .map(|at| at.saturating_duration_since(sent).as_secs());
+        unset.release();
         server.join().unwrap();
         assert_eq!(
-            (head, read, readable),
-            (Ok(200), Err(Errno::TimedOut), true),
+            (head, read, readable, unset_head, unset_bound),
+            (Ok(200), Err(Errno::TimedOut), true, Ok(200), Some(600)),
             "a body whose next part outlasts its between-bytes timeout must fail its read as \
              ETIMEDOUT once its head arrived, and its file must poll readable so a waiting \
-             reader meets that failure"
+             reader meets that failure; a body setting no timeout must bound its wait 600 \
+             seconds after its head"
         );
     }
 

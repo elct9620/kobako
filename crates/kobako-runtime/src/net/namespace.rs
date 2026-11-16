@@ -366,8 +366,8 @@ mod tests {
     /// Each connection a policy was asked about.
     type AskedConnections = Arc<Mutex<Vec<(String, u16, Protocol)>>>;
 
-    /// An entry reaching `127.0.0.1:4567` over TCP, its connect policy
-    /// recording what it saw and answering `allows`.
+    /// An entry reaching `127.0.0.1:4567` over TCP and `127.0.0.1:4568` over
+    /// UDP, its connect policy recording what it saw and answering `allows`.
     struct RecordsConnects {
         allows: bool,
         seen: AskedConnections,
@@ -375,9 +375,14 @@ mod tests {
 
     impl Entry for RecordsConnects {
         fn endpoints(&self) -> Vec<Endpoint> {
-            vec![Endpoint::new("127.0.0.1", 4567)
-                .unwrap()
-                .with_protocol(Protocol::Tcp)]
+            vec![
+                Endpoint::new("127.0.0.1", 4567)
+                    .unwrap()
+                    .with_protocol(Protocol::Tcp),
+                Endpoint::new("127.0.0.1", 4568)
+                    .unwrap()
+                    .with_protocol(Protocol::Udp),
+            ]
         }
 
         fn policies(&self) -> Policies {
@@ -556,6 +561,43 @@ mod tests {
         );
     }
 
+    // @behavior NW-059
+    #[test]
+    fn an_invocations_request_spends_its_connection_limit_too() {
+        let mut entry = crate::network::Builder::default();
+        entry.endpoint(Endpoint::new("127.0.0.1", 4567).unwrap());
+        entry.endpoint(
+            Endpoint::new("127.0.0.1", 4568)
+                .unwrap()
+                .with_protocol(Protocol::Tcp),
+        );
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let family = Arc::new(CountsDials::default());
+        let namespace = Namespace::new(
+            [&network],
+            &Backends::new(family.clone(), family.clone()),
+            OpenConnections::new(None),
+            Some(1),
+        )
+        .unwrap();
+        let cred = prepare_creds(&[], None);
+        let mut request = OutgoingRequest::new("GET", Scheme::Http, "127.0.0.1:4567");
+        request.path_with_query = "/".to_string();
+        let exchange =
+            crate::net::send(&namespace, &cred, request).expect("the endpoint admits it");
+        while exchange.response().is_none() {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        let dialed = family.dials();
+        let socket = dial(&namespace, &cred, "127.0.0.1:4568".parse().unwrap());
+        assert_eq!(
+            (dialed, socket.err(), family.dials()),
+            (1, Some(Errno::WouldBlock), 1),
+            "a socket's connect after an HTTP request spent the Invocation's connection limit of \
+             1 must answer EAGAIN and dial nothing"
+        );
+    }
+
     // @behavior NW-164
     #[test]
     fn the_invocations_end_lets_go_of_a_socket_still_sending() {
@@ -643,8 +685,8 @@ mod tests {
             matches!(answer, Err(Errno::PermissionDenied))
                 && matches!(datagram, Err(Errno::PermissionDenied))
                 && family.dials() == 0,
-            "a TCP or UDP socket's connect must refuse with EACCES, dialing nothing, once any \
-             entry's connect policy refuses"
+            "a TCP or UDP socket's connect to an address an endpoint admits must refuse with \
+             EACCES, dialing nothing, once any entry's connect policy refuses"
         );
         let seen = seen.lock().unwrap();
         assert_eq!(

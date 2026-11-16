@@ -753,6 +753,46 @@ mod tests {
         Ok(request)
     }
 
+    /// A guest holding the header list `incoming-response.headers` hands out
+    /// for a head a loopback server answers.
+    fn guest_with_response_headers() -> (Invocation, Fields) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            while reader.read_line(&mut line).unwrap() > 2 {
+                line.clear();
+            }
+            (&stream)
+                .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 0\r\nx-kind: test\r\n\r\n")
+                .unwrap();
+        });
+        let endpoint = network::Endpoint::new("127.0.0.1", port).unwrap();
+        let mut guest = guest(Some(vec![endpoint]));
+        let started = Instant::now();
+        let headers = run_task(Some(started + Wait::from_secs(10)), || {
+            let request = greeting_request(&mut guest, &format!("127.0.0.1:{port}"))?;
+            let request = guest.take_handle(request)?;
+            let future = guest
+                .outgoing_handler_handle(request, None)
+                .into_answer()?
+                .expect("an endpoint names the authority");
+            let ready = guest.types_future_incoming_response_subscribe(future)?;
+            guest.poll_pollable_block(ready)?;
+            let response = guest
+                .types_future_incoming_response_get(future)?
+                .expect("the head arrived")
+                .expect("handed out once")
+                .expect("the server answered");
+            guest.types_incoming_response_headers(response)
+        })
+        .expect("a loopback server's head answers; if not, look at the request before the headers");
+        server.join().unwrap();
+        (guest, headers)
+    }
+
     // @behavior NW-039
     #[test]
     fn without_the_network_a_request_answers_http_request_denied() {
@@ -786,7 +826,11 @@ mod tests {
         let started = Instant::now();
         let (read_back, answer) = run_task(Some(started + Wait::from_secs(10)), || {
             let options = guest.types_request_options_new()?;
-            let unset = guest.types_request_options_first_byte_timeout(options)?;
+            let unset = [
+                guest.types_request_options_connect_timeout(options)?,
+                guest.types_request_options_first_byte_timeout(options)?,
+                guest.types_request_options_between_bytes_timeout(options)?,
+            ];
             let set = [
                 guest.types_request_options_set_connect_timeout(options, Some(7))?,
                 guest.types_request_options_set_first_byte_timeout(options, Some(0))?,
@@ -795,8 +839,11 @@ mod tests {
             let read_back = (
                 unset,
                 set,
-                guest.types_request_options_connect_timeout(options)?,
-                guest.types_request_options_between_bytes_timeout(options)?,
+                [
+                    guest.types_request_options_connect_timeout(options)?,
+                    guest.types_request_options_first_byte_timeout(options)?,
+                    guest.types_request_options_between_bytes_timeout(options)?,
+                ],
             );
             guest
                 .types_request_options_set_connect_timeout(options, None)?
@@ -825,13 +872,18 @@ mod tests {
         assert_eq!(
             (read_back, answer, woke_by_itself),
             (
-                (None, [Ok(()), Ok(()), Ok(())], Some(7), Some(9)),
+                (
+                    [None, None, None],
+                    [Ok(()), Ok(()), Ok(())],
+                    [Some(7), Some(0), Some(9)]
+                ),
                 Some(ErrorCode::ConnectionReadTimeout),
                 true
             ),
-            "request-options must read back each timeout set, none until set, and a request \
-             handled with a first-byte timeout must wake its future's pollable once the timeout \
-             passes, not at the run's deadline, and answer connection-read-timeout"
+            "request-options must read back each of its three timeouts as set, and none of them \
+             until set, and a request handled with a first-byte timeout must wake its future's \
+             pollable once the timeout passes, not at the run's deadline, and answer \
+             connection-read-timeout"
         );
     }
 
@@ -849,7 +901,7 @@ mod tests {
                 .unwrap();
             (&stream)
                 .write_all(
-                    b"HTTP/1.1 201 Created\r\ncontent-length: 5\r\nx-kind: test\r\n\r\nhello",
+                    b"HTTP/1.1 201 Created\r\ncontent-length: 5\r\nX-Kind: test\r\n\r\nhello",
                 )
                 .unwrap();
             line
@@ -909,8 +961,9 @@ mod tests {
                 true
             ),
             "a GET built through wasi:http to an http endpoint must reach the server and read \
-             back the status, a header under its lowercase name, and the body to its end; a \
-             read of nothing past the end must answer closed, as io.wit has it"
+             back the status, a header the server sent as X-Kind under its lowercase name, and \
+             the body to its end; a read of nothing past the end must answer closed, as io.wit \
+             has it"
         );
     }
 
@@ -1001,12 +1054,8 @@ mod tests {
             set(&mut guest, fields, "bad name"),
             set(&mut guest, fields, "x-ok"),
         ];
-        let entries = net::Fields::new(guest.wasi().cred().clone());
-        let frozen = guest.table_mut().push(resource::Fields {
-            entries,
-            mutable: false,
-        });
-        let immutable = set(&mut guest, frozen.unwrap(), "x-ok");
+        let (mut held, response_headers) = guest_with_response_headers();
+        let immutable = set(&mut held, response_headers, "x-ok");
         assert_eq!(
             (answers, immutable),
             (
@@ -1019,7 +1068,7 @@ mod tests {
                 Err(HeaderError::Immutable)
             ),
             "fields.append must refuse a forbidden name, content-length, a name that is no \
-             token, and any change to an immutable list"
+             token, and any change to the list incoming-response.headers hands out"
         );
     }
 
@@ -1176,23 +1225,16 @@ mod tests {
     // @behavior NW-094
     #[test]
     fn an_immutable_list_reads_a_header_before_refusing_the_change() {
-        let mut guest = guest(None);
-        let entries = net::Fields::new(guest.wasi().cred().clone());
-        let frozen = guest
-            .table_mut()
-            .push(resource::Fields {
-                entries,
-                mutable: false,
-            })
-            .unwrap();
+        let (mut guest, response_headers) = guest_with_response_headers();
         assert_eq!(
             guest
-                .types_fields_append(frozen, "bad name".to_string(), b"x".to_vec())
+                .types_fields_append(response_headers, "bad name".to_string(), b"x".to_vec())
                 .into_answer()
                 .unwrap(),
             Err(HeaderError::InvalidSyntax),
-            "fields.append of a name that is no token to an immutable list must answer \
-             invalid-syntax, as wasmtime reads the header before it finds the list immutable"
+            "fields.append of a name that is no token to the list incoming-response.headers \
+             hands out must answer invalid-syntax, as wasmtime reads the header before it finds \
+             the list immutable"
         );
     }
 

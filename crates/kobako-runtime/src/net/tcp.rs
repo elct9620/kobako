@@ -1383,7 +1383,9 @@ mod tests {
     // @behavior RT-379
     #[test]
     fn a_released_socket_the_peer_sends_to_resets_and_lets_go() {
-        let (sock, _file, _peer) = connected_socket();
+        let (sock, _file, mut peer) = connected_socket();
+        peer.set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
         // Released with a byte still queued, as an orphan holds itself, and
         // the peer's bytes already in: the host would answer them a reset.
         {
@@ -1393,12 +1395,24 @@ mod tests {
             state.receive_queue.extend(b"after the close");
         }
         sock.pump_and_wake(sock.state());
-        let state = sock.state();
+        let held = {
+            let state = sock.state();
+            (state.orphan.is_some(), state.host.is_some())
+        };
+        // The queued byte may reach the peer before the reset does.
+        let read = loop {
+            match peer.read(&mut [0; 8]) {
+                Ok(0) => break Ok(0),
+                Ok(_) => continue,
+                Err(err) => break Err(err.kind()),
+            }
+        };
         assert_eq!(
-            (state.orphan.is_some(), state.host.is_some()),
-            (false, false),
-            "a released socket its peer sends to must reset the connection and let go of \
-             itself, bytes still queued or not, as Linux resets data arriving after __tcp_close"
+            (held, read),
+            ((false, false), Err(io::ErrorKind::ConnectionReset)),
+            "a released socket its peer sends to must reset the connection, so the peer reads a \
+             reset, and let go of itself, bytes still queued or not, as Linux resets data \
+             arriving after __tcp_close"
         );
     }
 
