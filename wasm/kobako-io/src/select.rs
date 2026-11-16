@@ -138,13 +138,13 @@ fn wait_any(
 /// `true` when its buffer already holds bytes, or `nil` at the timeout, as
 /// CRuby's `rb_io_wait` polls the one descriptor `IO.select` would.
 fn io_wait_readable(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    wait_for(mrb, self_, args, POLLRDNORM)
+    wait_for(mrb, self_, args, IO_READABLE)
 }
 
 /// `wait_writable(timeout = nil)` answers the IO once a write would not wait,
 /// or `nil` at the timeout.
 fn io_wait_writable(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
-    wait_for(mrb, self_, args, POLLWRNORM)
+    wait_for(mrb, self_, args, IO_WRITABLE)
 }
 
 /// `IO::READABLE`, `IO::PRIORITY`, and `IO::WRITABLE`, the event bits
@@ -181,20 +181,8 @@ fn io_wait(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
             false => true.into_value(mrb),
         });
     }
-    let asked = [(IO_READABLE, POLLRDNORM), (IO_WRITABLE, POLLWRNORM)]
-        .into_iter()
-        .filter(|(bit, _)| events & bit != 0)
-        .collect::<Vec<_>>();
-    let targets = asked
-        .iter()
-        .map(|(_, poll)| Ok((wait_target_of(mrb, self_, *poll)?, *poll)))
-        .collect::<Result<Vec<_>, Error>>()?;
-    let ready = wait_any(mrb, &targets, to_millis(mrb, timeout)?)?;
-    let mask = asked
-        .iter()
-        .zip(&ready)
-        .filter(|(_, ready)| **ready)
-        .fold(0, |mask, ((bit, _), _)| mask | bit);
+    let targets = targets_of(mrb, self_, events)?;
+    let mask = ready_mask(mrb, targets, timeout)?;
     Ok(match (mask, fast) {
         (0, _) => qnil().as_value(),
         (mask, true) => mask.into_value(mrb),
@@ -242,21 +230,52 @@ fn events_and_timeout_of(mrb: &Mrb, args: &[Value]) -> Result<(i64, Option<Value
     Ok((if events == 0 { IO_READABLE } else { events }, timeout))
 }
 
-fn wait_for(mrb: &Mrb, self_: Value, args: &[Value], events: c_short) -> Result<Value, Error> {
+/// What `wait_readable` and `wait_writable` answer for `event`: the IO once
+/// it comes ready, `true` when a read finds bytes buffered, or `nil` at the
+/// timeout, the IO's way checked before its buffer, as CRuby's
+/// `rb_io_check_readable` comes before `rb_io_read_pending`.
+fn wait_for(mrb: &Mrb, self_: Value, args: &[Value], event: i64) -> Result<Value, Error> {
     let timeout = match args {
         [] => None,
         [timeout] => Some(*timeout),
         _ => return Err(Error::argnum(mrb, args.len(), 0, 1)),
     };
-    let target = wait_target_of(mrb, self_, events)?;
-    if events == POLLRDNORM && socket::holds_buffered(mrb, self_) {
+    let targets = targets_of(mrb, self_, event)?;
+    if event == IO_READABLE && socket::holds_buffered(mrb, self_) {
         return Ok(true.into_value(mrb));
     }
-    let ready = wait_any(mrb, &[(target, events)], to_millis(mrb, timeout)?)?;
-    Ok(match ready[0] {
-        true => self_,
-        false => qnil().as_value(),
+    Ok(match ready_mask(mrb, targets, timeout)? {
+        0 => qnil().as_value(),
+        _ => self_,
     })
+}
+
+/// What a wait on `io` watches for each of `events`, `IO::READABLE` and
+/// `IO::WRITABLE`, beside the bit it answers for.
+fn targets_of(mrb: &Mrb, io: Value, events: i64) -> Result<Vec<(i64, WaitTarget, c_short)>, Error> {
+    [(IO_READABLE, POLLRDNORM), (IO_WRITABLE, POLLWRNORM)]
+        .into_iter()
+        .filter(|(bit, _)| events & bit != 0)
+        .map(|(bit, poll)| Ok((bit, wait_target_of(mrb, io, poll)?, poll)))
+        .collect()
+}
+
+/// The bits of `targets` that came ready within `timeout`, 0 at the timeout.
+fn ready_mask(
+    mrb: &Mrb,
+    targets: Vec<(i64, WaitTarget, c_short)>,
+    timeout: Option<Value>,
+) -> Result<i64, Error> {
+    let (bits, targets): (Vec<i64>, Vec<(WaitTarget, c_short)>) = targets
+        .into_iter()
+        .map(|(bit, target, poll)| (bit, (target, poll)))
+        .unzip();
+    let ready = wait_any(mrb, &targets, to_millis(mrb, timeout)?)?;
+    Ok(bits
+        .iter()
+        .zip(&ready)
+        .filter(|(_, ready)| **ready)
+        .fold(0, |mask, (bit, _)| mask | bit))
 }
 
 /// The way a wait for `events` watches a socket.
