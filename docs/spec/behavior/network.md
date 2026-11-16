@@ -374,7 +374,7 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a name its lookup handed one virtual address for each real address, from the bottom of `198.18.0.0/15` |
+| Given | a name its lookup handed one virtual address for each real address, from the bottom of `198.18.0.0/15`. A real address the resolver repeats takes one |
 | When | the guest connects to one of those virtual addresses |
 | Then | the one real address it stands for is dialed, as cgroup `connect4` rewrites one destination. A real IPv6 address stands behind a virtual one alike, so the guest reaches it without IPv6. The endpoint's `addresses` must lead to it, so an endpoint leading only to public addresses refuses a local one |
 

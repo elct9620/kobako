@@ -5,6 +5,7 @@
 //! a backend beside the Protocol Family, and dropping a lookup cancels its
 //! query.
 
+use std::collections::HashSet;
 use std::future::Future;
 use std::net::IpAddr;
 use std::pin::Pin;
@@ -103,7 +104,13 @@ impl NameLookup {
             let _place = place;
             let found = match resolving.await {
                 Ok(addresses) if addresses.is_empty() => Err(LookupError::NoName),
-                found => found,
+                Ok(mut addresses) => {
+                    // Each real address once, so each takes one virtual one.
+                    let mut seen = HashSet::new();
+                    addresses.retain(|ip| seen.insert(*ip));
+                    Ok(addresses)
+                }
+                failed => failed,
             };
             *answering.lock().unwrap_or_else(PoisonError::into_inner) = Some(found);
             waking.wake_up();

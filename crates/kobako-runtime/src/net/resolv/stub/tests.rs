@@ -121,10 +121,14 @@ fn hosts_answers_each_address_naming_the_name() {
             hosts_answer_of(hosts, "missing")
         ),
         (
-            Some(vec!["127.0.0.1".parse().unwrap(), "::1".parse().unwrap()]),
+            Some(vec![
+                "127.0.0.1".parse().unwrap(),
+                "::1".parse().unwrap(),
+                "127.0.0.1".parse().unwrap()
+            ]),
             None
         ),
-        "/etc/hosts must answer every address an alias names, in any case, once each, in its \
+        "/etc/hosts must answer the address of every line an alias names, in any case, in its \
          order, skipping comments, and answer nothing for a name it lacks"
     );
 }

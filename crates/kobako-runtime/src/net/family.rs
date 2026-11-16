@@ -66,18 +66,14 @@ impl ProtocolFamily for HostInet {
 
     /// The host's own UDP, bound to an ephemeral port of `addr`'s family.
     fn connect_datagram(&self, addr: SocketAddr) -> io::Result<UdpSocket> {
-        let any: SocketAddr = match addr {
-            SocketAddr::V4(_) => ([0, 0, 0, 0], 0).into(),
-            SocketAddr::V6(_) => (std::net::Ipv6Addr::UNSPECIFIED, 0).into(),
-        };
-        let socket = UdpSocket::bind(any)?;
+        let socket = UdpSocket::bind(super::resolv::any_address_for(addr))?;
         socket.connect(addr)?;
         socket.set_nonblocking(true)?;
         Ok(socket)
     }
 
     fn local_addresses(&self) -> io::Result<Vec<IpAddr>> {
-        if_addrs::get_if_addrs().map(|interfaces| interfaces.into_iter().map(|i| i.ip()).collect())
+        super::resolv::local_addresses()
     }
 }
 

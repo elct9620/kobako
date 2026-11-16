@@ -146,7 +146,7 @@ impl QueryContext {
     }
 }
 
-/// Each address in `result`, in the order Windows sorted them, once.
+/// Each address in `result`, in the order Windows sorted them.
 unsafe fn addresses_of(mut result: *const ADDRINFOEXW) -> Vec<IpAddr> {
     let mut addresses = Vec::new();
     while let Some(info) = result.as_ref() {
@@ -163,9 +163,7 @@ unsafe fn addresses_of(mut result: *const ADDRINFOEXW) -> Vec<IpAddr> {
             }
             _ => None,
         };
-        if let Some(ip) = ip.filter(|ip| !addresses.contains(ip)) {
-            addresses.push(ip);
-        }
+        addresses.extend(ip);
         result = info.ai_next;
     }
     addresses

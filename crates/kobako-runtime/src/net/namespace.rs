@@ -1145,6 +1145,7 @@ mod tests {
             answers: Mutex::new(vec![
                 "127.0.0.1".parse().unwrap(),
                 "10.0.0.1".parse().unwrap(),
+                "127.0.0.1".parse().unwrap(),
             ]),
             ..ResolvesNames::default()
         });
@@ -1176,7 +1177,8 @@ mod tests {
                 Some(Errno::PermissionDenied),
                 Some(Errno::PermissionDenied)
             ),
-            "a name's lookup must hand out one virtual address for each real address, and a \
+            "a name's lookup must hand out one virtual address for each real address, one for \
+             a real address its resolver repeats, and a \
              connect to one must dial only the real address it stands for, refusing one its \
              endpoint's addresses do not lead to, as an endpoint leading only to public \
              addresses refuses a local one"

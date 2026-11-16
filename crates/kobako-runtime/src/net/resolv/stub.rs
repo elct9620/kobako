@@ -108,7 +108,7 @@ fn hosts_answer_of(hosts: &str, name: &str) -> Option<Vec<IpAddr>> {
         let Some(ip) = words.next().and_then(|word| word.parse::<IpAddr>().ok()) else {
             continue;
         };
-        if words.any(|alias| alias.eq_ignore_ascii_case(name)) && !found.contains(&ip) {
+        if words.any(|alias| alias.eq_ignore_ascii_case(name)) {
             found.push(ip);
         }
     }
@@ -291,9 +291,7 @@ fn reply_of(bytes: &[u8], id: u16, name: &str, rtype: TYPE) -> Option<Reply> {
             RData::AAAA(aaaa) if rtype == TYPE::AAAA => IpAddr::from(Ipv6Addr::from(aaaa.address)),
             _ => continue,
         };
-        if !found.contains(&ip) {
-            found.push(ip);
-        }
+        found.push(ip);
     }
     Some(Reply::Answered(found))
 }
@@ -326,11 +324,7 @@ impl WatchedSocket<mio::net::UdpSocket> {
     /// A UDP socket connected to `server`, so the host takes replies from
     /// that server alone.
     fn connect_udp(server: SocketAddr) -> io::Result<Self> {
-        let local: SocketAddr = match server {
-            SocketAddr::V4(_) => (Ipv4Addr::UNSPECIFIED, 0).into(),
-            SocketAddr::V6(_) => (Ipv6Addr::UNSPECIFIED, 0).into(),
-        };
-        let socket = mio::net::UdpSocket::bind(local)?;
+        let socket = mio::net::UdpSocket::bind(super::any_address_for(server))?;
         socket.connect(server)?;
         Self::watch(socket)
     }

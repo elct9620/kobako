@@ -10,15 +10,15 @@ mod stub;
 #[cfg(windows)]
 mod windows;
 
+use std::io;
 #[cfg(unix)]
-use std::net::{IpAddr, Ipv6Addr};
+use std::net::Ipv6Addr;
+use std::net::{IpAddr, SocketAddr};
 #[cfg(unix)]
 use std::sync::{Mutex, PoisonError};
 #[cfg(unix)]
 use std::task::{Context, Poll, Waker};
 
-#[cfg(unix)]
-use super::family::ProtocolFamily;
 use super::lookup::Resolving;
 #[cfg(unix)]
 use super::reactor::Ready;
@@ -35,14 +35,27 @@ pub(super) fn resolve(name: &str) -> Resolving {
         let resolving = darwin::resolve(name);
         #[cfg(not(target_os = "macos"))]
         let resolving = stub::resolve(name);
-        let local = super::family::HostInet
-            .local_addresses()
-            .unwrap_or_default();
+        let local = local_addresses().unwrap_or_default();
         Box::pin(async move {
             let mut found = resolving.await?;
             sort_destinations(&mut found, &local);
             Ok(found)
         })
+    }
+}
+
+/// The host's own addresses, as glibc's `__check_pf` reads them for
+/// `getaddrinfo` to sort by.
+pub(super) fn local_addresses() -> io::Result<Vec<IpAddr>> {
+    if_addrs::get_if_addrs().map(|interfaces| interfaces.into_iter().map(|i| i.ip()).collect())
+}
+
+/// The unspecified address of `peer`'s family at an ephemeral port, where a
+/// datagram socket bound to reach `peer` sits.
+pub(super) fn any_address_for(peer: SocketAddr) -> SocketAddr {
+    match peer {
+        SocketAddr::V4(_) => (std::net::Ipv4Addr::UNSPECIFIED, 0).into(),
+        SocketAddr::V6(_) => (std::net::Ipv6Addr::UNSPECIFIED, 0).into(),
     }
 }
 

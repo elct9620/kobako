@@ -190,9 +190,7 @@ extern "C" fn on_reply(
     match error {
         K_DNS_SERVICE_ERR_NO_ERROR if flags & K_DNS_SERVICE_FLAGS_ADD != 0 => {
             if let Some(ip) = unsafe { ip_of(address) } {
-                if !replies.addresses.contains(&ip) {
-                    replies.addresses.push(ip);
-                }
+                replies.addresses.push(ip);
             }
         }
         K_DNS_SERVICE_ERR_NO_ERROR
