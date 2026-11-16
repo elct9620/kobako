@@ -112,7 +112,8 @@ fn refuse(rb_self: &MockNet, args: &[Value]) -> Result<(), MagnusError> {
 }
 
 /// Each protocol a route or a refusal keys on, by its Ruby name.
-const IP_PROTOCOL_NAMES: [(IpProtocol, &str); 2] = [(IpProtocol::Tcp, "tcp"), (IpProtocol::Udp, "udp")];
+const IP_PROTOCOL_NAMES: [(IpProtocol, &str); 2] =
+    [(IpProtocol::Tcp, "tcp"), (IpProtocol::Udp, "udp")];
 
 /// The protocol a route or a refusal keys on, `:tcp` unless written.
 fn to_protocol(protocol: Option<Value>) -> Result<IpProtocol, MagnusError> {
