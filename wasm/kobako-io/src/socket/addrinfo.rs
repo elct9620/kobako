@@ -11,14 +11,14 @@ use beni::value::qnil;
 use beni::{Error, Integer, IntoValue, Module, Mrb, RArray, RClass, TryConvert, TypedData, Value};
 
 use super::address::{
-    addresses_of, end_of, ensure_named, host_text_of, literal_of, node_of, port_of_service,
-    service_text_of, strtoul, to_sockaddr,
+    addresses_of, end_of, given, literal_of, named_of, node_of, port_of_service, strtoul,
+    to_sockaddr,
 };
 use super::basic::open_socket_of;
 use super::ip::ensure_reverse_lookup_flag;
 use super::{
-    family_of, name_of, resolution_error, socket_error, to_resolution_error, Constants, Family,
-    AF_INET, AF_INET6, EAI_NONAME,
+    bare_family, family_of, name_of, resolution_error, socket_error, to_resolution_error,
+    Constants, Family, AF_INET, AF_INET6, EAI_NONAME,
 };
 use crate::convert::string_value_of;
 use crate::io::{argument_error, split_options};
@@ -270,13 +270,9 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
     // which then refuses in `getaddrinfo`'s order: no name, a flag, the
     // family, a service `AI_NUMERICSERV` refuses, a kind, then the service
     // itself. `"*"` names none.
-    let host_text = host_text_of(mrb, node)?;
-    let service_text = service_text_of(mrb, service)?;
-    ensure_named(mrb, &host_text, &service_text)?;
-    let unnamed = host_text.as_deref().is_none_or(|text| text == "*");
-    let numeric_service = service_text
-        .as_deref()
-        .filter(|text| *text != "*")
+    let (host_text, service_text) = named_of(mrb, node, service)?;
+    let unnamed = given(host_text.as_deref()).is_none();
+    let numeric_service = given(service_text.as_deref())
         .is_none_or(|text| text.is_empty() || strtoul(text).is_some());
     // CRuby answers a literal address at a numeric port itself, as its
     // `numeric_getaddrinfo` does, reading no flag glibc would refuse.
@@ -304,7 +300,7 @@ fn lookup(mrb: &Mrb, node: Value, service: Value, hints: &Hints) -> Result<Vec<A
     };
     // The node as `host_str` and glibc read it, so `""`, `<any>`, and
     // `<broadcast>` are the literals CRuby makes of them.
-    let host = node_of(host_text, passive);
+    let host = node_of(host_text.as_deref(), passive);
     let numeric = literal_of(&host).is_some();
     if hints.flags & AI_NUMERICHOST != 0 && !numeric {
         return Err(resolution_error(mrb, EAI_NONAME));
@@ -360,20 +356,9 @@ fn parts_of(
     // CRuby reads each part, then the kind, before glibc's numeric lookup
     // judges the kind, the service, and the address in turn.
     let named = string_value_of(mrb, parts.entry(mrb, 0)?)?.to_string(mrb)?;
-    let bare = named
-        .strip_prefix("AF_")
-        .or_else(|| named.strip_prefix("PF_"))
-        .unwrap_or(&named);
-    let named = match bare {
-        "INET" => AF_INET,
-        "INET6" => AF_INET6,
-        _ => {
-            return Err(socket_error(
-                mrb,
-                &format!("unknown address family: {named}"),
-            ))
-        }
-    };
+    let named = Family::Named(bare_family(&named).to_string())
+        .ip_number()
+        .ok_or_else(|| socket_error(mrb, &format!("unknown address family: {named}")))?;
     let number = i64::from(crate::convert::num2int(mrb, parts.entry(mrb, 1)?)?);
     let host: Value = parts.entry(mrb, 2)?;
     let host = (!host.is_nil())

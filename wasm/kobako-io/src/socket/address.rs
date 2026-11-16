@@ -98,15 +98,36 @@ pub(super) fn host_text_of(mrb: &Mrb, host: Value) -> Result<Option<String>, Err
     }))
 }
 
-/// The host `getaddrinfo` looks up for `text`: a host it is not given, or
-/// `"*"`, which glibc reads as none, is the loopback, or any address when
-/// `passive`.
-pub(super) fn node_of(text: Option<String>, passive: bool) -> String {
-    match text.filter(|text| text != "*") {
-        Some(text) => text,
+/// The host `getaddrinfo` looks up for `text`: a host it is not given is
+/// the loopback, or any address when `passive`.
+pub(super) fn node_of(text: Option<&str>, passive: bool) -> String {
+    match given(text) {
+        Some(text) => text.to_string(),
         None if passive => Ipv4Addr::UNSPECIFIED.to_string(),
         None => Ipv4Addr::LOCALHOST.to_string(),
     }
+}
+
+/// The host or service `text` names to glibc's `getaddrinfo`, which reads
+/// `"*"` as none.
+pub(super) fn given(text: Option<&str>) -> Option<&str> {
+    text.filter(|text| *text != "*")
+}
+
+/// The host and the service text CRuby's `host_str` and `port_str` read,
+/// in that order, a call naming neither refused as glibc's `getaddrinfo`
+/// answers `EAI_NONAME` before anything else.
+pub(super) fn named_of(
+    mrb: &Mrb,
+    host: Value,
+    port: Value,
+) -> Result<(Option<String>, Option<String>), Error> {
+    let host_text = host_text_of(mrb, host)?;
+    let service = service_text_of(mrb, port)?;
+    if given(host_text.as_deref()).is_none() && given(service.as_deref()).is_none() {
+        return Err(resolution_error(mrb, EAI_NONAME));
+    }
+    Ok((host_text, service))
 }
 
 /// What CRuby's `NUM2UINT` takes, wrapping a negative one: an `int`'s least
@@ -189,11 +210,9 @@ pub(super) fn ends_of(
     resolv_timeout: &dyn Fn() -> Result<Option<Duration>, Error>,
     call: &str,
 ) -> Result<(Vec<Ipv4Addr>, u16, String), Error> {
-    let host_text = host_text_of(mrb, host)?;
-    let service = service_text_of(mrb, port)?;
-    ensure_named(mrb, &host_text, &service)?;
+    let (host_text, service) = named_of(mrb, host, port)?;
     let port_number = port_of_service(mrb, service.as_deref())?;
-    let host_text = node_of(host_text, false);
+    let host_text = node_of(host_text.as_deref(), false);
     let call = to_peer_message(mrb, call, host, service.unwrap_or_default());
     let ips = match literal_of(&host_text) {
         Some(IpAddr::V4(ip)) => vec![ip],
@@ -255,7 +274,7 @@ pub(super) fn service_text_of(mrb: &Mrb, port: Value) -> Result<Option<String>, 
 /// taken. The guest has no services database, so any other text raises
 /// `EAI_SERVICE`, as Linux without one does.
 pub(super) fn port_of_service(mrb: &Mrb, service: Option<&str>) -> Result<u16, Error> {
-    let Some(text) = service.filter(|text| !text.is_empty() && *text != "*") else {
+    let Some(text) = given(service).filter(|text| !text.is_empty()) else {
         return Ok(0);
     };
     let number = strtoul(text).ok_or_else(|| resolution_error(mrb, EAI_SERVICE))?;
@@ -263,21 +282,6 @@ pub(super) fn port_of_service(mrb: &Mrb, service: Option<&str>) -> Result<u16, E
         return Err(resolution_error(mrb, EAI_SERVICE));
     }
     Ok(number as u16)
-}
-
-/// Refuse a call naming neither a host nor a service, as glibc's
-/// `getaddrinfo` answers `EAI_NONAME` before anything else, `"*"` naming
-/// none.
-pub(super) fn ensure_named(
-    mrb: &Mrb,
-    host: &Option<String>,
-    service: &Option<String>,
-) -> Result<(), Error> {
-    let none = |text: &Option<String>| matches!(text.as_deref(), None | Some("*"));
-    match none(host) && none(service) {
-        true => Err(resolution_error(mrb, EAI_NONAME)),
-        false => Ok(()),
-    }
 }
 
 /// The bytes CRuby's `port_str` holds a service in, its NUL among them.
@@ -384,11 +388,9 @@ pub(super) fn end_of(mrb: &Mrb, sockaddr: Value) -> Result<(IpAddr, u16), Error>
 /// `Socket.sockaddr_in(port, host)` packs the end `host` and `port` name, a
 /// name's first address, as CRuby's packs the first `getaddrinfo` answers.
 fn socket_s_sockaddr_in(mrb: &Mrb, _self: Value, port: Value, host: Value) -> Result<Value, Error> {
-    let host_text = host_text_of(mrb, host)?;
-    let service = service_text_of(mrb, port)?;
-    ensure_named(mrb, &host_text, &service)?;
+    let (host_text, service) = named_of(mrb, host, port)?;
     let port = port_of_service(mrb, service.as_deref())?;
-    let ip = addresses_of(mrb, &node_of(host_text, false))?[0];
+    let ip = addresses_of(mrb, &node_of(host_text.as_deref(), false))?[0];
     Ok(mrb.str_new(&to_sockaddr(ip, port)).as_value())
 }
 

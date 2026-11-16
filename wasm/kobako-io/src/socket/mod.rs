@@ -241,6 +241,14 @@ fn socket_error(mrb: &Mrb, message: &str) -> Error {
     }
 }
 
+/// A family's name without its `AF_` or `PF_`, as CRuby's
+/// `rsock_family_to_int` reads either spelling.
+fn bare_family(name: &str) -> &str {
+    name.strip_prefix("AF_")
+        .or_else(|| name.strip_prefix("PF_"))
+        .unwrap_or(name)
+}
+
 /// The family `value` names, as CRuby's `rsock_family_arg` reads a Symbol, a
 /// String, or an Integer; a name no family has raises `SocketError`.
 fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
@@ -249,10 +257,7 @@ fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
             mrb, value,
         )?)));
     };
-    let bare = name
-        .strip_prefix("AF_")
-        .or_else(|| name.strip_prefix("PF_"))
-        .unwrap_or(&name);
+    let bare = bare_family(&name);
     if !FAMILIES.contains(&bare) {
         return Err(socket_error(mrb, &format!("unknown socket domain: {name}")));
     }
