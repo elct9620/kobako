@@ -32,14 +32,26 @@ pub trait ProtocolFamily: Send + Sync {
         Err(io::ErrorKind::Unsupported.into())
     }
 
-    /// Where a datagram socket this family handed out sends once the guest
-    /// points it at `addr`, the socket keeping its port, as
-    /// `__ip4_datagram_connect` routes a socket connected again. The host's
-    /// own family sends to `addr` itself; one that sends elsewhere from
+    /// Where a datagram socket this family handed out, bound at `local`,
+    /// sends once the guest points it at `addr`, keeping its port, as
+    /// `__ip4_datagram_connect` routes a socket connected again; `None` when
+    /// the socket cannot, as one in another family than where it sends, and a
+    /// fresh one is made through `connect_datagram`. The host's own family
+    /// sends to `addr` itself; one that sends elsewhere from
     /// `connect_datagram` answers alike here.
-    fn route_datagram(&self, addr: SocketAddr) -> io::Result<SocketAddr> {
-        Ok(addr)
+    fn route_datagram(
+        &self,
+        local: SocketAddr,
+        addr: SocketAddr,
+    ) -> io::Result<Option<SocketAddr>> {
+        Ok(same_family(local, addr).then_some(addr))
     }
+}
+
+/// Whether `local` and `peer` are both IPv4 or both IPv6, as a socket bound
+/// at one may connect to the other.
+pub(crate) fn same_family(local: SocketAddr, peer: SocketAddr) -> bool {
+    local.is_ipv4() == peer.is_ipv4()
 }
 
 /// The host's own network: its TCP and UDP sockets, as gVisor's `hostinet`

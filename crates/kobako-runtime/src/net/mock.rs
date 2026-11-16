@@ -10,7 +10,7 @@ use std::io;
 use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
 use std::sync::{Condvar, Mutex, MutexGuard, PoisonError};
 
-use super::family::{HostInet, ProtocolFamily};
+use super::family::{same_family, HostInet, ProtocolFamily};
 use super::lookup::{LookupError, Resolver};
 use super::socket::CarriedErrno;
 use crate::network::{Host, Protocol};
@@ -32,9 +32,6 @@ struct State {
     held: HashMap<String, usize>,
     lookups: Vec<String>,
     dials: Vec<SocketAddr>,
-    /// The address a UDP socket connecting again was routed for, which a
-    /// fresh socket of another family dials next without a second record.
-    rerouted: Option<SocketAddr>,
 }
 
 /// What a dial to one address does.
@@ -129,10 +126,7 @@ impl Mock {
 
     /// Where a dial to `addr` over `transport` goes, recording it.
     fn dial(&self, transport: Transport, addr: SocketAddr) -> io::Result<SocketAddr> {
-        let mut state = self.state();
-        state.rerouted = None;
-        state.dials.push(addr);
-        drop(state);
+        self.state().dials.push(addr);
         self.target_of(transport, addr)
     }
 
@@ -182,20 +176,21 @@ impl ProtocolFamily for Mock {
     /// none, so every host answers alike where one would wait for a peer's
     /// ICMP reply.
     fn connect_datagram(&self, addr: SocketAddr) -> io::Result<UdpSocket> {
-        let rerouted = self.state().rerouted.take() == Some(addr);
-        let target = match rerouted {
-            true => self.target_of(Transport::Datagram, addr),
-            false => self.dial(Transport::Datagram, addr),
-        };
-        HostInet.connect_datagram(target?)
+        HostInet.connect_datagram(self.dial(Transport::Datagram, addr)?)
     }
 
-    /// The route's target, as a fresh socket's; one in another family than
-    /// the socket's own has the socket's protocol dial it anew, recorded once.
-    fn route_datagram(&self, addr: SocketAddr) -> io::Result<SocketAddr> {
-        let routed = self.dial(Transport::Datagram, addr);
-        self.state().rerouted = Some(addr);
-        routed
+    /// The route's target when it lies in the socket's family, recorded as a
+    /// dial; one in another family is left for the fresh socket to dial, and
+    /// recorded there.
+    fn route_datagram(
+        &self,
+        local: SocketAddr,
+        addr: SocketAddr,
+    ) -> io::Result<Option<SocketAddr>> {
+        match self.target_of(Transport::Datagram, addr) {
+            Ok(target) if !same_family(local, target) => Ok(None),
+            _ => self.dial(Transport::Datagram, addr).map(Some),
+        }
     }
 
     fn local_addresses(&self) -> io::Result<Vec<IpAddr>> {

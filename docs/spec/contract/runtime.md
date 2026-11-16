@@ -141,11 +141,12 @@ pub trait ProtocolFamily {
 ## `ProtocolFamily::route_datagram`
 
 Where a datagram socket the family handed out sends once pointed at another
-peer. It keeps its port, and the host's own family sends to that peer.
+peer, keeping its port. `None` asks for a fresh socket, as one in another
+family than where it sends.
 
 ```rust
 pub trait ProtocolFamily {
-    fn route_datagram(&self, addr: SocketAddr) -> io::Result<SocketAddr>;
+    fn route_datagram(&self, local: SocketAddr, addr: SocketAddr) -> io::Result<Option<SocketAddr>>;
 }
 ```
 

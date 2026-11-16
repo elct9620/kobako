@@ -116,23 +116,18 @@ impl UdpSock {
     ) -> Result<(), Errno> {
         {
             let mut state = self.state();
-            // The host socket repoints within the family of where the family
-            // sends, which a route may answer apart from `addr`.
+            // The host socket repoints within its family, where the family
+            // routes `addr` to, or a fresh one is made.
             let routed = match state.host.as_ref() {
-                Some(_) => Some(family.route_datagram(addr).map_err(|err| to_error(&err))?),
+                Some((socket, _)) => {
+                    let local = socket.local_addr().map_err(|err| to_error(&err))?;
+                    family
+                        .route_datagram(local, addr)
+                        .map_err(|err| to_error(&err))?
+                }
                 None => None,
             };
-            let same_family =
-                state
-                    .host
-                    .as_ref()
-                    .zip(routed)
-                    .is_some_and(|((socket, _), routed)| {
-                        socket
-                            .local_addr()
-                            .is_ok_and(|local| local.is_ipv4() == routed.is_ipv4())
-                    });
-            if let (true, Some(routed)) = (same_family, routed) {
+            if let Some(routed) = routed {
                 // What the old peer sent reads as its own, so it is taken in
                 // before the host socket repoints.
                 self.pump(&mut state);
@@ -848,6 +843,51 @@ mod tests {
             "a UDP socket under a Mock, connected again to an IPv4 address its route sends to an \
              IPv6 peer, must connect and reach that peer, as a fresh socket of the routed \
              family would, the Mock reading back each connect once"
+        );
+    }
+
+    // @behavior NW-227
+    #[test]
+    fn a_mock_reads_back_each_udp_connect_once() {
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let (to_x, to_y, to_z) = (
+            SocketAddr::from(([93, 184, 216, 34], 53)),
+            SocketAddr::from(([93, 184, 216, 35], 53)),
+            SocketAddr::from(([93, 184, 216, 36], 53)),
+        );
+        let mock = Arc::new(crate::net::Mock::default());
+        mock.route(Protocol::Udp, to_x, peer.local_addr().unwrap());
+        mock.route(Protocol::Udp, to_y, peer.local_addr().unwrap());
+        mock.refuse(Protocol::Udp, to_z, Errno::AddressNotAvailable);
+        let family: Arc<dyn ProtocolFamily> = mock.clone();
+        let cap = OpenConnections::new(None);
+        let socket = || UdpSock::new(&prepare_creds(&[], None)).expect("an unbounded socket");
+        let (first, second, third) = (socket(), socket(), socket());
+        let answers = [
+            first.dial(&family, to_x, to_x, &cap),
+            first.dial(&family, to_y, to_y, &cap),
+            second.dial(&family, to_y, to_y, &cap),
+            first.dial(&family, to_z, to_z, &cap),
+            third.dial(&family, to_z, to_z, &cap),
+        ];
+        for sock in [first, second, third] {
+            sock.release();
+        }
+        assert_eq!(
+            (answers, mock.dialed_addresses()),
+            (
+                [
+                    Ok(()),
+                    Ok(()),
+                    Ok(()),
+                    Err(Errno::AddressNotAvailable),
+                    Err(Errno::AddressNotAvailable)
+                ],
+                vec![to_x, to_y, to_y, to_z, to_z]
+            ),
+            "a Mock must read back each UDP connect once, a socket connected again or refused \
+             as it connects again counting as one dial and a fresh socket to the same address \
+             as another"
         );
     }
 
