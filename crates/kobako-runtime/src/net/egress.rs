@@ -89,12 +89,12 @@ pub fn send(
     };
     request.authority = join_authority(&host, port, request.scheme);
     request.swaps = swaps;
-    let connector = Connector::new(net, cred, judged, port);
+
     net.within_connection_budget(HttpError::ConnectionLimitReached, || {
         Exchange::start(
             net.outbound().clone(),
             request,
-            connector,
+            |place| Connector::new(net, cred, judged, port, place),
             net.open_connections(),
             cred,
         )

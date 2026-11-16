@@ -6,7 +6,7 @@
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use super::{refuse_port_zero, Action, Addresses, Endpoint, EntryError, HttpRule, Protocol};
+use super::{ensure_nonzero_port, Action, Addresses, Endpoint, EntryError, HttpRule, Protocol};
 use crate::Errno;
 
 /// Where an address falls, by IANA's special-purpose registries.
@@ -403,7 +403,7 @@ impl Ruleset {
             .into_iter()
             .map(|endpoint| {
                 let host = parse_host(&endpoint.host)?;
-                refuse_port_zero(&endpoint.host, endpoint.port)?;
+                ensure_nonzero_port(&endpoint.host, endpoint.port)?;
                 if matches!(host, Pattern::Wildcard(_))
                     && endpoint
                         .addresses

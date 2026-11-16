@@ -529,8 +529,9 @@ pub struct Exchange {
 }
 
 impl Exchange {
-    /// Send `request` through `seam` on the reactor, dialing through
-    /// `connector`; it counts against `open_connections` and the process until
+    /// Send `request` through `seam` on the reactor, dialing through the
+    /// connector `connector_for` makes with the request's place; it counts
+    /// against `open_connections` and the process until
     /// released and its connection closed, and a full count answers
     /// `ConnectionLimitReached`. The
     /// request, the seam's read buffer, and the response's buffer count
@@ -538,7 +539,7 @@ impl Exchange {
     pub(crate) fn start(
         seam: Arc<dyn Outbound>,
         request: OutgoingRequest,
-        mut connector: Connector,
+        connector_for: impl FnOnce(Arc<Place>) -> Connector,
         open_connections: &Arc<OpenConnections>,
         cred: &Arc<Cred>,
     ) -> Result<Arc<Self>, HttpError> {
@@ -546,7 +547,7 @@ impl Exchange {
         let memory =
             MemoryCharge::new(cred.memory_budget(), room).map_err(|_| HttpError::Internal)?;
         let place = Arc::new(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
-        connector.place = Some(place.clone());
+        let mut connector = connector_for(place.clone());
         let place = Some(place);
         let reactor = Reactor::current().map_err(|_| HttpError::Internal)?;
         let exchange = Arc::new(Self {

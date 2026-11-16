@@ -95,9 +95,9 @@ pub(crate) fn occurrences_of(placeholder: &[u8], value: &[u8]) -> usize {
     if placeholder.is_empty() {
         return 0;
     }
-    match basic_pair_of(value).map(|pair| count(placeholder, &pair)) {
+    match basic_pair_of(value).map(|pair| count_of(placeholder, &pair)) {
         Some(inside) if inside > 0 => inside,
-        _ => count(placeholder, value),
+        _ => count_of(placeholder, value),
     }
 }
 
@@ -114,7 +114,7 @@ fn position_of(part: &[u8], value: &[u8]) -> Option<usize> {
 }
 
 /// How many times `part` stands in `value`, each after the last one's end.
-fn count(part: &[u8], value: &[u8]) -> usize {
+fn count_of(part: &[u8], value: &[u8]) -> usize {
     let mut rest = value;
     let mut found = 0;
     while let Some(at) = position_of(part, rest) {

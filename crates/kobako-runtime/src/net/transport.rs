@@ -40,7 +40,7 @@ pub struct Connector {
     tcp_sockets: Arc<TcpSockets>,
     cred: Arc<Cred>,
     /// The request's place, which a lookup of the authority holds too.
-    pub(crate) place: Option<Arc<Place>>,
+    place: Arc<Place>,
     /// When a connect opened, which its exchange's wait for the head starts
     /// from.
     pub(crate) connected: Arc<OnceLock<Instant>>,
@@ -50,8 +50,15 @@ pub struct Connector {
 }
 
 impl Connector {
-    /// The connector for `host` at `port` in `net`, dialing as `cred`.
-    pub(crate) fn new(net: &Namespace, cred: &Arc<Cred>, host: Host, port: u16) -> Self {
+    /// The connector for `host` at `port` in `net`, dialing as `cred` and
+    /// holding the request's `place`.
+    pub(crate) fn new(
+        net: &Namespace,
+        cred: &Arc<Cred>,
+        host: Host,
+        port: u16,
+        place: Arc<Place>,
+    ) -> Self {
         Self {
             host,
             port,
@@ -61,7 +68,7 @@ impl Connector {
             ports: net.ports_of(Protocol::Http).clone(),
             tcp_sockets: net.tcp_sockets().clone(),
             cred: cred.clone(),
-            place: None,
+            place,
             connected: Arc::default(),
             wait: None,
         }
@@ -91,7 +98,6 @@ impl Connector {
                 })
                 .collect(),
         };
-        let place = self.place.as_ref().ok_or(HttpError::Internal)?;
         let mut last = HttpError::Denied;
         for dest in &dests {
             let sock = TcpSock::create_kern(&self.family, &self.tcp_sockets, &self.cred)
@@ -101,7 +107,7 @@ impl Connector {
             // own socket keeps Linux's default.
             sock.setsockopt(SockOpt::NoDelay, 1)
                 .map_err(|err| HttpError::from_errno(&err))?;
-            match sock.connect_upstream(&self.ports, &self.ruleset, dest, place) {
+            match sock.connect_upstream(&self.ports, &self.ruleset, dest, &self.place) {
                 Err(Errno::PermissionDenied) => continue,
                 Err(err) => {
                     last = HttpError::from_errno(&err);
@@ -128,9 +134,9 @@ impl Connector {
     /// the request's own place, as a guest's lookup holds one, so its thread
     /// counts against the caps until the resolver returns.
     async fn resolve(&self, name: &str) -> Result<Vec<IpAddr>, HttpError> {
-        let place = self.place.clone().ok_or(HttpError::Internal)?;
-        let lookup = NameLookup::start_holding(self.resolver.clone(), name.to_string(), place)
-            .map_err(|_| HttpError::ConnectionLimitReached)?;
+        let lookup =
+            NameLookup::start_holding(self.resolver.clone(), name.to_string(), self.place.clone())
+                .map_err(|_| HttpError::ConnectionLimitReached)?;
         poll_fn(|cx| lookup.poll_answer(cx))
             .await
             .map_err(|_| HttpError::DestinationNotFound)
