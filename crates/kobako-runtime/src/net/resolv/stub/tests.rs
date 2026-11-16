@@ -283,11 +283,11 @@ fn a_silent_server_gives_way_to_the_next() {
 #[test]
 fn no_server_answering_is_a_temporary_failure_and_an_unaskable_name_no_name() {
     let silent = serve_udp(|_| None);
-    let long_label = format!("{}.test", "a".repeat(64));
+    let long_label = format!("{}.test.", "a".repeat(64));
     assert_eq!(
         (
             wait_for(ask(conf_of(vec![silent]), "app.test".into())),
-            wait_for(ask(conf_of(vec![silent]), long_label)),
+            wait_for(resolve(&long_label)),
         ),
         (
             Some(Err(LookupError::Again)),
@@ -295,6 +295,28 @@ fn no_server_answering_is_a_temporary_failure_and_an_unaskable_name_no_name() {
         ),
         "a lookup no name server answers must answer temporary-resolver-failure, as glibc's \
          EAI_AGAIN, and one whose name no query can carry name-unresolvable"
+    );
+}
+
+#[test]
+fn a_server_the_host_cannot_reach_gives_way_to_the_next() {
+    let answering = serve_udp(|query| {
+        let answer = match rtype_of(query) {
+            TYPE::A => vec![("app.test", a([93, 184, 216, 34]))],
+            _ => Vec::new(),
+        };
+        Some(reply_to(query, &answer, RCODE::NoError, false))
+    });
+    // Linux refuses a UDP connect to a link-local address naming no scope.
+    let unreachable = "[fe80::1]:53".parse().unwrap();
+    assert_eq!(
+        wait_for(ask(
+            conf_of(vec![unreachable, answering]),
+            "app.test".into()
+        )),
+        Some(Ok(vec!["93.184.216.34".parse().unwrap()])),
+        "a server the host cannot even connect to must give way to the next one in \
+         resolv.conf, as res_send moves on when its connect fails"
     );
 }
 
@@ -386,14 +408,22 @@ fn a_server_down_the_list_waits_as_send_dg_shares_the_time() {
             "10.0.0.2:53".parse().unwrap(),
             "10.0.0.3:53".parse().unwrap(),
         ],
-        timeout: Duration::from_secs(6),
+        timeout: Duration::from_secs(5),
         attempts: 1,
     };
+    let short = Conf {
+        timeout: Duration::from_secs(1),
+        ..conf.clone()
+    };
     assert_eq!(
-        [0, 1, 2].map(|place| conf.timeout_of(place)),
-        [6, 4, 8].map(Duration::from_secs),
+        (
+            [0, 1, 2].map(|place| conf.timeout_of(place)),
+            short.timeout_of(1)
+        ),
+        ([5, 3, 6].map(Duration::from_secs), Duration::from_secs(1)),
         "the first server must wait the whole timeout, and each after it the timeout doubled \
-         for its place, shared among the servers, as glibc's send_dg gives it"
+         for its place, shared among the servers in whole seconds, and at least one, as glibc's \
+         send_dg gives it"
     );
 }
 
@@ -401,13 +431,25 @@ fn a_server_down_the_list_waits_as_send_dg_shares_the_time() {
 fn a_name_res_hnok_refuses_answers_no_name_unasked() {
     assert_eq!(
         (
-            ["app_1.test", "a!b.test", "-app.test", "a..test"].map(is_host_name),
+            [
+                "app_1.test".to_string(),
+                "a!b.test".to_string(),
+                "-app.test".to_string(),
+                "a..test".to_string(),
+                format!("{}.test", "a".repeat(63)),
+                format!("{}.test", "a".repeat(64)),
+                vec!["a".repeat(63); 4].join("."),
+            ]
+            .map(|name| is_host_name(&name)),
             wait_for(resolve("a!b.test.")),
         ),
-        ([true, false, false, false], Some(Err(LookupError::NoName))),
-        "a name of letters, digits, '-', and '_' in non-empty labels, not starting with '-', \
-         must be asked, and any other answer name-unresolvable at once, as glibc's res_hnok \
-         judges"
+        (
+            [true, false, false, false, true, false, false],
+            Some(Err(LookupError::NoName))
+        ),
+        "a name of letters, digits, '-', and '_' in labels of 1 to 63 bytes, at most 255 bytes \
+         on the wire, not starting with '-', must be asked, and any other answer \
+         name-unresolvable at once, as glibc's res_hnok judges"
     );
 }
 

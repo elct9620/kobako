@@ -38,6 +38,11 @@ const NAMESERVER_PORT: u16 = 53;
 /// server truncates.
 const PACKETSZ: usize = 512;
 
+/// glibc's `NS_MAXCDNAME` and `NS_MAXLABEL`: the most bytes a name takes on
+/// the wire, and a label holds.
+const NS_MAXCDNAME: usize = 255;
+const NS_MAXLABEL: usize = 63;
+
 pub(super) fn resolve(name: &str) -> Resolving {
     let bare = name.strip_suffix('.').unwrap_or(name).to_string();
     if let Some(found) = hosts_answer_of(&read_config("/etc/hosts"), &bare) {
@@ -59,13 +64,15 @@ fn read_config(path: &str) -> String {
 }
 
 /// Whether `name` is a host name glibc's DNS backend asks about, as
-/// `res_hnok` judges: each label non-empty, of letters, digits, `-`, and
-/// `_`, the name not starting with `-`. `check_name` answers any other
+/// `res_hnok` judges: one `ns_name_pton` can encode, each label of 1 to 63
+/// letters, digits, `-`, and `_`, the whole at most `NS_MAXCDNAME` bytes on
+/// the wire, the name not starting with `-`. `check_name` answers any other
 /// `HOST_NOT_FOUND` with no query.
 fn is_host_name(name: &str) -> bool {
     !name.starts_with('-')
+        && name.len() + 2 <= NS_MAXCDNAME
         && name.split('.').all(|label| {
-            !label.is_empty()
+            (1..=NS_MAXLABEL).contains(&label.len())
                 && label
                     .bytes()
                     .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
@@ -83,12 +90,14 @@ struct Conf {
 
 impl Conf {
     /// How long the server at `place` in the list is waited for, as
-    /// `send_dg` gives it: doubled for each place down the list, and shared
-    /// among the servers past the first.
+    /// `send_dg` gives it in whole seconds: doubled for each place down the
+    /// list, shared among the servers past the first, and at least one.
     fn timeout_of(&self, place: usize) -> Duration {
         match place {
             0 => self.timeout,
-            _ => self.timeout * (1 << place) / self.nameservers.len() as u32,
+            _ => Duration::from_secs(
+                ((self.timeout.as_secs() << place) / self.nameservers.len() as u64).max(1),
+            ),
         }
     }
 
@@ -163,18 +172,14 @@ enum Reply {
 }
 
 /// Each server in turn, `attempts` rounds over all, as `res_send` tries
-/// them, until one answers. None answering is `Again`, as `res_query` reads
-/// `res_send`'s failure as `TRY_AGAIN`; a name no query can carry is
-/// `NoName`, as `res_nmkquery` failing is.
+/// them, until one answers; a server it cannot reach gives way to the next.
+/// None answering is `Again`, as `res_query` reads `res_send`'s failure as
+/// `TRY_AGAIN`.
 async fn ask(conf: Conf, name: String) -> Result<Vec<IpAddr>, LookupError> {
     for _ in 0..conf.attempts {
         for (place, server) in conf.nameservers.iter().enumerate() {
-            match exchange(*server, &name, conf.timeout_of(place)).await {
-                Ok(Some(found)) => return Ok(found),
-                Err(err) if err.kind() == io::ErrorKind::InvalidInput => {
-                    return Err(LookupError::NoName)
-                }
-                _ => {}
+            if let Ok(Some(found)) = exchange(*server, &name, conf.timeout_of(place)).await {
+                return Ok(found);
             }
         }
     }
@@ -265,8 +270,7 @@ async fn ask_over_tcp(
     Ok(reply_of(&reply, id, name, rtype))
 }
 
-/// Encode a query for `name`'s `rtype` records, recursion desired;
-/// `InvalidInput` when no query can carry the name.
+/// Encode a query for `name`'s `rtype` records, recursion desired.
 fn encode_query(id: u16, name: &str, rtype: TYPE) -> io::Result<Vec<u8>> {
     let mut packet = Packet::new_query(id);
     packet.set_flags(PacketFlag::RECURSION_DESIRED);
@@ -277,9 +281,7 @@ fn encode_query(id: u16, name: &str, rtype: TYPE) -> io::Result<Vec<u8>> {
         QCLASS::CLASS(CLASS::IN),
         false,
     ));
-    packet
-        .build_bytes_vec()
-        .map_err(|_| io::ErrorKind::InvalidInput.into())
+    packet.build_bytes_vec().map_err(io::Error::other)
 }
 
 /// What `bytes` says of the question `id` asked, or `None` when it is no
@@ -293,8 +295,7 @@ fn reply_of(bytes: &[u8], id: u16, name: &str, rtype: TYPE) -> Option<Reply> {
     }
     let packet = Packet::parse(bytes).ok()?;
     let question = packet.questions.first()?;
-    let asked = packet.id() == id
-        && packet.has_flags(PacketFlag::RESPONSE)
+    let asked = packet.has_flags(PacketFlag::RESPONSE)
         && packet.questions.len() == 1
         && question.qtype == QTYPE::TYPE(rtype)
         && question.qclass == QCLASS::CLASS(CLASS::IN)

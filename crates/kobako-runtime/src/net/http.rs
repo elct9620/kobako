@@ -1224,10 +1224,11 @@ mod tests {
         let mut entry = Builder::default();
         entry.endpoint(Endpoint::new("missing.test", 80).unwrap());
         let network = Network::new("web", Arc::new(entry)).unwrap();
-        let family = Arc::new(CountsDials::default());
+        // A Mock answers a name it holds no route for with no address.
+        let mock = Arc::new(crate::net::Mock::default());
         let namespace = Namespace::for_network(
             &network,
-            family.clone(),
+            mock.clone(),
             Arc::new(HyperOutbound { tls: None }),
         );
         let exchange = crate::net::send(
@@ -1237,8 +1238,8 @@ mod tests {
         )
         .expect("the endpoint admits it");
         assert_eq!(
-            (read_response(&exchange).err(), family.dials()),
-            (Some(HttpError::DnsError), 0),
+            (read_response(&exchange).err(), mock.dialed_addresses()),
+            (Some(HttpError::DnsError), Vec::new()),
             "a request to a name its resolver finds no address for must answer DNS-error, as \
              wasmtime-wasi-http answers a failed lookup, and dial nothing"
         );

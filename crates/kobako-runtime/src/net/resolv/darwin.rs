@@ -43,6 +43,7 @@ const K_DNS_SERVICE_PROTOCOL_IPV4: u32 = 0x1;
 const K_DNS_SERVICE_PROTOCOL_IPV6: u32 = 0x2;
 const K_DNS_SERVICE_ERR_NO_ERROR: i32 = 0;
 const K_DNS_SERVICE_ERR_NO_SUCH_NAME: i32 = -65538;
+const K_DNS_SERVICE_ERR_BAD_PARAM: i32 = -65540;
 const K_DNS_SERVICE_ERR_NO_SUCH_RECORD: i32 = -65554;
 
 extern "C" {
@@ -60,9 +61,10 @@ extern "C" {
     fn DNSServiceRefDeallocate(sd_ref: ServiceRef);
 }
 
-/// `name`'s addresses. A name holding a NUL is `NoName`, as no query can
-/// carry it; any other failure is `Again`, as `kDNSServiceErr_Timeout` and an
-/// unreachable mDNSResponder leave a lookup that asking again may answer.
+/// `name`'s addresses. A name no query can carry, one holding a NUL or one
+/// mDNSResponder refuses as `kDNSServiceErr_BadParam`, is `NoName`; any other
+/// failure is `Again`, as `kDNSServiceErr_Timeout` and an unreachable
+/// mDNSResponder leave a lookup that asking again may answer.
 pub(super) fn resolve(name: &str) -> Resolving {
     match Queries::start(name) {
         Ok(lookup) => Box::pin(lookup),
@@ -120,9 +122,10 @@ impl Query {
         if err != K_DNS_SERVICE_ERR_NO_ERROR {
             // No query holds the context, so no reply can land in it.
             drop(unsafe { Box::from_raw(replies.as_ptr()) });
-            return Err(io::Error::other(format!(
-                "DNSServiceGetAddrInfo failed: {err}"
-            )));
+            return Err(match err {
+                K_DNS_SERVICE_ERR_BAD_PARAM => io::ErrorKind::InvalidInput.into(),
+                _ => io::Error::other(format!("DNSServiceGetAddrInfo failed: {err}")),
+            });
         }
         let fd = unsafe { DNSServiceRefSockFD(sd_ref) };
         match reactor.register(&mut SourceFd(&fd), waker) {

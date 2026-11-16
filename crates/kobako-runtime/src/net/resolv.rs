@@ -203,6 +203,19 @@ mod tests {
         );
     }
 
+    // @behavior NW-228
+    #[cfg(unix)]
+    #[test]
+    fn a_name_no_query_can_carry_answers_no_name() {
+        let long_label = format!("{}.test.", "a".repeat(64));
+        assert_eq!(
+            answer_of(&long_label),
+            Some(Err(LookupError::NoName)),
+            "the host's resolver must answer a name with a label past 63 bytes, which no query \
+             can carry, name-unresolvable"
+        );
+    }
+
     #[test]
     fn a_query_dropped_before_its_answer_is_cancelled_cleanly() {
         drop(resolve("kobako-dropped.invalid."));
