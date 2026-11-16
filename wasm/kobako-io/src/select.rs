@@ -78,7 +78,9 @@ enum WaitTarget {
 /// so files alone are asked through preview1's `poll`; beside a socket they
 /// are asked at once and the wait goes through preview2's `poll`, as an older
 /// WASI adapts to a newer one. A socket that can never become ready waits as
-/// a clock with no end, so only the deadline ends it, as Linux's blocks.
+/// a clock with no end: a live clock lasts until the deadline, as Linux's
+/// blocks, and a hermetic one is due at once, as any clock without a
+/// host-side producer beside it is.
 fn wait_any(
     mrb: &Mrb,
     targets: &[(WaitTarget, c_short)],
