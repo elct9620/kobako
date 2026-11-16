@@ -470,10 +470,7 @@ pub(super) fn direct_args_of(mrb: &Mrb, args: &[Value]) -> Result<DirectArgs, Er
         [maxlen, flags, outbuf] => (*maxlen, Some(*flags), Some(*outbuf)),
         _ => return Err(Error::argnum(mrb, args.len(), 1, 3)),
     };
-    let flags = match flags.filter(|flags| !flags.is_nil()) {
-        Some(flags) => flags_of(mrb, flags)?,
-        None => 0,
-    };
+    let flags = crate::convert::num2int_or_zero(mrb, flags)?;
     let maxlen = strbuf_length_of(mrb, maxlen)?;
     Ok(DirectArgs {
         maxlen,

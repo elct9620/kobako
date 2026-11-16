@@ -68,6 +68,15 @@ pub(crate) fn num2int(mrb: &Mrb, value: Value) -> Result<i32, Error> {
     Ok(number as i32)
 }
 
+/// `value` as CRuby's `NIL_P(value) ? 0 : NUM2INT(value)` reads an optional
+/// int, `nil` or none being 0.
+pub(crate) fn num2int_or_zero(mrb: &Mrb, value: Option<Value>) -> Result<i64, Error> {
+    match value.filter(|value| !value.is_nil()) {
+        Some(value) => num2int(mrb, value).map(i64::from),
+        None => Ok(0),
+    }
+}
+
 /// Raise `RangeError` for `number` outside what a C `c_type` holds, `range`,
 /// as CRuby's `check_int` and `rb_num2uint` word it: too big above, too
 /// small below.

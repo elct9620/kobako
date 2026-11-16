@@ -428,18 +428,9 @@ fn hints_of(mrb: &Mrb, args: &[Value]) -> Result<Hints, Error> {
     Ok(Hints {
         family: lookup_family_of(mrb, at(0))?,
         socktype: socktype_of(mrb, at(1))?,
-        protocol: int_or_zero_of(mrb, at(2))?,
-        flags: int_or_zero_of(mrb, at(3))?,
+        protocol: crate::convert::num2int_or_zero(mrb, at(2))?,
+        flags: crate::convert::num2int_or_zero(mrb, at(3))?,
     })
-}
-
-/// A protocol or flags argument as CRuby's `NUM2INT` reads it, `nil` or none
-/// being 0.
-fn int_or_zero_of(mrb: &Mrb, value: Option<Value>) -> Result<i64, Error> {
-    match value.filter(|value| !value.is_nil()) {
-        Some(value) => crate::convert::num2int(mrb, value).map(i64::from),
-        None => Ok(0),
-    }
 }
 
 /// `Addrinfo.getaddrinfo(nodename, service, family = nil, socktype = nil,
@@ -520,7 +511,7 @@ fn addrinfo_s_new(mrb: &Mrb, _self: Value, args: &[Value]) -> Result<Value, Erro
     // protocol before the address.
     let family = lookup_family_of(mrb, at(0))?;
     let socktype = socktype_of(mrb, at(1))?;
-    let protocol = int_or_zero_of(mrb, at(2))?;
+    let protocol = crate::convert::num2int_or_zero(mrb, at(2))?;
     let (ip, port, inspectname) = match RArray::from_value(sockaddr) {
         Some(parts) => parts_of(mrb, parts, family, socktype, protocol)?,
         None => {
@@ -690,10 +681,7 @@ fn addrinfo_ipv6_to_ipv4(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 /// `NI_NUMERICHOST` and `NI_NUMERICSERV` ask.
 fn addrinfo_getnameinfo(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     if let Some(flags) = args.first().filter(|_| args.len() == 1) {
-        let flags = match flags.is_nil() {
-            true => 0,
-            false => i64::from(crate::convert::num2int(mrb, *flags)?),
-        };
+        let flags = crate::convert::num2int_or_zero(mrb, Some(*flags))?;
         if flags & !NI_FLAGS != 0 {
             let (code, words) = EAI_BADFLAGS;
             return Err(to_resolution_error(
