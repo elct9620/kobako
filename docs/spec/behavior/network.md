@@ -1266,7 +1266,7 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a TCP endpoint naming `localhost` |
+| Given | a TCP endpoint naming a host the resolver is slow to answer |
 | When | the script opens a `TCPSocket` to it with `resolv_timeout:` shorter than the lookup, and again with `fast_fallback: false` |
 | Then | the first raises `Errno::ETIMEDOUT`, as CRuby's does. The second connects, as CRuby's path without fast fallback resolves with no timeout |
 

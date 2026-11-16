@@ -52,23 +52,41 @@ class TestE2ENetworkTcpArguments < Minitest::Test
     end
   end
 
-  LOOKUP = <<~RUBY
-    timed_out = begin
-      TCPSocket.new("localhost", %<port>d, resolv_timeout: 0.000001)
+  HELD_LOOKUP = <<~RUBY
+    begin
+      TCPSocket.new("slow.test", %<port>d, resolv_timeout: 0.05)
     rescue Errno::ETIMEDOUT => e
       e.message
     end
-    [timed_out, TCPSocket.new("localhost", %<port>d, resolv_timeout: 0.000001, fast_fallback: false).peeraddr[1]]
   RUBY
+
+  UNTIMED_LOOKUP = <<~RUBY
+    TCPSocket.new("slow.test", %<port>d, resolv_timeout: 0.000001, fast_fallback: false).peeraddr[1]
+  RUBY
+
+  # A Mock leading slow.test to the loopback server at +port+, and a
+  # Sandbox reaching it through the Mock, its runs bounded so a lookup left
+  # waiting fails rather than hangs.
+  def slow_test_sandbox(port)
+    mock = mock_resolving({ "slow.test" => "127.0.0.1" })
+    mock.route("127.0.0.1", port, to: ["127.0.0.1", port])
+    sandbox = mock_sandbox(mock, timeout: 5) do |net|
+      net.endpoint "slow.test", port: port, protocol: :tcp, addresses: [:local]
+    end
+    [mock, sandbox]
+  end
 
   # @behavior NW-100
   def test_a_tcp_socket_bounds_its_name_lookup_by_resolv_timeout
     with_listening_server do |port|
-      value = localhost_sandbox(port).eval(format(LOOKUP, port: port)).value
+      mock, sandbox = slow_test_sandbox(port)
+      timed_out = mock.hold("slow.test") { sandbox.eval(format(HELD_LOOKUP, port: port)).value }
+      connected = sandbox.eval(format(UNTIMED_LOOKUP, port: port)).value
 
-      assert_equal ["Connection timed out - user specified timeout", port], value,
-                   "TCPSocket.new with a resolv_timeout: shorter than the lookup must raise Errno::ETIMEDOUT, " \
-                   "and with fast_fallback: false must read no resolv_timeout: and connect"
+      assert_equal ["Connection timed out - user specified timeout", port], [timed_out, connected],
+                   "TCPSocket.new with a resolv_timeout: shorter than a lookup the resolver has not answered " \
+                   "must raise Errno::ETIMEDOUT, and with fast_fallback: false must read no resolv_timeout: " \
+                   "and connect"
     end
   end
 
