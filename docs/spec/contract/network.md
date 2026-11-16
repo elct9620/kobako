@@ -367,12 +367,21 @@ pub trait CredentialSource: Send + Sync {}
 
 ## `CredentialSource::value_of`
 
-The value for a request, or `None` to send nothing.
+The value for a request, `None` to send nothing, or `CredentialUnavailable` to
+refuse the request.
 
 ```rust
 pub trait CredentialSource {
-    fn value_of(&self, request: &Request<'_>) -> Option<Secret>;
+    fn value_of(&self, request: &Request<'_>) -> Result<Option<Secret>, CredentialUnavailable>;
 }
+```
+
+## `CredentialUnavailable`
+
+A source that could not answer, so its request is refused.
+
+```rust
+pub struct CredentialUnavailable;
 ```
 
 ## `Credential`

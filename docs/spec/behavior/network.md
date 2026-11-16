@@ -2821,3 +2821,16 @@ endpoint "api.example.com", port: 443
 | Given | an HTTP request whose dial the host fails |
 | When | the guest reads why the request has no response |
 | Then | ECONNREFUSED answers `connection-refused`. EHOSTUNREACH, ENETUNREACH, ENETDOWN, and EAFNOSUPPORT answer `destination-unavailable`, which `Net::HTTP` raises as `Errno::EHOSTUNREACH`. A TLS alert the server sends answers `TLS-alert-received` with its id |
+
+## `NW-226` A request whose credential cannot answer is refused unsent
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-050` |
+| relates | `NW-220` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an entry binding a credential to an exact host over HTTPS |
+| When | a bound request leaves and the credential's source cannot answer, as a Ruby block raising a `StandardError` |
+| Then | it answers `Denied` and nothing is dialed, so the script raises `Errno::EACCES` and goes on. A source answering `nil` sends the request with no value. Envoy's credential injector and OpenShell refuse a request whose credential they could not resolve |

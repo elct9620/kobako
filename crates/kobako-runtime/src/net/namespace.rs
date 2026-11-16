@@ -483,7 +483,7 @@ mod tests {
             vec![crate::network::Credential::new(
                 crate::network::Placement::Bearer,
                 "kobako-token",
-                Arc::new(|_: &crate::network::Request<'_>| None),
+                Arc::new(|_: &crate::network::Request<'_>| Ok(None)),
             )]
         }
     }

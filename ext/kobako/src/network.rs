@@ -19,8 +19,9 @@ use magnus::{
 
 use kobako_runtime::grant::Grant;
 use kobako_runtime::network::{
-    Action, Addresses, Builder, Connection, Credential, CredentialSource, Endpoint, Entry,
-    EntryError, HttpRule, Name, Network, Placement, Policies, Protocol, Request, Secret,
+    Action, Addresses, Builder, Connection, Credential, CredentialSource, CredentialUnavailable,
+    Endpoint, Entry, EntryError, HttpRule, Name, Network, Placement, Policies, Protocol, Request,
+    Secret,
 };
 use kobako_runtime::policy::Policy;
 
@@ -117,28 +118,27 @@ impl Policy<Request<'_>> for RubyPolicy {
 }
 
 /// A Ruby credential's `value(request)`, asked as a bound request leaves. A
-/// String answers the value, `nil` sends nothing, and a raised StandardError
-/// sends nothing too; anything else it raises is held for the host.
+/// String answers the value and `nil` sends nothing. A raised StandardError
+/// refuses the request, so the guest's call fails and its script goes on;
+/// anything else it raises is held for the host and refuses it too.
 struct RubyCredential {
     credential: Opaque<Value>,
 }
 
 impl CredentialSource for RubyCredential {
-    fn value_of(&self, request: &Request<'_>) -> Option<Secret> {
+    fn value_of(&self, request: &Request<'_>) -> Result<Option<Secret>, CredentialUnavailable> {
         gvl::reenter(|| {
             let ruby = Ruby::get().expect("Ruby handle unavailable in a credential's value");
             let credential: Value = ruby.get_inner(self.credential);
             let answer = to_request(&ruby, request).and_then(|request| {
                 credential.funcall::<_, _, Option<RString>>("value", (request,))
             });
-            match answer {
-                Ok(Some(value)) => Some(Secret::new(crate::to_bytes(value))),
-                Ok(None) => None,
-                Err(error) => {
+            answer
+                .map(|value| value.map(|value| Secret::new(crate::to_bytes(value))))
+                .map_err(|error| {
                     let _ = escape::hold(&ruby, error);
-                    None
-                }
-            }
+                    CredentialUnavailable
+                })
         })
     }
 }

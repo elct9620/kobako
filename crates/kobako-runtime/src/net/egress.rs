@@ -117,10 +117,10 @@ impl EgressProxy {
 
     /// The credentials bound to `request`, one over `https`: an entry's own
     /// endpoint names its exact host and allows it, and the placement's header
-    /// carries the placeholder once. `None` is a request whose header carries
-    /// one more than once, which is refused, as OpenShell's leaves no second
-    /// placeholder resolved: a swap then grows a request by one secret at
-    /// most. Each source answers here, on the guest thread, so its time counts
+    /// carries the placeholder once. `None` is a request to refuse: one whose
+    /// header carries a placeholder more than once, as OpenShell's leaves no
+    /// second placeholder resolved, so a swap grows a request by one secret at
+    /// most; or one whose credential's source could not answer. Each source answers here, on the guest thread, so its time counts
     /// against the deadline.
     pub(crate) fn swaps_of(
         &self,
@@ -146,7 +146,7 @@ impl EgressProxy {
                     1 => {}
                     _ => return None,
                 }
-                if let Some(secret) = credential.source.value_of(request) {
+                if let Some(secret) = credential.source.value_of(request).ok()? {
                     swaps.push(Swap {
                         header: header.to_string(),
                         placeholder: placeholder.to_vec(),

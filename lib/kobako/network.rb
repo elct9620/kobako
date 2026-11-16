@@ -119,8 +119,8 @@ module Kobako
     # one header of a request bound to its entry's own endpoints. The
     # +placement+ is +:bearer+ or +:basic+ for the +authorization+ header, or a
     # header's name. The block answers the value for a Request, or +nil+ to
-    # send nothing, as the request leaves. A +placeholder+ neither a Symbol
-    # nor a String raises TypeError.
+    # send nothing, as the request leaves; a block that raises refuses the
+    # request. A +placeholder+ neither a Symbol nor a String raises TypeError.
     class Credential
       attr_reader :placement, :placeholder
 
@@ -132,7 +132,7 @@ module Kobako
         @source = source
       end
 
-      # The value for +request+, or +nil+ to send nothing.
+      # The value for +request+, or +nil+ to send nothing; raising refuses it.
       def value(request) = @source.call(request)
     end
 

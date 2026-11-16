@@ -76,6 +76,36 @@ class TestE2ENetworkHttpPolicy < Minitest::Test
     end
   end
 
+  BOUND_HTTPS = <<~RUBY
+    begin
+      Net::HTTP.start("api.test", 443, use_ssl: true) do |http|
+        http.get("/", { "Authorization" => "Bearer kobako-token" })
+      end
+    rescue SystemCallError => e
+      e.class.to_s
+    end
+  RUBY
+
+  # What a bound HTTPS request to `api.test` raises when its credential's
+  # block answers with +value+, and the addresses the Mock was asked to dial.
+  def bound_request_with(&value)
+    mock = mock_resolving({ "api.test" => "93.184.216.34" })
+    raised = mock_sandbox(mock) do |net|
+      net.endpoint "api.test", port: 443
+      net.credential(:bearer, placeholder: "kobako-token", &value)
+    end.eval(BOUND_HTTPS).value
+    [raised, mock.dialed_addresses.size]
+  end
+
+  # @behavior NW-226
+  def test_a_request_whose_credential_cannot_answer_is_refused_unsent
+    answers = [bound_request_with { raise KeyError, "vault sealed" }, bound_request_with { nil }]
+
+    assert_equal [["Errno::EACCES", 0], ["Errno::ECONNREFUSED", 1]], answers,
+                 "a bound HTTPS request whose credential block raises a StandardError must raise Errno::EACCES " \
+                 "with nothing dialed, and one whose block answers nil must still be dialed with no value"
+  end
+
   # @behavior NW-047
   def test_a_request_policy_is_handed_the_request_and_refuses_it
     value, request = handed_post

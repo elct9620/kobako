@@ -131,17 +131,27 @@ impl Placement {
     }
 }
 
-/// What resolves a credential's value as a bound request leaves: the value, or
-/// `None` to send nothing. Caching and refresh are its own.
+/// What resolves a credential's value as a bound request leaves: the value,
+/// `None` to send nothing, or `CredentialUnavailable` when it cannot say,
+/// which refuses the request. Caching and refresh are its own.
 pub trait CredentialSource: Send + Sync {
-    fn value_of(&self, request: &Request<'_>) -> Option<Secret>;
+    fn value_of(&self, request: &Request<'_>) -> Result<Option<Secret>, CredentialUnavailable>;
 }
 
-impl<F: Fn(&Request<'_>) -> Option<Secret> + Send + Sync> CredentialSource for F {
-    fn value_of(&self, request: &Request<'_>) -> Option<Secret> {
+impl<F> CredentialSource for F
+where
+    F: Fn(&Request<'_>) -> Result<Option<Secret>, CredentialUnavailable> + Send + Sync,
+{
+    fn value_of(&self, request: &Request<'_>) -> Result<Option<Secret>, CredentialUnavailable> {
         self(request)
     }
 }
+
+/// A credential's source that failed to answer, so its request leaves
+/// nowhere rather than unauthenticated, as Envoy's credential injector and
+/// OpenShell refuse a request whose credential they could not resolve.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CredentialUnavailable;
 
 /// A placement and a placeholder paired with the source of the value that
 /// replaces the placeholder there.

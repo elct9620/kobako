@@ -1987,7 +1987,7 @@ mod tests {
                 crate::network::Placement::Bearer,
                 "kobako-token",
                 Arc::new(|_: &crate::network::Request<'_>| {
-                    Some(crate::network::Secret::new("s3cret"))
+                    Ok(Some(crate::network::Secret::new("s3cret")))
                 }),
             ));
         let network = Network::new("api", Arc::new(entry)).unwrap();
