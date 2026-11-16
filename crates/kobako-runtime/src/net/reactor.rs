@@ -101,7 +101,7 @@ impl Reactor {
             let again =
                 std::mem::take(&mut *self.repoll.lock().unwrap_or_else(PoisonError::into_inner));
             let wait = match again.is_empty() {
-                true => self.until_next_timer(),
+                true => self.poll_timeout(),
                 false => Some(Duration::ZERO),
             };
             if let Err(err) = poll.poll(&mut events, wait) {
@@ -137,19 +137,21 @@ impl Reactor {
         }
     }
 
-    /// Wake `waker` once `at` passes. Only the stub resolver times its
-    /// retries this way.
+    /// Wake `waker` once `at` passes, in place of any instant its task asked
+    /// for before, as `hrtimer_start` moves a task's one timer, so a task
+    /// holds one timer however often it waits. Only the stub resolver times
+    /// its retries this way.
     #[cfg(any(test, all(unix, not(target_os = "macos"))))]
     pub(crate) fn wake_at(&self, at: Instant, waker: Waker) {
-        self.timers
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push((at, waker));
+        let mut timers = self.timers.lock().unwrap_or_else(PoisonError::into_inner);
+        timers.retain(|(_, armed)| !armed.will_wake(&waker));
+        timers.push((at, waker));
+        drop(timers);
         let _ = self.waker.wake();
     }
 
     /// How long the poll may wait before the soonest timer is due.
-    fn until_next_timer(&self) -> Option<Duration> {
+    fn poll_timeout(&self) -> Option<Duration> {
         let timers = self.timers.lock().unwrap_or_else(PoisonError::into_inner);
         let soonest = timers.iter().map(|(at, _)| *at).min()?;
         Some(soonest.saturating_duration_since(Instant::now()))
@@ -395,6 +397,27 @@ mod tests {
         assert!(
             rx.recv_timeout(Duration::from_secs(5)).is_ok(),
             "a task the reactor was asked to wake at an instant must run again once it passes"
+        );
+    }
+
+    // A waker asked to be woken again holds one timer, the newest, however
+    // often it asked before.
+    #[test]
+    fn a_waker_asking_again_holds_one_timer() {
+        let reactor = Reactor::current().expect("a reactor starts");
+        let waker = Waker::noop().clone();
+        let later = Instant::now() + Duration::from_secs(30);
+        (0..3).for_each(|_| reactor.wake_at(later, waker.clone()));
+        let held = reactor
+            .timers
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|(_, armed)| armed.will_wake(&waker))
+            .count();
+        assert_eq!(
+            held, 1,
+            "a waker asked to be woken three times must hold one timer, the newest"
         );
     }
 }
