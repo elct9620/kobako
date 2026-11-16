@@ -381,6 +381,16 @@ fn glob_matches(pattern: &str, path: &str) -> bool {
     pattern[at..].iter().all(|own| *own == "**")
 }
 
+/// Refuses port zero, which no connection reaches.
+fn refuse_port_zero(host: &str, port: u16) -> Result<(), EntryError> {
+    if port == 0 {
+        return Err(EntryError(format!(
+            "an endpoint's port must not be zero, got {host}:0"
+        )));
+    }
+    Ok(())
+}
+
 impl Endpoint {
     /// An endpoint at `host` and `port`, speaking HTTP and leading only to
     /// public addresses, refused for an empty host or port zero, which no
@@ -392,11 +402,7 @@ impl Endpoint {
                 "an endpoint's host must not be empty".to_string(),
             ));
         }
-        if port == 0 {
-            return Err(EntryError(format!(
-                "an endpoint's port must not be zero, got {host}:0"
-            )));
-        }
+        refuse_port_zero(&host, port)?;
         Ok(Self {
             host,
             port,

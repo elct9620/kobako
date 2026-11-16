@@ -6,7 +6,7 @@
 use std::fmt;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use super::{Action, Addresses, Endpoint, EntryError, HttpRule, Protocol};
+use super::{refuse_port_zero, Action, Addresses, Endpoint, EntryError, HttpRule, Protocol};
 use crate::Errno;
 
 /// Where an address falls, by IANA's special-purpose registries.
@@ -395,13 +395,15 @@ pub struct Ruleset {
 
 impl Ruleset {
     /// The ruleset of `endpoints`, refused for an endpoint whose host names no
-    /// address, prefix, or name, and for a wildcard leading to `private` or
-    /// `local`, where a guest-controlled name beneath it could reach.
+    /// address, prefix, or name, or whose port is zero, and for a wildcard
+    /// leading to `private` or `local`, where a guest-controlled name beneath
+    /// it could reach.
     pub fn new(endpoints: impl IntoIterator<Item = Endpoint>) -> Result<Self, EntryError> {
         let rules = endpoints
             .into_iter()
             .map(|endpoint| {
                 let host = parse_host(&endpoint.host)?;
+                refuse_port_zero(&endpoint.host, endpoint.port)?;
                 if matches!(host, Pattern::Wildcard(_))
                     && endpoint
                         .addresses
@@ -571,9 +573,9 @@ mod tests {
                 AddressSet::Reserved,
                 AddressSet::Public,
             ],
-            "address_set_of must class each address by IANA's registries, judging an IPv6 address \
-             carrying an IPv4 one as the IPv4 inside, and an IPv6 address public only within \
-             2000::/3 and outside every block the registry says no route reaches"
+            "each address must fall in the address set IANA's registries give it, an IPv6 address \
+             carrying an IPv4 one judged as the IPv4 inside, and an IPv6 address public only \
+             within 2000::/3 and outside every block the registry says no route reaches"
         );
     }
 
@@ -604,8 +606,8 @@ mod tests {
                 admit("127.0.0.1:4567", Protocol::Udp),
             ],
             [true, true, false, false, false],
-            "Ruleset::admit_literal must pass an address only through an endpoint whose address \
-             host holds it, at its port and protocol"
+            "a connect to an address must pass only through an endpoint whose address host holds \
+             it, at its port and protocol"
         );
     }
 
@@ -623,7 +625,8 @@ mod tests {
                 && rules
                     .admit_literal("224.0.0.1:80".parse().unwrap(), Protocol::Tcp)
                     .is_err(),
-            "Ruleset::admit_literal must refuse a metadata or reserved address an endpoint names"
+            "a connect to a metadata or reserved address must be refused though an endpoint \
+             names it"
         );
     }
 
@@ -635,7 +638,7 @@ mod tests {
             rules
                 .admit_literal("127.0.0.1:8080".parse().unwrap(), Protocol::Tcp)
                 .is_err(),
-            "Ruleset::admit_literal of raw TCP to an http endpoint's address must be refused"
+            "a raw TCP connect to an http endpoint's address must be refused"
         );
     }
 
@@ -686,8 +689,20 @@ mod tests {
                 ]),
             ],
             [false, false, true],
-            "Ruleset::new must refuse a wildcard endpoint leading to private or local addresses, \
-             and keep one leading to public addresses or a CIDR"
+            "an invocation's ruleset must refuse a wildcard endpoint leading to private or local \
+             addresses, and keep one leading to public addresses or a CIDR"
+        );
+    }
+
+    // @behavior NW-008
+    #[test]
+    fn an_endpoint_whose_port_turns_zero_is_refused() {
+        let mut endpoint = Endpoint::new("api.example.com", 443).unwrap();
+        endpoint.port = 0;
+        assert!(
+            Ruleset::new([endpoint]).is_err(),
+            "an invocation's ruleset must refuse an endpoint whose port was set to zero after \
+             Endpoint::new built it"
         );
     }
 
