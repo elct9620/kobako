@@ -81,6 +81,13 @@ impl TcpSockets {
         sockets.retain(|sock| sock.strong_count() > 0);
         sockets.push(Arc::downgrade(sock));
     }
+
+    /// Every socket still held, so a test reaches one a proxy dialed.
+    #[cfg(test)]
+    pub(crate) fn held(&self) -> Vec<Arc<TcpSock>> {
+        let sockets = self.0.lock().unwrap_or_else(PoisonError::into_inner);
+        sockets.iter().filter_map(Weak::upgrade).collect()
+    }
 }
 
 /// The Invocation's end lets go of every orphan still sending, so nothing it

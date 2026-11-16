@@ -446,6 +446,18 @@ impl TcpSock {
         state.orphan.take()
     }
 
+    /// Lock the host socket's send buffer at `size`, so the host stops
+    /// taking bytes once it holds that many, as a test needs a connection
+    /// still sending.
+    #[cfg(test)]
+    pub(crate) fn lock_host_send_buffer(&self, size: usize) {
+        if let Some((stream, _)) = self.state().host.as_ref() {
+            SockRef::from(stream)
+                .set_send_buffer_size(size)
+                .expect("the host socket takes a send buffer size");
+        }
+    }
+
     /// Let go of an orphan still sending, as the Invocation's end does with
     /// whatever its sockets still hold.
     pub(crate) fn abandon(&self) {

@@ -1235,6 +1235,11 @@ mod tests {
             crate::net::send(&namespace, &cred, request).expect("the endpoint admits it");
         // The peer accepts and never reads, so the request's bytes stay queued.
         let (peer, _) = listener.accept().expect("the listener accepts");
+        // A locked send buffer stops Linux from growing it, so the host
+        // socket fills and the connection's own queue still holds bytes.
+        for upstream in namespace.tcp_sockets().held() {
+            upstream.lock_host_send_buffer(4096);
+        }
         thread::sleep(Duration::from_millis(200));
         exchange.release();
         let while_sending = crate::net::send(&namespace, &cred, greeting_request(&authority)).err();
