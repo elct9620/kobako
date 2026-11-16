@@ -6,6 +6,7 @@
 
 use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::future::poll_fn;
 use std::hash::{BuildHasher, Hasher};
 use std::io::{self, Read, Write};
@@ -172,19 +173,36 @@ enum Reply {
 }
 
 /// Each server in turn, `attempts` rounds over all, as `res_send` tries
-/// them, until one answers; a server it cannot reach gives way to the next.
-/// None answering is `Again`, as `res_query` reads `res_send`'s failure as
-/// `TRY_AGAIN`.
+/// them, until one answers; a server it cannot connect to or hear from gives
+/// way to the next. None answering, or a socket that cannot open, is
+/// `Again`, as `res_query` reads `res_send`'s failure as `TRY_AGAIN`.
 async fn ask(conf: Conf, name: String) -> Result<Vec<IpAddr>, LookupError> {
     for _ in 0..conf.attempts {
         for (place, server) in conf.nameservers.iter().enumerate() {
-            if let Ok(Some(found)) = exchange(*server, &name, conf.timeout_of(place)).await {
-                return Ok(found);
+            match exchange(*server, &name, conf.timeout_of(place)).await {
+                Ok(Some(found)) => return Ok(found),
+                Err(err) if err.get_ref().is_some_and(|inner| inner.is::<Unopened>()) => {
+                    return Err(LookupError::Again)
+                }
+                _ => {}
             }
         }
     }
     Err(LookupError::Again)
 }
+
+/// A socket that could not open, which ends the lookup, as `res_send` gives
+/// up once `socket` fails rather than ask the next server.
+#[derive(Debug)]
+struct Unopened(io::Error);
+
+impl fmt::Display for Unopened {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "the socket could not open: {}", self.0)
+    }
+}
+
+impl std::error::Error for Unopened {}
 
 /// Ask `server` for `name`'s AAAA and A records, as glibc's `send_dg` asks:
 /// both at once, then, when the time runs out with one replied, the other
@@ -274,7 +292,7 @@ async fn ask_over_tcp(
 fn encode_query(id: u16, name: &str, rtype: TYPE) -> io::Result<Vec<u8>> {
     let mut packet = Packet::new_query(id);
     packet.set_flags(PacketFlag::RECURSION_DESIRED);
-    let qname = Name::new(name).map_err(|_| io::ErrorKind::InvalidInput)?;
+    let qname = Name::new(name).map_err(io::Error::other)?;
     packet.questions.push(Question::new(
         qname,
         QTYPE::TYPE(rtype),
@@ -370,7 +388,8 @@ impl WatchedSocket<mio::net::UdpSocket> {
     /// A UDP socket connected to `server`, so the host takes replies from
     /// that server alone.
     fn connect_udp(server: SocketAddr) -> io::Result<Self> {
-        let socket = mio::net::UdpSocket::bind(super::any_address_of(server))?;
+        let socket = mio::net::UdpSocket::bind(super::any_address_of(server))
+            .map_err(|err| io::Error::other(Unopened(err)))?;
         socket.connect(server)?;
         Self::watch(socket)
     }

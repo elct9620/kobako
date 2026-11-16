@@ -438,13 +438,14 @@ fn a_name_res_hnok_refuses_answers_no_name_unasked() {
                 "a..test".to_string(),
                 format!("{}.test", "a".repeat(63)),
                 format!("{}.test", "a".repeat(64)),
-                vec!["a".repeat(63); 4].join("."),
+                format!("{}.{}", vec!["a".repeat(63); 3].join("."), "a".repeat(61)),
+                format!("{}.{}", vec!["a".repeat(63); 3].join("."), "a".repeat(62)),
             ]
             .map(|name| is_host_name(&name)),
             wait_for(resolve("a!b.test.")),
         ),
         (
-            [true, false, false, false, true, false, false],
+            [true, false, false, false, true, false, true, false],
             Some(Err(LookupError::NoName))
         ),
         "a name of letters, digits, '-', and '_' in labels of 1 to 63 bytes, at most 255 bytes \
