@@ -16,7 +16,7 @@ use std::task::{Context, Poll};
 use mio::unix::SourceFd;
 
 use super::ReadyWaker;
-use crate::net::lookup::Resolving;
+use crate::net::lookup::{LookupError, Resolving};
 use crate::net::reactor::{Reactor, Ready, Registration};
 
 /// `DNSServiceRef`, an opaque handle to one query.
@@ -60,10 +60,16 @@ extern "C" {
     fn DNSServiceRefDeallocate(sd_ref: ServiceRef);
 }
 
+/// `name`'s addresses. A name holding a NUL is `NoName`, as no query can
+/// carry it; any other failure is `Again`, as `kDNSServiceErr_Timeout` and an
+/// unreachable mDNSResponder leave a lookup that asking again may answer.
 pub(super) fn resolve(name: &str) -> Resolving {
     match Lookup::start(name) {
         Ok(lookup) => Box::pin(lookup),
-        Err(err) => Box::pin(std::future::ready(Err(err))),
+        Err(err) if err.kind() == io::ErrorKind::InvalidInput => {
+            Box::pin(std::future::ready(Err(LookupError::NoName)))
+        }
+        Err(_) => Box::pin(std::future::ready(Err(LookupError::Again))),
     }
 }
 
@@ -239,7 +245,7 @@ impl Lookup {
 }
 
 impl Future for Lookup {
-    type Output = io::Result<Vec<IpAddr>>;
+    type Output = Result<Vec<IpAddr>, LookupError>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         // The waker is in place before the sockets are read, so a reply
@@ -261,7 +267,7 @@ impl Future for Lookup {
             .flat_map(|query| query.replies().addresses.iter().copied())
             .collect();
         match addresses.is_empty() && self.queries.iter().any(|query| query.replies().failed) {
-            true => Poll::Ready(Err(io::Error::other("the system resolver failed"))),
+            true => Poll::Ready(Err(LookupError::Again)),
             false => Poll::Ready(Ok(addresses)),
         }
     }

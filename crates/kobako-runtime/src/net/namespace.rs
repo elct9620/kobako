@@ -909,6 +909,44 @@ mod tests {
         );
     }
 
+    /// A resolver failing each name by the kind its first label spells.
+    struct FailsByKind;
+
+    impl Resolver for FailsByKind {
+        fn resolve(&self, name: &str) -> crate::net::Resolving {
+            let failure = match name.split('.').next() {
+                Some("again") => LookupError::Again,
+                Some("fail") => LookupError::Fail,
+                _ => LookupError::NoName,
+            };
+            Box::pin(std::future::ready(Err(failure)))
+        }
+    }
+
+    // @behavior NW-228
+    #[test]
+    fn a_lookup_answers_the_kind_of_failure_its_resolver_names() {
+        let mut entry = crate::network::Builder::default();
+        entry.endpoint(tcp("*.example.com", 443));
+        let network = Network::new("names", Arc::new(entry)).unwrap();
+        let backends = Backends::new(Arc::new(ResolvesNames::default()), Arc::new(FailsByKind));
+        let namespace = Namespace::new([&network], &backends, OpenConnections::new(None), None)
+            .expect("the endpoints compile");
+        let answers = ["gone.example.com", "again.example.com", "fail.example.com"]
+            .map(|name| wait_for_answer(&resolve(&namespace, name).unwrap()));
+        assert_eq!(
+            answers,
+            [
+                Err(LookupError::NoName),
+                Err(LookupError::Again),
+                Err(LookupError::Fail)
+            ],
+            "a guest's lookup must answer name-unresolvable, temporary-resolver-failure, or \
+             permanent-resolver-failure as the resolver finds no address, cannot answer now, or \
+             cannot answer at all"
+        );
+    }
+
     // @behavior NW-154
     #[test]
     fn a_connect_is_refused_when_the_hosts_own_addresses_cannot_be_read() {

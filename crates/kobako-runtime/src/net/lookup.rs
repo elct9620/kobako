@@ -6,7 +6,6 @@
 //! query.
 
 use std::future::Future;
-use std::io;
 use std::net::IpAddr;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -23,7 +22,7 @@ use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
 /// A name's addresses still coming, which the reactor polls, as reqwest's
 /// `Resolving` is.
-pub type Resolving = Pin<Box<dyn Future<Output = io::Result<Vec<IpAddr>>> + Send>>;
+pub type Resolving = Pin<Box<dyn Future<Output = Result<Vec<IpAddr>, LookupError>> + Send>>;
 
 /// What answers a name, as userspace's `getaddrinfo` does in Linux, apart
 /// from the Protocol Family that dials what it answered. The guest's lookups
@@ -33,8 +32,10 @@ pub trait Resolver: Send + Sync {
     /// called on the thread that asks, never the reactor, so starting a query
     /// may wait briefly as a system call does; the future runs on kobako's
     /// reactor, so polling it never blocks, and dropping it cancels the
-    /// query, so no query outlives the lookup that asked. A resolver that
-    /// resolves nothing answers `Unsupported`.
+    /// query, so no query outlives the lookup that asked. A failure names
+    /// its kind as an NSS module reports `h_errno` to `getaddrinfo`: no
+    /// address answers `NoName` or an empty list, a resolver it cannot reach
+    /// now `Again`, and one that cannot answer the name at all `Fail`.
     fn resolve(&self, name: &str) -> Resolving;
 }
 
@@ -51,7 +52,8 @@ pub enum LookupError {
     NoName,
     /// `EAI_FAIL`: the resolver cannot answer this name at all.
     Fail,
-    /// `EAI_AGAIN`: the lookup cannot start now, as a full cap leaves it.
+    /// `EAI_AGAIN`: no answer now, as a full cap, a timeout, or a server
+    /// failure leaves it; asking again may answer.
     Again,
 }
 
@@ -101,9 +103,7 @@ impl NameLookup {
             let _place = place;
             let found = match resolving.await {
                 Ok(addresses) if addresses.is_empty() => Err(LookupError::NoName),
-                Ok(addresses) => Ok(addresses),
-                Err(err) if err.kind() == io::ErrorKind::Unsupported => Err(LookupError::Fail),
-                Err(_) => Err(LookupError::NoName),
+                found => found,
             };
             *answering.lock().unwrap_or_else(PoisonError::into_inner) = Some(found);
             waking.wake_up();

@@ -120,6 +120,7 @@ pub(crate) mod testing {
     use std::task::{Context, Poll};
 
     use super::{ProtocolFamily, Resolver};
+    use crate::net::lookup::LookupError;
 
     /// A family refusing every dial, TCP or UDP, counting how often it is
     /// asked, beside a resolver that resolves nothing.
@@ -147,7 +148,7 @@ pub(crate) mod testing {
 
     impl Resolver for CountsDials {
         fn resolve(&self, _name: &str) -> crate::net::Resolving {
-            Box::pin(std::future::ready(Err(io::ErrorKind::Unsupported.into())))
+            Box::pin(std::future::ready(Err(LookupError::Fail)))
         }
     }
 
@@ -189,7 +190,7 @@ pub(crate) mod testing {
     struct Stalled(Arc<AtomicUsize>);
 
     impl Future for Stalled {
-        type Output = io::Result<Vec<IpAddr>>;
+        type Output = Result<Vec<IpAddr>, LookupError>;
 
         fn poll(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<Self::Output> {
             Poll::Pending

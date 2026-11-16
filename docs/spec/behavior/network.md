@@ -87,6 +87,7 @@ endpoint "api.example.com", port: 443
 - `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/connections.rs`
 - `crates/kobako-runtime/src/net/lookup.rs`
+- `crates/kobako-runtime/src/net/resolv/stub/tests.rs`
 - `crates/kobako-runtime/src/net/udp.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
 - `crates/kobako-wasmtime/src/preview2/http.rs`
@@ -2851,3 +2852,16 @@ endpoint "api.example.com", port: 443
 | Given | a Mock routing an address over UDP to a test peer, and a `udp` endpoint naming it |
 | When | the guest's UDPSocket connects to that name and reads a reply. It then connects to an address routed only over TCP, and to one refused over UDP |
 | Then | the peer's reply reads back. A route or a refusal holds for its own protocol, so the TCP-only address raises `Errno::ECONNREFUSED`. The refused one raises the refusal's errno. Each fails as it connects, alike on every host. A connect again reaches its new peer through the route. The Mock reads back each address dialed |
+
+## `NW-228` A lookup's failure answers its kind, as getaddrinfo's EAI code does
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-024` |
+| relates | `NW-030` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a resolver that finds no address for one name, cannot answer another now, and cannot answer a third at all |
+| When | the guest looks each name up |
+| Then | each answers `name-unresolvable`, `temporary-resolver-failure`, and `permanent-resolver-failure`, as `getaddrinfo` answers `EAI_NONAME`, `EAI_AGAIN`, and `EAI_FAIL`. When no name server answers, the host's resolver answers `temporary-resolver-failure`, as glibc reads it as `TRY_AGAIN`. A name no query can carry answers `name-unresolvable` |

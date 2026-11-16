@@ -17,16 +17,29 @@ use windows_sys::Win32::Foundation::HANDLE;
 use windows_sys::Win32::Networking::WinSock::{
     FreeAddrInfoExW, GetAddrInfoExCancel, GetAddrInfoExW, WSAStartup, ADDRINFOEXW, AF_INET,
     AF_INET6, AF_UNSPEC, IPPROTO_TCP, NS_ALL, SOCKADDR_IN, SOCKADDR_IN6, SOCK_STREAM, WSADATA,
-    WSA_IO_PENDING,
+    WSAEINVAL, WSAHOST_NOT_FOUND, WSANO_DATA, WSANO_RECOVERY, WSA_IO_PENDING,
 };
 use windows_sys::Win32::System::IO::OVERLAPPED;
 
-use crate::net::lookup::Resolving;
+use crate::net::lookup::{LookupError, Resolving};
 
+/// `name`'s addresses; Winsock that cannot start is `Again`.
 pub(super) fn resolve(name: &str) -> Resolving {
     match Query::start(name) {
         Ok(query) => Box::pin(query),
-        Err(err) => Box::pin(std::future::ready(Err(err))),
+        Err(_) => Box::pin(std::future::ready(Err(LookupError::Again))),
+    }
+}
+
+/// The kind of `error`, a Winsock code, as Windows' `getaddrinfo` pairs
+/// `WSAHOST_NOT_FOUND` with `EAI_NONAME`, `WSANO_RECOVERY` with `EAI_FAIL`,
+/// and `WSATRY_AGAIN` with `EAI_AGAIN`. A name no query can carry is
+/// `NoName`; any other failure leaves a lookup asking again may answer.
+fn lookup_error_of(error: i32) -> LookupError {
+    match error {
+        WSAHOST_NOT_FOUND | WSANO_DATA | WSAEINVAL => LookupError::NoName,
+        WSANO_RECOVERY => LookupError::Fail,
+        _ => LookupError::Again,
     }
 }
 
@@ -65,7 +78,7 @@ thread_local! {
 
 #[derive(Default)]
 struct State {
-    answer: Option<io::Result<Vec<IpAddr>>>,
+    answer: Option<Result<Vec<IpAddr>, LookupError>>,
     waker: Option<Waker>,
 }
 
@@ -120,7 +133,7 @@ impl QueryContext {
         let result = unsafe { std::mem::replace(&mut *self.result.get(), null_mut()) };
         let answer = match error {
             0 => Ok(unsafe { addresses_of(result) }),
-            code => Err(io::Error::from_raw_os_error(code as i32)),
+            code => Err(lookup_error_of(code as i32)),
         };
         if !result.is_null() {
             unsafe { FreeAddrInfoExW(result) };
@@ -216,7 +229,7 @@ impl Query {
 }
 
 impl Future for Query {
-    type Output = io::Result<Vec<IpAddr>>;
+    type Output = Result<Vec<IpAddr>, LookupError>;
 
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         let mut state = self.context.state();

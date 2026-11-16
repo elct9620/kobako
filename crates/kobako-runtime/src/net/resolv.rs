@@ -103,7 +103,6 @@ impl Ready for ReadyWaker {
 #[cfg(test)]
 mod tests {
     use std::future::Future;
-    use std::io;
     use std::net::IpAddr;
     use std::sync::Arc;
     use std::task::{Context, Poll, Wake};
@@ -111,6 +110,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use super::resolve;
+    use crate::net::lookup::LookupError;
 
     /// Wakes the thread that polls.
     struct Unparks(Thread);
@@ -137,7 +137,7 @@ mod tests {
     }
 
     /// `name`'s answer, or `None` once ten seconds pass unanswered.
-    fn answer_of(name: &str) -> Option<io::Result<Vec<IpAddr>>> {
+    fn answer_of(name: &str) -> Option<Result<Vec<IpAddr>, LookupError>> {
         wait_for(resolve(name))
     }
 

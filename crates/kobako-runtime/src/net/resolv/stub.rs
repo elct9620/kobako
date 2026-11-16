@@ -19,7 +19,7 @@ use simple_dns::rdata::RData;
 use simple_dns::{Name, Packet, PacketFlag, Question, CLASS, QCLASS, QTYPE, RCODE, TYPE};
 
 use super::ReadyWaker;
-use crate::net::lookup::Resolving;
+use crate::net::lookup::{LookupError, Resolving};
 use crate::net::reactor::{Reactor, Ready, Registration};
 
 /// glibc's `RES_TIMEOUT`, `RES_DFLRETRY`, `RES_MAXRETRANS`, `RES_MAXRETRY`,
@@ -127,19 +127,22 @@ enum Reply {
 }
 
 /// Each server in turn, `attempts` rounds over all, as `res_send` tries
-/// them, until one answers.
-async fn ask(conf: Conf, name: String) -> io::Result<Vec<IpAddr>> {
+/// them, until one answers. None answering is `Again`, as `res_query` reads
+/// `res_send`'s failure as `TRY_AGAIN`; a name no query can carry is
+/// `NoName`, as `res_nmkquery` failing is.
+async fn ask(conf: Conf, name: String) -> Result<Vec<IpAddr>, LookupError> {
     for _ in 0..conf.attempts {
         for server in &conf.nameservers {
-            if let Ok(Some(found)) = exchange(*server, &name, conf.timeout).await {
-                return Ok(found);
+            match exchange(*server, &name, conf.timeout).await {
+                Ok(Some(found)) => return Ok(found),
+                Err(err) if err.kind() == io::ErrorKind::InvalidInput => {
+                    return Err(LookupError::NoName)
+                }
+                _ => {}
             }
         }
     }
-    Err(io::Error::new(
-        io::ErrorKind::TimedOut,
-        "no name server answered",
-    ))
+    Err(LookupError::Again)
 }
 
 /// Ask `server` for `name`'s AAAA and A records, as glibc's `send_dg` asks:
@@ -226,7 +229,8 @@ async fn ask_over_tcp(
     Ok(reply_of(&reply, id, name, rtype))
 }
 
-/// Encode a query for `name`'s `rtype` records, recursion desired.
+/// Encode a query for `name`'s `rtype` records, recursion desired;
+/// `InvalidInput` when no query can carry the name.
 fn encode_query(id: u16, name: &str, rtype: TYPE) -> io::Result<Vec<u8>> {
     let mut packet = Packet::new_query(id);
     packet.set_flags(PacketFlag::RECURSION_DESIRED);
@@ -237,7 +241,9 @@ fn encode_query(id: u16, name: &str, rtype: TYPE) -> io::Result<Vec<u8>> {
         QCLASS::CLASS(CLASS::IN),
         false,
     ));
-    packet.build_bytes_vec().map_err(io::Error::other)
+    packet
+        .build_bytes_vec()
+        .map_err(|_| io::ErrorKind::InvalidInput.into())
 }
 
 /// What `bytes` says of the question `id` asked, or `None` when it is no

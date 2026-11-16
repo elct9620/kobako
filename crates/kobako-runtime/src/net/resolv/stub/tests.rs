@@ -275,6 +275,25 @@ fn a_silent_server_gives_way_to_the_next() {
     );
 }
 
+// @behavior NW-228
+#[test]
+fn no_server_answering_is_a_temporary_failure_and_an_unaskable_name_no_name() {
+    let silent = serve_udp(|_| None);
+    let long_label = format!("{}.test", "a".repeat(64));
+    assert_eq!(
+        (
+            wait_for(ask(conf_of(vec![silent]), "app.test".into())),
+            wait_for(ask(conf_of(vec![silent]), long_label)),
+        ),
+        (
+            Some(Err(LookupError::Again)),
+            Some(Err(LookupError::NoName))
+        ),
+        "a lookup no name server answers must answer temporary-resolver-failure, as glibc's \
+         EAI_AGAIN, and one whose name no query can carry name-unresolvable"
+    );
+}
+
 #[test]
 fn a_truncated_reply_is_asked_again_over_tcp() {
     let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
