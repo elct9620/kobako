@@ -154,7 +154,9 @@ async fn exchange(
     let questions = [TYPE::AAAA, TYPE::A].map(|rtype| (draw_id(), rtype));
     let mut socket = WatchedSocket::connect_udp(server)?;
     for (id, rtype) in questions {
-        socket.send(&encode_query(id, name, rtype)?, deadline).await?;
+        socket
+            .send(&encode_query(id, name, rtype)?, deadline)
+            .await?;
     }
     let mut replies: [Option<Reply>; 2] = [None, None];
     let mut buffer = [0u8; MAX_UDP_REPLY];

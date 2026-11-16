@@ -24,8 +24,8 @@ use core::ffi::c_int;
 
 use beni::{Error, IntoValue, Module, Mrb, RClass, RString, Symbol, Value};
 
-use crate::file::fstat_of;
 use crate::convert::num2int;
+use crate::file::fstat_of;
 use crate::io::{checked_fd, is_closed, read_length_of, release, strbuf_length_of, Stream};
 use crate::lines::{self, LineSource};
 use crate::{descriptors, errno};

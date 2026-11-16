@@ -7,8 +7,8 @@ use beni::prelude::*;
 use beni::value::qnil;
 use beni::{Error, Mrb, RHash, RString, Symbol, TryConvert, Value};
 
-use crate::convert::{responds_to, string_value_of};
 use crate::convert::to_int;
+use crate::convert::{responds_to, string_value_of};
 use crate::io::{argument_error, required_block};
 
 /// What a stream reads lines from: the next bytes it has, `None` at the end,

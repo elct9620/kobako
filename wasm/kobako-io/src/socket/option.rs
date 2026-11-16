@@ -562,7 +562,9 @@ fn option_s_int(
     optname: Value,
     int: Value,
 ) -> Result<Value, Error> {
-    let data = (crate::convert::num2int(mrb, int)? as i32).to_le_bytes().to_vec();
+    let data = (crate::convert::num2int(mrb, int)? as i32)
+        .to_le_bytes()
+        .to_vec();
     new_option(mrb, class, (family, level, optname), data)
 }
 

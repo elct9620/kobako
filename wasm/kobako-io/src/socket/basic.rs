@@ -16,9 +16,9 @@ use super::buffer::fill;
 use super::ip::to_addr_array;
 use super::option::Refusal;
 use super::tcp::Connection;
+use crate::convert::to_int;
 use crate::convert::{string_bytes_of, string_value_of};
 use crate::errno::{self, eof_error};
-use crate::convert::to_int;
 use crate::io::{argument_error, split_options, strbuf_length_of, would_wait, Direction};
 use crate::wasi::wasi::io::poll::Pollable;
 

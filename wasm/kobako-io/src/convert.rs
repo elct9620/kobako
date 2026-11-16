@@ -81,9 +81,7 @@ pub(crate) fn to_int(mrb: &Mrb, obj: Value) -> Result<Integer, Error> {
         ));
     }
     if !obj.is_nil() {
-        if let Some(int) =
-            check_funcall(mrb, obj, c"to_int")?.and_then(Integer::from_value)
-        {
+        if let Some(int) = check_funcall(mrb, obj, c"to_int")?.and_then(Integer::from_value) {
             return Ok(int);
         }
     }
