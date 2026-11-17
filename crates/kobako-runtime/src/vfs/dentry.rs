@@ -1266,7 +1266,17 @@ mod tests {
             "leaf",
         ));
         let beside = kept(negative(&dentries, &root, "other"));
-        dentries.invalidate(&dir, super::RENAME_LOCK.read_seqbegin());
+        // The rename lock is the process's, so another test's rename can
+        // move it between the read and the invalidation, which then keeps
+        // the name as a raced revalidation does; ask again until one ran
+        // undisturbed.
+        loop {
+            let asked = super::RENAME_LOCK.read_seqbegin();
+            dentries.invalidate(&dir, asked);
+            if !super::RENAME_LOCK.read_seqretry(asked) {
+                break;
+            }
+        }
         assert_eq!(
             (beneath.upgrade().is_some(), beside.upgrade().is_some()),
             (false, true),
