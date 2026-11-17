@@ -22,6 +22,7 @@ endpoint "api.example.com", port: 443
 
 - `test/e2e/test_network.rb`
 - `test/e2e/test_network_builder.rb`
+- `test/e2e/test_network_entry_text.rb`
 - `test/e2e/test_network_tcp.rb`
 - `test/e2e/test_network_tcp_cruby.rb`
 - `test/e2e/test_network_tcp_arguments.rb`
@@ -83,6 +84,8 @@ endpoint "api.example.com", port: 443
 - `crates/kobako-runtime/src/network.rs`
 - `crates/kobako-runtime/src/network/builder.rs`
 - `crates/kobako-runtime/src/network/ruleset.rs`
+- `crates/kobako-runtime/src/errno.rs`
+- `crates/kobako-runtime/src/net/socket.rs`
 - `crates/kobako-runtime/src/net/http.rs`
 - `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/connections.rs`
