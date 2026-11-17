@@ -314,6 +314,13 @@ impl SocketsHost for Invocation {
         self.table_mut().delete(handle).map(drop)
     }
 
+    /// The error code a stream's failure maps to, as a socket call's would,
+    /// so the guest reads it without parsing `to-debug-string`.
+    fn network_network_error_code(&mut self, err: Error) -> wasmtime::Result<Option<ErrorCode>> {
+        let err = &self.table_mut().get(err)?.0;
+        Ok(Some(sockets::to_error_code(err)))
+    }
+
     /// A lookup of `name`, answered through the stream it hands out. Without a
     /// network Grant no resolver answers, as WASI's `permanent-resolver-failure`
     /// says of a host without one.
@@ -3861,6 +3868,25 @@ mod tests {
             linked, expected,
             "the Wasm Driver must link exactly the preview2 functions some data/*.wasm imports \
              and those a scenario answers ahead of the guest"
+        );
+    }
+
+    // @behavior NW-230
+    #[test]
+    fn a_stream_failure_downcasts_to_the_code_a_socket_call_answers() {
+        let (mut store, _) = guest(Profile::Hermetic, None);
+        let guest = store.data_mut();
+        let failure = guest
+            .table_mut()
+            .push(io::Error(Errno::ConnectionReset))
+            .unwrap();
+        let code = guest.network_network_error_code(failure).unwrap();
+        let described = guest.error_error_to_debug_string(failure).unwrap();
+        assert_eq!(
+            (code, described.as_str()),
+            (Some(ErrorCode::ConnectionReset), "ECONNRESET"),
+            "network-error-code on a stream's ECONNRESET must answer connection-reset, as a socket \
+             call's failure does, while to-debug-string still names it for people"
         );
     }
 

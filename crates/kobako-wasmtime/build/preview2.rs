@@ -26,6 +26,11 @@ const PACKAGES: [&str; 7] = [
     "http.wit",
 ];
 
+/// The unstable WIT features kobako answers: a stream's failure reaches the
+/// guest as the error code `network-error-code` downcasts it to, as the guest
+/// may not read `to-debug-string` mechanically.
+const FEATURES: &[&str] = &["network-error-code"];
+
 /// The functions kobako answers, each interface's by its WIT name, resource
 /// drops included: those a Guest Binary imports, and those a scenario holds
 /// an answer to. No other links, so a call no answer was written for fails to
@@ -57,7 +62,10 @@ const IMPORTS: &[(&str, &[&str])] = &[
         "wasi:clocks/monotonic-clock@0.2.12",
         &["subscribe-duration"],
     ),
-    ("wasi:sockets/network@0.2.12", &["[resource-drop]network"]),
+    (
+        "wasi:sockets/network@0.2.12",
+        &["[resource-drop]network", "network-error-code"],
+    ),
     (
         "wasi:sockets/instance-network@0.2.12",
         &["instance-network"],
@@ -273,6 +281,9 @@ const HOSTS: &str = "crate::preview2";
 
 pub fn generate(wit: &Path) -> anyhow::Result<String> {
     let mut resolve = Resolve::default();
+    resolve
+        .features
+        .extend(FEATURES.iter().map(|f| f.to_string()));
     for package in PACKAGES {
         resolve.push_file(wit.join(package))?;
     }

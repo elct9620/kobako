@@ -84,6 +84,7 @@ class TestE2ENetworkSocketIo < Minitest::Test
   RUBY
 
   # @behavior NW-097
+  # @behavior NW-230
   def test_a_reset_stream_read_raises_econnreset
     with_resetting_server do |port|
       value = loopback_sandbox(port).eval(format(RESET_READ, port: port)).value

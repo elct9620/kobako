@@ -20,6 +20,7 @@ wit_bindgen_rust_macro::generate!({
         "wit/deps/http.wit",
     ],
     world: "kobako:io/guest",
+    features: ["network-error-code"],
     runtime_path: "crate::wasi::rt",
     generate_all,
 });

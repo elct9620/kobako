@@ -2881,3 +2881,16 @@ endpoint "api.example.com", port: 443
 | Given | a guest's connected TCP socket over `wasi:sockets`, bytes still queued that its peer never reads |
 | When | its send side shuts, and it calls `blocking-write-and-flush` on the output stream with no bytes |
 | Then | the call answers `closed` at once, as wasmtime asks the stream for room before it waits |
+
+## `NW-230` A stream's failure reaches the guest as the code `network-error-code` gives
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-097` |
+| relates | `NW-074` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a socket stream whose read or write fails on the host |
+| When | the guest asks `network-error-code` for the failure |
+| Then | it answers the code a socket call's failure maps to, and the guest raises that code's `Errno`. `to-debug-string` only names the failure for people, as `io.wit` warns against parsing it |

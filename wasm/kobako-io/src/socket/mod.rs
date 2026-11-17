@@ -37,7 +37,8 @@ pub(crate) use basic::{is_open_socket, readiness_of, select_readiness_of, Readin
 pub(crate) use buffer::holds_buffered;
 
 use crate::errno;
-use crate::wasi::wasi::sockets::network::ErrorCode;
+use crate::wasi::wasi::io::streams::StreamError;
+use crate::wasi::wasi::sockets::network::{network_error_code, ErrorCode};
 
 /// Define `Socket`, `BasicSocket`, `IPSocket`, `TCPSocket`, and `UDPSocket`.
 pub(crate) fn init(mrb: &Mrb, io: RClass) -> Result<(), Error> {
@@ -266,7 +267,12 @@ fn family_of(mrb: &Mrb, value: Value) -> Result<Family, Error> {
 /// The `Errno` a WASI error code stands for, from `call`, as wasi-libc's
 /// `__wasilibc_map_socket_error` maps each.
 fn to_error(mrb: &Mrb, code: ErrorCode, call: &str) -> Error {
-    let name = match code {
+    errno::error_by_name(mrb, name_of_code(code), call)
+}
+
+/// The POSIX name of the `Errno` a WASI error code stands for.
+fn name_of_code(code: ErrorCode) -> &'static core::ffi::CStr {
+    match code {
         ErrorCode::NotSupported => c"ENOTSUP",
         ErrorCode::AccessDenied => c"EACCES",
         ErrorCode::DatagramTooLarge => c"EMSGSIZE",
@@ -284,8 +290,20 @@ fn to_error(mrb: &Mrb, code: ErrorCode, call: &str) -> Error {
         ErrorCode::InvalidState | ErrorCode::NotInProgress => c"ENOTCONN",
         ErrorCode::ConcurrencyConflict => c"EALREADY",
         _ => c"EOPNOTSUPP",
-    };
-    errno::error_by_name(mrb, name, call)
+    }
+}
+
+/// The `Errno` a socket stream's failure raises, by the error code
+/// `network-error-code` downcasts it to, as a socket call's code maps; the
+/// stream's end, or a failure no code names, raises as any stream's does.
+pub(crate) fn from_stream(mrb: &Mrb, err: StreamError, call: Option<&str>) -> Error {
+    match err {
+        StreamError::LastOperationFailed(failure) => match network_error_code(&failure) {
+            Some(code) => errno::error_in(mrb, name_of_code(code), call),
+            None => errno::from_stream(mrb, StreamError::LastOperationFailed(failure), call),
+        },
+        err => errno::from_stream(mrb, err, call),
+    }
 }
 
 /// `Socket::ResolutionError#error_code`: the `getaddrinfo` code, as Linux

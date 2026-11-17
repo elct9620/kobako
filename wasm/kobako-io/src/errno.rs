@@ -2,7 +2,6 @@
 //! file operation raises, mirroring CRuby's hierarchy with mruby-errno's
 //! wording: `Errno::ENOENT` reads "No such file or directory - path".
 
-use std::ffi::CString;
 use std::io;
 
 use beni::prelude::*;
@@ -317,23 +316,22 @@ fn code_of(err: &io::Error) -> Option<&'static Code> {
 
 /// The error for `err` from an operation on `path`, as the `Errno` class
 /// the failure names, or an `IOError` for one no class names.
-/// The `Errno` a `wasi:io` stream's failure raises, by the POSIX name the
-/// host gives it, as CRuby raises `Errno::ECONNRESET` from a reset socket's
-/// read; it names `call` when there is one, as CRuby's `send` names `send(2)`.
+/// What a `wasi:io` stream's failure raises when it carries no error code:
+/// its end as `Errno::EPIPE`, as CRuby's write to a closed peer raises, and
+/// any other failure as an `IOError` with the host's description; it names
+/// `call` when there is one, as CRuby's `send` names `send(2)`.
 pub(crate) fn from_stream(mrb: &Mrb, err: StreamError, call: Option<&str>) -> Error {
-    let raise = |name: &core::ffi::CStr| match call {
+    match err {
+        StreamError::Closed => error_in(mrb, c"EPIPE", call),
+        StreamError::LastOperationFailed(err) => io_error(mrb, &err.to_debug_string()),
+    }
+}
+
+/// The `Errno` class `name` names, from `call` when there is one.
+pub(crate) fn error_in(mrb: &Mrb, name: &core::ffi::CStr, call: Option<&str>) -> Error {
+    match call {
         Some(call) => error_by_name(mrb, name, call),
         None => error_alone(mrb, name),
-    };
-    match err {
-        StreamError::Closed => raise(c"EPIPE"),
-        StreamError::LastOperationFailed(err) => {
-            let name = err.to_debug_string();
-            match CString::new(name.as_str()) {
-                Ok(name) if is_known(&name) => raise(&name),
-                _ => io_error(mrb, &name),
-            }
-        }
     }
 }
 
@@ -348,11 +346,6 @@ pub(crate) fn from_io(mrb: &Mrb, err: &io::Error, path: &str) -> Error {
 /// `raise e, message` re-raises one with a message of its own.
 pub(crate) fn error_with_message(mrb: &Mrb, name: &core::ffi::CStr, message: &str) -> Error {
     to_error(mrb, errno_class_by_name(mrb, name), message)
-}
-
-/// Whether the guest has an `Errno` class for the POSIX name `name`.
-pub(crate) fn is_known(name: &core::ffi::CStr) -> bool {
-    CODES.iter().any(|code| code.name == name)
 }
 
 /// The message the `Errno` class `name` carries, as `strerror` reads it.
