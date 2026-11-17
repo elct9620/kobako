@@ -316,6 +316,21 @@ mod tests {
         );
     }
 
+    // @behavior NW-228
+    #[test]
+    fn a_lookup_failure_answers_the_code_its_eai_kind_names() {
+        assert_eq!(
+            [LookupError::NoName, LookupError::Again, LookupError::Fail].map(to_lookup_error_code),
+            [
+                ErrorCode::NameUnresolvable,
+                ErrorCode::TemporaryResolverFailure,
+                ErrorCode::PermanentResolverFailure,
+            ],
+            "a lookup failing as EAI_NONAME, EAI_AGAIN, and EAI_FAIL must answer \
+             name-unresolvable, temporary-resolver-failure, and permanent-resolver-failure"
+        );
+    }
+
     // @behavior NW-074
     #[test]
     fn a_host_failure_answers_the_code_wasmtime_wasi_gives_it() {
