@@ -23,7 +23,7 @@ use crate::wait::PollTable;
 
 /// The largest offset a file holds, as Linux's `OFFSET_MAX` ends its signed
 /// `loff_t`.
-const OFFSET_MAX: u64 = i64::MAX as u64;
+pub const OFFSET_MAX: u64 = i64::MAX as u64;
 
 /// The most one read or write takes, as Linux's `MAX_RW_COUNT`, the largest
 /// signed 32-bit count rounded down to a page.

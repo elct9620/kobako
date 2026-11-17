@@ -35,6 +35,7 @@ pub use dentry::{Dentry, DentryOperations};
 pub(crate) use file::alloc_file_pseudo;
 pub use file::{
     generic_file_llseek, generic_write_sync, FMode, File, FileOperations, Kiocb, PollMask, Whence,
+    OFFSET_MAX,
 };
 pub use inode::{Finish, Identity, Inode, InodeOperations, Lookup, Mask, RenameFlag};
 pub use mount::VfsMount;

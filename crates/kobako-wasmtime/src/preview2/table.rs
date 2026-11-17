@@ -28,6 +28,11 @@ pub(crate) trait Handle: Copy {
 /// `ResourceTable::max_capacity` bounds a table.
 pub(crate) const MAX_TABLE_ENTRIES: usize = 1_000_000;
 
+/// The memory one entry holding a resource of kind `H` takes.
+fn bytes_of<H: Handle>() -> usize {
+    size_of::<Entry>() + size_of::<H::Host>()
+}
+
 /// One handle's resource, and the handle it is a child of, as wasmtime's
 /// `ResourceTable` keeps each entry's parent.
 struct Entry {
@@ -108,7 +113,7 @@ impl Table {
     /// file limit or a full table, and as ENOMEM past the Invocation's
     /// memory, both before the file opens.
     pub(crate) fn reserve_file<H: Handle>(&self) -> Result<FileRoom, Errno> {
-        self.reserve(size_of::<Entry>() + size_of::<H::Host>())
+        self.reserve(bytes_of::<H>())
     }
 
     /// The room a file the Driver opened before the guest runs takes: counted
@@ -119,7 +124,7 @@ impl Table {
     }
 
     fn reserve(&self, bytes: usize) -> Result<FileRoom, Errno> {
-        if self.entries.len() >= MAX_TABLE_ENTRIES {
+        if self.is_full() {
             return Err(Errno::TooManyOpenFiles);
         }
         self.open_files.open()?;
@@ -166,14 +171,19 @@ impl Table {
         resource: H::Host,
         parent: Option<u32>,
     ) -> wasmtime::Result<u32> {
-        if self.entries.len() >= MAX_TABLE_ENTRIES {
+        if self.is_full() {
             return Err(wasmtime::Error::msg(
                 "the guest holds as many resources as a table may",
             ));
         }
-        let memory = MemoryCharge::new(&self.memory, size_of::<Entry>() + size_of::<H::Host>())
+        let memory = MemoryCharge::new(&self.memory, bytes_of::<H>())
             .map_err(|_| wasmtime::Error::msg("the guest's resources outgrow its memory"))?;
         Ok(self.place(Box::new(resource), parent, false, memory))
+    }
+
+    /// Whether the table holds as many entries as it may.
+    fn is_full(&self) -> bool {
+        self.entries.len() >= MAX_TABLE_ENTRIES
     }
 
     /// Number `resource` from the free list, else past every number handed

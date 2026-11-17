@@ -272,12 +272,14 @@ impl Pollable {
             Pollable::File(file, mask) => lock(file).poll(table).is_ready_for(*mask),
             Pollable::Exchange(file, _) => lock(file).poll(table).is_ready_for(PollMask::IN),
             Pollable::Output(stream, flushing, closed) => {
-                let found = stream.poll(table);
-                closed.load(Ordering::Acquire)
-                    || found.contains(PollMask::ERR)
-                    || found.contains(PollMask::HUP)
-                    || (found.contains(PollMask::OUT)
-                        && !OutputStream::is_flushing(stream, flushing))
+                // A flush under way asks for nothing more than an error or a
+                // hang-up, which every poll is answered.
+                let asked = if OutputStream::is_flushing(stream, flushing) {
+                    PollMask::ERR
+                } else {
+                    PollMask::OUT
+                };
+                closed.load(Ordering::Acquire) || stream.poll(table).is_ready_for(asked)
             }
             Pollable::TcpSocket(socket) => {
                 lock(&socket.file).poll(table);

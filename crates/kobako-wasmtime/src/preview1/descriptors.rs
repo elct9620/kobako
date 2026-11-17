@@ -133,9 +133,7 @@ impl Descriptors {
     pub(crate) fn place(&mut self, fd: u32, descriptor: Descriptor) {
         self.used.insert(fd, descriptor);
         if fd == self.next_fd {
-            self.next_fd = (fd..=u32::MAX)
-                .find(|fd| !self.used.contains_key(fd))
-                .unwrap_or(u32::MAX);
+            self.next_fd = self.lowest_unused().unwrap_or(u32::MAX);
         }
     }
 
