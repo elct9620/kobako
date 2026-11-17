@@ -60,7 +60,7 @@ impl OverlayFs {
         let moved =
             made.and_then(|()| work.do_rename(&temp, parent, &name, Some(RenameFlag::NoReplace)));
         if let Err(err) = moved {
-            let _ = work.do_rmdir(&temp);
+            self.cleanup_temp(work, &temp);
             return Err(err);
         }
         let _ = parent.set_timestamps(&parent_times);

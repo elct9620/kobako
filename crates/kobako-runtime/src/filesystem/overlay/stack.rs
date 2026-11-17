@@ -19,7 +19,7 @@ mod namei;
 mod readdir;
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
 use super::inode::OverlayDirInode;
 use super::path::OverlayPath;
@@ -228,6 +228,9 @@ pub(super) struct OverlayFs {
     work: Option<OverlayPath>,
     /// The next name a change built in `work` takes.
     temp: Arc<AtomicU64>,
+    /// Names in `work` whose cleanup a run's end cut short, taken out before
+    /// the next change is built there.
+    unfinished: Arc<Mutex<Vec<String>>>,
 }
 
 impl OverlayFs {
@@ -259,6 +262,7 @@ impl OverlayFs {
             roots,
             work,
             temp: Arc::default(),
+            unfinished: Arc::default(),
         })
     }
 
@@ -297,9 +301,85 @@ impl OverlayFs {
 
     /// The workdir and a name in it no change has taken, as overlayfs's
     /// `ovl_tempname` names one.
+    /// What a run's end left there is taken out first, so it never outlives
+    /// the next change.
     fn tempname(&self) -> Result<(&OverlayPath, String), Errno> {
         let work = self.work.as_ref().ok_or(Errno::ReadOnlyFilesystem)?;
+        let unfinished = std::mem::take(&mut *self.unfinished());
+        for temp in unfinished {
+            self.cleanup_temp(work, &temp);
+        }
         let next = self.temp.fetch_add(1, Ordering::Relaxed);
         Ok((work, format!("#{next:x}")))
+    }
+
+    /// Take `temp`, a change built in `work`, out with its whiteouts, as
+    /// overlayfs's `ovl_cleanup` does. Its locks wait as every wait does, so a
+    /// run that must end leaves it for the next `tempname`; anything else
+    /// keeping it, such as another writer's entry, leaves it as overlayfs
+    /// leaves a cleanup it cannot finish.
+    pub(super) fn cleanup_temp(&self, work: &OverlayPath, temp: &str) {
+        let cleaned = ovl_cleanup_whiteouts(work, temp).and_then(|()| ovl_cleanup(work, temp));
+        if cleaned == Err(Errno::Interrupted) {
+            self.unfinished().push(temp.to_string());
+        }
+    }
+
+    fn unfinished(&self) -> std::sync::MutexGuard<'_, Vec<String>> {
+        self.unfinished
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use super::*;
+    use crate::filesystem::Tmpfs;
+
+    // Another thread holds the workdir's lock as this run's deadline passes,
+    // so its cleanup is cut short and only the next change takes it out.
+    // @behavior FS-215
+    #[test]
+    fn a_cleanup_a_runs_end_cut_short_is_finished_by_the_next_change() {
+        let upper = Filesystem::new(Tmpfs::new()).expect("the instance must stand");
+        let lower = Filesystem::new(Tmpfs::new()).expect("the instance must stand");
+        let fs = OverlayFs::new(vec![lower], Some(upper)).expect("the Overlay must stack");
+        let (work, temp) = fs.tempname().expect("the workdir must name a change");
+        work.do_mkdir(&temp).expect("the change must be built");
+        let (held, taken) = std::sync::mpsc::channel();
+        let (release, released) = std::sync::mpsc::channel::<()>();
+        std::thread::scope(|scope| {
+            let holder = scope.spawn(move || {
+                let _lock = work
+                    .dentry()
+                    .inode_lock()
+                    .expect("the workdir lock must be taken");
+                held.send(()).expect("the test must wait for the lock");
+                released.recv().ok();
+            });
+            taken.recv().expect("the holder must take the lock");
+            crate::sched::run_task(Some(Instant::now()), || fs.cleanup_temp(work, &temp));
+            release
+                .send(())
+                .expect("the holder must wait for its release");
+            crate::sched::testing::join_scoped("the lock holder", holder);
+        });
+        let left = names_in(work);
+        fs.tempname()
+            .expect("the workdir must name the next change");
+        assert_eq!(
+            (left, names_in(work)),
+            (vec![temp], Vec::<String>::new()),
+            "a change in an Overlay's workdir whose cleanup a run's end cut short must stay only \
+             until the next change is named there"
+        );
+    }
+
+    fn names_in(dir: &OverlayPath) -> Vec<String> {
+        let entries = dir.entries().expect("the workdir must list");
+        entries.into_iter().map(|entry| entry.name).collect()
     }
 }

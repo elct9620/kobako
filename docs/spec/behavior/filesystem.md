@@ -40,6 +40,7 @@ both live in the upper and never show, so no name is reserved
 
 - `crates/kobako-runtime/src/filesystem/*.rs`
 - `crates/kobako-runtime/src/filesystem/bind/lookup.rs`
+- `crates/kobako-runtime/src/filesystem/overlay/stack.rs`
 
 ## `FS-001` A Tmpfs serves the files it was seeded with
 
@@ -2333,3 +2334,16 @@ both live in the upper and never show, so no name is reserved
 | Given | a lower file that reads past the size its stat reported |
 | When | the file is copied up |
 | Then | the copy holds that size alone, as `ovl_copy_up_file` copies `stat.size` |
+
+## `FS-215` A cleanup a run's end cuts short is finished by the Overlay's next change
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-128` |
+| relates | `RT-267` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose workdir another call holds as a run's deadline passes during a cleanup |
+| When | the Overlay builds its next change |
+| Then | the cut-short entry is gone first, so it never keeps the upper's room past that change |

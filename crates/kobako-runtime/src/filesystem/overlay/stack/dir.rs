@@ -8,10 +8,7 @@ use super::super::super::{Errno, FileOperations, FileType, OpenHow};
 use super::super::file::ovl_file;
 use super::super::inode::{OverlayDirInode, OverlayFileInode};
 use super::super::path::OverlayPath;
-use super::{
-    entry, layer_dir, ovl_cleanup, ovl_cleanup_whiteouts, ovl_lower_positive, OverlayFs, ViewDir,
-    UPPER,
-};
+use super::{entry, layer_dir, ovl_cleanup, ovl_lower_positive, OverlayFs, ViewDir, UPPER};
 use crate::vfs::{Dentry, RenameFlag};
 
 impl OverlayFs {
@@ -26,11 +23,11 @@ impl OverlayFs {
         let is_dir = entry(dir, name)?.is_directory();
         let flag = is_dir.then_some(RenameFlag::Exchange);
         if let Err(err) = work.do_rename(&temp, dir, name, flag) {
-            let _ = work.do_unlink(&temp);
+            self.cleanup_temp(work, &temp);
             return Err(err);
         }
         if is_dir {
-            let _ = ovl_cleanup(work, &temp);
+            self.cleanup_temp(work, &temp);
         }
         Ok(())
     }
@@ -52,10 +49,8 @@ impl OverlayFs {
                 work.do_rename(&temp, dir, name, Some(RenameFlag::Exchange))?;
                 Ok(made)
             })
-            .inspect_err(|_| {
-                let _ = ovl_cleanup(work, &temp);
-            })?;
-        let _ = ovl_cleanup_whiteouts(work, &temp).and_then(|()| ovl_cleanup(work, &temp));
+            .inspect_err(|_| self.cleanup_temp(work, &temp))?;
+        self.cleanup_temp(work, &temp);
         Ok(made)
     }
 
