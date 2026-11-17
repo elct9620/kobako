@@ -9,7 +9,6 @@ use std::io;
 use std::net::{IpAddr, SocketAddr, TcpStream, UdpSocket};
 
 use super::lookup::{Resolver, Resolving};
-use crate::network::{Protocol, Ruleset};
 
 /// What dials the host network.
 pub trait ProtocolFamily: Send + Sync {
@@ -85,24 +84,6 @@ impl Resolver for HostInet {
     }
 }
 
-/// The addresses `real`, resolved from `name`, the ruleset admits to `port`
-/// over `protocol`, judged against the host's own addresses as `family` reads
-/// them. A host whose addresses cannot be read admits none, so an unreadable
-/// interface list refuses a connect rather than judging as if the host had
-/// none. Every path that dials a name passes through here.
-pub(crate) fn admitted_addresses_of(
-    family: &dyn ProtocolFamily,
-    ruleset: &Ruleset,
-    name: &str,
-    real: &[IpAddr],
-    port: u16,
-    protocol: Protocol,
-) -> Vec<SocketAddr> {
-    match family.local_addresses() {
-        Ok(local) => ruleset.admitted_addresses_of(name, real, port, protocol, &local),
-        Err(_) => Vec::new(),
-    }
-}
 
 /// Protocol Families the net tests share.
 #[cfg(test)]

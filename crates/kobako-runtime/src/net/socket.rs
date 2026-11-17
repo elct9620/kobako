@@ -19,7 +19,6 @@ use crate::wait::PollTable;
 use crate::Errno;
 
 use super::connections::{open, OpenConnections, Place};
-use super::family::admitted_addresses_of;
 use super::namespace::TcpSockets;
 use super::{Namespace, ProtocolFamily, TcpSock, UdpSock};
 use crate::network::{Connection, Protocol, Ruleset};
@@ -798,6 +797,25 @@ pub(crate) fn filter_with(
                 .pop()
                 .ok_or(Errno::PermissionDenied)
         }
+    }
+}
+
+/// The addresses `real`, resolved from `name`, the ruleset admits to `port`
+/// over `protocol`, judged against the host's own addresses as `family` reads
+/// them. A host whose addresses cannot be read admits none, so an unreadable
+/// interface list refuses a connect rather than judging as if the host had
+/// none. Every path that dials a name passes through here.
+fn admitted_addresses_of(
+    family: &dyn ProtocolFamily,
+    ruleset: &Ruleset,
+    name: &str,
+    real: &[IpAddr],
+    port: u16,
+    protocol: Protocol,
+) -> Vec<SocketAddr> {
+    match family.local_addresses() {
+        Ok(local) => ruleset.admitted_addresses_of(name, real, port, protocol, &local),
+        Err(_) => Vec::new(),
     }
 }
 
