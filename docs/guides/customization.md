@@ -89,7 +89,7 @@ The types those seams carry, by grade:
 | **append-only, read by an older peer as `Unknown`** | `kobako_transport::envelope::{Downcall, Upcall}` |
 | **append-only, a record an older peer skips or refuses as its sender marked** | `kobako_transport::envelope::Preamble`, re-exported from `kobako_core` |
 | **stable · exhaustive, and governed by the ABI version too** | `kobako_transport::abi::*` · every other `kobako_transport::envelope::*`, six re-exported from `kobako_core` |
-| **experimental** | `kobako_runtime::{Runtime, GuestInstance, DispatchHandler, Yielder, Blocking}` · `kobako_runtime::net::Outbound` · every other public name of `kobako-runtime` |
+| **experimental** | `kobako_runtime::{Runtime, GuestInstance, DispatchHandler, Yielder, Blocking}` · every other public name of `kobako-runtime` |
 
 A re-export keeps the grade of what it re-exports. The `kobako` root re-exports
 `Usage`, `Fault`, `FaultKind`, `Access`, `Policy`, `MountRequest`, `Profile`, and `Filesystem`, and

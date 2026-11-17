@@ -459,11 +459,11 @@ pub struct Response {
 /// What the outbound seam's send runs as on the reactor.
 pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response, HttpError>> + Send>>;
 
-/// The replaceable HTTP sender, as wasmtime's `send_request`. It dials only
-/// through the connector it is handed; one dialing any other way skips every
-/// rule, which is its builder's own choice. The future runs on kobako's
-/// reactor, so it must never block.
-pub trait Outbound: Send + Sync {
+/// The HTTP sender, as wasmtime's `send_request`. It dials only through the
+/// connector it is handed, so every rule judges where it goes; one dialing
+/// any other way would skip them, so no Host App hands one in. The future
+/// runs on kobako's reactor, so it must never block.
+pub(crate) trait Outbound: Send + Sync {
     /// Send `request` through `connector`.
     fn send_request(&self, request: OutgoingRequest, connector: Connector) -> ResponseFuture;
 }

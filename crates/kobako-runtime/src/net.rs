@@ -27,7 +27,7 @@ pub use family::{HostInet, ProtocolFamily};
 pub(crate) use http::HyperOutbound;
 pub use http::{
     is_authority, is_scheme, is_token, to_field_name, to_field_value, to_origin_form, Exchange,
-    FieldError, Fields, HttpError, Outbound, OutgoingRequest, RequestBody, Response, ResponseBody,
+    FieldError, Fields, HttpError, OutgoingRequest, RequestBody, Response, ResponseBody,
     ResponseFuture, ResponseHead, Scheme, Timeouts, MAX_FIELD_SIZE,
 };
 pub use lookup::{resolve, LookupError, NameLookup, Resolver, Resolving};
