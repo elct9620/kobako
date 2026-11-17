@@ -52,6 +52,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_first_run_interrupt.rb`
 - `test/e2e/sandbox/test_interrupted_run.rb`
 - `test/e2e/sandbox/test_forked_deadline.rb`
+- `test/e2e/sandbox/test_interrupt_outside_run.rb`
 - `test/e2e/test_execution.rb`
 - `test/e2e/test_outcome_values.rb`
 - `test/e2e/test_canonical_boot.rb`
@@ -1938,3 +1939,27 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a process that ran a Sandbox with a deadline, then forked |
 | When | the child runs guest code that loops without end on that Sandbox |
 | Then | the deadline cuts it short. A forked child inherits the memory but only the thread that forked, so what keeps time is the child's own |
+
+## `S-217` An interrupt that stops a wait outside any run is raised there
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-207` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Thread building an Overlay whose upper Tmpfs another Thread's run holds |
+| When | an interrupt is pending on the Thread as the build starts to wait |
+| Then | the build raises that interrupt, and the Thread's next Sandbox runs as usual. A signal pending as a Linux task sleeps ends that sleep, and stays with that task |
+
+## `S-218` A Service of a Sandbox releasing the GVL takes interrupts as it runs
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-169` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox releasing the GVL whose Service wraps a long sleep in a short Timeout |
+| When | guest code calls the Service |
+| Then | the Timeout fires inside the Service. The run defers interrupts only outside its callbacks |

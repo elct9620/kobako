@@ -392,11 +392,14 @@ impl Runtime {
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // the closure touches no Ruby VALUE (the runtime is magnus-free, and a
         // guest→host dispatch, or a mount's block, re-acquires the GVL).
-        let result = gvl::region(self.release_gvl, || {
-            self.runtime.invoke(entry, &preamble, handler, &grants)
+        let run = escape::Run::enter();
+        let result = gvl::masked(&ruby, self.release_gvl, || {
+            gvl::region(self.release_gvl, || {
+                self.runtime.invoke(entry, &preamble, handler, &grants)
+            })
         });
-        escape::resume()?;
-        result
+        run.finish()?;
+        result?
             .map(|snapshot| Snapshot::new(snapshot, verb))
             .map_err(|e| errors::from_invoke(&ruby, e))
     }
@@ -410,8 +413,12 @@ impl Runtime {
     fn compile(&self, preamble: RArray) -> Result<Option<RArray>, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let preamble = to_preamble(&ruby, preamble)?;
-        let bytecodes = gvl::region(self.release_gvl, || self.runtime.compile(&preamble));
-        escape::resume()?;
+        let run = escape::Run::enter();
+        let bytecodes = gvl::masked(&ruby, self.release_gvl, || {
+            gvl::region(self.release_gvl, || self.runtime.compile(&preamble))
+        });
+        run.finish()?;
+        let bytecodes = bytecodes?;
         Ok(bytecodes.map(|bytecodes| {
             ruby.ary_from_iter(
                 bytecodes

@@ -6,15 +6,54 @@
 //!
 //! The slot is per thread, as each invocation runs on its caller's
 //! thread. A nested invocation takes what its own run held before the
-//! outer callback sees it, so the outer one holds it next.
+//! outer callback sees it, so the outer one holds it next. What a run held
+//! belongs to it alone: one ending by a panic drops it, and a thread outside
+//! any run holds nothing, since no run would raise it again.
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 
 use magnus::value::BoxValue;
 use magnus::{Error as MagnusError, Ruby, Value};
 
 thread_local! {
     static ESCAPE: RefCell<Option<Escape>> = const { RefCell::new(None) };
+    static RUNS: Cell<usize> = const { Cell::new(0) };
+}
+
+/// One invocation or compile on this thread, which raises what it held once
+/// it is back in Ruby.
+pub(super) struct Run {
+    finished: bool,
+}
+
+impl Run {
+    pub(super) fn enter() -> Self {
+        RUNS.with(|runs| runs.set(runs.get() + 1));
+        Self { finished: false }
+    }
+
+    /// Raise what this run held.
+    pub(super) fn finish(mut self) -> Result<(), MagnusError> {
+        self.finished = true;
+        match ESCAPE.with(|held| held.borrow_mut().take()) {
+            Some(held) => Err(held.error),
+            None => Ok(()),
+        }
+    }
+}
+
+impl Drop for Run {
+    fn drop(&mut self) {
+        RUNS.with(|runs| runs.set(runs.get() - 1));
+        if !self.finished {
+            ESCAPE.with(|held| held.borrow_mut().take());
+        }
+    }
+}
+
+/// Whether this thread is inside a run, which holds what reaches it.
+pub(super) fn in_run() -> bool {
+    RUNS.with(|runs| runs.get() > 0)
 }
 
 /// The error and, when it carries one, its exception kept rooted while
@@ -44,7 +83,7 @@ pub(super) fn hold_interrupts() {
 }
 
 /// Keep `error` for the host; the first one kept wins.
-fn keep(error: MagnusError) {
+pub(super) fn keep(error: MagnusError) {
     ESCAPE.with(|held| {
         held.borrow_mut().get_or_insert_with(|| Escape {
             _rooted: error.value().map(BoxValue::new),
@@ -56,12 +95,4 @@ fn keep(error: MagnusError) {
 /// Whether this thread holds an error for the host.
 pub(super) fn pending() -> bool {
     ESCAPE.with(|held| held.borrow().is_some())
-}
-
-/// Raise what was held, once the run is back in Ruby.
-pub(super) fn resume() -> Result<(), MagnusError> {
-    match ESCAPE.with(|held| held.borrow_mut().take()) {
-        Some(held) => Err(held.error),
-        None => Ok(()),
-    }
 }

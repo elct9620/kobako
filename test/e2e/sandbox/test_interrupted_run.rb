@@ -67,4 +67,23 @@ class TestE2EInterruptedRun < Minitest::Test
                  "a Timeout firing while a Sandbox#eval waits on a directory must raise Timeout::Error in the " \
                  "Host App once the run ends"
   end
+
+  SERVICE_TIMEOUT_CHILD = <<~RUBY
+    require "kobako"
+    require "timeout"
+    sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release)
+    sandbox.bind("Host::Wait", lambda do
+      Timeout.timeout(0.05) { sleep 5 }
+      :slept
+    rescue Timeout::Error
+      :timed_out
+    end)
+    print sandbox.eval("Host::Wait.call").value
+  RUBY
+
+  # @behavior S-218
+  def test_a_services_timeout_fires_inside_a_sandbox_releasing_the_gvl
+    assert_equal "timed_out", run_ruby(SERVICE_TIMEOUT_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 20),
+                 "a Timeout inside a Service of a Sandbox with gvl: :release must fire while the Service runs"
+  end
 end
