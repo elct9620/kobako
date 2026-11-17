@@ -23,6 +23,12 @@ pub(crate) use table::Table;
 /// one read allocation limit bounds each.
 const MAX_READ_SIZE_ALLOC: usize = 64 * 1024;
 
+/// `duration` as the nanoseconds a WASI `duration`, `instant`, or preview1
+/// `timestamp` counts, the largest one for a time past what it holds.
+pub(crate) fn nanos_of(duration: std::time::Duration) -> u64 {
+    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
+}
+
 #[allow(clippy::all, unused_parens)]
 pub(crate) mod bindings {
     include!(concat!(env!("OUT_DIR"), "/preview2_bindings.rs"));

@@ -17,7 +17,7 @@ use super::descriptors::{Descriptor, FileRef, FileRefMut};
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
 use super::types::{self, Fdflags, Filetype, Fstflags, Rights};
-use crate::preview2::filesystem;
+use crate::preview2::{filesystem, nanos_of};
 use crate::wasi::Wasi;
 
 /// What a preopen allows itself: every path call, as wasmtime-wasi hands
@@ -143,9 +143,7 @@ pub(crate) fn to_filestat(cred: &Cred, stat: Kstat) -> types::Filestat {
 /// zero for none, and the largest timestamp for a time past it.
 fn to_timestamp(time: Option<SystemTime>) -> u64 {
     time.and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map_or(0, |since| {
-            u64::try_from(since.as_nanos()).unwrap_or(u64::MAX)
-        })
+        .map_or(0, nanos_of)
 }
 
 /// Set the times `flags` ask through `call`, answering before it looks at the

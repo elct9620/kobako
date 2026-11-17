@@ -20,6 +20,7 @@ use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
 use super::bindings::HttpHost;
 use super::error;
+use super::nanos_of;
 use super::io::{self, SharedFile, Stream};
 use crate::invocation::Invocation;
 
@@ -146,11 +147,6 @@ fn to_field_trap(err: FieldError) -> wasmtime::Error {
         FieldError::OutOfMemory => wasmtime::Error::msg("the guest's headers outgrow its memory"),
         _ => wasmtime::Error::msg("the guest's headers outgrow the most one list may hold"),
     }
-}
-
-/// `timeout` as the nanoseconds a WASI `duration` counts.
-fn to_nanos(timeout: Option<Duration>) -> Option<u64> {
-    timeout.map(|timeout| u64::try_from(timeout.as_nanos()).unwrap_or(u64::MAX))
 }
 
 /// The error code a request's failure answers, carrying no host text.
@@ -629,7 +625,7 @@ impl HttpHost for Invocation {
         &mut self,
         this: RequestOptions,
     ) -> wasmtime::Result<Option<u64>> {
-        Ok(to_nanos(self.table_mut().get(this)?.0.connect))
+        Ok(self.table_mut().get(this)?.0.connect.map(nanos_of))
     }
 
     /// Bound the connect, as wasmtime-wasi-http bounds it, so a request
@@ -647,7 +643,7 @@ impl HttpHost for Invocation {
         &mut self,
         this: RequestOptions,
     ) -> wasmtime::Result<Option<u64>> {
-        Ok(to_nanos(self.table_mut().get(this)?.0.first_byte))
+        Ok(self.table_mut().get(this)?.0.first_byte.map(nanos_of))
     }
 
     /// Bound the wait for the response's head once connected, answered as
@@ -665,7 +661,7 @@ impl HttpHost for Invocation {
         &mut self,
         this: RequestOptions,
     ) -> wasmtime::Result<Option<u64>> {
-        Ok(to_nanos(self.table_mut().get(this)?.0.between_bytes))
+        Ok(self.table_mut().get(this)?.0.between_bytes.map(nanos_of))
     }
 
     /// Bound each wait for the body's next part, failing the read that
