@@ -1056,7 +1056,7 @@ impl IoHost for Invocation {
                 },
             )?;
             match stream.write(&[]) {
-                Err(Errno::BrokenPipe) if !contents.is_empty() => Ok(()),
+                Err(Errno::BrokenPipe) => Ok(()),
                 Ok(_) => Ok(()),
                 Err(err) => Err(err.into()),
             }
