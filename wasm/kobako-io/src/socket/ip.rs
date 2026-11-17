@@ -10,7 +10,7 @@ use beni::{Error, IntoValue, Mrb, Qtrue, RArray, RClass, Symbol, Value};
 use super::address::{addresses_of, host_and_service_of, ipv4_end_of, node_of};
 use super::basic::{open_socket_of, receive_past_buffer, PastBuffer, Wait};
 use super::to_error;
-use crate::io::argument_error;
+use crate::errno::argument_error;
 use crate::wasi::wasi::sockets::network::{ErrorCode, IpSocketAddress};
 
 /// Define `IPSocket.getaddress`, `IPSocket#addr`, `IPSocket#peeraddr`, and

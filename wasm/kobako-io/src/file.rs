@@ -18,7 +18,8 @@ use beni::value::qnil;
 use beni::{Error, IntoValue, Mrb, Object, RArray, RClass, RString, Value};
 
 use crate::convert::{check_funcall, string_value_of};
-use crate::io::{argument_error, close_after, required_block, Stream};
+use crate::errno::argument_error;
+use crate::io::{close_after, required_block, Stream};
 use crate::stream::FileLines;
 use crate::{descriptors, errno, lines};
 
@@ -248,9 +249,7 @@ fn with_opened(
 fn file_s_write(mrb: &Mrb, _self: Value, path: Value, data: Value) -> Result<Value, Error> {
     require_mount(mrb, "File.write")?;
     let path = path_arg(mrb, path)?;
-    let data = data.to_r_string(mrb)?;
-    // SAFETY: the bytes are copied out before the next mruby call.
-    let bytes = unsafe { data.as_slice(mrb) }.to_vec();
+    let bytes = crate::convert::obj_as_bytes(mrb, data)?;
     fs::File::create(&path)
         .and_then(|mut file| file.write_all(&bytes))
         .map_err(|err| errno::from_io(mrb, &err, &path))?;
@@ -319,10 +318,7 @@ fn path_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
             None => string_value_of(mrb, value)?,
         },
     };
-    // SAFETY: the bytes are copied before the next mruby call.
-    let bytes = unsafe { path.as_slice(mrb) }.to_vec();
-    crate::convert::ensure_no_nul(mrb, &bytes)?;
-    Ok(bytes)
+    Ok(path.to_c_string(mrb)?.into_bytes())
 }
 
 /// `File.join(*parts)`, an Array among them joined in its place, as CRuby's

@@ -361,7 +361,7 @@ fn io_pread(mrb: &Mrb, self_: Value, _args: &[Value]) -> Result<Value, Error> {
 /// answering how many bytes one call took, as CRuby does.
 fn io_pwrite(mrb: &Mrb, self_: Value, data: Value, offset: i64) -> Result<Value, Error> {
     let fd = checked_fd(mrb, self_, REACH_REFUSAL)?;
-    let data = data.to_r_string(mrb)?;
+    let data = crate::convert::obj_as_string(mrb, data)?;
     // SAFETY: the slice is consumed before the next mruby call.
     let bytes = unsafe { data.as_slice(mrb) };
     // SAFETY: `bytes` is a live buffer the call only reads.

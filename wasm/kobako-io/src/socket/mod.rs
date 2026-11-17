@@ -233,14 +233,7 @@ fn name_of(mrb: &Mrb, value: Value) -> Result<Option<String>, Error> {
 
 /// The `SocketError` carrying `message`.
 fn socket_error(mrb: &Mrb, message: &str) -> Error {
-    match mrb
-        .class_get(c"SocketError")
-        .map(|class| ExceptionClass::from_value(class.as_value()))
-    {
-        Ok(Some(class)) => Error::new(mrb, class, message),
-        Ok(None) => Error::new(mrb, mrb.exception_standard_error(), message),
-        Err(err) => err,
-    }
+    errno::to_error(mrb, mrb.exc_get(c"SocketError"), message)
 }
 
 /// A family's name without its `AF_` or `PF_`, as CRuby's

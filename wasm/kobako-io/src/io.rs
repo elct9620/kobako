@@ -37,7 +37,8 @@ use beni::{
     RTypedData, Symbol, TryConvert, TypedData, Value,
 };
 
-use crate::convert::{num2int, to_int};
+use crate::convert::{num2int, obj_as_string, to_int};
+use crate::errno::argument_error;
 use crate::{descriptors, errno};
 
 /// What an `IO` stands for, kept in its payload: a script reaches every
@@ -267,7 +268,7 @@ fn io_write(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
         let _scope = mrb.arena_scope();
         // A guest-defined `to_s` that raises propagates as an ordinary
         // guest exception instead of unwinding past this Rust frame.
-        let s = val.to_r_string(mrb)?;
+        let s = obj_as_string(mrb, val)?;
         // SAFETY: the slice is consumed before the next mruby call.
         let mut rest = unsafe { s.as_slice(mrb) };
         while !rest.is_empty() {
@@ -357,7 +358,7 @@ fn io_print(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<(), Error> {
 pub(crate) fn print_to(mrb: &Mrb, out: Value, args: &[Value]) -> Result<(), Error> {
     for &val in args {
         let _scope = mrb.arena_scope();
-        let s = val.to_r_string(mrb)?;
+        let s = obj_as_string(mrb, val)?;
         write_one(mrb, out, s.as_value())?;
     }
     Ok(())
@@ -410,7 +411,7 @@ fn puts_one(
         return Ok(());
     }
     let _scope = mrb.arena_scope();
-    line_of(mrb, val.to_r_string(mrb)?.as_value(), emit)
+    line_of(mrb, obj_as_string(mrb, val)?.as_value(), emit)
 }
 
 /// `line`, then a newline unless it ends in one.
@@ -605,12 +606,6 @@ pub(crate) fn split_options(args: &[Value]) -> (&[Value], Option<RHash>) {
         },
         None => (args, None),
     }
-}
-
-/// Returned as `Err`, so the bridge frame raises it only after the Rust
-/// frame has unwound — unlike a direct `mrb_raise` long-jump.
-pub(crate) fn argument_error(mrb: &Mrb, msg: &str) -> Error {
-    crate::errno::to_error(mrb, mrb.exception_arg_error(), msg)
 }
 
 /// The wait `sec` names, `None` for `nil`, as CRuby's `rb_time_interval`

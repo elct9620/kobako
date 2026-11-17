@@ -50,9 +50,34 @@ pub(crate) fn string_value_of(mrb: &Mrb, value: Value) -> Result<RString, Error>
 
 /// The bytes of `value` as CRuby's `StringValue` takes it.
 pub(crate) fn string_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
-    let string = string_value_of(mrb, value)?;
-    // SAFETY: the bytes are copied out before any later mruby call.
-    Ok(unsafe { string.as_slice(mrb) }.to_vec())
+    Ok(bytes_of(string_value_of(mrb, value)?))
+}
+
+/// The bytes of `value` as `StringValueCStr` takes them: a NUL inside raises
+/// `ArgumentError`.
+pub(crate) fn cstr_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
+    Ok(string_value_of(mrb, value)?.to_c_string(mrb)?.into_bytes())
+}
+
+/// The bytes `string` holds, copied out of the VM.
+pub(crate) fn bytes_of(string: RString) -> Vec<u8> {
+    Vec::<u8>::from_value(string.as_value()).unwrap_or_default()
+}
+
+/// `value` as text, as CRuby's `rb_obj_as_string` renders what `IO#write`
+/// and `puts` take: a String as itself, anything else by its `to_s`, and its
+/// default description when that answers no String.
+pub(crate) fn obj_as_string(mrb: &Mrb, value: Value) -> Result<RString, Error> {
+    if let Some(string) = RString::from_value(value) {
+        return Ok(string);
+    }
+    let rendered = value.funcall::<_, _, Value>(mrb, c"to_s", ())?;
+    Ok(RString::from_value(rendered).unwrap_or_else(|| value.any_to_s(mrb)))
+}
+
+/// The bytes of `value` as `rb_obj_as_string` renders it.
+pub(crate) fn obj_as_bytes(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
+    Ok(bytes_of(obj_as_string(mrb, value)?))
 }
 
 /// The Integer `obj` stands for, as CRuby's `rb_num2long` reads it: an
@@ -130,13 +155,4 @@ pub(crate) fn ensure_fits(
         mrb.exception_range_error(),
         &format!("integer {number} too {side} to convert to '{c_type}'"),
     ))
-}
-
-/// Raise `ArgumentError` for `bytes` holding a NUL, as CRuby's
-/// `StringValueCStr` refuses one.
-pub(crate) fn ensure_no_nul(mrb: &Mrb, bytes: &[u8]) -> Result<(), Error> {
-    match bytes.contains(&0) {
-        true => Err(crate::io::argument_error(mrb, "string contains null byte")),
-        false => Ok(()),
-    }
 }

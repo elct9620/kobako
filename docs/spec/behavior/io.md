@@ -552,3 +552,15 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 | Given | a Sandbox |
 | When | guest code writes a character by `65.9`, then by NaN and by an infinity |
 | Then | the first writes `A`, and each other raises `RangeError`, as CRuby's `NUM2INT` reads a Float |
+
+## `IO-057` A written value's string form is what its own `to_s` answers
+
+| Attribute | Value |
+| --- | --- |
+| refines | `IO-019` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest whose `Integer#to_s` and `Symbol#to_s` answer `X` and `Y`, and an object whose `to_s` answers no String |
+| When | guest code writes, prints, and puts them, and writes them to a file |
+| Then | the Integers and the Symbol are written as `X` and `Y`. The object is written as its default description, as CRuby's `rb_obj_as_string` renders it |

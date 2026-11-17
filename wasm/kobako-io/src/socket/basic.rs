@@ -18,8 +18,9 @@ use super::option::Refusal;
 use super::tcp::Connection;
 use crate::convert::to_int;
 use crate::convert::{string_bytes_of, string_value_of};
+use crate::errno::argument_error;
 use crate::errno::{self, eof_error};
-use crate::io::{argument_error, split_options, strbuf_length_of, would_wait, Direction};
+use crate::io::{split_options, strbuf_length_of, would_wait, Direction};
 use crate::wasi::wasi::io::poll::Pollable;
 
 /// Whether one call waits for the socket, as Linux's `MSG_DONTWAIT` chooses
@@ -248,15 +249,6 @@ pub(super) fn exception_option_of<'a>(
     ))
 }
 
-/// The bytes `object` spells, as CRuby's `IO#write` converts it.
-fn written_bytes_of(mrb: &Mrb, object: Value) -> Result<Vec<u8>, Error> {
-    let data = object
-        .funcall::<_, _, Value>(mrb, c"to_s", ())?
-        .to_r_string(mrb)?;
-    // SAFETY: the bytes are copied before the next mruby call.
-    Ok(unsafe { data.as_slice(mrb) }.to_vec())
-}
-
 /// The socket `value` stands for, a `TCPSocket` or a `UDPSocket`.
 pub(super) fn source_of<'a>(mrb: &Mrb, value: Value) -> Result<&'a dyn SocketIo, Error> {
     match Connection::of(mrb, value) {
@@ -323,7 +315,7 @@ fn socket_fileno(mrb: &Mrb, self_: Value) -> Result<i64, Error> {
 fn socket_write(mrb: &Mrb, self_: Value, objects: &[Value]) -> Result<Value, Error> {
     let mut bytes = Vec::new();
     for object in objects {
-        bytes.extend(written_bytes_of(mrb, *object)?);
+        bytes.extend(crate::convert::obj_as_bytes(mrb, *object)?);
     }
     // Nothing to write answers 0 before the IO is taken, as CRuby's
     // `io_write` returns for an empty String, so no empty datagram leaves.
@@ -343,7 +335,7 @@ fn socket_write_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Valu
     let [string] = args else {
         return Err(Error::argnum(mrb, args.len(), 1, 1));
     };
-    let bytes = written_bytes_of(mrb, *string)?;
+    let bytes = crate::convert::obj_as_bytes(mrb, *string)?;
     match writer_of(mrb, self_)?.send(mrb, &bytes, Wait::DontWait, None)? {
         Poll::Ready(sent) => Ok((sent as i64).into_value(mrb)),
         Poll::Pending => would_wait(mrb, Direction::Write, "write would block", exception),
@@ -353,7 +345,7 @@ fn socket_write_nonblock(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Valu
 /// `syswrite(string)` sends every byte of `string` past any buffer,
 /// answering how many it sent.
 fn socket_syswrite(mrb: &Mrb, self_: Value, string: Value) -> Result<Value, Error> {
-    let bytes = written_bytes_of(mrb, string)?;
+    let bytes = crate::convert::obj_as_bytes(mrb, string)?;
     let sent = ready_of(writer_of(mrb, self_)?.send(mrb, &bytes, Wait::Blocking, None)?);
     Ok((sent as i64).into_value(mrb))
 }

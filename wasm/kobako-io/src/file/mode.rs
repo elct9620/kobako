@@ -7,7 +7,7 @@ use beni::prelude::*;
 use beni::{Error, Integer, Module, Mrb, RClass, Value};
 
 use crate::errno;
-use crate::io::argument_error;
+use crate::errno::argument_error;
 
 // CRuby's values on Linux, the platform a script most likely assumes.
 const RDONLY: i64 = 0;

@@ -8,9 +8,9 @@ use beni::prelude::*;
 use beni::{Error, Integer, IntoValue, Mrb, RClass, TryConvert, Value};
 
 use super::{resolution_error, to_error, EAI_AGAIN, EAI_FAIL, EAI_NONAME, EAI_SERVICE};
-use crate::convert::{ensure_fits, ensure_no_nul, string_bytes_of};
+use crate::convert::{cstr_bytes_of, ensure_fits, string_bytes_of};
 use crate::errno;
-use crate::io::argument_error;
+use crate::errno::argument_error;
 use crate::wasi::wait_within;
 use crate::wasi::wasi::sockets::instance_network::instance_network;
 use crate::wasi::wasi::sockets::ip_name_lookup::resolve_addresses;
@@ -139,14 +139,6 @@ const INT_TO_UINT: core::ops::RangeInclusive<i64> = i32::MIN as i64..=u32::MAX a
 /// The bytes CRuby's `host_str` holds a host in, its NUL among them, as
 /// glibc's `NI_MAXHOST` sizes one.
 pub(super) const NI_MAXHOST: usize = 1025;
-
-/// The bytes of `value` as `StringValueCStr` takes them: a NUL inside raises
-/// `ArgumentError`.
-fn cstr_bytes_of(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
-    let bytes = string_bytes_of(mrb, value)?;
-    ensure_no_nul(mrb, &bytes)?;
-    Ok(bytes)
-}
 
 /// The address `text` spells, as glibc's `getaddrinfo` reads a numeric host:
 /// IPv6 as written, and IPv4 as `__inet_aton_exact` reads it, so `127.1`,

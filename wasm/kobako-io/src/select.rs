@@ -166,7 +166,7 @@ fn io_wait(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
         true => {
             let events = crate::convert::num2int(mrb, args[0])?;
             if events <= 0 {
-                return Err(crate::io::argument_error(
+                return Err(crate::errno::argument_error(
                     mrb,
                     "Events must be positive integer!",
                 ));
@@ -207,7 +207,7 @@ fn events_and_timeout_of(mrb: &Mrb, args: &[Value]) -> Result<(i64, Option<Value
                 "rw" | "read_write" | "readable_writable" => IO_READABLE | IO_WRITABLE,
                 _ => {
                     let message = format!("unsupported mode: {name}");
-                    return Err(crate::io::argument_error(mrb, &message));
+                    return Err(crate::errno::argument_error(mrb, &message));
                 }
             };
         } else if timeout.is_none() {
@@ -221,7 +221,7 @@ fn events_and_timeout_of(mrb: &Mrb, args: &[Value]) -> Result<(i64, Option<Value
             time_interval_of(mrb, *arg)?;
             timeout = Some(*arg);
         } else {
-            return Err(crate::io::argument_error(
+            return Err(crate::errno::argument_error(
                 mrb,
                 "timeout given more than once",
             ));
@@ -330,7 +330,7 @@ fn to_io(mrb: &Mrb, object: Value) -> Result<Value, Error> {
     let Some(io) = crate::convert::check_funcall(mrb, object, c"to_io")? else {
         let message = format!(
             "no implicit conversion of {} into IO",
-            object.classname(mrb)
+            crate::errno::described(mrb, object)
         );
         return Err(Error::new(mrb, mrb.exception_type_error()?, &message));
     };
@@ -338,7 +338,7 @@ fn to_io(mrb: &Mrb, object: Value) -> Result<Value, Error> {
         let class = object.classname(mrb);
         let message = format!(
             "can't convert {class} to IO ({class}#to_io gives {})",
-            io.classname(mrb)
+            crate::errno::described(mrb, io)
         );
         return Err(Error::new(mrb, mrb.exception_type_error()?, &message));
     }

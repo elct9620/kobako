@@ -174,7 +174,7 @@ fn errno_number(mrb: &Mrb, number: Value) -> Result<Option<i32>, Error> {
 fn sce_s_new(mrb: &Mrb, self_: Value, args: &[Value]) -> Result<Value, Error> {
     let own = to_number(mrb, self_);
     let arity = |expected: &str| {
-        crate::io::argument_error(
+        crate::errno::argument_error(
             mrb,
             &format!(
                 "wrong number of arguments (given {}, expected {expected})",
@@ -236,8 +236,21 @@ fn sce_errno(mrb: &Mrb, self_: Value) -> Result<Value, Error> {
 }
 
 pub(crate) fn type_error(mrb: &Mrb, value: Value) -> Error {
-    // CRuby's `convert_type_err` names nil, true, and false by value.
-    let name = if value.is_nil() {
+    to_error(
+        mrb,
+        mrb.exception_type_error(),
+        &format!(
+            "no implicit conversion of {} into String",
+            described(mrb, value)
+        ),
+    )
+}
+
+/// How a conversion's `TypeError` names `value`, as CRuby's
+/// `convert_type_err` names nil, true, and false by value and anything else
+/// by its class.
+pub(crate) fn described(mrb: &Mrb, value: Value) -> String {
+    if value.is_nil() {
         "nil".to_string()
     } else if Qtrue::from_value(value).is_some() {
         "true".to_string()
@@ -245,12 +258,7 @@ pub(crate) fn type_error(mrb: &Mrb, value: Value) -> Error {
         "false".to_string()
     } else {
         value.classname(mrb)
-    };
-    to_error(
-        mrb,
-        mrb.exception_type_error(),
-        &format!("no implicit conversion of {name} into String"),
-    )
+    }
 }
 
 fn errno_class_by_name(mrb: &Mrb, name: &core::ffi::CStr) -> Result<ExceptionClass, Error> {
@@ -269,6 +277,12 @@ pub(crate) fn to_error(mrb: &Mrb, class: Result<ExceptionClass, Error>, message:
 /// The `EOFError` a read raises at the end, as CRuby's.
 pub(crate) fn eof_error(mrb: &Mrb) -> Error {
     to_error(mrb, mrb.exc_get(c"EOFError"), "end of file reached")
+}
+
+/// Returned as `Err`, so the bridge frame raises it only after the Rust
+/// frame has unwound — unlike a direct `mrb_raise` long-jump.
+pub(crate) fn argument_error(mrb: &Mrb, msg: &str) -> Error {
+    to_error(mrb, mrb.exception_arg_error(), msg)
 }
 
 pub(crate) fn io_error(mrb: &Mrb, message: &str) -> Error {

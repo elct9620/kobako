@@ -8,8 +8,9 @@ use beni::value::qnil;
 use beni::{Error, Mrb, RHash, RString, Symbol, TryConvert, Value};
 
 use crate::convert::to_int;
-use crate::convert::{responds_to, string_value_of};
-use crate::io::{argument_error, required_block};
+use crate::convert::{responds_to, string_bytes_of};
+use crate::errno::argument_error;
+use crate::io::required_block;
 
 /// What a stream reads lines from: the next bytes it has, `None` at the end,
 /// and a way to hand back bytes read past a line for the next read.
@@ -54,9 +55,7 @@ fn separator_and_limit_of(
         if value.is_nil() {
             return Ok(None);
         }
-        let text = string_value_of(mrb, value)?;
-        // SAFETY: the bytes are copied before the next mruby call.
-        Ok(Some(unsafe { text.as_slice(mrb) }.to_vec()))
+        Ok(Some(string_bytes_of(mrb, value)?))
     };
     // One argument that `rb_check_string_type` finds no String in, through
     // `to_str`, is the limit, as CRuby's `rb_io_getline_args` reads it, so a

@@ -161,6 +161,32 @@ class TestE2EIoWrite < Minitest::Test
                  "Integer argument to `print` must reach stdout as its `to_s` form"
   end
 
+  # @behavior IO-057
+  # A guest that redefines `to_s` on Integer and Symbol sees its own text
+  # on every write path, as CRuby renders through `rb_obj_as_string`; an
+  # object whose `to_s` answers no String falls back to its description.
+  def test_io_write_renders_a_value_by_its_own_to_s
+    script = <<~RUBY
+      class Integer; def to_s(*) = "X"; end
+      class Symbol; def to_s = "Y"; end
+      class Mute; def to_s = 42; end
+      $stdout.write(1, :s)
+      print 2
+      puts 3
+      puts Mute.new
+      File.write("/data/out", 4)
+      File.read("/data/out")
+    RUBY
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    sandbox.mount("/data", Kobako::Filesystem::Tmpfs.new, access: :read_write)
+    execution = sandbox.eval(script)
+    assert_equal "X", execution.value,
+                 "File.write through Sandbox#eval must write an Integer by its redefined to_s"
+    assert_match(/\AXYXX\n#<Mute:0x\h+>\n\z/, execution.stdout,
+                 "IO#write, print, and puts through Sandbox#eval must render an Integer and a Symbol " \
+                 "by their redefined to_s, and an object whose to_s answers no String by its description")
+  end
+
   # ── sprintf / String#% / IO#printf — the mruby-sprintf mrbgem ────────
   #
   # mruby-sprintf supplies Kernel#sprintf, String#% and the format engine

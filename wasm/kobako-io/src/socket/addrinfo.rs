@@ -22,7 +22,8 @@ use super::{
     EAI_SOCKTYPE,
 };
 use crate::convert::string_value_of;
-use crate::io::{argument_error, split_options};
+use crate::errno::argument_error;
+use crate::io::split_options;
 
 /// Linux's socket kinds, and the protocols each IP kind carries.
 pub(super) const SOCK_STREAM: i64 = 1;

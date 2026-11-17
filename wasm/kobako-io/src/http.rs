@@ -15,8 +15,10 @@ use beni::{
     RObject, Symbol, TryConvert, Value,
 };
 
+use crate::convert::{obj_as_bytes, obj_as_string};
 use crate::errno;
-use crate::io::{argument_error, current_block, split_options, time_interval_of};
+use crate::errno::argument_error;
+use crate::io::{current_block, split_options, time_interval_of};
 use crate::socket;
 use crate::wasi::wasi::http::outgoing_handler::handle;
 use crate::wasi::wasi::http::types::{
@@ -307,13 +309,7 @@ fn ivar_set(mrb: &Mrb, self_: Value, name: &core::ffi::CStr, value: Value) -> Re
 }
 
 fn to_text(mrb: &Mrb, value: Value) -> Result<String, Error> {
-    value.to_r_string(mrb)?.to_string(mrb)
-}
-
-fn to_bytes(mrb: &Mrb, value: Value) -> Result<Vec<u8>, Error> {
-    let string = value.to_r_string(mrb)?;
-    // SAFETY: the bytes are copied out before the next mruby call.
-    Ok(unsafe { string.as_slice(mrb) }.to_vec())
+    obj_as_string(mrb, value)?.to_string(mrb)
 }
 
 /// `Net::HTTP.new(address, port = nil, p_addr = :ENV, ...)`: port 80 unless
@@ -758,7 +754,7 @@ fn send_request(
                 "both of body argument and HTTPRequest#body set",
             ))
         }
-        (Some(body), None) | (None, Some(body)) => Some(to_bytes(mrb, body)?),
+        (Some(body), None) | (None, Some(body)) => Some(obj_as_bytes(mrb, body)?),
         (None, None) => {
             let class: RClass = request.funcall(mrb, c"class", ())?;
             let carries: Value = class.const_get(mrb, c"REQUEST_HAS_BODY")?;
@@ -796,7 +792,7 @@ fn headers_of(mrb: &Mrb, header: Value) -> Result<Vec<(String, Vec<u8>)>, Error>
         for index in 0..values.len() {
             headers.push((
                 name.clone(),
-                to_bytes(mrb, values.entry(mrb, index as isize)?)?,
+                obj_as_bytes(mrb, values.entry(mrb, index as isize)?)?,
             ));
         }
         Ok(ForEach::Continue)
@@ -1482,7 +1478,7 @@ fn initialize_field(mrb: &Mrb, hash: RHash, name: Value, value: Value) -> Result
         let message = format!("too long ({} bytes) header: {head:?}...", label.len());
         return Err(argument_error(mrb, &message));
     }
-    let bytes = to_bytes(mrb, value)?;
+    let bytes = obj_as_bytes(mrb, value)?;
     if bytes.len() > MAX_FIELD_LENGTH {
         let message = format!("header {label} has too long field value: {}", bytes.len());
         return Err(argument_error(mrb, &message));
@@ -1555,7 +1551,7 @@ fn append_field_value(mrb: &Mrb, values: RArray, value: Value) -> Result<(), Err
         return Ok(());
     }
     let text: Value = value.funcall(mrb, c"to_s", ())?;
-    if to_bytes(mrb, text)?
+    if obj_as_bytes(mrb, text)?
         .iter()
         .any(|b| matches!(b, b'\r' | b'\n'))
     {
@@ -1673,9 +1669,9 @@ fn request_basic_auth(
     user: Value,
     password: Value,
 ) -> Result<Value, Error> {
-    let mut credentials = to_bytes(mrb, user)?;
+    let mut credentials = obj_as_bytes(mrb, user)?;
     credentials.push(b':');
-    credentials.extend(to_bytes(mrb, password)?);
+    credentials.extend(obj_as_bytes(mrb, password)?);
     let value = format!("Basic {}", to_base64(&credentials)).into_value(mrb);
     request_aset(mrb, self_, mrb.str_new(b"authorization").as_value(), value)?;
     let values = mrb.ary_new();
@@ -1742,7 +1738,7 @@ fn to_ary(mrb: &Mrb, value: Value) -> Result<Option<RArray>, Error> {
 
 /// `value.to_s` as `URI.encode_to_www_form_component` writes it.
 fn to_www_form_component(mrb: &Mrb, value: Value) -> Result<String, Error> {
-    Ok(escape_www_form(&to_bytes(
+    Ok(escape_www_form(&obj_as_bytes(
         mrb,
         value.funcall(mrb, c"to_s", ())?,
     )?))
