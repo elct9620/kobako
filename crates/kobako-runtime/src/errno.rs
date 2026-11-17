@@ -172,8 +172,9 @@ const POSIX_NAMES: [(&str, Errno); 51] = [
 
 impl Errno {
     /// The failure a host call's `err` stands for: the one it carries through
-    /// a library, else the host's errno where std names no kind for it, else
-    /// its kind. One with none carries only its kind, so no host text reaches
+    /// a library, else the host's errno where std names no kind for it or
+    /// folds it into another's, as wasmtime-wasi reads a host errno first,
+    /// else its kind. One with none carries only its kind, so no host text reaches
     /// the guest. A layer knowing what a failure means within it, as a Bind
     /// names cap-std's refusal, answers that before asking this.
     pub(crate) fn from_io_error(err: &io::Error) -> Self {
@@ -196,7 +197,35 @@ impl Errno {
             Some(HostErrno::HOSTDOWN) => return Self::HostDown,
             #[cfg(target_os = "linux")]
             Some(HostErrno::NONET) => return Self::MachineNotOnNetwork,
+            #[cfg(not(windows))]
+            Some(HostErrno::PERM) => return Self::NotPermitted,
+            #[cfg(not(windows))]
+            Some(HostErrno::LOOP) => return Self::FilesystemLoop,
+            #[cfg(not(windows))]
+            Some(HostErrno::BADF) => return Self::BadDescriptor,
+            #[cfg(not(windows))]
+            Some(HostErrno::OVERFLOW) => return Self::ValueTooLarge,
+            #[cfg(not(windows))]
+            Some(HostErrno::NODEV) => return Self::NoSuchDevice,
+            #[cfg(not(windows))]
+            Some(HostErrno::STALE) => return Self::StaleNetworkFileHandle,
+            #[cfg(not(windows))]
+            Some(HostErrno::ILSEQ) => return Self::IllegalSequence,
+            #[cfg(not(windows))]
+            #[allow(
+                unreachable_patterns,
+                reason = "Linux gives EOPNOTSUPP ENOTSUP's number"
+            )]
+            Some(HostErrno::NOTSUP | HostErrno::OPNOTSUPP) => return Self::Unsupported,
             _ => {}
+        }
+        // A file another process holds open without sharing it, which
+        // wasmtime-wasi answers as access denied.
+        #[cfg(windows)]
+        if err.raw_os_error()
+            == Some(windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32)
+        {
+            return Self::PermissionDenied;
         }
         Self::from_io_kind(err.kind()).unwrap_or_else(|| Self::Other(format!("{:?}", err.kind())))
     }

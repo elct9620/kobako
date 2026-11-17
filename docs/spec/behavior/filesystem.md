@@ -2271,3 +2271,27 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind over a host directory |
 | When | the host refuses an open because its process holds as many files as it may |
 | Then | the open fails as too many open files, as a host socket's does, not as an unnamed failure |
+
+## `FS-210` A Bind answers a host refusal by the errno it holds
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-065` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind over a Unix host directory |
+| When | the host refuses a call with an errno that Rust's kind loses, as EPERM for a sticky directory |
+| Then | the call fails under that errno's own name, as Linux answers it, not as permission denied or an unnamed failure |
+
+## `FS-211` A Bind answers a Windows host file held without sharing as permission denied
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-065` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind over a Windows host directory |
+| When | the host refuses a call because another process holds the file open without sharing it |
+| Then | the call fails as permission denied, as wasmtime-wasi answers it, not as an unnamed failure |

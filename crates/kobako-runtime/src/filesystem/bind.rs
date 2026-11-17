@@ -280,8 +280,7 @@ fn is_windows_alias(name: &str) -> bool {
 /// leading out of the directory carries no OS code. A Bind hands it one name and
 /// no `..`, so that refusal only says a move carried the name out of the
 /// directory as it was opened, as `complete_walk` answers EXDEV, and nothing
-/// stands at it now. A link loop stays unnamed until std's `FilesystemLoop` is
-/// stable.
+/// stands at it now.
 fn to_error(err: io::Error) -> Errno {
     match err.kind() {
         io::ErrorKind::PermissionDenied if err.raw_os_error().is_none() => Errno::NotFound,
@@ -2103,6 +2102,58 @@ mod tests {
             Errno::TooManyOpenFiles,
             "a host EMFILE through a Bind must fail as too many open files, as a host \
              socket's does, not as an unnamed failure"
+        );
+    }
+
+    // A host refusal Rust folds into another kind is staged by its errno, as
+    // an unlink in another user's sticky directory needs a second user.
+    // @behavior FS-210
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_answers_a_host_refusal_by_the_errno_it_holds() {
+        use rustix::io::Errno as HostErrno;
+        let answers = [
+            HostErrno::PERM,
+            HostErrno::LOOP,
+            HostErrno::BADF,
+            HostErrno::OVERFLOW,
+            HostErrno::NODEV,
+            HostErrno::STALE,
+            HostErrno::ILSEQ,
+            HostErrno::NOTSUP,
+            HostErrno::OPNOTSUPP,
+        ]
+        .map(|errno| to_error(io::Error::from_raw_os_error(errno.raw_os_error())));
+        assert_eq!(
+            answers,
+            [
+                Errno::NotPermitted,
+                Errno::FilesystemLoop,
+                Errno::BadDescriptor,
+                Errno::ValueTooLarge,
+                Errno::NoSuchDevice,
+                Errno::StaleNetworkFileHandle,
+                Errno::IllegalSequence,
+                Errno::Unsupported,
+                Errno::Unsupported,
+            ],
+            "a host EPERM, ELOOP, EBADF, EOVERFLOW, ENODEV, ESTALE, EILSEQ, ENOTSUP, or \
+             EOPNOTSUPP through a Bind must fail under that same name, as Linux answers it, \
+             not as permission denied or an unnamed failure"
+        );
+    }
+
+    // Another process holding the file open is staged by its Win32 code.
+    // @behavior FS-211
+    #[cfg(windows)]
+    #[test]
+    fn a_directory_answers_a_host_file_held_without_sharing_as_permission_denied() {
+        let held = windows_sys::Win32::Foundation::ERROR_SHARING_VIOLATION as i32;
+        assert_eq!(
+            to_error(io::Error::from_raw_os_error(held)),
+            Errno::PermissionDenied,
+            "a Windows host file another process holds without sharing must fail through a \
+             Bind as permission denied, as wasmtime-wasi answers it, not as an unnamed failure"
         );
     }
 
