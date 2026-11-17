@@ -299,7 +299,11 @@ mod tests {
         let next = run_task(None, pending_fatal_signal);
         assert_eq!(
             (during_setup, after_teardown, next),
-            (Some(FatalSignal::Interrupt), Some(FatalSignal::Interrupt), None),
+            (
+                Some(FatalSignal::Interrupt),
+                Some(FatalSignal::Interrupt),
+                None
+            ),
             "an interrupt while a run is set up must stop that run's waits, and \
              one while it is torn down must not stop the thread's next run"
         );
