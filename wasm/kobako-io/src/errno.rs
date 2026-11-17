@@ -86,6 +86,7 @@ const CODES: &[Code] = &[
     code(c"ENAMETOOLONG", 37, 36, "File name too long"),
     code(c"ENETDOWN", 38, 100, "Network is down"),
     code(c"ENETUNREACH", 40, 101, "Network is unreachable"),
+    code(c"ENFILE", 41, 23, "Too many open files in system"),
     code(c"ENOBUFS", 42, 105, "No buffer space available"),
     code(c"ENODEV", 43, 19, "No such device"),
     host_code(c"ENONET", 64, "Machine is not on the network"),

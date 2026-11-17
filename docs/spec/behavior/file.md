@@ -860,8 +860,8 @@ disable_file flag -> no File constant
 | Step | Statement |
 | --- | --- |
 | Given | an invocation handed a Mount |
-| When | the script reads the `errno` of `Errno::ESTALE`, `Errno::EALREADY`, `Errno::EHOSTDOWN`, `Errno::ENONET`, `Errno::EDQUOT`, `Errno::EMLINK`, and `Errno::ETXTBSY` |
-| Then | they read 116, 114, 112, 64, 122, 31, and 26 as Linux numbers them, though WASI lacks EHOSTDOWN and ENONET |
+| When | the script reads the `errno` of `Errno::ESTALE`, `Errno::EALREADY`, `Errno::EHOSTDOWN`, `Errno::ENONET`, `Errno::EDQUOT`, `Errno::EMLINK`, `Errno::ETXTBSY`, and `Errno::ENFILE` |
+| Then | they read 116, 114, 112, 64, 122, 31, 26, and 23, Linux's numbers, though WASI lacks EHOSTDOWN and ENONET |
 
 ## `FL-081` SystemCallError takes its arguments as CRuby's does
 
