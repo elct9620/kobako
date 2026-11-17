@@ -2295,3 +2295,16 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind over a Windows host directory |
 | When | the host refuses a call because another process holds the file open without sharing it |
 | Then | the call fails as permission denied, as wasmtime-wasi answers it, not as an unnamed failure |
+
+## `FS-212` A Bind answers a host out of quota, links, or a busy program by name
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-065` |
+| relates | `FL-080` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind over a host directory |
+| When | the host refuses a write past its quota, a link past a file's most, or a running program's write |
+| Then | the call fails as EDQUOT, EMLINK, or ETXTBSY, as Linux answers it, not as an unnamed failure |

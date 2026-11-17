@@ -18,8 +18,14 @@ pub enum Errno {
     Unsupported,
     /// A change past what the Filesystem can hold.
     StorageFull,
+    /// A change past the space the host lets its user hold.
+    QuotaExceeded,
     /// A file grown past the largest the Filesystem keeps.
     FileTooLarge,
+    /// A link past the most a file may have.
+    TooManyLinks,
+    /// A write to a program the host is running.
+    ExecutableFileBusy,
     /// A move that cannot happen in one step, as between two devices.
     CrossesDevices,
     /// A path that is absolute, climbs above the directory it is resolved
@@ -116,7 +122,7 @@ impl std::error::Error for CarriedErrno {}
 /// Each failure a Filesystem can name under the POSIX error name it stands for.
 /// `ENOTSUP` comes before `EOPNOTSUPP`, a name some hosts give the same error,
 /// so `Unsupported` answers to the first.
-const POSIX_NAMES: [(&str, Errno); 51] = [
+const POSIX_NAMES: [(&str, Errno); 54] = [
     ("EAGAIN", Errno::WouldBlock),
     ("ENOENT", Errno::NotFound),
     ("EEXIST", Errno::AlreadyExists),
@@ -129,7 +135,10 @@ const POSIX_NAMES: [(&str, Errno); 51] = [
     ("ENOTSUP", Errno::Unsupported),
     ("EOPNOTSUPP", Errno::Unsupported),
     ("ENOSPC", Errno::StorageFull),
+    ("EDQUOT", Errno::QuotaExceeded),
     ("EFBIG", Errno::FileTooLarge),
+    ("EMLINK", Errno::TooManyLinks),
+    ("ETXTBSY", Errno::ExecutableFileBusy),
     ("EXDEV", Errno::CrossesDevices),
     ("EDEADLK", Errno::Deadlock),
     ("ELOOP", Errno::FilesystemLoop),
@@ -245,7 +254,10 @@ impl Errno {
             Kind::InvalidInput => Self::InvalidInput,
             Kind::Unsupported => Self::Unsupported,
             Kind::StorageFull => Self::StorageFull,
+            Kind::QuotaExceeded => Self::QuotaExceeded,
             Kind::FileTooLarge => Self::FileTooLarge,
+            Kind::TooManyLinks => Self::TooManyLinks,
+            Kind::ExecutableFileBusy => Self::ExecutableFileBusy,
             Kind::CrossesDevices => Self::CrossesDevices,
             Kind::Deadlock => Self::Deadlock,
             Kind::ResourceBusy => Self::ResourceBusy,

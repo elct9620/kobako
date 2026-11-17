@@ -2143,6 +2143,27 @@ mod tests {
         );
     }
 
+    // A quota, a file's link count, and a running program cannot be staged
+    // on every host, so the host's own errno stands for each.
+    // @behavior FS-212
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_answers_a_host_out_of_quota_links_or_a_busy_program_by_name() {
+        use rustix::io::Errno as HostErrno;
+        let answers = [HostErrno::DQUOT, HostErrno::MLINK, HostErrno::TXTBSY]
+            .map(|errno| to_error(io::Error::from_raw_os_error(errno.raw_os_error())));
+        assert_eq!(
+            answers,
+            [
+                Errno::QuotaExceeded,
+                Errno::TooManyLinks,
+                Errno::ExecutableFileBusy,
+            ],
+            "a host EDQUOT, EMLINK, or ETXTBSY through a Bind must fail under that same name, \
+             as Linux answers it, not as an unnamed failure"
+        );
+    }
+
     // Another process holding the file open is staged by its Win32 code.
     // @behavior FS-211
     #[cfg(windows)]

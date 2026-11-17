@@ -64,6 +64,7 @@ const CODES: &[Code] = &[
     code(c"ECONNRESET", 15, 104, "Connection reset by peer"),
     code(c"EDEADLK", 16, 35, "Resource deadlock avoided"),
     code(c"EDESTADDRREQ", 17, 89, "Destination address required"),
+    code(c"EDQUOT", 19, 122, "Disk quota exceeded"),
     code(c"EEXIST", 20, 17, "File exists"),
     code(c"EFBIG", 22, 27, "File too large"),
     host_code(c"EHOSTDOWN", 112, "Host is down"),
@@ -80,6 +81,7 @@ const CODES: &[Code] = &[
     code(c"EISDIR", 31, 21, "Is a directory"),
     code(c"ELOOP", 32, 40, "Too many levels of symbolic links"),
     code(c"EMFILE", 33, 24, "Too many open files"),
+    code(c"EMLINK", 34, 31, "Too many links"),
     code(c"EMSGSIZE", 35, 90, "Message too long"),
     code(c"ENAMETOOLONG", 37, 36, "File name too long"),
     code(c"ENETDOWN", 38, 100, "Network is down"),
@@ -108,6 +110,7 @@ const CODES: &[Code] = &[
     code(c"ESPIPE", 70, 29, "Illegal seek"),
     code(c"ESTALE", 72, 116, "Stale file handle"),
     code(c"ETIMEDOUT", 73, 110, "Connection timed out"),
+    code(c"ETXTBSY", 74, 26, "Text file busy"),
     code(c"EXDEV", 75, 18, "Invalid cross-device link"),
 ];
 
