@@ -2869,3 +2869,15 @@ endpoint "api.example.com", port: 443
 | Given | a resolver that finds no address for one name, cannot answer another now, and cannot answer a third at all |
 | When | the guest looks each name up |
 | Then | each answers `name-unresolvable`, `temporary-resolver-failure`, and `permanent-resolver-failure`, as `getaddrinfo` answers `EAI_NONAME`, `EAI_AGAIN`, and `EAI_FAIL`. When no name server answers, the host's resolver answers `temporary-resolver-failure`, as glibc reads it as `TRY_AGAIN`. A name no query can carry answers `name-unresolvable` |
+
+## `NW-229` A blocking flush after the send side shut answers closed though bytes wait
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-182` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest's connected TCP socket over `wasi:sockets`, bytes still queued that its peer never reads |
+| When | its send side shuts, and it calls `blocking-write-and-flush` on the output stream with no bytes |
+| Then | the call answers `closed` at once, as wasmtime asks the stream for room before it waits |

@@ -1014,10 +1014,11 @@ impl IoHost for Invocation {
     }
 
     /// Write every byte, at most 4096, waiting for room as it goes, then until
-    /// what was written has left for the host. A stream that closed once every
+    /// what was written has left for the host. The stream is asked for room
+    /// at least once, as wasmtime-wasi-io's is, so one closed before a write of
+    /// nothing answers so before any wait. A stream that closed once every
     /// byte was taken answers success, as wasmtime-wasi-io's does; a failure
-    /// still answers, and so does a stream closed before a write of nothing,
-    /// as wasmtime's first asks the stream for room.
+    /// still answers.
     fn streams_output_stream_blocking_write_and_flush(
         &mut self,
         this: OutputStream,
@@ -1032,12 +1033,15 @@ impl IoHost for Invocation {
         self.within_open(this, |host| {
             let stream = host.table_mut().get(this)?.stream.clone();
             let mut rest = &contents[..];
-            while !rest.is_empty() {
+            loop {
                 host.wait_on(&stream, PollMask::OUT)?;
                 match stream.write(rest) {
                     Ok(n) => rest = &rest[n..],
                     Err(Errno::WouldBlock) => {}
                     Err(err) => return Err(err.into()),
+                }
+                if rest.is_empty() {
+                    break;
                 }
             }
             // Registering through the stream's poll puts the wait on its
@@ -3193,6 +3197,76 @@ mod tests {
             "output-stream.blocking-write-and-flush of no bytes after tcp-socket.shutdown of the \
              send side must answer closed, as wasmtime's first asks the stream for room, not \
              {answers:?}"
+        );
+    }
+
+    // @behavior NW-229
+    #[test]
+    fn a_blocking_flush_after_the_send_side_shut_answers_closed_though_bytes_wait() {
+        let (mut guest, listener) = guest_and_listener();
+        let port = listener.local_addr().unwrap().port();
+        let started = Instant::now();
+        let answers = run_task(Some(started + Duration::from_secs(10)), || {
+            let network = guest.instance_network_instance_network()?;
+            let socket = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_set_send_buffer_size(socket, 4096)
+                .into_answer()?
+                .expect("a socket takes a send buffer");
+            guest
+                .tcp_tcp_socket_start_connect(socket, network, ipv4((127, 0, 0, 1), port))
+                .into_answer()?
+                .expect("the endpoint names the listener");
+            let connecting = guest.tcp_tcp_socket_subscribe(socket)?;
+            guest.poll_pollable_block(connecting)?;
+            let (_, output) = guest
+                .tcp_tcp_socket_finish_connect(socket)
+                .into_answer()?
+                .expect("the listener accepts");
+            let (_peer, _) = listener.accept().unwrap();
+            // Fill the host's buffers and the socket's own, the peer reading
+            // nothing, so what is queued cannot leave.
+            let mut quiet = 0;
+            while quiet < 20 {
+                match guest
+                    .streams_output_stream_check_write(output)
+                    .into_answer()?
+                {
+                    Ok(0) => {
+                        quiet += 1;
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                    Ok(room) => {
+                        quiet = 0;
+                        let chunk = vec![b'x'; room.min(4096) as usize];
+                        let _ = guest
+                            .streams_output_stream_write(output, chunk)
+                            .into_answer()?;
+                    }
+                    Err(_) => break,
+                }
+            }
+            guest
+                .tcp_tcp_socket_shutdown(socket, ShutdownType::Send)
+                .into_answer()?
+                .expect("a connected socket shuts its send side");
+            let asked = Instant::now();
+            let nothing = guest
+                .streams_output_stream_blocking_write_and_flush(output, Vec::new())
+                .into_answer()?;
+            Ok::<_, wasmtime::Error>((
+                matches!(nothing, Err(StreamError::Closed)),
+                asked.elapsed() < Duration::from_secs(2),
+            ))
+        });
+        assert!(
+            matches!(answers, Ok((true, true))),
+            "output-stream.blocking-write-and-flush of no bytes after tcp-socket.shutdown of the \
+             send side, with bytes queued that the peer never reads, must answer closed at once, \
+             as wasmtime asks the stream for room before it waits, not {answers:?}"
         );
     }
 
