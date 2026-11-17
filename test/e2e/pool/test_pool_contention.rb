@@ -43,21 +43,83 @@ class TestPoolContention < Minitest::Test
     end
   end
 
+  # @behavior PL-036
+  def test_a_waiter_interrupted_as_it_is_woken_passes_the_slot_on
+    pool = Kobako::Pool.new(size: 1, checkout_timeout: 2.0)
+
+    answer, waited = checkout_behind_one_interrupted_as_woken(pool)
+
+    assert answer == :second && waited < 1.0,
+           "a Pool#with checkout waiting behind one interrupted as the slot is checked in must receive " \
+           "the Sandbox at once, not at checkout_timeout; waited #{waited.round(2)}s"
+  end
+
+  # @behavior PL-037
+  def test_an_interrupt_as_a_checkout_ends_keeps_its_sandbox_in_the_pool
+    pool = Kobako::Pool.new(size: 1, checkout_timeout: 0.5)
+    pool.with { |sandbox| sandbox }
+
+    assert_raises(Interrupt, "an interrupt arriving as Pool#with takes its Sandbox must be raised by Pool#with") do
+      interrupt_as_a_checkout_claims.enable { pool.with { flunk "the block must not run once interrupted" } }
+    end
+    assert_equal 2, pool.with { |sandbox| sandbox.eval("1 + 1").value },
+                 "the next Pool#with checkout must receive the Sandbox the interrupted checkout took"
+  end
+
   private
 
   # Check out the pool's only Sandbox on a background thread and hold it
   # until the returned release queue receives a value; returns after the
   # hold is observably in place.
-  def hold_one_slot(pool)
+  # Hold the only slot on another thread until the returned queue is
+  # pushed; +after_checkin+ runs on that thread once it checks back in.
+  def hold_one_slot(pool, &after_checkin)
     held = Queue.new
     release = Queue.new
     holder = Thread.new do
-      pool.with do |_sandbox|
-        held << true
-        release.pop
-      end
+      pool.with { held.push(true).then { release.pop } }
+      after_checkin&.call
     end
     held.pop
     [release, holder]
+  end
+
+  # The answer and wait of a checkout queued behind one the holder
+  # interrupts right as it checks the slot back in.
+  def checkout_behind_one_interrupted_as_woken(pool)
+    first = nil
+    release, holder = hold_one_slot(pool) { first.raise(Interrupt) }
+    first = waiting { pool.with { :first } }
+    second = waiting { timed { pool.with { :second } } }
+    release << true
+    [holder, first].each(&:join)
+    second.value
+  end
+
+  # A thread blocked in +checkout+, answering :interrupted if interrupted.
+  def waiting(&checkout)
+    thread = Thread.new do
+      checkout.call
+    rescue Interrupt
+      :interrupted
+    end
+    Thread.pass until thread.stop?
+    thread
+  end
+
+  def timed
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    [yield, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started]
+  end
+
+  # Raise an interrupt on the checking-out thread once, as the checkout
+  # takes its Sandbox.
+  def interrupt_as_a_checkout_claims
+    TracePoint.new(:return) do |point|
+      next unless point.method_id == :claim_or_wait
+
+      point.disable
+      Thread.current.raise(Interrupt)
+    end
   end
 end

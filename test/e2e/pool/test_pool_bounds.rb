@@ -31,7 +31,7 @@ class TestPoolBounds < Minitest::Test
   end
 
   # @behavior PL-029
-  # The waiter timed out while the holder had bound a Service the holder
+  # The waiter timed out while the holder held a Sandbox whose Service it
   # can still call, so the timeout disturbed nothing it held.
   def test_a_timed_out_checkout_leaves_the_held_sandbox_as_its_holder_left_it
     _, after = hold_through_a_timed_out_checkout
@@ -41,7 +41,7 @@ class TestPoolBounds < Minitest::Test
 
   # @behavior PL-033
   def test_a_timed_out_checkout_leaves_the_held_sandbox_in_the_pool
-    pool = Kobako::Pool.new(size: 1, checkout_timeout: 0.05)
+    pool = noted_pool
     held, = hold_through_a_timed_out_checkout(pool)
 
     pool.with { |sandbox| assert_same held, sandbox, "a timed-out checkout must leave the pooled Sandbox in place" }
@@ -49,13 +49,16 @@ class TestPoolBounds < Minitest::Test
 
   private
 
-  # Bind a Service in the only slot's Sandbox, time another checkout out,
-  # then answer that Sandbox and what calling the Service returned.
-  def hold_through_a_timed_out_checkout(pool = Kobako::Pool.new(size: 1, checkout_timeout: 0.05))
+  # Hold the only slot, whose setup bound a Service, time another checkout
+  # out, then answer that Sandbox and what calling the Service returned.
+  def hold_through_a_timed_out_checkout(pool = noted_pool)
     pool.with do |sandbox|
-      sandbox.bind("Note::Read", -> { :held })
       assert_raises(Kobako::PoolTimeoutError) { pool.with { nil } }
       [sandbox, sandbox.eval("Note::Read.call").value]
     end
+  end
+
+  def noted_pool
+    Kobako::Pool.new(size: 1, checkout_timeout: 0.05) { |sandbox| sandbox.bind("Note::Read", -> { :held }) }
   end
 end

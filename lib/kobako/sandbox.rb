@@ -212,7 +212,12 @@ module Kobako
     # Registration closes at the first invocation, so every invocation ships
     # the same Services, snippets, flags, Extensions and mounts.
     def refuse_once_invoked(verb)
-      raise FrozenError, "cannot #{verb} after first Sandbox invocation" if @sealed
+      raise FrozenError, "cannot #{verb} #{@sealed}" if @sealed
+    end
+
+    # Close registration, saying why for the refusal that follows.
+    def seal(reason)
+      @sealed = reason
     end
 
     # Sealing before the dependency check keeps a Sandbox whose check failed
@@ -221,7 +226,7 @@ module Kobako
     # the Context it answers, so nothing an invocation does is written back
     # onto the shared config.
     def begin_invocation
-      @sealed = true
+      seal("after first Sandbox invocation")
       @extensions.assert_dependencies
       @snippets.compile { |entries| @runtime.compile(preamble(entries)) }
       Context.new(runtime: @runtime, services: @services, extensions: @extensions, grants: @grants,

@@ -60,4 +60,14 @@ class TestPoolCheckout < Minitest::Test
       pool.with { |sandbox| sandbox.eval("loop do end") }
     end
   end
+
+  # @behavior PL-035
+  def test_the_first_holder_cannot_change_what_the_setup_prepared
+    pool = Kobako::Pool.new(size: 1) { |sandbox| sandbox.bind("Setup::Answer", -> { 1 }) }
+
+    assert_raises(FrozenError,
+                  "Sandbox#bind by the first holder of a Pool#with checkout must raise FrozenError") do
+      pool.with { |sandbox| sandbox.bind("Holder::Secret", -> { 2 }) }
+    end
+  end
 end

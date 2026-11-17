@@ -29,6 +29,8 @@ module Kobako
 
     def construct_slot: () -> Kobako::Sandbox
 
+    def build_slot: () -> Kobako::Sandbox
+
     def checkin: (Kobako::Sandbox sandbox) -> void
 
     def release_capacity: () -> void

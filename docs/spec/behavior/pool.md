@@ -221,7 +221,7 @@ A pooled Sandbox satisfies every other behavior identically to a directly constr
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool of one slot whose holder has bound a Service |
+| Given | a Pool of one slot whose setup bound a Service, held by a holder |
 | When | another checkout times out |
 | Then | the holder still drives its Sandbox |
 
@@ -250,7 +250,7 @@ A pooled Sandbox satisfies every other behavior identically to a directly constr
 
 | Step | Statement |
 | --- | --- |
-| Given | a Pool of one slot whose holder has bound a Service |
+| Given | a Pool of one slot whose setup bound a Service, held by a holder |
 | When | another checkout times out |
 | Then | the next checkout receives the held Sandbox |
 
@@ -262,3 +262,39 @@ A pooled Sandbox satisfies every other behavior identically to a directly constr
 | Given | a checkout whose block met a trap |
 | When | a checkout runs again |
 | Then | its Sandbox evaluates guest code |
+
+## `PL-035` A holder cannot change what the setup prepared
+
+| Attribute | Value |
+| --- | --- |
+| relates | `PL-004` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool whose Sandbox the setup block has just prepared and no checkout has run |
+| When | the first holder binds a Service on it |
+| Then | it raises `FrozenError`, as every later holder's would, so each holder gets the Sandbox the setup left |
+
+## `PL-036` A waiter interrupted as it is woken passes the slot on
+
+| Attribute | Value |
+| --- | --- |
+| refines | `PL-011` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool of one slot held by another thread, and two checkouts waiting for it |
+| When | the holder checks its Sandbox back in and interrupts the first waiter |
+| Then | the second checkout completes at once rather than at its checkout bound |
+
+## `PL-037` An interrupt as a checkout ends keeps its Sandbox in the Pool
+
+| Attribute | Value |
+| --- | --- |
+| relates | `PL-032` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Pool of one slot |
+| When | an interrupt arrives after a checkout takes its Sandbox and before its block runs |
+| Then | the checkout raises it, and the next checkout receives that Sandbox |

@@ -36,12 +36,18 @@ module Kobako
     # block's value; the Sandbox returns to the pool however the block
     # exits. Raises PoolTimeoutError once every slot has stayed held past
     # +checkout_timeout+.
+    #
+    # An interrupt reaches the checkout only while it waits or builds, and
+    # the block as it runs, as connection_pool's +with+ does, so none lands
+    # between taking a Sandbox and handing it back.
     def with
-      sandbox = acquire
-      begin
-        yield sandbox
-      ensure
-        checkin(sandbox)
+      Thread.handle_interrupt(Exception => :never) do
+        sandbox = acquire
+        begin
+          Thread.handle_interrupt(Exception => :immediate) { yield sandbox }
+        ensure
+          checkin(sandbox)
+        end
       end
     end
 
@@ -83,32 +89,39 @@ module Kobako
               "no Sandbox returned within #{@checkout_timeout}s: all #{@size} Sandboxes are held"
       end
 
-      @slot_freed.wait(@mutex, remaining)
+      Thread.handle_interrupt(Exception => :immediate) { @slot_freed.wait(@mutex, remaining) }
     end
 
     # A failed construction releases its reserved capacity so a later
-    # checkout can retry.
+    # checkout can retry. Setup closes registration, so each holder gets
+    # the Sandbox as the setup block left it.
     def construct_slot
       done = false
-      sandbox = Sandbox.new(**@sandbox_options)
-      @setup&.call(sandbox)
+      sandbox = Thread.handle_interrupt(Exception => :immediate) { build_slot }
       done = true
       sandbox
     ensure
       release_capacity unless done
     end
 
+    def build_slot
+      sandbox = Sandbox.new(**@sandbox_options)
+      @setup&.call(sandbox)
+      sandbox.send(:seal, "on a pooled Sandbox once its setup ran")
+      sandbox
+    end
+
     def checkin(sandbox)
       @mutex.synchronize do
         @idle.push(sandbox)
-        @slot_freed.signal
+        @slot_freed.broadcast
       end
     end
 
     def release_capacity
       @mutex.synchronize do
         @constructed -= 1
-        @slot_freed.signal
+        @slot_freed.broadcast
       end
     end
 

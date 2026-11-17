@@ -50,6 +50,8 @@ module Kobako
 
     def refuse_once_invoked: (String verb) -> void
 
+    def seal: (String reason) -> String
+
     def begin_invocation: () -> Kobako::Context
   end
 end
