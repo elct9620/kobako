@@ -1133,15 +1133,18 @@ mod tests {
     fn a_dial_to_a_host_down_answers_connection_refused() {
         use rustix::io::Errno as HostErrno;
         #[cfg(target_os = "linux")]
-        let downs = [HostErrno::HOSTDOWN, HostErrno::NONET];
+        let downs = [
+            ("EHOSTDOWN", HostErrno::HOSTDOWN),
+            ("ENONET", HostErrno::NONET),
+        ];
         #[cfg(not(target_os = "linux"))]
-        let downs = [HostErrno::HOSTDOWN];
-        for errno in downs {
+        let downs = [("EHOSTDOWN", HostErrno::HOSTDOWN)];
+        for (name, errno) in downs {
             let err = io::Error::from_raw_os_error(errno.raw_os_error());
             assert_eq!(
                 HttpError::from_errno(&Errno::from_io_error(&err)),
                 HttpError::ConnectionRefused,
-                "a dial failing with {errno:?} must answer connection-refused, as \
+                "a dial failing with {name} must answer connection-refused, as \
                  wasmtime-wasi-http answers an errno std names no kind for"
             );
         }

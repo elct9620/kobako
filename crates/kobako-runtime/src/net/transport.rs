@@ -205,7 +205,8 @@ impl Transport {
 }
 
 /// `err` as the I/O error tokio-rustls and hyper carry, holding the failure
-/// itself so `to_error` reads back the very one the socket answered.
+/// itself so `Errno::from_io_error` reads back the very one the socket
+/// answered.
 fn to_io(err: Errno) -> io::Error {
     io::Error::other(CarriedErrno(err))
 }
