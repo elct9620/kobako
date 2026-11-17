@@ -31,7 +31,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use kobako_runtime::dispatch::DispatchHandler;
-use kobako_runtime::limits::Limits;
+use kobako_runtime::limits::{Cap, Limits};
 use kobako_runtime::net::Backends;
 use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
@@ -147,17 +147,14 @@ fn value_budget_of(memory_limit: Option<usize>) -> Option<usize> {
 /// kind is refused as an argument error, and a zero by the runtime's own
 /// check, which the Rust SDK asks too.
 fn to_limits(ruby: &Ruby, caps: RHash) -> Result<Limits, MagnusError> {
-    let deadline = |name: &str| to_deadline(ruby, name, caps.fetch(ruby.to_symbol(name))?);
-    let count = |name: &str| to_count(ruby, name, caps.fetch(ruby.to_symbol(name))?);
     let mut limits = Limits::default();
-    limits.timeout = deadline("timeout")?;
-    limits.setup_timeout = deadline("setup_timeout")?;
-    limits.memory_limit = count("memory_limit")?;
-    limits.stdout_limit = count("stdout_limit")?;
-    limits.stderr_limit = count("stderr_limit")?;
-    limits.open_file_limit = count("open_file_limit")?;
-    limits.open_connection_limit = count("open_connection_limit")?;
-    limits.connection_limit = count("connection_limit")?;
+    for (name, cap) in limits.caps_mut() {
+        let value = caps.fetch(ruby.to_symbol(name))?;
+        match cap {
+            Cap::Deadline(deadline) => *deadline = to_deadline(ruby, name, value)?,
+            Cap::Count(count) => *count = to_count(ruby, name, value)?,
+        }
+    }
     limits
         .check()
         .map_err(|zero| MagnusError::new(ruby.exception_arg_error(), zero.to_string()))?;
@@ -168,21 +165,14 @@ fn to_limits(ruby: &Ruby, caps: RHash) -> Result<Limits, MagnusError> {
 /// deadline in seconds.
 fn caps_of(ruby: &Ruby, limits: &Limits) -> Result<RHash, MagnusError> {
     let caps = ruby.hash_new();
-    let seconds = |deadline: Option<Duration>| deadline.map(|d| d.as_secs_f64());
-    caps.aset(ruby.to_symbol("timeout"), seconds(limits.timeout))?;
-    caps.aset(
-        ruby.to_symbol("setup_timeout"),
-        seconds(limits.setup_timeout),
-    )?;
-    caps.aset(ruby.to_symbol("memory_limit"), limits.memory_limit)?;
-    caps.aset(ruby.to_symbol("stdout_limit"), limits.stdout_limit)?;
-    caps.aset(ruby.to_symbol("stderr_limit"), limits.stderr_limit)?;
-    caps.aset(ruby.to_symbol("open_file_limit"), limits.open_file_limit)?;
-    caps.aset(
-        ruby.to_symbol("open_connection_limit"),
-        limits.open_connection_limit,
-    )?;
-    caps.aset(ruby.to_symbol("connection_limit"), limits.connection_limit)?;
+    let mut limits = *limits;
+    for (name, cap) in limits.caps_mut() {
+        let key = ruby.to_symbol(name);
+        match cap {
+            Cap::Deadline(deadline) => caps.aset(key, deadline.map(|d| d.as_secs_f64()))?,
+            Cap::Count(count) => caps.aset(key, *count)?,
+        }
+    }
     Ok(caps)
 }
 

@@ -70,35 +70,46 @@ impl Limits {
         self.memory_limit.map(|limit| limit / VALUE_BYTES)
     }
 
+    /// Each cap, named by the option a Host App sets it with, so every
+    /// frontend reads and writes the caps from this one list.
+    pub fn caps_mut(&mut self) -> [(&'static str, Cap<'_>); 8] {
+        [
+            ("timeout", Cap::Deadline(&mut self.timeout)),
+            ("setup_timeout", Cap::Deadline(&mut self.setup_timeout)),
+            ("memory_limit", Cap::Count(&mut self.memory_limit)),
+            ("stdout_limit", Cap::Count(&mut self.stdout_limit)),
+            ("stderr_limit", Cap::Count(&mut self.stderr_limit)),
+            ("open_file_limit", Cap::Count(&mut self.open_file_limit)),
+            ("open_connection_limit", Cap::Count(&mut self.open_connection_limit)),
+            ("connection_limit", Cap::Count(&mut self.connection_limit)),
+        ]
+    }
+
     /// Refuse a cap of zero, which would end every run at once rather than
     /// bound it, as `setrlimit` takes no limit below what a task needs to
     /// start; `None` is how a Host App asks for no cap.
     pub fn check(&self) -> Result<(), ZeroCap> {
-        let durations = [
-            ("timeout", self.timeout),
-            ("setup_timeout", self.setup_timeout),
-        ];
-        let counts = [
-            ("memory_limit", self.memory_limit),
-            ("stdout_limit", self.stdout_limit),
-            ("stderr_limit", self.stderr_limit),
-            ("open_file_limit", self.open_file_limit),
-            ("open_connection_limit", self.open_connection_limit),
-            ("connection_limit", self.connection_limit),
-        ];
-        let zero_durations = durations
-            .into_iter()
-            .filter(|(_, cap)| *cap == Some(Duration::ZERO));
-        let zero_counts = counts.into_iter().filter(|(_, cap)| *cap == Some(0));
-        let zero = zero_durations
-            .map(|(name, _)| name)
-            .chain(zero_counts.map(|(name, _)| name))
-            .next();
+        let mut limits = *self;
+        let zero = limits.caps_mut().into_iter().find_map(|(name, cap)| {
+            let is_zero = match cap {
+                Cap::Deadline(deadline) => *deadline == Some(Duration::ZERO),
+                Cap::Count(count) => *count == Some(0),
+            };
+            is_zero.then_some(name)
+        });
         match zero {
             Some(name) => Err(ZeroCap(name)),
             None => Ok(()),
         }
     }
+}
+
+/// One cap of a `Limits`, by the kind of value it holds.
+pub enum Cap<'a> {
+    /// A wall-clock deadline.
+    Deadline(&'a mut Option<Duration>),
+    /// A count of bytes, files, or connections.
+    Count(&'a mut Option<usize>),
 }
 
 /// A cap given as zero, named by its option.
