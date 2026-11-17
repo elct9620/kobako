@@ -2,7 +2,7 @@
 //! `wasi:sockets` and the runtime: an address, and the error code each POSIX
 //! name maps to, as the WIT's "typical errors" lists pair them.
 
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV4};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
@@ -149,9 +149,9 @@ pub(crate) fn to_buffer_size(value: u64) -> Option<u32> {
 }
 
 /// The address the guest named for a socket of `family`, once it is of that
-/// family, as wasmtime's `is_valid_address_family` asks; an address of the
-/// other family has no answer. The runtime makes no IPv6 socket, so an IPv4
-/// one is the only socket an address reaches.
+/// family, as wasmtime's `is_valid_address_family` asks: an IPv6 socket takes
+/// no IPv4-mapped address and no deprecated IPv4-compatible one, which `::`
+/// and `::1` are not, and an address of the other family has no answer.
 pub(crate) fn to_socket_addr(
     addr: &IpSocketAddress,
     family: IpAddressFamily,
@@ -167,6 +167,23 @@ pub(crate) fn to_socket_addr(
             Ipv4Addr::new(*a, *b, *c, *d),
             *port,
         ))),
+        (
+            IpAddressFamily::Ipv6,
+            IpSocketAddress::Ipv6(Ipv6SocketAddress {
+                port,
+                flow_info,
+                address: (a, b, c, d, e, f, g, h),
+                scope_id,
+            }),
+        ) => {
+            let ip = Ipv6Addr::new(*a, *b, *c, *d, *e, *f, *g, *h);
+            let embeds_ipv4 = ip.to_ipv4_mapped().is_some()
+                || (matches!(ip.segments(), [0, 0, 0, 0, 0, 0, _, _])
+                    && ip != Ipv6Addr::UNSPECIFIED
+                    && ip != Ipv6Addr::LOCALHOST);
+            (!embeds_ipv4)
+                .then(|| SocketAddr::V6(SocketAddrV6::new(ip, *port, *flow_info, *scope_id)))
+        }
         _ => None,
     }
 }
@@ -270,6 +287,37 @@ pub(crate) fn to_error_code(err: &Errno) -> ErrorCode {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn ipv6(address: (u16, u16, u16, u16, u16, u16, u16, u16)) -> IpSocketAddress {
+        IpSocketAddress::Ipv6(Ipv6SocketAddress {
+            port: 80,
+            flow_info: 0,
+            address,
+            scope_id: 0,
+        })
+    }
+
+    #[test]
+    fn an_ipv6_socket_takes_only_an_address_that_embeds_no_ipv4_one() {
+        let taken = [
+            ipv6((0, 0, 0, 0, 0, 0, 0, 1)),
+            ipv6((0, 0, 0, 0, 0, 0, 0, 0)),
+            ipv6((0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)),
+            ipv6((0, 0, 0, 0, 0, 0xffff, 0x7f00, 1)),
+            ipv6((0, 0, 0, 0, 0, 0, 0x7f00, 1)),
+            IpSocketAddress::Ipv4(Ipv4SocketAddress {
+                port: 80,
+                address: (127, 0, 0, 1),
+            }),
+        ]
+        .map(|addr| to_socket_addr(&addr, IpAddressFamily::Ipv6).is_some());
+        assert_eq!(
+            taken,
+            [true, true, true, false, false, false],
+            "an IPv6 socket must take ::1, ::, and 2001:db8::1, and refuse ::ffff:127.0.0.1, \
+             ::127.0.0.1, and an IPv4 address, as wasmtime-wasi's address family check does"
+        );
+    }
 
     // @behavior NW-074
     #[test]
