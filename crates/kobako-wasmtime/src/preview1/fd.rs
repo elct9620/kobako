@@ -265,12 +265,18 @@ pub(crate) fn filestat_get(wasi: &Wasi, fd: u32) -> Answer<types::Filestat> {
     Ok(to_filestat(wasi.cred(), stat))
 }
 
-/// A size Linux's signed `loff_t` reads as negative answers before the
-/// descriptor is looked for, as `ksys_ftruncate` checks it before `fdget`.
-pub(crate) fn filestat_set_size(wasi: &mut Wasi, fd: u32, size: u64) -> Answer {
-    if size > vfs::OFFSET_MAX {
-        return Err(Errno::Inval.into());
+/// Refuse a size or offset Linux's signed `loff_t` reads as negative, before
+/// the descriptor is looked for, as `ksys_ftruncate`, `ksys_pread64`, and
+/// `ksys_pwrite64` check it before `fdget`.
+fn ensure_offset(at: u64) -> Answer {
+    match at > vfs::OFFSET_MAX {
+        true => Err(Errno::Inval.into()),
+        false => Ok(()),
     }
+}
+
+pub(crate) fn filestat_set_size(wasi: &mut Wasi, fd: u32, size: u64) -> Answer {
+    ensure_offset(size)?;
     Ok(get_file_mut(wasi, fd)?.truncate(size)?)
 }
 
@@ -291,6 +297,7 @@ pub(crate) fn pread(
     iovs: types::IovecArray,
     offset: u64,
 ) -> Answer<types::Size> {
+    ensure_offset(offset)?;
     let buf = mem.read_first_non_empty_iovec(iovs)?;
     let mut file = get_file_mut(wasi, fd)?;
     file.may_pread(offset)?;
@@ -332,6 +339,7 @@ pub(crate) fn pwrite(
     ciovs: types::CiovecArray,
     offset: u64,
 ) -> Answer<types::Size> {
+    ensure_offset(offset)?;
     let buf = mem.read_first_non_empty_ciovec(ciovs)?;
     let mut file = get_file_mut(wasi, fd)?;
     file.may_pwrite(offset)?;

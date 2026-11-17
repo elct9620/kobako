@@ -3297,13 +3297,13 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it waits for that number to be ready |
 | Then | the wait succeeds, and the event answers EBADF, as Linux's `poll` marks the descriptor `POLLNVAL` |
 
-## `RT-296` A size no file can take answers before the descriptor is found
+## `RT-296` A size or offset no file can take answers before the descriptor is found
 
 | Step | Statement |
 | --- | --- |
 | Given | a guest holding no descriptor at some number |
-| When | it sets the size at that number to one past the largest offset |
-| Then | the call answers EINVAL, as Linux's `ftruncate` checks the length before it finds the descriptor |
+| When | it sets the size at that number, or reads or writes there at an offset, one past the largest offset |
+| Then | the call answers EINVAL, as Linux's `ftruncate`, `pread`, and `pwrite` check it before they find the descriptor |
 
 ## `RT-297` A descriptor opened for neither reading nor writing refuses each call through it
 

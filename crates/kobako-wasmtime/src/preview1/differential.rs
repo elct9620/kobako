@@ -92,6 +92,8 @@ const PROBE_WAT: &str = r#"
   (func (export "fd_filestat_get") (param i32) (result i32) (call $fd_filestat_get (local.get 0) (i32.const 256)))
   (func (export "fd_filestat_set_size") (param i32) (result i32) (call $fd_filestat_set_size (local.get 0) (i64.const 0)))
   (func (export "fd_filestat_set_size_huge") (param i32) (result i32) (call $fd_filestat_set_size (local.get 0) (i64.const -1)))
+  (func (export "fd_pread_huge") (param i32) (result i32) (call $fd_pread (local.get 0) (i32.const 64) (i32.const 1) (i64.const -1) (i32.const 128)))
+  (func (export "fd_pwrite_huge") (param i32) (result i32) (call $fd_pwrite (local.get 0) (i32.const 80) (i32.const 1) (i64.const -1) (i32.const 128)))
   (func (export "fd_filestat_set_times") (param i32) (result i32) (call $fd_filestat_set_times (local.get 0) (i64.const 0) (i64.const 0) (i32.const 0)))
   (func (export "fd_pread") (param i32) (result i32) (call $fd_pread (local.get 0) (i32.const 64) (i32.const 1) (i64.const 0) (i32.const 128)))
   (func (export "fd_prestat_get") (param i32) (result i32) (call $fd_prestat_get (local.get 0) (i32.const 256)))
@@ -440,16 +442,23 @@ fn a_wait_on_a_descriptor_not_open_reports_it_in_its_event() {
     );
 }
 
-// Linux's `ksys_ftruncate` reads the length as a signed `loff_t` and refuses a
-// negative one before it looks for the descriptor.
+// Linux's `ksys_ftruncate`, `ksys_pread64`, and `ksys_pwrite64` read the
+// length or offset as a signed `loff_t` and refuse a negative one before they
+// look for the descriptor.
 // @behavior RT-296
 #[test]
-fn a_size_no_file_can_take_answers_before_the_descriptor_is_found() {
+fn a_size_or_offset_no_file_can_take_answers_before_the_descriptor_is_found() {
+    let errno = |call| through_kobako(call, 3, None).errno;
     assert_eq!(
-        through_kobako("fd_filestat_set_size_huge", 3, None).errno,
-        Some(28),
-        "fd_filestat_set_size of 2^64 - 1 on descriptor 3, not open, through kobako's preview1 \
-         imports must answer EINVAL, as ftruncate checks the length before the descriptor"
+        [
+            errno("fd_filestat_set_size_huge"),
+            errno("fd_pread_huge"),
+            errno("fd_pwrite_huge"),
+        ],
+        [Some(28), Some(28), Some(28)],
+        "fd_filestat_set_size, fd_pread, and fd_pwrite at 2^64 - 1 on descriptor 3, not open, \
+         through kobako's preview1 imports must answer EINVAL, as ftruncate, pread, and pwrite \
+         check it before the descriptor"
     );
 }
 
