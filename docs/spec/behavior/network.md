@@ -2894,3 +2894,16 @@ endpoint "api.example.com", port: 443
 | Given | a socket stream whose read or write fails on the host |
 | When | the guest asks `network-error-code` for the failure |
 | Then | it answers the code a socket call's failure maps to, and the guest raises that code's `Errno`. `to-debug-string` only names the failure for people, as `io.wit` warns against parsing it |
+
+## `NW-231` A blocking flush whose stream closes while it waits answers success
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-229` |
+| unverifiable | only another thread, such as one ending an HTTP body, closes the stream between the call's writes |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest's output stream that took every byte of a `blocking-write-and-flush` |
+| When | the stream closes while the call waits for the bytes to leave |
+| Then | the call answers success, as wasmtime-wasi-io ignores `closed` from its flush |
