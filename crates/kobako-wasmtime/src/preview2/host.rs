@@ -1042,11 +1042,13 @@ impl IoHost for Invocation {
             }
             // Registering through the stream's poll puts the wait on its
             // queue, which a socket's writer wakes after each chunk it sends.
+            // The flush ends once all has left or the stream fails or hangs
+            // up, as its pollable answers during a flush.
             host.wait_for(
                 || None,
                 |table| {
-                    let failed = stream.poll(table).contains(PollMask::ERR);
-                    (failed || stream.is_drained()).then_some(())
+                    let ended = stream.poll(table).is_ready_for(PollMask::ERR);
+                    (ended || stream.is_drained()).then_some(())
                 },
             )?;
             match stream.write(&[]) {
