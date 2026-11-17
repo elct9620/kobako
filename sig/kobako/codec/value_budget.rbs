@@ -20,20 +20,22 @@ module Kobako
       def self.step: (String bytes, Integer pos) -> [Integer?, Integer]
 
       class Count
-        class Open < Struct[untyped]
+        class OpenContainer < Struct[untyped]
           attr_accessor held: Integer
           attr_accessor keyed: bool
           attr_accessor read: Integer
           attr_accessor nan_keys: Integer
           attr_accessor holds_nan: bool
 
-          def self.new: (Integer held, bool keyed, Integer read, Integer nan_keys, bool holds_nan) -> Open
+          def self.new: (Integer held, bool keyed, Integer read, Integer nan_keys, bool holds_nan) -> OpenContainer
         end
 
         @bytes: String
         @budget: Integer
         @remaining: Integer
-        @open: Array[Open]
+        @open: Array[OpenContainer]
+
+        @ended: bool
 
         def initialize: (String bytes, Integer budget) -> void
 
@@ -41,11 +43,11 @@ module Kobako
 
         private
 
-        def payload_ends_at?: (Integer pos, Integer children) -> bool
+        def count_value: (Integer pos, Integer children) -> void
 
-        def outermost_ended?: (bool holds_nan) -> bool
+        def close_value: (bool holds_nan) -> void
 
-        def charge_key: (Open map) -> void
+        def charge_key: (OpenContainer map) -> void
 
         def spend: (Integer values) -> void
 

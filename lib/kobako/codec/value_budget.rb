@@ -67,20 +67,24 @@ module Kobako
         # A container still being read: the values it holds directly,
         # whether it is keyed (a map), how many of them were read, how many
         # of its keys held a NaN, and whether anything in it did.
-        Open = Struct.new(:held, :keyed, :read, :nan_keys, :holds_nan)
+        OpenContainer = Struct.new(:held, :keyed, :read, :nan_keys, :holds_nan)
 
         def initialize(bytes, budget)
           @bytes = bytes
           @budget = budget
           @remaining = budget
-          @open = [] # : Array[Open]
+          @open = [] # : Array[OpenContainer]
+          @ended = false
         end
 
         def run
           pos = 0
           loop do
             after, children = ValueBudget.step(@bytes, pos)
-            return if after.nil? || payload_ends_at?(pos, children)
+            return if after.nil?
+
+            count_value(pos, children)
+            return if @ended
 
             pos = after
           end
@@ -88,31 +92,29 @@ module Kobako
 
         private
 
-        # Count the value at +pos+, which holds +children+ directly;
-        # whether the payload ends with it.
-        def payload_ends_at?(pos, children)
+        # Count the value at +pos+, which holds +children+ directly.
+        def count_value(pos, children)
           marker = @bytes.getbyte(pos)
           spend(1)
-          return outermost_ended?(nan?(marker, pos)) unless children.positive?
+          return close_value(nan?(marker, pos)) unless children.positive?
 
-          @open << Open.new(children, map?(marker), 0, 0, false)
-          false
+          @open << OpenContainer.new(children, map?(marker), 0, 0, false)
         end
 
-        # Count a value that ended, and each container it ends; whether the
-        # outermost one did.
-        def outermost_ended?(holds_nan)
+        # Count a value that ended, and each container it ends, noting once
+        # the outermost one did.
+        def close_value(holds_nan)
           until @open.empty?
-            container = @open.last # : Open
+            container = @open.last # : OpenContainer
             charge_key(container) if holds_nan && container.keyed && container.read.even?
             container.holds_nan ||= holds_nan
             container.read += 1
-            return false unless container.read == container.held
+            return unless container.read == container.held
 
             @open.pop
             holds_nan = container.holds_nan
           end
-          true
+          @ended = true
         end
 
         def charge_key(map)

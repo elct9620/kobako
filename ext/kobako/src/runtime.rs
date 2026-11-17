@@ -393,7 +393,7 @@ impl Runtime {
         // the closure touches no Ruby VALUE (the runtime is magnus-free, and a
         // guest→host dispatch, or a mount's block, re-acquires the GVL).
         let run = escape::Run::enter();
-        let result = gvl::masked(&ruby, self.release_gvl, || {
+        let result = gvl::defer_interrupts(&ruby, self.release_gvl, || {
             gvl::region(self.release_gvl, || {
                 self.runtime.invoke(entry, &preamble, handler, &grants)
             })
@@ -414,7 +414,7 @@ impl Runtime {
         let ruby = Ruby::get().expect("Ruby thread");
         let preamble = to_preamble(&ruby, preamble)?;
         let run = escape::Run::enter();
-        let bytecodes = gvl::masked(&ruby, self.release_gvl, || {
+        let bytecodes = gvl::defer_interrupts(&ruby, self.release_gvl, || {
             gvl::region(self.release_gvl, || self.runtime.compile(&preamble))
         });
         run.finish()?;

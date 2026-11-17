@@ -14,7 +14,7 @@
 //! Neither direction raises where it returns, since that jumps over every Rust
 //! frame of the run and what they hold: a lock's guard, this flag. A release
 //! uses `rb_thread_call_without_gvl2`, which declines rather than raises, and
-//! a run releasing the GVL defers Ruby's interrupts (`masked`) outside its
+//! a run releasing the GVL defers Ruby's interrupts (`defer_interrupts`) outside its
 //! callbacks, as `rb_thread_call_with_gvl` checks for one as it gives the GVL
 //! back. An interrupt waits for the run to end instead.
 
@@ -77,7 +77,7 @@ where
             match ran {
                 Ok(value) => return value,
                 // A run holds the interrupt and raises it once back in Ruby.
-                Err(declined) if escape::in_run() => {
+                Err(declined) if escape::is_in_run() => {
                     escape::hold_interrupts();
                     f = declined;
                 }
@@ -139,9 +139,9 @@ where
     let _guard = ReleasedGuard::set(false);
     // Ruby checks for interrupts as it gives the GVL back on the way out, and
     // raising there would jump over every Rust frame of the run. The run masks
-    // them (`masked`), so the callback alone takes them as they come.
-    let reentered = |f: F| {
-        let ruby = Ruby::get().expect("a reentered thread holds the GVL");
+    // them (`defer_interrupts`), so the callback alone takes them as they come.
+    let run_callback = |f: F| {
+        let ruby = Ruby::get().expect("a thread back in Ruby holds the GVL");
         let (value, raised) = handle_interrupt(&ruby, "immediate", f);
         if let Err(error) = raised {
             escape::keep(error);
@@ -152,7 +152,7 @@ where
     // closure alive across the call, and this thread is a Ruby thread
     // inside a region that released the GVL, as the call requires.
     call_via(
-        || reentered(f),
+        || run_callback(f),
         |func, data| unsafe { rb_sys::rb_thread_call_with_gvl(Some(func), data) },
     )
     .ok()
@@ -162,7 +162,7 @@ where
 /// Run `f` as a run that gives up the GVL when `release` says so, with Ruby's
 /// interrupts deferred until it is back in Ruby, where one comes as the error.
 /// A run keeping the GVL meets no interrupt check outside its callbacks.
-pub(crate) fn masked<R>(
+pub(crate) fn defer_interrupts<R>(
     ruby: &Ruby,
     release: bool,
     f: impl FnOnce() -> R,
@@ -198,7 +198,7 @@ fn handle_interrupt<R>(
         }
     }
 
-    fn yielded(ruby: &Ruby, _args: &[Value], _block: Option<Proc>) -> Value {
+    fn run_body(ruby: &Ruby, _args: &[Value], _block: Option<Proc>) -> Value {
         if let Some(body) = BODY.with(Cell::get) {
             // SAFETY: `handle_interrupt` set it for the length of this call,
             // which yields to this block at most once, on this thread.
@@ -223,7 +223,7 @@ fn handle_interrupt<R>(
                 .funcall_with_block::<_, _, Value>(
                     "handle_interrupt",
                     (mask,),
-                    ruby.proc_new(yielded),
+                    ruby.proc_new(run_body),
                 )
                 .map(|_| ())
         });

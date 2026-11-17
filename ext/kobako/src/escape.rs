@@ -52,7 +52,7 @@ impl Drop for Run {
 }
 
 /// Whether this thread is inside a run, which holds what reaches it.
-pub(super) fn in_run() -> bool {
+pub(super) fn is_in_run() -> bool {
     RUNS.with(|runs| runs.get() > 0)
 }
 
