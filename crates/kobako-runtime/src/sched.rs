@@ -99,8 +99,9 @@ struct Current {
     id: ThreadId,
     task: Task,
     deadline: Option<Instant>,
-    /// How many runs the thread is inside, one within another where a
-    /// Filesystem's own call starts another.
+    /// How many interruptible stretches the thread is inside: a frontend's
+    /// around its run, and a run within another where a Filesystem's own call
+    /// starts another.
     depth: usize,
 }
 
@@ -117,15 +118,34 @@ thread_local! {
 /// is interrupted, as a Linux task stops a killable wait on a fatal signal. A
 /// run within another keeps the outer one's interrupt.
 pub fn run_task<T>(deadline: Option<Instant>, run: impl FnOnce() -> T) -> T {
-    /// Puts back the deadline of the run around this one, however `run` ends,
-    /// and lets an interrupt go once no run is left.
+    /// Puts back the deadline of the run around this one, however `run` ends.
     struct Outer(Option<Instant>);
 
     impl Drop for Outer {
         fn drop(&mut self) {
+            TASK.with(|task| task.borrow_mut().deadline = self.0);
+        }
+    }
+
+    run_interruptible(|| {
+        let _outer =
+            Outer(TASK.with(|task| std::mem::replace(&mut task.borrow_mut().deadline, deadline)));
+        run()
+    })
+}
+
+/// Run `run` as a stretch its frontend may interrupt, as a frontend brackets
+/// all it does for one call around the run itself. An interrupt landing
+/// anywhere in it lasts until the outermost stretch ends, so it stops the
+/// waits of the run it was meant for and never those of the thread's next.
+pub fn run_interruptible<T>(run: impl FnOnce() -> T) -> T {
+    /// Lets an interrupt go once no stretch is left, however `run` ends.
+    struct Stretch;
+
+    impl Drop for Stretch {
+        fn drop(&mut self) {
             TASK.with(|task| {
                 let mut running = task.borrow_mut();
-                running.deadline = self.0;
                 running.depth -= 1;
                 if running.depth == 0 {
                     running.task.interrupted.store(false, Ordering::SeqCst);
@@ -134,11 +154,8 @@ pub fn run_task<T>(deadline: Option<Instant>, run: impl FnOnce() -> T) -> T {
         }
     }
 
-    let _outer = Outer(TASK.with(|task| {
-        let mut running = task.borrow_mut();
-        running.depth += 1;
-        std::mem::replace(&mut running.deadline, deadline)
-    }));
+    TASK.with(|task| task.borrow_mut().depth += 1);
+    let _stretch = Stretch;
     run()
 }
 
@@ -263,5 +280,28 @@ pub(crate) mod testing {
         let counts = Arc::<AtomicUsize>::default();
         COUNTS.with(|held| *held.borrow_mut() = Some(counts.clone()));
         counts
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // @behavior RT-403
+    #[test]
+    fn an_interrupt_around_a_run_stops_that_run_alone() {
+        let (during_setup, after_teardown) = run_interruptible(|| {
+            Task::current().interrupt();
+            let during_setup = run_task(None, pending_fatal_signal);
+            Task::current().interrupt();
+            (during_setup, pending_fatal_signal())
+        });
+        let next = run_task(None, pending_fatal_signal);
+        assert_eq!(
+            (during_setup, after_teardown, next),
+            (Some(FatalSignal::Interrupt), Some(FatalSignal::Interrupt), None),
+            "an interrupt while a run is set up must stop that run's waits, and \
+             one while it is torn down must not stop the thread's next run"
+        );
     }
 }

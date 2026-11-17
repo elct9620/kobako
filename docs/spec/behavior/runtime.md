@@ -56,6 +56,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-runtime/src/vfs/file.rs`
 - `crates/kobako-runtime/src/vfs/utimes.rs`
 - `crates/kobako-runtime/src/wait.rs`
+- `crates/kobako-runtime/src/sched.rs`
 - `crates/kobako-runtime/src/net/tcp.rs`
 - `crates/kobako-runtime/src/endpoint.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
@@ -4461,3 +4462,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a connected socket that sent its FIN and read its peer's |
 | When | the guest shuts a side down, asks for its peer's name, and reads |
 | Then | the shutdown and the name answer `ENOTCONN`, as `inet_shutdown` and `inet_getname` answer one `tcp_done` closed. The read answers zero. No acknowledgement shows through a host socket, so the two FINs alone close it |
+
+## `RT-403` An interrupt before or after a run's own call stops that run alone
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-267` |
+| relates | `S-207` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a frontend call that sets the guest up, runs it, and tears it down |
+| When | the thread is interrupted while the guest is set up or torn down |
+| Then | that run's waits end. The thread's next run waits as usual, as a fatal signal stays with the task it reached |

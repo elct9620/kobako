@@ -20,7 +20,7 @@ use std::os::raw::c_void;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::ptr;
 
-use kobako_runtime::sched::{Blocking, Task};
+use kobako_runtime::sched::{run_interruptible, Blocking, Task};
 
 use super::escape;
 
@@ -40,22 +40,30 @@ where
     let _guard = ReleasedGuard::set(true);
     // An interrupt the thread receives meanwhile stops each wait the run meets,
     // for a lock or a host-side event; the interrupt itself still waits for the
-    // run to end.
+    // run to end. One landing before or after the run itself, while the guest
+    // is set up or torn down, still belongs to this region and goes with it.
     let task = Task::current();
     let task_ptr = ptr::addr_of!(task).cast_mut().cast::<c_void>();
-    call_via(f, |func, data| {
-        // An interrupt that came before the region, which Ruby declines to
-        // start under and `call_via` holds, stops the waits as one inside it
-        // does, as a signal pending when a Linux task sleeps ends the sleep.
-        if escape::pending() {
-            task.interrupt();
-        }
-        // SAFETY: `func` and `data` come from `call_via`, which keeps the
-        // closure alive across the call; `task` outlives it on this frame,
-        // and Ruby calls `interrupt_task` with it only while the region runs.
-        unsafe {
-            rb_sys::rb_thread_call_without_gvl2(Some(func), data, Some(interrupt_task), task_ptr)
-        }
+    run_interruptible(|| {
+        call_via(f, |func, data| {
+            // An interrupt that came before the region, which Ruby declines to
+            // start under and `call_via` holds, stops the waits as one inside it
+            // does, as a signal pending when a Linux task sleeps ends the sleep.
+            if escape::pending() {
+                task.interrupt();
+            }
+            // SAFETY: `func` and `data` come from `call_via`, which keeps the
+            // closure alive across the call; `task` outlives it on this frame,
+            // and Ruby calls `interrupt_task` with it only while the region runs.
+            unsafe {
+                rb_sys::rb_thread_call_without_gvl2(
+                    Some(func),
+                    data,
+                    Some(interrupt_task),
+                    task_ptr,
+                )
+            }
+        })
     })
 }
 
