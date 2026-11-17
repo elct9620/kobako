@@ -214,8 +214,8 @@ pub(super) fn init(mrb: &Mrb, file: RClass) -> Result<(), Error> {
     stat.define_method(mrb, c"symlink?", beni::method!(stat_symlink_p, 0))?;
     stat.define_method(mrb, c"chardev?", beni::method!(stat_chardev_p, 0))?;
     stat.define_method(mrb, c"socket?", beni::method!(stat_socket_p, 0))?;
-    // CRuby orders reports by their modified time, which preview1 hands no
-    // guest, so the comparison every object inherits goes too.
+    // CRuby orders reports by their modified time, which a guest without
+    // `Time` cannot read, so the comparison every object inherits goes too.
     stat.funcall::<_, _, Value>(mrb, c"undef_method", [Symbol::new(mrb, "<=>")?.as_value()])?;
 
     file.define_method(mrb, c"stat", beni::method!(file_stat, 0))?;

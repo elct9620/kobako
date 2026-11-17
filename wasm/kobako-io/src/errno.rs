@@ -241,7 +241,7 @@ pub(crate) fn type_error(mrb: &Mrb, value: Value) -> Error {
         mrb.exception_type_error(),
         &format!(
             "no implicit conversion of {} into String",
-            described(mrb, value)
+            type_name_of(mrb, value)
         ),
     )
 }
@@ -249,7 +249,7 @@ pub(crate) fn type_error(mrb: &Mrb, value: Value) -> Error {
 /// How a conversion's `TypeError` names `value`, as CRuby's
 /// `convert_type_err` names nil, true, and false by value and anything else
 /// by its class.
-pub(crate) fn described(mrb: &Mrb, value: Value) -> String {
+pub(crate) fn type_name_of(mrb: &Mrb, value: Value) -> String {
     if value.is_nil() {
         "nil".to_string()
     } else if Qtrue::from_value(value).is_some() {

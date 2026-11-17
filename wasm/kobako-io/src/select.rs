@@ -330,7 +330,7 @@ fn to_io(mrb: &Mrb, object: Value) -> Result<Value, Error> {
     let Some(io) = crate::convert::check_funcall(mrb, object, c"to_io")? else {
         let message = format!(
             "no implicit conversion of {} into IO",
-            crate::errno::described(mrb, object)
+            crate::errno::type_name_of(mrb, object)
         );
         return Err(Error::new(mrb, mrb.exception_type_error()?, &message));
     };
@@ -338,7 +338,7 @@ fn to_io(mrb: &Mrb, object: Value) -> Result<Value, Error> {
         let class = object.classname(mrb);
         let message = format!(
             "can't convert {class} to IO ({class}#to_io gives {})",
-            crate::errno::described(mrb, io)
+            crate::errno::type_name_of(mrb, io)
         );
         return Err(Error::new(mrb, mrb.exception_type_error()?, &message));
     }
