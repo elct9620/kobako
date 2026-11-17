@@ -953,7 +953,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a host socket failure with a POSIX name, on any host |
 | When | the Wasm Driver answers it as a `wasi:sockets` error code |
-| Then | EPIPE answers `unknown`, EADDRINUSE `address-in-use`, and ECONNRESET `connection-reset`, as wasmtime-wasi's preview2 maps them. ENETDOWN answers `remote-unreachable` and ENOBUFS `out-of-memory`, each read from the host's errno where no kind names it. EMFILE and ENFILE answer `new-socket-limit`, and EMSGSIZE `datagram-too-large`. EDESTADDRREQ answers `invalid-state` and ENOPROTOOPT `not-supported`. EAGAIN answers `would-block` and EINVAL `invalid-argument`, as a file's failure does |
+| Then | EPIPE answers `unknown`, EADDRINUSE `address-in-use`, and ECONNRESET `connection-reset`, as wasmtime-wasi's preview2 maps them. ENETDOWN, EHOSTDOWN, and ENONET answer `remote-unreachable` and ENOBUFS `out-of-memory`, each read from the host's errno where no kind names it. EMFILE and ENFILE answer `new-socket-limit`, and EMSGSIZE `datagram-too-large`. EDESTADDRREQ answers `invalid-state` and ENOPROTOOPT `not-supported`. EAGAIN answers `would-block` and EINVAL `invalid-argument`, as a file's failure does |
 
 ## `NW-075` An endpoint names an IDN by its A-label
 
@@ -2826,7 +2826,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | an HTTP request whose dial the host fails |
 | When | the guest reads why the request has no response |
-| Then | A name with no address answers `DNS-error`, as wasmtime-wasi-http answers a failed lookup. ECONNREFUSED answers `connection-refused`. EHOSTUNREACH, ENETUNREACH, ENETDOWN, and EAFNOSUPPORT answer `destination-unavailable`, which `Net::HTTP` raises as `Errno::EHOSTUNREACH`. A TLS alert the server sends answers `TLS-alert-received` with its id. A handshake the server ends answers `connection-terminated`. `Net::HTTP` raises it as `EOFError`, as WASI names no handshake apart from the response |
+| Then | A name with no address answers `DNS-error`, as wasmtime-wasi-http answers a failed lookup. ECONNREFUSED answers `connection-refused`. EHOSTUNREACH, ENETUNREACH, ENETDOWN, and EAFNOSUPPORT answer `destination-unavailable`, which `Net::HTTP` raises as `Errno::EHOSTUNREACH`. EHOSTDOWN and ENONET, which no kind names, answer `connection-refused`, as wasmtime-wasi-http answers any other failure. A TLS alert the server sends answers `TLS-alert-received` with its id. A handshake the server ends answers `connection-terminated`. `Net::HTTP` raises it as `EOFError`, as WASI names no handshake apart from the response |
 
 ## `NW-226` A request whose credential cannot answer is refused unsent
 

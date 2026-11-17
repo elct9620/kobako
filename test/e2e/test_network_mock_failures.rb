@@ -26,7 +26,8 @@ class TestE2ENetworkMockFailures < Minitest::Test
   # as ENOTCONN, and not-supported as ENOTSUP.
   HOST_FAILURES = {
     "EPIPE" => "Errno::ENOTSUP", "EADDRINUSE" => "Errno::EADDRINUSE", "ECONNRESET" => "Errno::ECONNRESET",
-    "ENETDOWN" => "Errno::EHOSTUNREACH", "ENOBUFS" => "Errno::ENOMEM", "EDESTADDRREQ" => "Errno::ENOTCONN",
+    "ENETDOWN" => "Errno::EHOSTUNREACH", "EHOSTDOWN" => "Errno::EHOSTUNREACH",
+    "ENOBUFS" => "Errno::ENOMEM", "EDESTADDRREQ" => "Errno::ENOTCONN",
     "ENOPROTOOPT" => "Errno::ENOTSUP", "EINVAL" => "Errno::EINVAL"
   }.freeze
 
@@ -50,7 +51,7 @@ class TestE2ENetworkMockFailures < Minitest::Test
   REQUEST_FAILURES = {
     "ECONNREFUSED" => "Errno::ECONNREFUSED", "EHOSTUNREACH" => "Errno::EHOSTUNREACH",
     "ENETUNREACH" => "Errno::EHOSTUNREACH", "ENETDOWN" => "Errno::EHOSTUNREACH",
-    "EAFNOSUPPORT" => "Errno::EHOSTUNREACH"
+    "EAFNOSUPPORT" => "Errno::EHOSTUNREACH", "EHOSTDOWN" => "Errno::ECONNREFUSED"
   }.freeze
 
   # What the guest's request to `web.test` raises when the host fails its

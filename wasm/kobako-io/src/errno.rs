@@ -11,11 +11,11 @@ use beni::{Error, Exception, ExceptionClass, Integer, IntoValue, Mrb, Qfalse, Qt
 
 use crate::wasi::wasi::io::streams::StreamError;
 
-/// One `Errno` class: its name, the WASI errno it answers, the number
-/// CRuby on Linux gives it as `Errno`, and its message.
+/// One `Errno` class: its name, the WASI errno it answers when WASI has
+/// one, the number CRuby on Linux gives it as `Errno`, and its message.
 struct Code {
     name: &'static core::ffi::CStr,
-    wasi: i32,
+    wasi: Option<i32>,
     linux: i32,
     message: &'static str,
 }
@@ -28,7 +28,18 @@ const fn code(
 ) -> Code {
     Code {
         name,
-        wasi,
+        wasi: Some(wasi),
+        linux,
+        message,
+    }
+}
+
+/// A class for an errno WASI has no code for, which only a host's POSIX name
+/// for a failure reaches.
+const fn host_code(name: &'static core::ffi::CStr, linux: i32, message: &'static str) -> Code {
+    Code {
+        name,
+        wasi: None,
         linux,
         message,
     }
@@ -55,6 +66,7 @@ const CODES: &[Code] = &[
     code(c"EDESTADDRREQ", 17, 89, "Destination address required"),
     code(c"EEXIST", 20, 17, "File exists"),
     code(c"EFBIG", 22, 27, "File too large"),
+    host_code(c"EHOSTDOWN", 112, "Host is down"),
     code(c"EHOSTUNREACH", 23, 113, "No route to host"),
     code(
         c"EILSEQ",
@@ -74,6 +86,7 @@ const CODES: &[Code] = &[
     code(c"ENETUNREACH", 40, 101, "Network is unreachable"),
     code(c"ENOBUFS", 42, 105, "No buffer space available"),
     code(c"ENODEV", 43, 19, "No such device"),
+    host_code(c"ENONET", 64, "Machine is not on the network"),
     code(c"ENOENT", 44, 2, "No such file or directory"),
     code(c"ENOMEM", 48, 12, "Cannot allocate memory"),
     code(c"ENOPROTOOPT", 50, 92, "Protocol not available"),
@@ -280,7 +293,7 @@ fn code_of(err: &io::Error) -> Option<&'static Code> {
         .map(|raw| if raw == WASI_NOTCAPABLE { 2 } else { raw });
     CODES
         .iter()
-        .find(|code| Some(code.wasi) == raw)
+        .find(|code| raw.is_some() && code.wasi == raw)
         .or_else(|| {
             let name: &core::ffi::CStr = match err.kind() {
                 io::ErrorKind::NotFound => c"ENOENT",

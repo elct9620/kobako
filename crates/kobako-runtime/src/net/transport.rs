@@ -251,7 +251,6 @@ impl Drop for Transport {
 
 #[cfg(test)]
 mod tests {
-    use super::super::socket::to_error;
     use super::*;
 
     // A failure the upstream socket answers reaches the HTTP seam through
@@ -266,7 +265,9 @@ mod tests {
         ];
         assert_eq!(
             (
-                failures.clone().map(|err| to_error(&to_io(err))),
+                failures
+                    .clone()
+                    .map(|err| Errno::from_io_error(&to_io(err))),
                 HttpError::from_tls(&to_io(Errno::OutOfMemory))
             ),
             (failures, HttpError::Internal),

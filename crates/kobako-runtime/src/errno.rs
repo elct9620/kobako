@@ -69,6 +69,10 @@ pub enum Errno {
     NetworkUnreachable,
     /// A network the host holds no working link to.
     NetworkDown,
+    /// A peer host the network reports down.
+    HostDown,
+    /// A host that is on no network, an errno only Linux gives.
+    MachineNotOnNetwork,
     /// Buffer room the host ran out of for a socket.
     NoBufferSpace,
     /// A local address the host cannot hand out.
@@ -112,7 +116,7 @@ impl std::error::Error for CarriedErrno {}
 /// Each failure a Filesystem can name under the POSIX error name it stands for.
 /// `ENOTSUP` comes before `EOPNOTSUPP`, a name some hosts give the same error,
 /// so `Unsupported` answers to the first.
-const POSIX_NAMES: [(&str, Errno); 49] = [
+const POSIX_NAMES: [(&str, Errno); 51] = [
     ("EAGAIN", Errno::WouldBlock),
     ("ENOENT", Errno::NotFound),
     ("EEXIST", Errno::AlreadyExists),
@@ -150,6 +154,8 @@ const POSIX_NAMES: [(&str, Errno); 49] = [
     ("EHOSTUNREACH", Errno::HostUnreachable),
     ("ENETUNREACH", Errno::NetworkUnreachable),
     ("ENETDOWN", Errno::NetworkDown),
+    ("EHOSTDOWN", Errno::HostDown),
+    ("ENONET", Errno::MachineNotOnNetwork),
     ("ENOBUFS", Errno::NoBufferSpace),
     ("EADDRNOTAVAIL", Errno::AddressNotAvailable),
     ("EADDRINUSE", Errno::AddressInUse),
@@ -168,8 +174,8 @@ impl Errno {
     /// The failure a host call's `err` stands for: the one it carries through
     /// a library, else the host's errno where std names no kind for it, else
     /// its kind. One with none carries only its kind, so no host text reaches
-    /// the guest. A layer knowing what a failure means within it, as a socket
-    /// names a host down, answers that before asking this.
+    /// the guest. A layer knowing what a failure means within it, as a Bind
+    /// names cap-std's refusal, answers that before asking this.
     pub(crate) fn from_io_error(err: &io::Error) -> Self {
         if let Some(CarriedErrno(carried)) = err
             .get_ref()
@@ -187,6 +193,9 @@ impl Errno {
             Some(HostErrno::NFILE) => return Self::TooManyOpenFilesInSystem,
             Some(HostErrno::MSGSIZE) => return Self::MessageTooLong,
             Some(HostErrno::AFNOSUPPORT) => return Self::AddressFamilyNotSupported,
+            Some(HostErrno::HOSTDOWN) => return Self::HostDown,
+            #[cfg(target_os = "linux")]
+            Some(HostErrno::NONET) => return Self::MachineNotOnNetwork,
             _ => {}
         }
         Self::from_io_kind(err.kind()).unwrap_or_else(|| Self::Other(format!("{:?}", err.kind())))
@@ -275,6 +284,67 @@ mod tests {
             ),
             (Some("ENOTSUP"), None),
             "Unsupported through Errno::posix_name must answer ENOTSUP, and Other none"
+        );
+    }
+
+    // @behavior NW-074
+    #[test]
+    fn a_host_socket_failure_answers_the_posix_name_its_errno_holds() {
+        use rustix::io::Errno as HostErrno;
+        let answers = [
+            HostErrno::NETDOWN,
+            HostErrno::NOBUFS,
+            HostErrno::HOSTDOWN,
+            HostErrno::DESTADDRREQ,
+            HostErrno::NOPROTOOPT,
+            HostErrno::MFILE,
+            HostErrno::MSGSIZE,
+            HostErrno::AFNOSUPPORT,
+            HostErrno::AGAIN,
+            HostErrno::INVAL,
+        ]
+        .map(|errno| Errno::from_io_error(&io::Error::from_raw_os_error(errno.raw_os_error())));
+        assert_eq!(
+            answers,
+            [
+                Errno::NetworkDown,
+                Errno::NoBufferSpace,
+                Errno::HostDown,
+                Errno::DestinationAddressRequired,
+                Errno::ProtocolNotAvailable,
+                Errno::TooManyOpenFiles,
+                Errno::MessageTooLong,
+                Errno::AddressFamilyNotSupported,
+                Errno::WouldBlock,
+                Errno::InvalidInput
+            ],
+            "a host socket failing with ENETDOWN, ENOBUFS, EHOSTDOWN, EDESTADDRREQ, ENOPROTOOPT, \
+             EMFILE, EMSGSIZE, EAFNOSUPPORT, EAGAIN, or EINVAL must answer that same name on \
+             every host, read from its errno where std names no kind"
+        );
+    }
+
+    // @behavior NW-074
+    #[cfg(unix)]
+    #[test]
+    fn a_host_out_of_open_files_answers_enfile() {
+        let errno = rustix::io::Errno::NFILE.raw_os_error();
+        assert_eq!(
+            Errno::from_io_error(&io::Error::from_raw_os_error(errno)),
+            Errno::TooManyOpenFilesInSystem,
+            "a host socket failing with ENFILE must answer ENFILE, which Windows has no code for"
+        );
+    }
+
+    // @behavior NW-074
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_host_off_the_network_answers_enonet() {
+        let errno = rustix::io::Errno::NONET.raw_os_error();
+        assert_eq!(
+            Errno::from_io_error(&io::Error::from_raw_os_error(errno)),
+            Errno::MachineNotOnNetwork,
+            "a host socket failing with ENONET must answer ENONET, an errno only Linux gives"
         );
     }
 }

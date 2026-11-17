@@ -263,9 +263,11 @@ pub(crate) fn to_error_code(err: &Errno) -> ErrorCode {
         Errno::TooManyOpenFiles | Errno::TooManyOpenFilesInSystem => ErrorCode::NewSocketLimit,
         Errno::AddressNotAvailable => ErrorCode::AddressNotBindable,
         Errno::AddressInUse => ErrorCode::AddressInUse,
-        Errno::HostUnreachable | Errno::NetworkUnreachable | Errno::NetworkDown => {
-            ErrorCode::RemoteUnreachable
-        }
+        Errno::HostUnreachable
+        | Errno::HostDown
+        | Errno::NetworkUnreachable
+        | Errno::NetworkDown
+        | Errno::MachineNotOnNetwork => ErrorCode::RemoteUnreachable,
         Errno::ConnectionRefused => ErrorCode::ConnectionRefused,
         Errno::ConnectionReset => ErrorCode::ConnectionReset,
         Errno::ConnectionAborted => ErrorCode::ConnectionAborted,
@@ -323,6 +325,8 @@ mod tests {
                 Errno::AddressInUse,
                 Errno::ConnectionReset,
                 Errno::NetworkDown,
+                Errno::HostDown,
+                Errno::MachineNotOnNetwork,
                 Errno::NoBufferSpace,
                 Errno::DestinationAddressRequired,
                 Errno::ProtocolNotAvailable,
@@ -338,6 +342,8 @@ mod tests {
                 ErrorCode::AddressInUse,
                 ErrorCode::ConnectionReset,
                 ErrorCode::RemoteUnreachable,
+                ErrorCode::RemoteUnreachable,
+                ErrorCode::RemoteUnreachable,
                 ErrorCode::OutOfMemory,
                 ErrorCode::InvalidState,
                 ErrorCode::NotSupported,
@@ -347,9 +353,10 @@ mod tests {
                 ErrorCode::WouldBlock,
                 ErrorCode::InvalidArgument,
             ],
-            "EPIPE, EADDRINUSE, ECONNRESET, ENETDOWN, ENOBUFS, EDESTADDRREQ, ENOPROTOOPT, EMFILE, \
-             ENFILE, EMSGSIZE, EAGAIN, and EINVAL must answer unknown, address-in-use, \
-             connection-reset, remote-unreachable, out-of-memory, invalid-state, not-supported, \
+            "EPIPE, EADDRINUSE, ECONNRESET, ENETDOWN, EHOSTDOWN, ENONET, ENOBUFS, EDESTADDRREQ, \
+             ENOPROTOOPT, EMFILE, ENFILE, EMSGSIZE, EAGAIN, and EINVAL must answer unknown, \
+             address-in-use, connection-reset, remote-unreachable three times, out-of-memory, \
+             invalid-state, not-supported, \
              new-socket-limit twice, datagram-too-large, would-block, and invalid-argument, as \
              wasmtime-wasi maps them"
         );

@@ -929,15 +929,17 @@ fn a_second_linux_name_for_an_errno_is_the_same_class() {
 // @behavior FL-080
 #[test]
 fn every_errno_the_runtime_answers_names_a_class() {
-    let script = "print [Errno::ESTALE::Errno, Errno::EALREADY::Errno].inspect";
+    let script = "print [Errno::ESTALE, Errno::EALREADY, Errno::EHOSTDOWN, Errno::ENONET]\
+        .map { |c| [c::Errno, c.new.message] }.inspect";
     let Some(answer) = run(script, &[mount(note_tmpfs(), Access::Read)], Vec::new()) else {
         return;
     };
     assert_eq!(
         answer,
-        Ok("[116, 114]".to_string()),
-        "Errno::ESTALE and Errno::EALREADY read through the bundled guest must stand for the \
-         numbers Linux gives them"
+        Ok(r#"[[116, "Stale file handle"], [114, "Operation already in progress"], [112, "Host is down"], [64, "Machine is not on the network"]]"#.to_string()),
+        "Errno::ESTALE, EALREADY, EHOSTDOWN, and ENONET read through the bundled guest must stand \
+         for the numbers and messages CRuby on Linux gives them, EHOSTDOWN and ENONET though WASI \
+         numbers neither"
     );
 }
 

@@ -2110,12 +2110,13 @@ mod tests {
     // own EHOSTDOWN stands for it here.
     #[cfg(unix)]
     #[test]
-    fn a_directory_answers_a_host_down_without_a_sockets_name() {
+    fn a_directory_answers_a_host_down_as_ehostdown() {
         let down = io::Error::from_raw_os_error(rustix::io::Errno::HOSTDOWN.raw_os_error());
-        assert!(
-            matches!(to_error(down), Errno::Other(_)),
-            "a host EHOSTDOWN through a Bind must fail as an unnamed failure, since no error \
-             the runtime names stands for it, not as the unreachable host a socket answers"
+        assert_eq!(
+            to_error(down),
+            Errno::HostDown,
+            "a host EHOSTDOWN through a Bind must fail as EHOSTDOWN, as Linux hands a network \
+             filesystem's failure on, not as the unreachable host a socket's WASI code reads"
         );
     }
 

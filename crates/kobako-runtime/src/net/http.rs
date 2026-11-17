@@ -22,7 +22,6 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use super::connections::{open, OpenConnections, Place};
 use super::credential::Swap;
 use super::reactor::{Reactor, Task};
-use super::socket::to_error;
 use super::transport::Connector;
 use super::{new_platform_tls, MAX_SOCKET_BUFFER};
 use crate::cred::Cred;
@@ -1039,7 +1038,7 @@ impl HttpError {
         if err.kind() == io::ErrorKind::UnexpectedEof {
             return Self::ConnectionTerminated;
         }
-        match to_error(err) {
+        match Errno::from_io_error(err) {
             Errno::ConnectionReset | Errno::ConnectionAborted | Errno::BrokenPipe => {
                 Self::ConnectionTerminated
             }
@@ -1105,7 +1104,7 @@ mod tests {
             io::ErrorKind::NetworkUnreachable,
             io::ErrorKind::NetworkDown,
         ]
-        .map(|kind| HttpError::from_errno(&to_error(&io::Error::from(kind))));
+        .map(|kind| HttpError::from_errno(&Errno::from_io_error(&io::Error::from(kind))));
         assert_eq!(
             dials,
             [
@@ -1121,6 +1120,25 @@ mod tests {
              network must answer connection-timeout, connection-refused, connection-terminated \
              twice, and destination-unavailable three times, as wasmtime-wasi-http names each"
         );
+    }
+
+    // @behavior NW-225
+    #[test]
+    fn a_dial_to_a_host_down_answers_connection_refused() {
+        use rustix::io::Errno as HostErrno;
+        #[cfg(target_os = "linux")]
+        let downs = [HostErrno::HOSTDOWN, HostErrno::NONET];
+        #[cfg(not(target_os = "linux"))]
+        let downs = [HostErrno::HOSTDOWN];
+        for errno in downs {
+            let err = io::Error::from_raw_os_error(errno.raw_os_error());
+            assert_eq!(
+                HttpError::from_errno(&Errno::from_io_error(&err)),
+                HttpError::ConnectionRefused,
+                "a dial failing with {errno:?} must answer connection-refused, as \
+                 wasmtime-wasi-http answers an errno std names no kind for"
+            );
+        }
     }
 
     // @behavior NW-225
