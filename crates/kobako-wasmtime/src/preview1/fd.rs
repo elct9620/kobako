@@ -218,25 +218,22 @@ fn to_fdstat(file: &File, preopen: bool) -> types::Fdstat {
         (rights, rights)
     } else if preopen {
         (preopen_rights(), directory_rights_inheriting())
-    } else if file.is_directory() {
-        let mut rights = Rights::all()
-            - Rights::FD_WRITE
-            - Rights::FD_SEEK
-            - Rights::FD_FILESTAT_SET_SIZE
-            - Rights::PATH_FILESTAT_SET_SIZE;
-        if !file.is_readable() {
-            rights -= Rights::FD_READ | Rights::FD_READDIR;
-        }
-        (rights, directory_rights_inheriting())
     } else {
         let mut rights = Rights::all();
+        if file.is_directory() {
+            rights -=
+                Rights::FD_SEEK | Rights::FD_FILESTAT_SET_SIZE | Rights::PATH_FILESTAT_SET_SIZE;
+        }
         if !file.is_readable() {
             rights -= Rights::FD_READ | Rights::FD_READDIR;
         }
         if !file.is_writable() {
             rights -= Rights::FD_WRITE;
         }
-        (rights, rights)
+        match file.is_directory() {
+            true => (rights, directory_rights_inheriting()),
+            false => (rights, rights),
+        }
     };
     types::Fdstat {
         fs_filetype: to_filetype(file.file_type()),
