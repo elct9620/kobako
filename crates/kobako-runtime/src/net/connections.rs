@@ -7,6 +7,8 @@
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
+use crate::fork::ProcessLocal;
+
 /// The process's limit until a Host App sets its own, as tokio caps its
 /// blocking pool.
 const DEFAULT_PROCESS_LIMIT: usize = 512;
@@ -26,8 +28,8 @@ pub fn process_connections() -> &'static Arc<OpenConnections> {
 pub struct OpenConnections {
     /// The most held at once; `None` lifts the limit.
     limit: Mutex<Option<usize>>,
-    /// The process the count was made in, and the count.
-    count: Mutex<(u32, usize)>,
+    /// How many are held, counted in this process alone.
+    count: ProcessLocal<usize>,
 }
 
 impl OpenConnections {
@@ -35,7 +37,7 @@ impl OpenConnections {
     pub fn new(limit: Option<usize>) -> Arc<Self> {
         Arc::new(Self {
             limit: Mutex::new(limit),
-            count: Mutex::new((std::process::id(), 0)),
+            count: ProcessLocal::new(),
         })
     }
 
@@ -48,23 +50,25 @@ impl OpenConnections {
     /// Whether one more fits, counting it if so.
     fn try_open(&self) -> bool {
         let limit = *self.limit.lock().unwrap_or_else(PoisonError::into_inner);
-        let mut count = self.count.lock().unwrap_or_else(PoisonError::into_inner);
-        let pid = std::process::id();
-        if count.0 != pid {
-            *count = (pid, 0);
-        }
-        if limit.is_some_and(|limit| count.1 >= limit) {
-            return false;
-        }
-        count.1 += 1;
-        true
+        self.count.with(|count| {
+            let count = count.get_or_insert(0);
+            if limit.is_some_and(|limit| *count >= limit) {
+                return false;
+            }
+            *count += 1;
+            true
+        })
     }
 
-    /// One given back, counted in `pid`.
+    /// One given back, counted in `pid`; one a parent counted is not this
+    /// process's to give back.
     fn close(&self, pid: u32) {
-        let mut count = self.count.lock().unwrap_or_else(PoisonError::into_inner);
-        if count.0 == pid {
-            count.1 -= 1;
+        if pid == std::process::id() {
+            self.count.with(|count| {
+                if let Some(count) = count {
+                    *count -= 1;
+                }
+            });
         }
     }
 }
@@ -132,7 +136,7 @@ mod tests {
         let (first, second) = (OpenConnections::new(None), OpenConnections::new(None));
         let held = [open_within(&first, &process), open_within(&first, &process)];
         let refused = open_within(&second, &process).is_none();
-        let counted_while_refused = second.count.lock().unwrap().1;
+        let counted_while_refused = second.count.with(|count| count.unwrap_or(0));
         drop(held);
         assert!(
             refused && counted_while_refused == 0 && open_within(&second, &process).is_some(),
@@ -145,7 +149,8 @@ mod tests {
     #[test]
     fn a_count_made_in_another_process_starts_from_none() {
         let sandbox = OpenConnections::new(Some(2));
-        *sandbox.count.lock().unwrap() = (std::process::id().wrapping_add(1), 2);
+        sandbox.count.with(|count| *count = Some(2));
+        sandbox.count.inherit();
         assert!(
             open(&sandbox).is_some(),
             "a connection count inherited across a fork must start from none in the child"

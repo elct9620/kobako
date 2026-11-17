@@ -11,13 +11,15 @@ use std::future::Future;
 use std::io;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, LazyLock, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Mutex, PoisonError, Weak};
 use std::task::{Context, Wake, Waker};
 use std::thread;
 use std::time::{Duration, Instant};
 
 use mio::event::Source;
 use mio::{Events, Interest, Registry, Token};
+
+use crate::fork::ProcessLocal;
 
 /// What a host socket does once the reactor saw it change, as a socket's
 /// `sk_data_ready` and `sk_write_space` do: move what it can without blocking,
@@ -50,27 +52,24 @@ pub(crate) struct Reactor {
     timers: Mutex<Vec<(Instant, Waker)>>,
 }
 
-/// A reactor, and the process it was started in.
-type StartedReactor = (u32, Arc<Reactor>);
-
 /// The process's reactor.
-static CURRENT: LazyLock<Mutex<Option<StartedReactor>>> = LazyLock::new(Mutex::default);
+static CURRENT: ProcessLocal<Arc<Reactor>> = ProcessLocal::new();
 
 impl Reactor {
     /// The process's reactor, started at the first socket; a forked child
     /// starts its own, since its parent's thread never came along, and so does
     /// the socket after a reactor whose poll failed.
     pub(crate) fn current() -> io::Result<Arc<Self>> {
-        let mut current = CURRENT.lock().unwrap_or_else(PoisonError::into_inner);
-        let pid = std::process::id();
-        if let Some((started_in, reactor)) = current.as_ref() {
-            if *started_in == pid && !reactor.stopped.load(Ordering::Acquire) {
-                return Ok(reactor.clone());
+        CURRENT.with(|current| {
+            if let Some(reactor) = current.as_ref() {
+                if !reactor.stopped.load(Ordering::Acquire) {
+                    return Ok(reactor.clone());
+                }
             }
-        }
-        let reactor = Self::start()?;
-        *current = Some((pid, reactor.clone()));
-        Ok(reactor)
+            let reactor = Self::start()?;
+            *current = Some(reactor.clone());
+            Ok(reactor)
+        })
     }
 
     fn start() -> io::Result<Arc<Self>> {
@@ -358,7 +357,7 @@ mod tests {
     #[test]
     fn a_reactor_started_in_another_process_is_replaced() {
         let inherited = Reactor::current().expect("a reactor starts");
-        CURRENT.lock().unwrap().as_mut().unwrap().0 = std::process::id().wrapping_add(1);
+        CURRENT.inherit();
         let own = Reactor::current().expect("a reactor starts");
         assert!(
             !Arc::ptr_eq(&inherited, &own),

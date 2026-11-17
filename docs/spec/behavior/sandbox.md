@@ -51,6 +51,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_deadline_host_time.rb`
 - `test/e2e/sandbox/test_first_run_interrupt.rb`
 - `test/e2e/sandbox/test_interrupted_run.rb`
+- `test/e2e/sandbox/test_forked_deadline.rb`
 - `test/e2e/test_execution.rb`
 - `test/e2e/test_outcome_values.rb`
 - `test/e2e/test_canonical_boot.rb`
@@ -1925,3 +1926,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a permissive Sandbox holding the GVL whose guest computes, then waits on a clock |
 | When | the process receives SIGINT while the guest computes |
 | Then | the wait ends at once, and the run raises `Interrupt` in the Host App. A signal pending as a Linux task sleeps ends that sleep |
+
+## `S-216` A deadline still fires in a forked child
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-149` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process that ran a Sandbox with a deadline, then forked |
+| When | the child runs guest code that loops without end on that Sandbox |
+| Then | the deadline cuts it short. A forked child inherits the memory but only the thread that forked, so what keeps time is the child's own |

@@ -31,6 +31,7 @@ use sha2::{Digest, Sha256};
 use wasmtime::{Config as WtConfig, Engine as WtEngine, Module as WtModule};
 
 use kobako_runtime::error::SetupError;
+use kobako_runtime::fork::ProcessLocal;
 
 static SHARED_ENGINE: OnceLock<WtEngine> = OnceLock::new();
 static MODULE_CACHE: OnceLock<Mutex<HashMap<PathBuf, WtModule>>> = OnceLock::new();
@@ -47,9 +48,10 @@ const EPOCH_TICK: Duration = Duration::from_millis(10);
 /// The exceptions proposal is on because the mruby wasi build emits
 /// new-style exception handling (`-mllvm -wasm-use-legacy-eh=false`) for
 /// its setjmp path. Epoch interruption backs the wall-clock cap, driven by
-/// one process-wide ticker thread.
+/// one ticker thread per process.
 pub(crate) fn load_engine() -> Result<&'static WtEngine, SetupError> {
     if let Some(engine) = SHARED_ENGINE.get() {
+        spawn_epoch_ticker(engine);
         return Ok(engine);
     }
     let mut config = WtConfig::new();
@@ -58,20 +60,26 @@ pub(crate) fn load_engine() -> Result<&'static WtEngine, SetupError> {
     let engine =
         WtEngine::new(&config).map_err(|e| SetupError::Dead(format!("engine init: {e}")))?;
     let engine = SHARED_ENGINE.get_or_init(|| engine);
-    spawn_epoch_ticker(engine.clone());
+    spawn_epoch_ticker(engine);
     Ok(engine)
 }
 
-fn spawn_epoch_ticker(engine: WtEngine) {
-    static TICKER_SPAWNED: OnceLock<()> = OnceLock::new();
-    TICKER_SPAWNED.get_or_init(|| {
-        thread::Builder::new()
-            .name("kobako-epoch-ticker".into())
-            .spawn(move || loop {
-                thread::sleep(EPOCH_TICK);
-                engine.increment_epoch();
-            })
-            .expect("spawn kobako-epoch-ticker thread");
+/// The ticker is the process's own: a forked child, which inherits the Engine
+/// but no thread, starts one of its own, or no deadline would fire in it.
+fn spawn_epoch_ticker(engine: &WtEngine) {
+    static TICKER: ProcessLocal<()> = ProcessLocal::new();
+    TICKER.with(|ticker| {
+        if ticker.is_none() {
+            let engine = engine.clone();
+            thread::Builder::new()
+                .name("kobako-epoch-ticker".into())
+                .spawn(move || loop {
+                    thread::sleep(EPOCH_TICK);
+                    engine.increment_epoch();
+                })
+                .expect("spawn kobako-epoch-ticker thread");
+            *ticker = Some(());
+        }
     });
 }
 
