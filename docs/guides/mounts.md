@@ -107,7 +107,6 @@ directory. Where they differ, they only refuse more.
 | nothing is mounted | `NotImplementedError` |
 | a Policy refuses a change | `Errno::EACCES`, where a read-only mount says `Errno::EROFS` |
 | an Integer mode holds a flag kobako does not honor, or `WRONLY` beside `RDWR` | `Errno::EINVAL` |
-| a mode names an encoding, such as `"r:utf-8"` | `ArgumentError` |
 | `IO.new` wraps stdout or stderr in a mode other than `"w"` | `ArgumentError` |
 | `IO#advise` names a negative offset | `Errno::EINVAL`, where CRuby answers `nil` |
 | a directory opened as a `File` seeks or asks its position | `Errno::EISDIR`, as WASI keeps no directory position |

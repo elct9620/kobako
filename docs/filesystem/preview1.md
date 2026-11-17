@@ -131,6 +131,7 @@ Which error answers first is fixed at a Linux syscall entry, before the VFS. Eac
 | Judgment | Precedent |
 |---|---|
 | `fd_filestat_set_size`: size before descriptor | `ksys_ftruncate` |
+| `fd_pread`, `fd_pwrite`: offset before descriptor | `ksys_pread64`, `ksys_pwrite64` |
 | `path_open`: flags, EMFILE, ENOMEM, then name | `FD_ADD`, `alloc_empty_file` |
 | `path_readlink`: empty buffer EINVAL, truncation | `do_readlinkat` `bufsiz` |
 | No times set answers 0 first | `SYSCALL_DEFINE4(utimensat)` |
