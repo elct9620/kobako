@@ -79,6 +79,17 @@ impl Node {
         }
     }
 
+    /// Refuse a directory holding anything, whiteouts among them, as
+    /// `simple_empty` answers before a removal or a replacement takes it.
+    fn ensure_empty(&self) -> Result<(), Errno> {
+        match self {
+            Self::Directory(dir) if !dir.state().entries.is_empty() => {
+                Err(Errno::DirectoryNotEmpty)
+            }
+            _ => Ok(()),
+        }
+    }
+
     fn file_type(&self) -> FileType {
         match self {
             Self::File(_) => FileType::RegFile,
@@ -703,10 +714,8 @@ impl InodeOperations for Tmpfs {
     fn rmdir(&self, dentry: &Dentry) -> Result<(), Errno> {
         let name = dentry.name();
         let mut state = self.dir.state();
-        if let Some(Node::Directory(removed)) = state.entries.get(&name) {
-            if !removed.state().entries.is_empty() {
-                return Err(Errno::DirectoryNotEmpty);
-            }
+        if let Some(removed) = state.entries.get(&name) {
+            removed.ensure_empty()?;
         }
         state.remove(&name);
         Ok(())

@@ -90,10 +90,8 @@ impl Tmpfs {
             new_dir.state().exchange(new_name, moving);
             return Ok(());
         }
-        if let Some(Node::Directory(dir)) = &replaced {
-            if !dir.state().entries.is_empty() {
-                return Err(Errno::DirectoryNotEmpty);
-            }
+        if let Some(replaced) = &replaced {
+            replaced.ensure_empty()?;
         }
         let left = match flags {
             Some(RenameFlag::Whiteout) => Some(self.new_whiteout()?),
