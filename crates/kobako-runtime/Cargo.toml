@@ -52,7 +52,7 @@ if-addrs = "0.15.0"
 # host parser: an address in any IPv4 spelling, or a name as its A-label, so
 # the hooks and the endpoints judge one spelling of it.
 url = "2.5.8"
-# The default outbound seam: hyper's HTTP/1 client, which binds to no async
+# The L7 proxy's sender: hyper's HTTP/1 client, which binds to no async
 # runtime, driven on kobako's reactor and dialing only through kobako's
 # connector; no default feature, so it decompresses and redirects nothing.
 hyper = { version = "1.12.0", features = ["client", "http1"] }
