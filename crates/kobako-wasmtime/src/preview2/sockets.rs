@@ -117,11 +117,6 @@ impl TcpState {
 
 const NANOS_PER_SEC: u64 = 1_000_000_000;
 
-/// A time in seconds as the nanoseconds WASI's `duration` counts.
-pub(crate) fn to_nanos(secs: u32) -> u64 {
-    u64::from(secs) * NANOS_PER_SEC
-}
-
 /// A keepalive time in whole seconds, a part of one rounding up as rustix's
 /// `duration_to_secs` does for wasmtime, clamped to 1 through `max`, the
 /// runtime's ceiling; zero has none, as WIT answers it `invalid-argument`.

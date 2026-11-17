@@ -22,7 +22,7 @@ use wasmtime_wasi::clocks::WallClock;
 use wasmtime_wasi::random::Deterministic;
 use wasmtime_wasi::{HostMonotonicClock, HostWallClock};
 
-use crate::preview2::nanos_of;
+use crate::preview2::to_nanos;
 
 /// Wall clock frozen at the Unix epoch — the guest observes no real time.
 pub(crate) struct FrozenWallClock;
@@ -78,7 +78,7 @@ impl HostMonotonicClock for LiveMonotonicClock {
     }
 
     fn now(&self) -> u64 {
-        nanos_of(self.origin.elapsed())
+        to_nanos(self.origin.elapsed())
     }
 }
 
@@ -122,7 +122,7 @@ impl Clocks {
             Self::Frozen => FrozenWallClock.now(),
             Self::Live { wall, .. } => wall.now(),
         };
-        nanos_of(since_epoch)
+        to_nanos(since_epoch)
     }
 }
 

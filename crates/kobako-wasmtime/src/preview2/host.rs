@@ -39,10 +39,11 @@ use super::io::{self, EndingStream, SharedFile, SocketFile, Stream};
 use super::sockets::{self, TcpState, UdpState};
 use super::sockets::{
     from_socket_addr, is_valid_unicast_address, to_asked_size, to_buffer_size, to_error_code,
-    to_hop_limit, to_ip_address, to_keepalive_secs, to_lookup_error_code, to_nanos, to_remote_addr,
+    to_hop_limit, to_ip_address, to_keepalive_secs, to_lookup_error_code, to_remote_addr,
     to_socket_addr,
 };
 use super::table;
+use super::to_nanos;
 use super::MAX_READ_SIZE_ALLOC;
 use crate::invocation::Invocation;
 use crate::trap::{Interrupted, TimeoutTrap};
@@ -586,7 +587,8 @@ impl SocketsHost for Invocation {
     }
 
     fn tcp_tcp_socket_keep_alive_idle_time(&mut self, this: TcpSocket) -> Result<u64, SocketError> {
-        Ok(to_nanos(self.tcp_option(this, SockOpt::KeepIdle)?))
+        let secs = self.tcp_option(this, SockOpt::KeepIdle)?;
+        Ok(to_nanos(Duration::from_secs(u64::from(secs))))
     }
 
     /// As wasmtime's, zero answers `invalid-argument` and any other time is
@@ -601,7 +603,8 @@ impl SocketsHost for Invocation {
     }
 
     fn tcp_tcp_socket_keep_alive_interval(&mut self, this: TcpSocket) -> Result<u64, SocketError> {
-        Ok(to_nanos(self.tcp_option(this, SockOpt::KeepIntvl)?))
+        let secs = self.tcp_option(this, SockOpt::KeepIntvl)?;
+        Ok(to_nanos(Duration::from_secs(u64::from(secs))))
     }
 
     fn tcp_tcp_socket_set_keep_alive_interval(

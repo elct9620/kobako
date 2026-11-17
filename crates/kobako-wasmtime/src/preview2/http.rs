@@ -21,7 +21,7 @@ use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
 use super::bindings::HttpHost;
 use super::error;
 use super::io::{self, SharedFile, Stream};
-use super::nanos_of;
+use super::to_nanos;
 use crate::invocation::Invocation;
 
 /// A request's body and whether the guest ended it, shared between the request
@@ -625,7 +625,7 @@ impl HttpHost for Invocation {
         &mut self,
         this: RequestOptions,
     ) -> wasmtime::Result<Option<u64>> {
-        Ok(self.table_mut().get(this)?.0.connect.map(nanos_of))
+        Ok(self.table_mut().get(this)?.0.connect.map(to_nanos))
     }
 
     /// Bound the connect, as wasmtime-wasi-http bounds it, so a request
@@ -643,7 +643,7 @@ impl HttpHost for Invocation {
         &mut self,
         this: RequestOptions,
     ) -> wasmtime::Result<Option<u64>> {
-        Ok(self.table_mut().get(this)?.0.first_byte.map(nanos_of))
+        Ok(self.table_mut().get(this)?.0.first_byte.map(to_nanos))
     }
 
     /// Bound the wait for the response's head once connected, answered as
@@ -661,7 +661,7 @@ impl HttpHost for Invocation {
         &mut self,
         this: RequestOptions,
     ) -> wasmtime::Result<Option<u64>> {
-        Ok(self.table_mut().get(this)?.0.between_bytes.map(nanos_of))
+        Ok(self.table_mut().get(this)?.0.between_bytes.map(to_nanos))
     }
 
     /// Bound each wait for the body's next part, failing the read that
