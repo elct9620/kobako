@@ -42,7 +42,7 @@ class TestE2ENetworkSocketNonblock < Minitest::Test
     [NonblockOutcome.plain_raise("EOFError", "end of file reached"), nil, nil]
   ].freeze
 
-  # @behavior NW-129
+  # @behavior NW-129 IO-047
   def test_a_tcp_socket_reads_without_waiting_as_crubys
     with_answering_server("ab\ncd") do |port|
       value = loopback_sandbox(port).eval(format(READS, port: port)).value

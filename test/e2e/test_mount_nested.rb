@@ -118,14 +118,15 @@ class TestE2EMountNested < Minitest::Test
 
   # @behavior MT-035
   def test_a_read_only_nested_mount_refuses_a_change_however_the_path_is_spelled
-    sandbox = nested(Kobako::Filesystem::Tmpfs.new("inner/.keep" => ""), Kobako::Filesystem::Tmpfs.new)
-    script = <<~RUBY
-      refused = begin; File.write("/data/./inner/new", "x"); nil; rescue Errno::EROFS; :erofs; end
-      [refused, File.exist?("/data/./inner/new")]
-    RUBY
+    outer = Kobako::Filesystem::Tmpfs.new("inner/.keep" => "")
+    sandbox = nested(outer, Kobako::Filesystem::Tmpfs.new)
+    script = 'begin; File.write("/data/./inner/new", "x"); nil; rescue Errno::EROFS; :erofs; end'
 
-    assert_equal [:erofs, false], sandbox.eval(script).value,
+    assert_equal :erofs, sandbox.eval(script).value,
                  "a write beneath a read-only nested Sandbox#mount spelled with . must raise EROFS"
+    outer_alone = Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/outer", outer, access: :read)
+    assert_equal [".keep"], outer_alone.eval('Dir.children("/outer/inner")').value,
+                 "the writable Tmpfs beneath a read-only nested Sandbox#mount must hold no inner/new"
   end
 
   # @behavior MT-036

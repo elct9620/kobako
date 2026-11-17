@@ -18,7 +18,9 @@ class TestE2EDirWorkingDirectory < Minitest::Test
 
   WITHIN_A_BLOCK = <<~RUBY
     answered = Dir.chdir("/m/sub") { |path| [path, Dir.pwd, File.read("c.rb")] }
-    raised = begin; Dir.chdir("/m/sub") { raise "x" }; rescue RuntimeError; Dir.pwd; end
+    raised = begin; Dir.chdir("/m/sub") { |path| raise [path, Dir.pwd].join(" ") }; rescue RuntimeError => e
+      [e.message, Dir.pwd]
+    end
     [answered, raised, Dir.pwd]
   RUBY
 
@@ -41,7 +43,7 @@ class TestE2EDirWorkingDirectory < Minitest::Test
 
   # @behavior FL-097
   def test_a_block_changes_the_working_directory_only_while_it_runs
-    assert_equal [["/m/sub", "/m/sub", "c"], "/", "/"], sandbox.eval(WITHIN_A_BLOCK).value,
+    assert_equal [["/m/sub", "/m/sub", "c"], ["/m/sub /m/sub", "/"], "/"], sandbox.eval(WITHIN_A_BLOCK).value,
                  "Dir.chdir with a block through the bundled guest must run the block there, answer its " \
                  "value, and restore the earlier directory however the block ends"
   end

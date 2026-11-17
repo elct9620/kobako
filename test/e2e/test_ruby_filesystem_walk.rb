@@ -64,11 +64,9 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
                    .mount("/data", filesystem, access: :read)
                    .eval('2.times { File.read("/data/a/b/c/note.txt") }')
 
-    assert_equal %w[a a/b a/b/c], filesystem.asked & %w[a a/b a/b/c],
+    assert_equal [1, 1, 1], %w[a a/b a/b/c].map { |name| filesystem.asked.count(name) },
                  "a file three directories deep read twice through Sandbox#mount of a Ruby Filesystem whose " \
                  "exclusive? answers true must ask its stat about each directory once"
-    assert_equal 1, filesystem.asked.count("a/b"),
-                 "the second read through an exclusive Ruby Filesystem must ask its stat nothing about a/b again"
   end
 
   # A DeepFilesystem that cannot say whether only the guest changes it.

@@ -20,6 +20,7 @@ The host end of this surface belongs with the Sandbox behaviors. It covers which
 - `test/e2e/test_io_state.rb`
 - `test/e2e/test_io_wait.rb`
 - `test/e2e/test_io_position.rb`
+- `test/e2e/test_network_socket_nonblock.rb`
 
 ## `IO-001` Only the captured descriptors and the guest's own files may be opened
 
