@@ -123,7 +123,7 @@ than read a wrong answer.
 | ways to ask | `File.stat`, `File.lstat`, `File::Stat.new`, `File#stat`, `File#lstat` |
 | answers | `ino`, `nlink`, `size`, `size?`, `zero?`, `ftype`, and the kind predicates |
 | class calls | `File.ftype`, `File.symlink?`, `File.size?`, `File.zero?`, `File.empty?` |
-| undefined | times, `<=>`, `dev`, `mode`, owners, permissions, `pipe?`, `blockdev?`, `File.identical?` |
+| undefined | times, `<=>`, `==`, `dev`, `mode`, owners, permissions, `pipe?`, `blockdev?`, `File.identical?` |
 
 The kind predicates are `file?`, `directory?`, `symlink?`, `chardev?`, and
 `socket?`. A FIFO's and a block device's `ftype` read `"unknown"`, and a
