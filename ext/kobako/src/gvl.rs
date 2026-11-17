@@ -191,10 +191,10 @@ fn handle_interrupt<R>(
     timing: &str,
     f: impl FnOnce() -> R,
 ) -> (Option<R>, Result<(), MagnusError>) {
-    /// Puts back the body of the call around this one.
-    struct Restore(Option<*mut (dyn FnMut() + 'static)>);
+    /// The body of the call around this one, put back on drop.
+    struct OuterBody(Option<*mut (dyn FnMut() + 'static)>);
 
-    impl Drop for Restore {
+    impl Drop for OuterBody {
         fn drop(&mut self) {
             BODY.with(|body| body.set(self.0));
         }
@@ -213,10 +213,10 @@ fn handle_interrupt<R>(
     let mut value = None;
     let mut body = || value = f.take().map(|f| f());
     let body: &mut dyn FnMut() = &mut body;
-    // SAFETY: only the lifetime is erased; `Restore` takes the pointer back
+    // SAFETY: only the lifetime is erased; `OuterBody` takes the pointer back
     // before `body` goes out of scope, and nothing else keeps it.
     let body: *mut (dyn FnMut() + 'static) = unsafe { std::mem::transmute(body) };
-    let _restore = Restore(BODY.with(|current| current.replace(Some(body))));
+    let outer = OuterBody(BODY.with(|current| current.replace(Some(body))));
     let mask = ruby.hash_new();
     let raised = mask
         .aset(ruby.class_object(), ruby.to_symbol(timing))
@@ -229,7 +229,7 @@ fn handle_interrupt<R>(
                 )
                 .map(|_| ())
         });
-    drop(_restore);
+    drop(outer);
     (value, raised)
 }
 
