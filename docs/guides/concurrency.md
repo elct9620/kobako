@@ -39,10 +39,21 @@ sandbox = Kobako::Sandbox.new(gvl: :release)
 | `:hold` (default) | about 15-20k `#eval`/s in aggregate, at any Thread count | nothing extra |
 | `:release` | scales compute-bound scripts with Threads | a handoff at every Service call |
 
-The mode is fixed per Sandbox and changes scheduling only. Isolation, Handles,
-captures, and outcomes stay the same. Dispatch-heavy scripts match or trail
-`:hold` under `:release`; `rake bench:gvl_scheduling` measures both on your
-hardware.
+The mode is fixed per Sandbox. Isolation, Handles, captures, and outcomes stay
+the same. Dispatch-heavy scripts match or trail `:hold` under `:release`;
+`rake bench:gvl_scheduling` measures both on your hardware.
+
+### Interrupts Under Release
+
+`:release` defers Ruby's interrupts while the guest runs, and each Service call
+takes them as they come. Two things differ from `:hold`.
+
+| Case | Under `:release` |
+|---|---|
+| A `Thread.handle_interrupt` mask around the run | a Service call does not inherit it |
+| A main-Thread `trap` block that raises or exits | may stop the run where it cannot unwind |
+
+A trap that only sets a flag, or `:hold`, keeps both away.
 
 ## Pooling
 

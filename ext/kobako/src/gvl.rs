@@ -11,12 +11,14 @@
 //! matching the one-thread-one-Sandbox contract, and is restored through a drop
 //! guard so an unwinding panic cannot leave it corrupt for the next invocation.
 //!
-//! Neither direction raises where it returns, since that jumps over every Rust
-//! frame of the run and what they hold: a lock's guard, this flag. A release
-//! uses `rb_thread_call_without_gvl2`, which declines rather than raises, and
-//! a run releasing the GVL defers Ruby's interrupts (`defer_interrupts`) outside its
+//! A raise where either direction returns jumps over every Rust frame of the
+//! run and what they hold: a lock's guard, this flag. A release uses
+//! `rb_thread_call_without_gvl2`, which declines rather than raises, and a run
+//! releasing the GVL defers Ruby's interrupts (`defer_interrupts`) outside its
 //! callbacks, as `rb_thread_call_with_gvl` checks for one as it gives the GVL
-//! back. An interrupt waits for the run to end instead.
+//! back. An interrupt waits for the run to end instead. A main-thread trap
+//! handler runs whatever the mask says, so one that raises there still jumps;
+//! no public Ruby API defers it.
 
 use std::cell::Cell;
 use std::os::raw::c_void;

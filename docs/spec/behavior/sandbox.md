@@ -1962,7 +1962,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | --- | --- |
 | Given | a Sandbox releasing the GVL whose Service wraps a long sleep in a short Timeout |
 | When | guest code calls the Service |
-| Then | the Timeout fires inside the Service. The run defers interrupts only outside its callbacks |
+| Then | the Timeout fires inside the Service. The run defers interrupts only outside its callbacks. A Service takes them even under the Host App's own mask |
 
 ## `S-219` A map whose keys the host cannot tell apart pays for comparing them
 
