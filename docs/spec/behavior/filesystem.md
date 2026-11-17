@@ -2305,6 +2305,6 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind over a host directory |
+| Given | a Bind over a Unix host directory |
 | When | the host refuses a write past its quota, a link past a file's most, or a running program's write |
 | Then | the call fails as EDQUOT, EMLINK, or ETXTBSY, as Linux answers it, not as an unnamed failure |
