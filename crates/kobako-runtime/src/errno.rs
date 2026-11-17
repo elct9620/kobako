@@ -180,7 +180,6 @@ impl Errno {
         use rustix::io::Errno as HostErrno;
         match HostErrno::from_io_error(err) {
             Some(HostErrno::NOBUFS) => return Self::NoBufferSpace,
-            Some(HostErrno::HOSTDOWN) => return Self::HostUnreachable,
             Some(HostErrno::DESTADDRREQ) => return Self::DestinationAddressRequired,
             Some(HostErrno::NOPROTOOPT) => return Self::ProtocolNotAvailable,
             Some(HostErrno::MFILE) => return Self::TooManyOpenFiles,
@@ -188,8 +187,6 @@ impl Errno {
             Some(HostErrno::NFILE) => return Self::TooManyOpenFilesInSystem,
             Some(HostErrno::MSGSIZE) => return Self::MessageTooLong,
             Some(HostErrno::AFNOSUPPORT) => return Self::AddressFamilyNotSupported,
-            #[cfg(target_os = "linux")]
-            Some(HostErrno::NONET) => return Self::NetworkUnreachable,
             _ => {}
         }
         Self::from_io_kind(err.kind()).unwrap_or_else(|| Self::Other(format!("{:?}", err.kind())))

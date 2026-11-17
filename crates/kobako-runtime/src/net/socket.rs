@@ -416,7 +416,7 @@ impl InetSock {
             SockOpt::Ttl => {
                 let ttl = to_ttl(value)?;
                 if let Some(host) = host {
-                    set_hop_limit(host, ttl).map_err(|err| Errno::from_io_error(&err))?;
+                    set_hop_limit(host, ttl).map_err(|err| to_error(&err))?;
                 }
                 self.uc_ttl = ttl;
             }
@@ -536,6 +536,20 @@ pub(crate) fn take_connect_outcome(stream: &mio::net::TcpStream) -> Option<io::R
         (Ok(None), Ok(_)) => Some(Ok(())),
         (Ok(None), Err(err)) if err.kind() == io::ErrorKind::NotConnected => None,
         (Ok(None), Err(err)) => Some(Err(err)),
+    }
+}
+
+/// The POSIX name a host socket's failure stands for. A host down and
+/// Linux's machine off the network have no name of their own, so they answer
+/// as the unreachable host and network a socket's peer is, as wasmtime-wasi
+/// reads them; any other is named as every host call's is.
+pub(crate) fn to_error(err: &io::Error) -> Errno {
+    use rustix::io::Errno as HostErrno;
+    match HostErrno::from_io_error(err) {
+        Some(HostErrno::HOSTDOWN) => Errno::HostUnreachable,
+        #[cfg(target_os = "linux")]
+        Some(HostErrno::NONET) => Errno::NetworkUnreachable,
+        _ => Errno::from_io_error(err),
     }
 }
 
@@ -855,7 +869,7 @@ mod tests {
             HostErrno::AGAIN,
             HostErrno::INVAL,
         ]
-        .map(|errno| Errno::from_io_error(&io::Error::from_raw_os_error(errno.raw_os_error())));
+        .map(|errno| to_error(&io::Error::from_raw_os_error(errno.raw_os_error())));
         assert_eq!(
             answers,
             [
@@ -883,7 +897,7 @@ mod tests {
     fn a_host_out_of_open_files_answers_enfile() {
         let errno = rustix::io::Errno::NFILE.raw_os_error();
         assert_eq!(
-            Errno::from_io_error(&io::Error::from_raw_os_error(errno)),
+            to_error(&io::Error::from_raw_os_error(errno)),
             Errno::TooManyOpenFilesInSystem,
             "a host socket failing with ENFILE must answer ENFILE, which Windows has no code for"
         );

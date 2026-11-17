@@ -2106,6 +2106,19 @@ mod tests {
         );
     }
 
+    // A host down reaches a Bind only on a network filesystem, so the host's
+    // own EHOSTDOWN stands for it here.
+    #[cfg(unix)]
+    #[test]
+    fn a_directory_answers_a_host_down_without_a_sockets_name() {
+        let down = io::Error::from_raw_os_error(rustix::io::Errno::HOSTDOWN.raw_os_error());
+        assert!(
+            matches!(to_error(down), Errno::Other(_)),
+            "a host EHOSTDOWN through a Bind must fail as an unnamed failure, since no error \
+             the runtime names stands for it, not as the unreachable host a socket answers"
+        );
+    }
+
     // A Bind's root is the directory cap-std opened for its path alone on Linux,
     // so a sync of the descriptor it holds would answer EBADF only there.
     // @behavior FS-171

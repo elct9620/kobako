@@ -22,6 +22,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use super::connections::{open, OpenConnections, Place};
 use super::credential::Swap;
 use super::reactor::{Reactor, Task};
+use super::socket::to_error;
 use super::transport::Connector;
 use super::{new_platform_tls, MAX_SOCKET_BUFFER};
 use crate::cred::Cred;
@@ -1038,7 +1039,7 @@ impl HttpError {
         if err.kind() == io::ErrorKind::UnexpectedEof {
             return Self::ConnectionTerminated;
         }
-        match Errno::from_io_error(err) {
+        match to_error(err) {
             Errno::ConnectionReset | Errno::ConnectionAborted | Errno::BrokenPipe => {
                 Self::ConnectionTerminated
             }
@@ -1104,7 +1105,7 @@ mod tests {
             io::ErrorKind::NetworkUnreachable,
             io::ErrorKind::NetworkDown,
         ]
-        .map(|kind| HttpError::from_errno(&Errno::from_io_error(&io::Error::from(kind))));
+        .map(|kind| HttpError::from_errno(&to_error(&io::Error::from(kind))));
         assert_eq!(
             dials,
             [
