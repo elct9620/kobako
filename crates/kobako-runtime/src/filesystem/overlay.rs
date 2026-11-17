@@ -2214,6 +2214,63 @@ mod tests {
         );
     }
 
+    // The run's deadline has passed before the write asks, so the copy up
+    // stops before its first chunk.
+    // @behavior FS-213
+    #[test]
+    fn a_copy_up_past_its_runs_deadline_answers_eintr() {
+        let upper = Arc::new(Tmpfs::new());
+        let (overlay, _) = overlay_on(upper.clone());
+        let written = crate::sched::run_task(Some(std::time::Instant::now()), || {
+            write_over(&overlay, "dir/file", b"x")
+        });
+        assert_eq!(
+            (
+                written,
+                on(&upper).vfs_lstat("upper/dir/file"),
+                read(&overlay, "dir/file")
+            ),
+            (
+                Err(Errno::Interrupted),
+                Err(Errno::NotFound),
+                b"lower".to_vec()
+            ),
+            "a write through Overlay::open whose run's deadline passed must answer EINTR before \
+             copying, and leave the lower file showing"
+        );
+    }
+
+    /// A Tmpfs reporting `file` two bytes long, though it holds more.
+    struct ReportsTwoBytes;
+
+    impl Hook for ReportsTwoBytes {
+        fn getattr(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<Kstat, Errno> {
+            let mut stat = inner.getattr(dentry)?;
+            if dentry.name() == "file" {
+                stat.size = 2;
+            }
+            Ok(stat)
+        }
+    }
+
+    // The lower file reads past the size its stat reported, as one growing
+    // while it is copied does.
+    // @behavior FS-214
+    #[test]
+    fn a_copy_up_takes_the_size_the_lower_file_reported() {
+        let tmpfs: Tmpfs = [("file", "lower")].into_iter().collect();
+        let lower = Wrap::new(Arc::new(tmpfs), Arc::new(ReportsTwoBytes));
+        let upper = Arc::new(Tmpfs::new());
+        let overlay = at(over(Arc::new(lower), upper.clone()));
+        write_over(&overlay, "file", b"L").expect("the copy up and the write must land");
+        assert_eq!(
+            read(&on(&upper), "upper/file"),
+            b"Lo".to_vec(),
+            "a lower file copied up through Overlay::open must bring the bytes its stat reported, \
+             not all it reads"
+        );
+    }
+
     /// A Tmpfs answering a stat of `dir` at any depth with an I/O failure,
     /// though it opens `dir` as any other directory.
     struct StatsNoDir;

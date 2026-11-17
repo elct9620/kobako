@@ -116,7 +116,7 @@ impl OverlayFs {
                 read: true,
                 ..OpenHow::default()
             })?;
-            copy_whole(source.as_mut(), &mut copy)?;
+            copy_whole(source.as_mut(), &mut copy, lower.size)?;
         }
         copy.setattr(&timestamps(&lower));
         let parent_times = target_dir.getattr()?;

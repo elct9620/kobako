@@ -2308,3 +2308,28 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind over a Unix host directory |
 | When | the host refuses a write past its quota, a link past a file's most, or a running program's write |
 | Then | the call fails as EDQUOT, EMLINK, or ETXTBSY, as Linux answers it, not as an unnamed failure |
+
+## `FS-213` A copy up stops between chunks once its run is to stop
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-046` |
+| relates | `RT-267` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay over a lower file, in a run past its deadline or interrupted |
+| When | the file is opened to write through the Overlay |
+| Then | the copy up answers EINTR before its next chunk. The lower file still shows, as `ovl_copy_up_file` checks a fatal signal |
+
+## `FS-214` A copy up brings the size the lower file reported
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-046` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a lower file that reads past the size its stat reported |
+| When | the file is copied up |
+| Then | the copy holds that size alone, as `ovl_copy_up_file` copies `stat.size` |
