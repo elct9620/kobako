@@ -51,7 +51,8 @@ class TestE2ENetworkMockFailures < Minitest::Test
   REQUEST_FAILURES = {
     "ECONNREFUSED" => "Errno::ECONNREFUSED", "EHOSTUNREACH" => "Errno::EHOSTUNREACH",
     "ENETUNREACH" => "Errno::EHOSTUNREACH", "ENETDOWN" => "Errno::EHOSTUNREACH",
-    "EAFNOSUPPORT" => "Errno::EHOSTUNREACH", "EHOSTDOWN" => "Errno::ECONNREFUSED"
+    "EAFNOSUPPORT" => "Errno::EHOSTUNREACH", "EHOSTDOWN" => "Errno::ECONNREFUSED",
+    "EADDRNOTAVAIL" => "Socket::ResolutionError"
   }.freeze
 
   # What the guest's request to `web.test` raises when the host fails its

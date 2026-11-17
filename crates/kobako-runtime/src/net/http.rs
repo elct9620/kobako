@@ -414,7 +414,8 @@ impl FileOperations for RequestBodyFile {
 pub enum HttpError {
     /// No entry lets the guest send it.
     Denied,
-    /// The authority's name has no address.
+    /// The authority's name has no address, or no local address could be
+    /// assigned to reach it, as wasmtime-wasi-http reads EADDRNOTAVAIL.
     DnsError,
     /// No route reaches the authority's address.
     DestinationUnavailable,
@@ -1059,6 +1060,7 @@ impl HttpError {
             | Errno::NetworkDown
             | Errno::AddressFamilyNotSupported => Self::DestinationUnavailable,
             Errno::ConnectionReset | Errno::ConnectionAborted => Self::ConnectionTerminated,
+            Errno::AddressNotAvailable => Self::DnsError,
             _ => Self::ConnectionRefused,
         }
     }
@@ -1093,6 +1095,7 @@ mod tests {
     use crate::network::{Builder, Endpoint, Network};
     use crate::security::prepare_creds;
 
+    // @behavior NW-225
     #[test]
     fn a_failed_dial_answers_the_code_its_host_error_names() {
         let dials = [
@@ -1103,6 +1106,7 @@ mod tests {
             io::ErrorKind::HostUnreachable,
             io::ErrorKind::NetworkUnreachable,
             io::ErrorKind::NetworkDown,
+            io::ErrorKind::AddrNotAvailable,
         ]
         .map(|kind| HttpError::from_errno(&Errno::from_io_error(&io::Error::from(kind))));
         assert_eq!(
@@ -1115,10 +1119,12 @@ mod tests {
                 HttpError::DestinationUnavailable,
                 HttpError::DestinationUnavailable,
                 HttpError::DestinationUnavailable,
+                HttpError::DnsError,
             ],
-            "a dial that timed out, was refused, reset, aborted, or found no route to its host or \
-             network must answer connection-timeout, connection-refused, connection-terminated \
-             twice, and destination-unavailable three times, as wasmtime-wasi-http names each"
+            "a dial that timed out, was refused, reset, aborted, found no route to its host or \
+             network, or had no local address must answer connection-timeout, \
+             connection-refused, connection-terminated twice, destination-unavailable three \
+             times, and DNS-error, as wasmtime-wasi-http names each"
         );
     }
 
