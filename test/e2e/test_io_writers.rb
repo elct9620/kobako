@@ -20,6 +20,26 @@ class TestE2EIoWriters < Minitest::Test
     [o.got.join, e.got.join]
   RUBY
 
+  # A redefined to_s on Integer and Symbol, and an object whose to_s answers
+  # no String, each written by IO#write, print, puts, and File.write.
+  OWN_TO_S_SCRIPT = <<~RUBY
+    class Integer; def to_s(*) = "X"; end
+    class Symbol; def to_s = "Y"; end
+    class Mute; def to_s = 42; end
+    $stdout.write(1, :s); print 2; puts 3; puts Mute.new
+    File.write("/data/out", 4)
+    File.read("/data/out")
+  RUBY
+
+  # @behavior IO-057
+  def test_a_written_value_is_rendered_by_its_own_to_s
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+    execution = sandbox.mount("/data", Kobako::Filesystem::Tmpfs.new, access: :read_write).eval(OWN_TO_S_SCRIPT)
+    assert_equal ["X", true], [execution.value, execution.stdout.match?(/\AXYXX\n#<Mute:0x\h+>\n\z/)],
+                 "IO#write, print, puts, and File.write through Sandbox#eval must render a value by its own " \
+                 "to_s, and one whose to_s answers no String by its description, as CRuby's rb_obj_as_string"
+  end
+
   # @behavior IO-049
   def test_the_kernel_writers_reach_a_rebound_channel_through_its_write
     execution = Kobako::Sandbox.new(wasm_path: REAL_WASM).eval(REBOUND_SCRIPT)
