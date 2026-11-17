@@ -53,6 +53,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_interrupted_run.rb`
 - `test/e2e/sandbox/test_forked_deadline.rb`
 - `test/e2e/sandbox/test_interrupt_outside_run.rb`
+- `test/e2e/sandbox/test_gvl_main_thread_warning.rb`
 - `test/e2e/test_execution.rb`
 - `test/e2e/test_outcome_values.rb`
 - `test/e2e/test_canonical_boot.rb`
@@ -1975,3 +1976,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox whose memory cap allows more values than the script answers |
 | When | the script answers a Hash whose keys are thousands of NaNs |
 | Then | it fails as a Sandbox failure. A NaN key costs one value per NaN key before it, as a hash table compares them |
+
+## `S-220` A run releasing the GVL on the main Thread warns once
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-218` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process whose Sandbox releases the GVL |
+| When | it runs twice on the main Thread, and once on another Thread |
+| Then | the first run warns that a trap handler there can stop the run, and no other run warns. A run off the main Thread never warns, as Ruby runs trap handlers on the main Thread alone |

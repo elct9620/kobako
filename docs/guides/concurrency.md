@@ -54,6 +54,9 @@ takes them as they come. Two things differ from `:hold`.
 | A main-Thread `trap` block that raises or exits | may stop the run where it cannot unwind |
 
 `:hold` keeps both away. A trap that only sets a flag keeps the second away.
+Ruby runs trap handlers on the main Thread alone. So a run on another Thread
+is outside the second case, and the first run releasing the GVL on the main
+Thread warns once.
 
 ## Pooling
 

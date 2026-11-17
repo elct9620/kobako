@@ -226,11 +226,36 @@ module Kobako
     # the Context it answers, so nothing an invocation does is written back
     # onto the shared config.
     def begin_invocation
+      warn_release_on_main_thread
       seal("after first Sandbox invocation")
       @extensions.assert_dependencies
       @snippets.compile { |entries| @runtime.compile(preamble(entries)) }
       Context.new(runtime: @runtime, services: @services, extensions: @extensions, grants: @grants,
                   preamble: preamble(@snippets.entries))
     end
+
+    # Ruby runs a signal's trap handler on the main Thread alone, and one that
+    # raises as a run releasing the GVL takes it back after a Service call
+    # leaves the run where it cannot unwind. The first such run warns once.
+    def warn_release_on_main_thread
+      MainThreadRelease.warn_once if @options.gvl == :release && Thread.current == Thread.main
+    end
+
+    # The process's one warning that a run releasing the GVL ran on the main
+    # Thread.
+    module MainThreadRelease
+      MESSAGE = "Kobako::Sandbox with gvl: :release runs on the main Thread, where a trap handler " \
+                "that raises or exits can stop the run where it cannot unwind; run it on another " \
+                "Thread, or keep trap handlers to setting a flag"
+      @warned = false
+
+      def self.warn_once
+        return if @warned
+
+        @warned = true
+        warn(MESSAGE)
+      end
+    end
+    private_constant :MainThreadRelease
   end
 end
