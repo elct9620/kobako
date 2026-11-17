@@ -676,7 +676,7 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a credential's secret bound to a request |
-| When | the default outbound seam builds the request's headers |
+| When | the outbound seam builds the request's headers |
 | Then | the placeholder is replaced in the credential's header only, never in another header, and the secret prints as a mask |
 
 ## `NW-052` A credential is never swapped into a request in clear

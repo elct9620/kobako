@@ -168,8 +168,8 @@ impl Errno {
     /// The failure a host call's `err` stands for: the one it carries through
     /// a library, else the host's errno where std names no kind for it, else
     /// its kind. One with none carries only its kind, so no host text reaches
-    /// the guest. A layer knowing what its host library means by a kind
-    /// answers that before asking this.
+    /// the guest. A layer knowing what a failure means within it, as a socket
+    /// names a host down, answers that before asking this.
     pub(crate) fn from_io_error(err: &io::Error) -> Self {
         if let Some(CarriedErrno(carried)) = err
             .get_ref()

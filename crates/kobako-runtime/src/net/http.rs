@@ -832,10 +832,10 @@ async fn fill_body(state: &Mutex<State>, wait: &WaitQueueHead, mut body: Respons
     }
 }
 
-/// The default outbound seam: hyper's HTTP/1 client, with no redirect, proxy,
-/// or decompression, every connection opened by kobako's connector and TLS
-/// ended on the host. Each seam holds its own TLS configuration, so its
-/// sessions end with the Invocation that holds it.
+/// The outbound seam: hyper's HTTP/1 client, with no redirect, proxy, or
+/// decompression, every connection opened by kobako's connector and TLS ended
+/// on the host. It holds its own TLS configuration, so its sessions end with
+/// the Invocation that holds it.
 pub struct HyperOutbound {
     tls: Option<Arc<rustls::ClientConfig>>,
 }
