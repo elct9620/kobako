@@ -2203,7 +2203,7 @@ mod tests {
                 3,
                 "Secret(**)".to_string()
             ),
-            "the default outbound seam must send a request with its credential's placeholder \
+            "the outbound seam must send a request with its credential's placeholder \
              replaced in the header the credential names only, every other header as the guest \
              set it, and the secret must print as a mask"
         );
