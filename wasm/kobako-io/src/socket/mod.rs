@@ -286,7 +286,7 @@ fn name_of_code(code: ErrorCode) -> &'static core::ffi::CStr {
     }
 }
 
-/// The `Errno` a socket stream's failure raises, by the error code
+/// The `Errno` a stream's failure raises, by the error code
 /// `network-error-code` downcasts it to, as a socket call's code maps; the
 /// stream's end, or a failure no code names, raises as any stream's does.
 pub(crate) fn from_stream(mrb: &Mrb, err: StreamError, call: Option<&str>) -> Error {

@@ -57,6 +57,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_options_cruby.rb`
 - `test/e2e/test_network_names.rb`
 - `test/e2e/test_network_http.rb`
+- `test/e2e/test_network_http_body_failure.rb`
 - `test/e2e/test_network_http_cruby.rb`
 - `test/e2e/test_network_http_dest.rb`
 - `test/e2e/test_network_http_edges.rb`
@@ -2891,7 +2892,7 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a socket stream whose read or write fails on the host |
+| Given | a socket stream, or a Net::HTTP request body, whose read or write fails on the host |
 | When | the guest asks `network-error-code` for the failure |
 | Then | it answers the code a socket call's failure maps to, and the guest raises that code's `Errno`. `to-debug-string` only names the failure for people, as `io.wit` warns against parsing it |
 
