@@ -2887,12 +2887,12 @@ endpoint "api.example.com", port: 443
 
 | Attribute | Value |
 | --- | --- |
-| refines | `NW-097` |
-| relates | `NW-074` |
+| refines | `NW-074` |
+| relates | `NW-097` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a socket stream, or a Net::HTTP request body, whose read or write fails on the host |
+| Given | a socket stream whose read or write fails on the host, or a Net::HTTP request body whose write does |
 | When | the guest asks `network-error-code` for the failure |
 | Then | it answers the code a socket call's failure maps to, and the guest raises that code's `Errno`. `to-debug-string` only names the failure for people, as `io.wit` warns against parsing it |
 

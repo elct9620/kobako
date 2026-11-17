@@ -328,8 +328,6 @@ fn code_of(err: &io::Error) -> Option<&'static Code> {
         })
 }
 
-/// The error for `err` from an operation on `path`, as the `Errno` class
-/// the failure names, or an `IOError` for one no class names.
 /// What a `wasi:io` stream's failure raises when it carries no error code:
 /// its end as `Errno::EPIPE`, as CRuby's write to a closed peer raises, and
 /// any other failure as an `IOError` with the host's description; it names
@@ -349,6 +347,8 @@ pub(crate) fn error_in(mrb: &Mrb, name: &core::ffi::CStr, call: Option<&str>) ->
     }
 }
 
+/// The error for `err` from an operation on `path`, as the `Errno` class
+/// the failure names, or an `IOError` for one no class names.
 pub(crate) fn from_io(mrb: &Mrb, err: &io::Error, path: &str) -> Error {
     match code_of(err) {
         Some(code) => error_by_name(mrb, code.name, path),

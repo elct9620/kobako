@@ -24,6 +24,6 @@ class TestE2ENetworkHttpBodyFailure < Minitest::Test
     sandbox = mock_sandbox(mock, memory_limit: 2_400_000) { |net| net.endpoint "web.test", port: 80 }
     assert_equal "Errno::ENOMEM", sandbox.eval(LARGE_POST).value,
                  "Net::HTTP#post of a body the memory limit cannot hold through Sandbox#eval must raise " \
-                 "Errno::ENOMEM, the code network-error-code gives the request body's failure"
+                 "Errno::ENOMEM, as a socket's write past the limit does"
   end
 end
