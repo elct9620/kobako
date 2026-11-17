@@ -2347,3 +2347,16 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay whose workdir another call holds as a run's deadline passes during a cleanup |
 | When | the Overlay builds its next change |
 | Then | the cut-short entry is gone first, so it never keeps the upper's room past that change |
+
+## `FS-216` A whiteout answers as an inode of its own
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-016` |
+| relates | `FS-131` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs holding an Overlay's whiteout, mounted on its own |
+| When | the whiteout is listed, stated, and given new times |
+| Then | it is a character device 0:0 with one link and an inode number its listing shares. It keeps the times set on it, as `shmem_mknod` makes it |

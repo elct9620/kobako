@@ -54,9 +54,7 @@ enum Node {
     File(Arc<Mutex<Content>>),
     Directory(Arc<Dir>),
     /// An Overlay's whiteout, as tmpfs holds a character device 0:0.
-    Whiteout {
-        _inode: Arc<Whiteout>,
-    },
+    Whiteout(Arc<Whiteout>),
 }
 
 impl Node {
@@ -66,7 +64,7 @@ impl Node {
         match self {
             Self::File(data) => lock(data).names = 0,
             Self::Directory(dir) => dir.state().removed = true,
-            Self::Whiteout { .. } => {}
+            Self::Whiteout(_) => {}
         }
     }
 
@@ -77,7 +75,7 @@ impl Node {
         match self {
             Self::File(data) => lock(data).times.ctime = now,
             Self::Directory(dir) => dir.state().times.ctime = now,
-            Self::Whiteout { .. } => {}
+            Self::Whiteout(whiteout) => whiteout.times().ctime = now,
         }
     }
 
@@ -85,7 +83,7 @@ impl Node {
         match self {
             Self::File(_) => FileType::RegFile,
             Self::Directory(_) => FileType::Dir,
-            Self::Whiteout { .. } => FileType::Chrdev,
+            Self::Whiteout(_) => FileType::Chrdev,
         }
     }
 
@@ -98,7 +96,7 @@ impl Node {
                 entry.with_identity(content.dev, content.ino)
             }
             Self::Directory(dir) => entry.with_identity(dev, dir.ino),
-            Self::Whiteout { .. } => entry,
+            Self::Whiteout(whiteout) => entry.with_identity(dev, whiteout.ino()),
         }
     }
 }
@@ -582,7 +580,7 @@ impl Tmpfs {
                 });
                 dir = match next {
                     Node::Directory(inner) => inner,
-                    Node::File(_) | Node::Whiteout { .. } => {
+                    Node::File(_) | Node::Whiteout(_) => {
                         return Err(SeedError::FileAndDirectory(above.to_string()))
                     }
                 };
@@ -590,7 +588,7 @@ impl Tmpfs {
             let mut state = dir.state();
             match state.entries.get(name(&path)) {
                 Some(Node::Directory(_)) => return Err(SeedError::FileAndDirectory(path)),
-                Some(Node::File(_) | Node::Whiteout { .. }) => return Err(SeedError::Twice(path)),
+                Some(Node::File(_) | Node::Whiteout(_)) => return Err(SeedError::Twice(path)),
                 None => {}
             }
             state.hold(
@@ -617,12 +615,12 @@ impl<P: AsRef<str>, C: Into<Vec<u8>>> FromIterator<(P, C)> for Tmpfs {
 
 impl Tmpfs {
     /// What `node`, an entry of this Tmpfs, reports of itself. A whiteout is
-    /// a character device 0:0, as tmpfs makes one.
+    /// a character device 0:0 with an inode of its own, as tmpfs makes one.
     fn node_getattr(&self, node: &Node) -> Kstat {
         match node {
             Node::File(data) => lock(data).getattr(),
             Node::Directory(dir) => dir.getattr(self.tree.dev),
-            Node::Whiteout { .. } => Kstat::new(FileType::Chrdev, 0),
+            Node::Whiteout(whiteout) => whiteout.getattr(),
         }
     }
 
@@ -632,7 +630,7 @@ impl Tmpfs {
         let ops: Arc<dyn InodeOperations> = match node {
             Node::Directory(dir) => Arc::new(self.beneath(dir)),
             Node::File(data) => Arc::new(TmpfsRegular { data }),
-            Node::Whiteout { .. } => Arc::new(TmpfsWhiteout),
+            Node::Whiteout(whiteout) => Arc::new(TmpfsWhiteout(whiteout)),
         };
         Inode::new(&stat, ops)
     }
@@ -837,11 +835,17 @@ impl InodeOperations for TmpfsRegular {
 }
 
 /// A whiteout a Tmpfs holds for an Overlay above it.
-struct TmpfsWhiteout;
+struct TmpfsWhiteout(Arc<Whiteout>);
 
 impl InodeOperations for TmpfsWhiteout {
     fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
-        Ok(Kstat::new(FileType::Chrdev, 0))
+        Ok(self.0.getattr())
+    }
+
+    /// Its times, as `shmem_setattr` sets a device's; it holds no size.
+    fn setattr(&self, _dentry: &Dentry, attr: &Iattr) -> Result<(), Errno> {
+        self.0.times().apply(attr);
+        Ok(())
     }
 }
 
@@ -1129,6 +1133,37 @@ mod tests {
             released.is_ok(),
             "a Tmpfs 200000 directories deep, dropped on a 64 KiB stack, must go without \
              overflowing it"
+        );
+    }
+
+    // A whiteout made where the upper of an Overlay is mounted on its own
+    // shows there, so it answers as the inode `shmem_mknod` makes for it.
+    // @behavior FS-216
+    #[test]
+    fn a_whiteout_reports_an_inode_and_times_of_its_own() {
+        let tmpfs = Tmpfs::new();
+        tmpfs.whiteout("w").expect("the whiteout must be made");
+        let fs = at(tmpfs);
+        let set = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000);
+        fs.setattr("w", &Iattr::for_times(None, Some(SetTime::At(set))))
+            .expect("the whiteout's times must be set");
+        let stat = fs.vfs_lstat("w").expect("the whiteout must stat");
+        let listed = fs.iterate_dir().expect("the directory must list");
+        let entry = listed
+            .iter()
+            .find(|entry| entry.name == "w")
+            .expect("the whiteout is listed");
+        assert_eq!(
+            (
+                stat.file_type,
+                stat.ino != 0,
+                entry.ino == stat.ino,
+                stat.nlink,
+                stat.mtime
+            ),
+            (FileType::Chrdev, true, true, 1, Some(set)),
+            "a whiteout in a Tmpfs through KernPath must stat as a character device with an \
+             inode number its listing shares, one link, and the times set on it"
         );
     }
 
@@ -1567,7 +1602,7 @@ mod tests {
             .flat_map(|(name, node)| {
                 let beneath = match node {
                     Node::Directory(inner) => names(inner),
-                    Node::File(_) | Node::Whiteout { .. } => Vec::new(),
+                    Node::File(_) | Node::Whiteout(_) => Vec::new(),
                 };
                 std::iter::once(name.clone()).chain(beneath)
             })

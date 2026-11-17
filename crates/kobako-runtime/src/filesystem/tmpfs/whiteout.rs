@@ -3,16 +3,39 @@
 //! `shmem_rename2` takes `RENAME_NOREPLACE`, `RENAME_EXCHANGE`, and
 //! `RENAME_WHITEOUT`.
 
-use std::sync::Arc;
+use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 
 use super::super::Errno;
-use super::{Node, Space, Tmpfs};
-use crate::vfs::RenameFlag;
+use super::{Node, Space, Times, Tmpfs};
+use crate::vfs::{FileType, Kstat, RenameFlag};
 
 /// A whiteout, counting one inode for as long as it stands, as the
-/// character device tmpfs makes for one does.
+/// character device `shmem_mknod` makes for one does: an inode of its own,
+/// with its own times.
 pub(super) struct Whiteout {
     space: Arc<Space>,
+    dev: u64,
+    ino: u64,
+    times: Mutex<Times>,
+}
+
+impl Whiteout {
+    pub(super) fn getattr(&self) -> Kstat {
+        self.times().report(
+            Kstat::new(FileType::Chrdev, 0)
+                .with_identity(self.dev, self.ino)
+                .with_nlink(1),
+        )
+    }
+
+    pub(super) fn ino(&self) -> u64 {
+        self.ino
+    }
+
+    pub(super) fn times(&self) -> MutexGuard<'_, Times> {
+        self.times.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 impl Drop for Whiteout {
@@ -24,17 +47,18 @@ impl Drop for Whiteout {
 impl Tmpfs {
     fn new_whiteout(&self) -> Result<Node, Errno> {
         self.tree.space.inodes.take(1)?;
-        Ok(Node::Whiteout {
-            _inode: Arc::new(Whiteout {
-                space: self.tree.space.clone(),
-            }),
-        })
+        Ok(Node::Whiteout(Arc::new(Whiteout {
+            space: self.tree.space.clone(),
+            dev: self.tree.dev,
+            ino: self.tree.next_ino.fetch_add(1, Ordering::Relaxed),
+            times: Mutex::new(Times::now()),
+        })))
     }
 
     /// Whether a whiteout stands at `name`, as overlayfs's
     /// `ovl_is_whiteout` reads a character device 0:0.
     pub(crate) fn is_whiteout(&self, name: &str) -> bool {
-        matches!(self.dir.get(name), Ok(Node::Whiteout { .. }))
+        matches!(self.dir.get(name), Ok(Node::Whiteout(_)))
     }
 
     /// Make a whiteout at `name`, as `shmem_mknod` makes the character
