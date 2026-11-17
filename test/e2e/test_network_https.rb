@@ -47,6 +47,43 @@ class TestE2ENetworkHttps < Minitest::Test
     end
   end
 
+  HANDSHAKE_REQUEST = <<~RUBY
+    begin
+      Net::HTTP.start("127.0.0.1", %<port>d, use_ssl: true) { |http| http.get("/") }
+    rescue => e
+      e.class.to_s
+    end
+  RUBY
+
+  # A loopback server that reads the client's first flight and closes,
+  # ending the handshake before it answers.
+  def with_closing_server
+    server = TCPServer.new("127.0.0.1", 0)
+    thread = Thread.new { close_after_hello(server.accept) }
+    yield server.addr[1]
+  ensure
+    thread&.join(5)
+    server&.close
+  end
+
+  # Read the first flight +client+ sent, then close without answering.
+  def close_after_hello(client)
+    client.readpartial(4096)
+  rescue IOError, SystemCallError
+    nil
+  ensure
+    client.close
+  end
+
+  # @behavior NW-225
+  def test_a_handshake_the_server_ends_raises_eof_error
+    with_closing_server do |port|
+      assert_equal "EOFError", http_sandbox(port).eval(format(HANDSHAKE_REQUEST, port: port)).value,
+                   "Net::HTTP with use_ssl to a server that closes before answering the handshake must raise " \
+                   "EOFError, as WASI names no handshake apart from the response"
+    end
+  end
+
   TLS_SETTINGS = <<~RUBY
     http = Net::HTTP.new("example.com", 443)
     setters = %i[verify_mode= ca_file= ca_path= cert= key= cert_store= ssl_version= ciphers= verify_callback=

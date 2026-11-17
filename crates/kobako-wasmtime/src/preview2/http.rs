@@ -740,6 +740,22 @@ mod tests {
         );
     }
 
+    // @behavior NW-225
+    #[test]
+    fn a_tls_alert_answers_tls_alert_received_with_its_id() {
+        assert!(
+            matches!(
+                to_error_code(net::HttpError::TlsAlertReceived(40)),
+                ErrorCode::TLSAlertReceived(TLSAlertReceivedPayload {
+                    alert_id: Some(40),
+                    alert_message: None
+                })
+            ),
+            "a request whose server sent the handshake_failure alert must answer \
+             TLS-alert-received carrying alert id 40 and no message, as wasmtime-wasi-http does"
+        );
+    }
+
     /// A hermetic invocation whose network holds `endpoints`, or none at all.
     fn guest(endpoints: Option<Vec<network::Endpoint>>) -> Invocation {
         limited_guest(endpoints, None)
