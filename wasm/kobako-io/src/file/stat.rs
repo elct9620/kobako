@@ -11,7 +11,9 @@ use std::io;
 
 use beni::prelude::*;
 use beni::value::qnil;
-use beni::{Error, IntoValue, Module, Mrb, RClass, RTypedData, TryConvert, TypedData, Value};
+use beni::{
+    Error, IntoValue, Module, Mrb, RClass, RTypedData, Symbol, TryConvert, TypedData, Value,
+};
 
 use super::{path_text, reachable, require_mount, to_c_path, REACH_REFUSAL};
 use crate::errno;
@@ -212,6 +214,9 @@ pub(super) fn init(mrb: &Mrb, file: RClass) -> Result<(), Error> {
     stat.define_method(mrb, c"symlink?", beni::method!(stat_symlink_p, 0))?;
     stat.define_method(mrb, c"chardev?", beni::method!(stat_chardev_p, 0))?;
     stat.define_method(mrb, c"socket?", beni::method!(stat_socket_p, 0))?;
+    // CRuby orders reports by their modified time, which preview1 hands no
+    // guest, so the comparison every object inherits goes too.
+    stat.funcall::<_, _, Value>(mrb, c"undef_method", [Symbol::new(mrb, "<=>")?.as_value()])?;
 
     file.define_method(mrb, c"stat", beni::method!(file_stat, 0))?;
     file.define_method(mrb, c"lstat", beni::method!(file_lstat, 0))?;

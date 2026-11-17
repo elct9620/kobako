@@ -603,7 +603,7 @@ disable_file flag -> no File constant
 | Step | Statement |
 | --- | --- |
 | Given | a report of a file |
-| When | a script asks for a time, a device, an owner, a permission, or a FIFO's kind |
+| When | a script asks for a time, an order, a device, an owner, a permission, or a FIFO's kind |
 | Then | no such method is defined, and neither `File.identical?` nor `IO#stat` is |
 
 ## `FL-048` A special file reads as preview1 names it

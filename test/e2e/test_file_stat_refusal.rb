@@ -39,7 +39,7 @@ class TestE2EFileStatRefusal < Minitest::Test
   UNDEFINED = <<~RUBY
     stat = File.stat("/d/f")
     [[:mtime, :atime, :ctime, :birthtime, :dev, :mode, :uid, :gid, :rdev, :blksize, :blocks, :pipe?, :blockdev?,
-      :readable?, :writable?, :executable?, :owned?].select { |name| stat.respond_to?(name) },
+      :readable?, :writable?, :executable?, :owned?, :<=>].select { |name| stat.respond_to?(name) },
      [:identical?, :mtime, :atime, :ctime].select { |name| File.respond_to?(name) },
      Object.const_defined?(:Time), $stdout.respond_to?(:stat), stat.is_a?(Comparable)]
   RUBY
