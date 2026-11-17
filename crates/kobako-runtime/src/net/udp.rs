@@ -18,8 +18,8 @@ use crate::network::Protocol;
 use socket2::SockRef;
 
 use super::socket::{
-    connect4, filter, set_hop_limit, BindHash, Buffers, InetSock, ProtoOps, SkState,
-    SockOpt, MAX_SOCKET_BUFFER,
+    connect4, filter, set_hop_limit, BindHash, Buffers, InetSock, ProtoOps, SkState, SockOpt,
+    MAX_SOCKET_BUFFER,
 };
 use crate::cred::Cred;
 use crate::memcg::MemoryCharge;
@@ -120,7 +120,9 @@ impl UdpSock {
             // routes `addr` to, or a fresh one is made.
             let routed = match state.host.as_ref() {
                 Some((socket, _)) => {
-                    let local = socket.local_addr().map_err(|err| Errno::from_io_error(&err))?;
+                    let local = socket
+                        .local_addr()
+                        .map_err(|err| Errno::from_io_error(&err))?;
                     family
                         .route_datagram(local, addr)
                         .map_err(|err| Errno::from_io_error(&err))?
@@ -132,7 +134,9 @@ impl UdpSock {
                 // before the host socket repoints.
                 self.pump(&mut state);
                 if let Some((socket, _)) = state.host.as_ref() {
-                    socket.connect(routed).map_err(|err| Errno::from_io_error(&err))?;
+                    socket
+                        .connect(routed)
+                        .map_err(|err| Errno::from_io_error(&err))?;
                 }
                 state.inet.peer = Some(peer);
                 state.writable = true;

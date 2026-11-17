@@ -84,7 +84,6 @@ impl Resolver for HostInet {
     }
 }
 
-
 /// Protocol Families the net tests share.
 #[cfg(test)]
 pub(crate) mod testing {

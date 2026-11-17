@@ -80,7 +80,10 @@ impl Limits {
             ("stdout_limit", Cap::Count(&mut self.stdout_limit)),
             ("stderr_limit", Cap::Count(&mut self.stderr_limit)),
             ("open_file_limit", Cap::Count(&mut self.open_file_limit)),
-            ("open_connection_limit", Cap::Count(&mut self.open_connection_limit)),
+            (
+                "open_connection_limit",
+                Cap::Count(&mut self.open_connection_limit),
+            ),
             ("connection_limit", Cap::Count(&mut self.connection_limit)),
         ]
     }

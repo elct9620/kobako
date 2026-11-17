@@ -18,8 +18,8 @@ use super::family::ProtocolFamily;
 use super::namespace::Namespace;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
-    connect4, ensure_within, filter, filter_with, set_hop_limit, take_connect_outcome,
-    BindHash, Buffers, Destination, InetSock, ProtoOps, SkState, SockOpt, MAX_SOCKET_BUFFER,
+    connect4, ensure_within, filter, filter_with, set_hop_limit, take_connect_outcome, BindHash,
+    Buffers, Destination, InetSock, ProtoOps, SkState, SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::cred::Cred;
 use crate::memcg::MemoryCharge;

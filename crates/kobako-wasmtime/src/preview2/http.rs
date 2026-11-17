@@ -20,8 +20,8 @@ use super::bindings::wasi_io_poll_0_2_12::Pollable;
 use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
 use super::bindings::HttpHost;
 use super::error;
-use super::nanos_of;
 use super::io::{self, SharedFile, Stream};
+use super::nanos_of;
 use crate::invocation::Invocation;
 
 /// A request's body and whether the guest ended it, shared between the request

@@ -21,9 +21,9 @@ use super::http::HttpError;
 use super::lookup::NameLookup;
 use super::namespace::TcpSockets;
 use super::socket::{BindHash, Destination};
-use crate::errno::CarriedErrno;
 use super::{Namespace, ProtoOps, ProtocolFamily, SockOpt, TcpSock};
 use crate::cred::Cred;
+use crate::errno::CarriedErrno;
 use crate::network::{Host, Protocol, Ruleset};
 use crate::wait::WaitQueueHead;
 use crate::Errno;
@@ -251,7 +251,7 @@ impl Drop for Transport {
 
 #[cfg(test)]
 mod tests {
-        use super::*;
+    use super::*;
 
     // A failure the upstream socket answers reaches the HTTP seam through
     // tokio-rustls and hyper, which carry only io::Error.
@@ -265,7 +265,9 @@ mod tests {
         ];
         assert_eq!(
             (
-                failures.clone().map(|err| Errno::from_io_error(&to_io(err))),
+                failures
+                    .clone()
+                    .map(|err| Errno::from_io_error(&to_io(err))),
                 HttpError::from_tls(&to_io(Errno::OutOfMemory))
             ),
             (failures, HttpError::Internal),
