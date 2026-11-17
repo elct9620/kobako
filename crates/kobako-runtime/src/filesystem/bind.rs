@@ -285,7 +285,7 @@ fn is_windows_alias(name: &str) -> bool {
 fn to_error(err: io::Error) -> Errno {
     match err.kind() {
         io::ErrorKind::PermissionDenied if err.raw_os_error().is_none() => Errno::NotFound,
-        kind => Errno::from_io_kind(kind).unwrap_or_else(|| Errno::Other(err.to_string())),
+        _ => Errno::from_io_error(&err),
     }
 }
 
@@ -2088,6 +2088,21 @@ mod tests {
             Errno::FileTooLarge,
             "a host EFBIG through Bind's error mapping must fail as FileTooLarge, \
              not as an unnamed failure"
+        );
+    }
+
+    // A host out of descriptors cannot be staged without starving the test
+    // process, so the host's own EMFILE, 24 on Linux and macOS alike, is what
+    // the Bind must name.
+    // @behavior FS-209
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[test]
+    fn a_directory_answers_a_host_out_of_descriptors_as_too_many_open_files() {
+        assert_eq!(
+            to_error(io::Error::from_raw_os_error(24)),
+            Errno::TooManyOpenFiles,
+            "a host EMFILE through a Bind must fail as too many open files, as a host \
+             socket's does, not as an unnamed failure"
         );
     }
 

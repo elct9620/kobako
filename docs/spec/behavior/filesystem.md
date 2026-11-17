@@ -2258,3 +2258,16 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind on a Linux host holding a FIFO, and a watch on its host directory |
 | When | the FIFO is opened through the Bind |
 | Then | it is refused as permission denied, and the watch reports no open. gVisor's directfs holds an entry by `O_PATH` |
+
+## `FS-209` A Bind answers a host out of descriptors as too many open files
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-065` |
+| relates | `NW-074` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind over a host directory |
+| When | the host refuses an open because its process holds as many files as it may |
+| Then | the open fails as too many open files, as a host socket's does, not as an unnamed failure |

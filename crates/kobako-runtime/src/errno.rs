@@ -96,6 +96,19 @@ pub enum Errno {
     Other(String),
 }
 
+/// A failure riding inside an I/O error through a library that carries only
+/// `io::Error`, so `Errno::from_io_error` reads back the very one it was.
+#[derive(Debug)]
+pub(crate) struct CarriedErrno(pub(crate) Errno);
+
+impl std::fmt::Display for CarriedErrno {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.0)
+    }
+}
+
+impl std::error::Error for CarriedErrno {}
+
 /// Each failure a Filesystem can name under the POSIX error name it stands for.
 /// `ENOTSUP` comes before `EOPNOTSUPP`, a name some hosts give the same error,
 /// so `Unsupported` answers to the first.
@@ -152,10 +165,38 @@ const POSIX_NAMES: [(&str, Errno); 49] = [
 ];
 
 impl Errno {
+    /// The failure a host call's `err` stands for: the one it carries through
+    /// a library, else the host's errno where std names no kind for it, else
+    /// its kind. One with none carries only its kind, so no host text reaches
+    /// the guest. A layer knowing what its host library means by a kind
+    /// answers that before asking this.
+    pub(crate) fn from_io_error(err: &io::Error) -> Self {
+        if let Some(CarriedErrno(carried)) = err
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<CarriedErrno>())
+        {
+            return carried.clone();
+        }
+        use rustix::io::Errno as HostErrno;
+        match HostErrno::from_io_error(err) {
+            Some(HostErrno::NOBUFS) => return Self::NoBufferSpace,
+            Some(HostErrno::HOSTDOWN) => return Self::HostUnreachable,
+            Some(HostErrno::DESTADDRREQ) => return Self::DestinationAddressRequired,
+            Some(HostErrno::NOPROTOOPT) => return Self::ProtocolNotAvailable,
+            Some(HostErrno::MFILE) => return Self::TooManyOpenFiles,
+            #[cfg(not(windows))]
+            Some(HostErrno::NFILE) => return Self::TooManyOpenFilesInSystem,
+            Some(HostErrno::MSGSIZE) => return Self::MessageTooLong,
+            Some(HostErrno::AFNOSUPPORT) => return Self::AddressFamilyNotSupported,
+            #[cfg(target_os = "linux")]
+            Some(HostErrno::NONET) => return Self::NetworkUnreachable,
+            _ => {}
+        }
+        Self::from_io_kind(err.kind()).unwrap_or_else(|| Self::Other(format!("{:?}", err.kind())))
+    }
+
     /// The failure a host call's `kind` stands for, as std names the errno it
-    /// read; `None` for a kind std names no POSIX error for. A layer reading
-    /// the host's own errno first, or knowing what its host library means by a
-    /// kind, answers that before asking this.
+    /// read; `None` for a kind std names no POSIX error for.
     pub(crate) fn from_io_kind(kind: io::ErrorKind) -> Option<Self> {
         use io::ErrorKind as Kind;
         Some(match kind {

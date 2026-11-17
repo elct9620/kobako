@@ -18,7 +18,7 @@ use crate::network::Protocol;
 use socket2::SockRef;
 
 use super::socket::{
-    connect4, filter, set_hop_limit, to_error, BindHash, Buffers, InetSock, ProtoOps, SkState,
+    connect4, filter, set_hop_limit, BindHash, Buffers, InetSock, ProtoOps, SkState,
     SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::cred::Cred;
@@ -120,10 +120,10 @@ impl UdpSock {
             // routes `addr` to, or a fresh one is made.
             let routed = match state.host.as_ref() {
                 Some((socket, _)) => {
-                    let local = socket.local_addr().map_err(|err| to_error(&err))?;
+                    let local = socket.local_addr().map_err(|err| Errno::from_io_error(&err))?;
                     family
                         .route_datagram(local, addr)
-                        .map_err(|err| to_error(&err))?
+                        .map_err(|err| Errno::from_io_error(&err))?
                 }
                 None => None,
             };
@@ -132,7 +132,7 @@ impl UdpSock {
                 // before the host socket repoints.
                 self.pump(&mut state);
                 if let Some((socket, _)) = state.host.as_ref() {
-                    socket.connect(routed).map_err(|err| to_error(&err))?;
+                    socket.connect(routed).map_err(|err| Errno::from_io_error(&err))?;
                 }
                 state.inet.peer = Some(peer);
                 state.writable = true;
@@ -140,10 +140,10 @@ impl UdpSock {
             }
         }
         let place = self.state().inet.open_place(open_connections)?;
-        let reactor = Reactor::current().map_err(|err| to_error(&err))?;
+        let reactor = Reactor::current().map_err(|err| Errno::from_io_error(&err))?;
         let host = family
             .connect_datagram(addr)
-            .map_err(|err| to_error(&err))?;
+            .map_err(|err| Errno::from_io_error(&err))?;
         // The guest's own setsockopt already took the hop limit, so a host
         // socket refusing it as it dials is no part of the connect's
         // outcome, as a TCP dial leaves it out.
@@ -152,7 +152,7 @@ impl UdpSock {
         let ready: Weak<dyn Ready> = self.this.clone();
         let registration = reactor
             .register(&mut socket, ready)
-            .map_err(|err| to_error(&err))?;
+            .map_err(|err| Errno::from_io_error(&err))?;
         let mut state = self.state();
         // What the old peer sent reads as its own, so it is taken in before
         // the host socket it waits in goes.
@@ -409,7 +409,7 @@ impl ProtoOps for UdpSock {
 /// unreachable as `WSAECONNRESET`, where Linux's `udp_err` sets
 /// `ECONNREFUSED`, and a datagram socket has no connection to reset.
 fn to_udp_error(err: &io::Error) -> Errno {
-    match to_error(err) {
+    match Errno::from_io_error(err) {
         Errno::ConnectionReset => Errno::ConnectionRefused,
         other => other,
     }

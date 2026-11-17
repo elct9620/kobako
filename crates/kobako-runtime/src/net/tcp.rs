@@ -18,7 +18,7 @@ use super::family::ProtocolFamily;
 use super::namespace::Namespace;
 use super::reactor::{Reactor, Ready, Registration};
 use super::socket::{
-    connect4, ensure_within, filter, filter_with, set_hop_limit, take_connect_outcome, to_error,
+    connect4, ensure_within, filter, filter_with, set_hop_limit, take_connect_outcome,
     BindHash, Buffers, Destination, InetSock, ProtoOps, SkState, SockOpt, MAX_SOCKET_BUFFER,
 };
 use crate::cred::Cred;
@@ -285,7 +285,7 @@ impl TcpSock {
         });
         match dialed {
             Ok(host) => state.host = Some(host),
-            Err(err) => Self::done_with_error(state, to_error(&err)),
+            Err(err) => Self::done_with_error(state, Errno::from_io_error(&err)),
         }
     }
 
@@ -370,7 +370,7 @@ impl TcpSock {
                 Ok(n) => state.receive_queue.extend(&chunk[..n]),
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                Err(err) => return Err(to_error(&err)),
+                Err(err) => return Err(Errno::from_io_error(&err)),
             }
         }
         while !state.write_queue.is_empty() {
@@ -380,7 +380,7 @@ impl TcpSock {
                 }
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
-                Err(err) => return Err(to_error(&err)),
+                Err(err) => return Err(Errno::from_io_error(&err)),
             }
         }
         if state.inet.send_shutdown && state.write_queue.is_empty() && !state.fin_sent {
@@ -405,7 +405,7 @@ impl TcpSock {
             }
             Some(Err(err)) => err,
         };
-        Self::done_with_error(state, to_error(&failure));
+        Self::done_with_error(state, Errno::from_io_error(&failure));
     }
 
     /// Move what can move, then wake every poller, since what a poll finds
@@ -509,7 +509,7 @@ impl TcpSock {
         let set = Self::set_options(SockRef::from(stream), &state);
         set.map_err(|err| {
             (state.keepalive, state.nodelay, state.inet.uc_ttl) = kept;
-            to_error(&err)
+            Errno::from_io_error(&err)
         })
     }
 }

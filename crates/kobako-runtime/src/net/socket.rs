@@ -417,7 +417,7 @@ impl InetSock {
             SockOpt::Ttl => {
                 let ttl = to_ttl(value)?;
                 if let Some(host) = host {
-                    set_hop_limit(host, ttl).map_err(|err| to_error(&err))?;
+                    set_hop_limit(host, ttl).map_err(|err| Errno::from_io_error(&err))?;
                 }
                 self.uc_ttl = ttl;
             }
@@ -538,48 +538,6 @@ pub(crate) fn take_connect_outcome(stream: &mio::net::TcpStream) -> Option<io::R
         (Ok(None), Err(err)) if err.kind() == io::ErrorKind::NotConnected => None,
         (Ok(None), Err(err)) => Some(Err(err)),
     }
-}
-
-/// A socket's failure riding inside an I/O error through a library that
-/// carries only `io::Error`, so `to_error` reads back the very one it was.
-#[derive(Debug)]
-pub(crate) struct CarriedErrno(pub(crate) Errno);
-
-impl std::fmt::Display for CarriedErrno {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{:?}", self.0)
-    }
-}
-
-impl std::error::Error for CarriedErrno {}
-
-/// The POSIX name a host socket's failure stands for: the one a socket
-/// answered, when the error carries it through a library, else read from the
-/// host's errno first where std names no kind for it; one with none carries
-/// only its kind, so no host address reaches the guest.
-pub(crate) fn to_error(err: &io::Error) -> Errno {
-    if let Some(CarriedErrno(carried)) = err
-        .get_ref()
-        .and_then(|inner| inner.downcast_ref::<CarriedErrno>())
-    {
-        return carried.clone();
-    }
-    use rustix::io::Errno as HostErrno;
-    match HostErrno::from_io_error(err) {
-        Some(HostErrno::NOBUFS) => return Errno::NoBufferSpace,
-        Some(HostErrno::HOSTDOWN) => return Errno::HostUnreachable,
-        Some(HostErrno::DESTADDRREQ) => return Errno::DestinationAddressRequired,
-        Some(HostErrno::NOPROTOOPT) => return Errno::ProtocolNotAvailable,
-        Some(HostErrno::MFILE) => return Errno::TooManyOpenFiles,
-        #[cfg(not(windows))]
-        Some(HostErrno::NFILE) => return Errno::TooManyOpenFilesInSystem,
-        Some(HostErrno::MSGSIZE) => return Errno::MessageTooLong,
-        Some(HostErrno::AFNOSUPPORT) => return Errno::AddressFamilyNotSupported,
-        #[cfg(target_os = "linux")]
-        Some(HostErrno::NONET) => return Errno::NetworkUnreachable,
-        _ => {}
-    }
-    Errno::from_io_kind(err.kind()).unwrap_or_else(|| Errno::Other(format!("{:?}", err.kind())))
 }
 
 /// The one Filesystem every socket stands on, as Linux's `sock_mnt`. No path
@@ -879,7 +837,7 @@ mod tests {
             HostErrno::AGAIN,
             HostErrno::INVAL,
         ]
-        .map(|errno| to_error(&io::Error::from_raw_os_error(errno.raw_os_error())));
+        .map(|errno| Errno::from_io_error(&io::Error::from_raw_os_error(errno.raw_os_error())));
         assert_eq!(
             answers,
             [
@@ -907,7 +865,7 @@ mod tests {
     fn a_host_out_of_open_files_answers_enfile() {
         let errno = rustix::io::Errno::NFILE.raw_os_error();
         assert_eq!(
-            to_error(&io::Error::from_raw_os_error(errno)),
+            Errno::from_io_error(&io::Error::from_raw_os_error(errno)),
             Errno::TooManyOpenFilesInSystem,
             "a host socket failing with ENFILE must answer ENFILE, which Windows has no code for"
         );

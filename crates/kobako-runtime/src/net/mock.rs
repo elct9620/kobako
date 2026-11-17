@@ -14,7 +14,7 @@ use std::task::{Poll, Waker};
 
 use super::family::{is_same_family, HostInet, ProtocolFamily};
 use super::lookup::{LookupError, Resolver, Resolving};
-use super::socket::CarriedErrno;
+use crate::errno::CarriedErrno;
 use crate::network::Host;
 use crate::Errno;
 

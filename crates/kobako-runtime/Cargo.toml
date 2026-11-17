@@ -82,11 +82,11 @@ zeroize = "1.9.1"
 # It also opens a Bind's directory several names deep with Linux's
 # openat2, holds a file by O_PATH before reopening it through /proc,
 # and reads which macOS release confines such an open, and which errno a
-# host socket failed with, which std names no kind for.
+# host call failed with, which std names no kind for.
 [target.'cfg(unix)'.dependencies]
 rustix = { version = "1.1.4", features = ["fs", "system"] }
 
-# rustix reads which Winsock error a host socket failed with, which std
+# rustix reads which Winsock error a host call failed with, which std
 # names no kind for, as on POSIX. windows-sys asks Windows for a name through
 # GetAddrInfoExW, whose query a lookup can cancel, which std cannot.
 [target.'cfg(windows)'.dependencies]

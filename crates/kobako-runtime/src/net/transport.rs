@@ -20,7 +20,8 @@ use super::connections::Place;
 use super::http::HttpError;
 use super::lookup::NameLookup;
 use super::namespace::TcpSockets;
-use super::socket::{BindHash, CarriedErrno, Destination};
+use super::socket::{BindHash, Destination};
+use crate::errno::CarriedErrno;
 use super::{Namespace, ProtoOps, ProtocolFamily, SockOpt, TcpSock};
 use crate::cred::Cred;
 use crate::network::{Host, Protocol, Ruleset};
@@ -204,7 +205,7 @@ impl Transport {
 }
 
 /// `err` as the I/O error tokio-rustls and hyper carry, holding the failure
-/// itself so `to_error` reads back the very one the socket answered.
+/// itself so `Errno::from_io_error` reads back the very one the socket answered.
 fn to_io(err: Errno) -> io::Error {
     io::Error::other(CarriedErrno(err))
 }
@@ -250,8 +251,7 @@ impl Drop for Transport {
 
 #[cfg(test)]
 mod tests {
-    use super::super::socket::to_error;
-    use super::*;
+        use super::*;
 
     // A failure the upstream socket answers reaches the HTTP seam through
     // tokio-rustls and hyper, which carry only io::Error.
@@ -265,7 +265,7 @@ mod tests {
         ];
         assert_eq!(
             (
-                failures.clone().map(|err| to_error(&to_io(err))),
+                failures.clone().map(|err| Errno::from_io_error(&to_io(err))),
                 HttpError::from_tls(&to_io(Errno::OutOfMemory))
             ),
             (failures, HttpError::Internal),
