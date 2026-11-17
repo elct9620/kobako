@@ -70,11 +70,7 @@ fn read_value_from(
     if depth > MAX_NESTING_DEPTH {
         return Err(Error::Malformed("nesting exceeds maximum depth"));
     }
-    if let Some(left) = budget {
-        *left = left.checked_sub(1).ok_or(Error::Malformed(
-            "payload holds more values than its budget",
-        ))?;
-    }
+    spend(budget, 1)?;
     let marker = read_marker(cursor).map_err(|_| Error::Truncated)?;
     match marker {
         Marker::Null => Ok(Value::Nil),
@@ -220,12 +216,40 @@ fn read_map_body(
     // pre-allocation here stops a forged `map 32` length from reserving a
     // huge Vec before the read loop reaches the clean `Truncated`.
     let mut pairs = Vec::with_capacity(len.min(cursor.len() / 2));
+    // A host keeping the map in a hash table compares each NaN-holding key
+    // with every one before it, as all NaNs hash alike and none equals
+    // another, so each costs one value more for every such key before it.
+    let mut nan_keys = 0;
     for _ in 0..len {
         let k = read_value_from(cursor, depth + 1, budget)?;
+        if holds_nan(&k) {
+            spend(budget, nan_keys)?;
+            nan_keys += 1;
+        }
         let v = read_value_from(cursor, depth + 1, budget)?;
         pairs.push((k, v));
     }
     Ok(Value::Map(pairs))
+}
+
+/// Take `values` from `budget`, or refuse once it has fewer left.
+fn spend(budget: &mut Option<usize>, values: usize) -> Result<(), Error> {
+    if let Some(left) = budget {
+        *left = left.checked_sub(values).ok_or(Error::Malformed(
+            "payload holds more values than its budget",
+        ))?;
+    }
+    Ok(())
+}
+
+/// Whether `value` is a NaN or holds one anywhere inside.
+fn holds_nan(value: &Value) -> bool {
+    match value {
+        Value::Float(float) => float.is_nan(),
+        Value::Array(items) => items.iter().any(holds_nan),
+        Value::Map(pairs) => pairs.iter().any(|(k, v)| holds_nan(k) || holds_nan(v)),
+        _ => false,
+    }
 }
 
 fn read_ext(cursor: &mut &[u8], len: usize) -> Result<Value, Error> {
@@ -691,5 +715,50 @@ mod tests {
             Ok(Value::Float(f)) => assert_eq!(f, 1.5),
             other => panic!("unexpected: {:?}", other),
         }
+    }
+
+    /// Whether decoding `bytes` within `budget` values is refused.
+    fn refused_within(bytes: &[u8], budget: usize) -> bool {
+        Decoder::new(bytes)
+            .with_value_budget(Some(budget))
+            .read_value()
+            .is_err()
+    }
+
+    const NAN64: [u8; 9] = [0xcb, 0x7f, 0xf8, 0, 0, 0, 0, 0, 0];
+    const NAN32: [u8; 5] = [0xca, 0x7f, 0xc0, 0, 0];
+
+    #[test]
+    fn each_nan_key_costs_one_value_for_each_nan_key_before_it() {
+        // {NaN => 0, NaN => 0, NaN => 0}: seven values, and the keys after
+        // the first cost 1 and 2 more.
+        let map = [&[0x83][..], &NAN64, &[0], &NAN32, &[0], &NAN64, &[0]].concat();
+        assert_eq!(
+            (refused_within(&map, 10), refused_within(&map, 9)),
+            (false, true),
+            "a map's third NaN key must cost the two NaN keys before it as well as itself"
+        );
+    }
+
+    #[test]
+    fn a_key_holding_a_nan_inside_costs_as_a_nan_key() {
+        // {[NaN] => 0, [1, NaN] => 0}: eight values, and the second key costs 1 more.
+        let map = [&[0x82, 0x91][..], &NAN64, &[0, 0x92, 0x01], &NAN64, &[0]].concat();
+        assert_eq!(
+            (refused_within(&map, 9), refused_within(&map, 8)),
+            (false, true),
+            "a key holding a NaN inside an array must cost as a NaN key"
+        );
+    }
+
+    #[test]
+    fn a_nan_as_a_value_or_in_another_map_costs_nothing_more() {
+        // [{NaN => NaN}, {NaN => 0}]: seven values, each map holding one NaN key.
+        let payload = [&[0x92, 0x81][..], &NAN64, &NAN64, &[0x81], &NAN64, &[0]].concat();
+        assert_eq!(
+            (refused_within(&payload, 7), refused_within(&payload, 6)),
+            (false, true),
+            "a NaN value, or a NaN key in another map, must cost no more than one value"
+        );
     }
 }

@@ -1963,3 +1963,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox releasing the GVL whose Service wraps a long sleep in a short Timeout |
 | When | guest code calls the Service |
 | Then | the Timeout fires inside the Service. The run defers interrupts only outside its callbacks |
+
+## `S-219` A map whose keys the host cannot tell apart pays for comparing them
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-204` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose memory cap allows more values than the script answers |
+| When | the script answers a Hash whose keys are thousands of NaNs |
+| Then | it fails as a Sandbox failure. A NaN key costs one value per NaN key before it, as a hash table compares them |

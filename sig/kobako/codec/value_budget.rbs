@@ -9,11 +9,54 @@ module Kobako
 
       UINT: Hash[Integer, String]
 
+      FLOATS: Regexp
+
+      NAN_ENTRY: Integer
+
+      FLOAT_FORMATS: Hash[Integer, String]
+
       def self.assert_within: (String bytes, Integer? budget) -> void
+
+      def self.step: (String bytes, Integer pos) -> [Integer?, Integer]
+
+      class Count
+        class Open < Struct[untyped]
+          attr_accessor held: Integer
+          attr_accessor keyed: bool
+          attr_accessor read: Integer
+          attr_accessor nan_keys: Integer
+          attr_accessor holds_nan: bool
+
+          def self.new: (Integer held, bool keyed, Integer read, Integer nan_keys, bool holds_nan) -> Open
+        end
+
+        @bytes: String
+        @budget: Integer
+        @remaining: Integer
+        @open: Array[Open]
+
+        def initialize: (String bytes, Integer budget) -> void
+
+        def run: () -> void
+
+        private
+
+        def payload_ends_at?: (Integer pos, Integer children) -> bool
+
+        def outermost_ended?: (bool holds_nan) -> bool
+
+        def charge_key: (Open map) -> void
+
+        def spend: (Integer values) -> void
+
+        def map?: (Integer? marker) -> bool
+
+        def nan?: (Integer? marker, Integer pos) -> bool
+      end
 
       private
 
-      def self.step: (String bytes, Integer pos) -> [Integer?, Integer]
+      def self.within_by_size?: (String bytes, Integer budget) -> bool
 
       def self.step_framed:(String bytes, Integer pos, Integer marker) -> [Integer?, Integer]
 

@@ -116,6 +116,16 @@ values in a guest payload <= memory_limit / 16
 
 The host refuses a payload past the budget as it refuses one nested too deep. What a guest makes the host build then stays in proportion to what the guest could hold, however it shares values. A payload the host sends needs no budget, since the guest pays for it in its own memory.
 
+### NaN Keys
+
+A map key holding a NaN costs one more value for each such key the map already holds. The key may be the float itself, or an array or map with one inside.
+
+```
+a map's NaN-holding keys: the k-th costs 1 + (k - 1) values
+```
+
+A hash table puts every such key in one bucket, and no NaN equals another. So n of them cost the host n²/2 comparisons. Charging them keeps that work in proportion to the budget, as `max_input_vars` bounds the keys of one request.
+
 ---
 
 ## Ext Types

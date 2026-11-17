@@ -9,6 +9,10 @@ module Kobako
     # its own memory. Every value takes at
     # least one byte, so a payload no longer than the budget needs no count.
     #
+    # A map key holding a NaN costs one more value for each such key the
+    # map already holds, as a Ruby Hash compares it with each: every NaN
+    # hashes alike and none is +eql?+ to another.
+    #
     # The count stops at the first byte it cannot frame and leaves that
     # payload for the decoder to refuse in its own words.
     module ValueBudget # :nodoc:
@@ -30,20 +34,108 @@ module Kobako
       UINT = { 1 => "C", 2 => "n", 4 => "N" }.freeze
       private_constant :SCALARS, :COUNTS, :LENGTHS, :UINT
 
+      # A float frame's marker; a payload without one holds no NaN.
+      FLOATS = /[\xca\xcb]/n
+      # The fewest bytes a NaN key and its value take: a float 32 frame and
+      # a one-byte value.
+      NAN_ENTRY = 6
+      # A float frame's marker to how its body unpacks.
+      FLOAT_FORMATS = { 0xca => "g", 0xcb => "G" }.freeze
+      private_constant :FLOATS, :NAN_ENTRY, :FLOAT_FORMATS
+
       def self.assert_within(bytes, budget)
-        return if budget.nil? || bytes.bytesize <= budget
+        return if budget.nil? || within_by_size?(bytes, budget)
 
-        remaining = budget
-        pending = 1
-        pos = 0
-        while pending.positive?
-          pos, children = step(bytes, pos)
-          return if pos.nil?
-          raise InvalidTypeError, "payload holds more than #{budget} values" if (remaining -= 1).negative?
+        Count.new(bytes, budget).run
+      end
 
-          pending += children - 1
+      # Every value takes at least one byte, so a payload no longer than the
+      # budget holds no more values than it, and what its NaN keys could
+      # add is bounded by how many of them its bytes could frame.
+      def self.within_by_size?(bytes, budget)
+        size = bytes.bytesize
+        return false if size > budget
+        return true unless bytes.match?(FLOATS)
+
+        nan_keys = size / NAN_ENTRY
+        size + (nan_keys * (nan_keys - 1) / 2) <= budget
+      end
+
+      # One count through +bytes+, walked without recursion so a payload
+      # nested past what the decoder allows cannot exhaust the stack first.
+      class Count
+        # A container still being read: the values it holds directly,
+        # whether it is keyed (a map), how many of them were read, how many
+        # of its keys held a NaN, and whether anything in it did.
+        Open = Struct.new(:held, :keyed, :read, :nan_keys, :holds_nan)
+
+        def initialize(bytes, budget)
+          @bytes = bytes
+          @budget = budget
+          @remaining = budget
+          @open = [] # : Array[Open]
+        end
+
+        def run
+          pos = 0
+          loop do
+            after, children = ValueBudget.step(@bytes, pos)
+            return if after.nil? || payload_ends_at?(pos, children)
+
+            pos = after
+          end
+        end
+
+        private
+
+        # Count the value at +pos+, which holds +children+ directly;
+        # whether the payload ends with it.
+        def payload_ends_at?(pos, children)
+          marker = @bytes.getbyte(pos)
+          spend(1)
+          return outermost_ended?(nan?(marker, pos)) unless children.positive?
+
+          @open << Open.new(children, map?(marker), 0, 0, false)
+          false
+        end
+
+        # Count a value that ended, and each container it ends; whether the
+        # outermost one did.
+        def outermost_ended?(holds_nan)
+          until @open.empty?
+            container = @open.last # : Open
+            charge_key(container) if holds_nan && container.keyed && container.read.even?
+            container.holds_nan ||= holds_nan
+            container.read += 1
+            return false unless container.read == container.held
+
+            @open.pop
+            holds_nan = container.holds_nan
+          end
+          true
+        end
+
+        def charge_key(map)
+          spend(map.nan_keys)
+          map.nan_keys += 1
+        end
+
+        def spend(values)
+          @remaining -= values
+          raise InvalidTypeError, "payload holds more than #{@budget} values" if @remaining.negative?
+        end
+
+        def map?(marker)
+          (0x80..0x8f).cover?(marker) || marker == 0xde || marker == 0xdf
+        end
+
+        def nan?(marker, pos)
+          format = FLOAT_FORMATS[marker] or return false
+          float = @bytes.byteslice(pos + 1, format == "g" ? 4 : 8).to_s.unpack1(format)
+          float.is_a?(Float) && float.nan?
         end
       end
+      private_constant :Count
 
       # The position after the value at +pos+, nil for one the payload
       # cannot frame, and the values it holds directly.
@@ -80,7 +172,7 @@ module Kobako
         slice.unpack1(UINT.fetch(width)) # : Integer
       end
 
-      private_class_method :step, :step_framed, :uint
+      private_class_method :within_by_size?, :step_framed, :uint
     end
   end
 end

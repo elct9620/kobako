@@ -54,4 +54,32 @@ class TestCodecValueBudget < Minitest::Test
     refute count_refused?("\x9f#{"\x00" * 15}", nil),
            "a payload must pass when the invocation has no memory cap"
   end
+
+  NAN64 = "\xcb\x7f\xf8\x00\x00\x00\x00\x00\x00"
+  NAN32 = "\xca\x7f\xc0\x00\x00"
+
+  def test_each_nan_key_costs_one_value_for_each_nan_key_before_it
+    # {NaN => 0, NaN => 0, NaN => 0}: seven values, and the keys after the
+    # first cost 1 and 2 more.
+    map = "\x83#{NAN64}\x00#{NAN32}\x00#{NAN64}\x00"
+
+    assert_equal [false, true], [count_refused?(map, 10), count_refused?(map, 9)],
+                 "a map's third NaN key must cost the two NaN keys before it as well as itself"
+  end
+
+  def test_a_key_holding_a_nan_inside_costs_as_a_nan_key
+    # {[NaN] => 0, [1, NaN] => 0}: eight values, and the second key costs 1 more.
+    map = "\x82\x91#{NAN64}\x00\x92\x01#{NAN64}\x00"
+
+    assert_equal [false, true], [count_refused?(map, 9), count_refused?(map, 8)],
+                 "a key holding a NaN inside an array must cost as a NaN key"
+  end
+
+  def test_a_nan_as_a_value_or_in_another_map_costs_nothing_more
+    # [{NaN => NaN}, {NaN => 0}]: seven values, each map holding one NaN key.
+    payload = "\x92\x81#{NAN64}#{NAN64}\x81#{NAN64}\x00"
+
+    assert_equal [false, true], [count_refused?(payload, 7), count_refused?(payload, 6)],
+                 "a NaN value, or a NaN key in another map, must cost no more than one value"
+  end
 end

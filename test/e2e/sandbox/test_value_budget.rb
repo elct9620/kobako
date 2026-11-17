@@ -37,4 +37,22 @@ class TestSandboxValueBudget < Minitest::Test
                  "an answer holding more values than memory_limit / 16 through Sandbox#eval must " \
                  "fail as a Sandbox failure whose diagnostic names the budget")
   end
+
+  REAL_WASM = TestPaths.data("kobako.wasm")
+  NAN_KEYS = "h = {}; %d.times { h[0.0 / 0.0] = 0 }; h"
+
+  # 64 MiB grant 4194304 values: 1000 NaN keys cost about half a million,
+  # 4000 cost about eight million.
+  # @behavior S-219
+  def test_a_hash_of_nan_keys_pays_for_comparing_them
+    require_guest_binary(REAL_WASM, build: "bundle exec rake wasm:build")
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 64 << 20)
+
+    assert_equal 1000, sandbox.eval(format(NAN_KEYS, 1000)).value.size,
+                 "a Hash of 1000 NaN keys through Sandbox#eval under memory_limit: 64 MiB must reach the Host App"
+    error = assert_raises(Kobako::SandboxError) { sandbox.eval(format(NAN_KEYS, 4000)) }
+    assert_match(/payload holds more than 4194304 values/, error.detailed_message,
+                 "a Hash of 4000 NaN keys through Sandbox#eval under memory_limit: 64 MiB must fail as a " \
+                 "Sandbox failure whose diagnostic names the budget")
+  end
 end
