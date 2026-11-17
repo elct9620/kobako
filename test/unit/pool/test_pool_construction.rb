@@ -77,4 +77,26 @@ class TestPoolConstruction < Minitest::Test
     assert_operator Kobako::PoolTimeoutError, :<, Kobako::Error,
                     "Kobako::PoolTimeoutError must be rescuable as Kobako::Error"
   end
+
+  # @behavior PL-038
+  def test_building_a_pool_warns_that_it_is_deprecated
+    line = __LINE__ + 1
+    warned = with_deprecations(true) { capture_io { Kobako::Pool.new(size: 1) }.last }
+    hidden = with_deprecations(false) { capture_io { Kobako::Pool.new(size: 1) }.last }
+
+    assert_match(/#{File.basename(__FILE__)}:#{line}: warning: Kobako::Pool is deprecated.*Kobako::Sandbox/, warned,
+                 "Pool.new must warn at its caller's line that Kobako::Pool is deprecated, naming the Sandbox " \
+                 "to share instead, while Warning[:deprecated] is on")
+    assert_empty hidden, "Pool.new must warn nothing while Warning[:deprecated] is off"
+  end
+
+  private
+
+  def with_deprecations(shown)
+    before = Warning[:deprecated]
+    Warning[:deprecated] = shown
+    yield
+  ensure
+    Warning[:deprecated] = before
+  end
 end

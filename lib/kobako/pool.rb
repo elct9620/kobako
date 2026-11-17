@@ -7,9 +7,15 @@ module Kobako
   # A bounded set of warm, identically set-up Sandboxes, handed out to one
   # holder at a time. Every Sandbox it builds is kept: an invocation leaves
   # nothing behind, whatever ended it.
+  #
+  # Deprecated: the next release removes Pool. A Sandbox keeps nothing
+  # between runs, so Threads share one Sandbox instead.
   class Pool
     # The default +checkout_timeout+: 5 seconds.
     DEFAULT_CHECKOUT_TIMEOUT_SECONDS = 5.0
+    # What building a Pool warns while deprecation warnings are shown.
+    DEPRECATION = "Kobako::Pool is deprecated, removed next release; share a Kobako::Sandbox across Threads"
+    private_constant :DEPRECATION
 
     # Build a Pool of up to +size+ Sandboxes, built on first demand with the
     # other keywords as Sandbox.new takes them. +checkout_timeout+ bounds how
@@ -21,6 +27,7 @@ module Kobako
     # is not Numeric, and ArgumentError when either is not positive or
     # +checkout_timeout+ is not finite.
     def initialize(size:, checkout_timeout: DEFAULT_CHECKOUT_TIMEOUT_SECONDS, **sandbox_options, &setup)
+      warn(DEPRECATION, category: :deprecated, uplevel: 1)
       validate_size(size)
       @size = size
       @checkout_timeout = normalize_checkout_timeout(checkout_timeout)

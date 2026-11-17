@@ -2,6 +2,8 @@ module Kobako
   class Pool
     DEFAULT_CHECKOUT_TIMEOUT_SECONDS: Float
 
+    DEPRECATION: String
+
     @size: Integer
     @checkout_timeout: Float?
     @sandbox_options: Hash[Symbol, untyped]

@@ -47,7 +47,8 @@ hardware.
 ## Pooling
 
 `Kobako::Pool` keeps a bounded set of warm, identically set-up Sandboxes. It
-hands each one to a single holder at a time.
+hands each one to a single holder at a time. Pool is deprecated, and the next
+release removes it: share one Sandbox across Threads instead.
 
 ```ruby
 pool = Kobako::Pool.new(size: 4) do |sandbox|

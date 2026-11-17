@@ -298,3 +298,11 @@ A pooled Sandbox satisfies every other behavior identically to a directly constr
 | Given | a Pool of one slot |
 | When | an interrupt arrives after a checkout takes its Sandbox and before its block runs |
 | Then | the checkout raises it, and the next checkout receives that Sandbox |
+
+## `PL-038` Building a Pool warns that it is deprecated
+
+| Step | Statement |
+| --- | --- |
+| Given | a process showing deprecation warnings |
+| When | a Pool is constructed |
+| Then | a deprecation warning names `Kobako::Pool` and the Sandbox to share instead, at the caller's line. Ruby shows it under `Warning[:deprecated]` alone, as it does its own |
