@@ -112,4 +112,17 @@ class TestRegexpQuantifier < Minitest::Test
     assert_equal %w[A], eval_regexp('/\u{41}/.match("A").to_a'),
                  "a code point escape through a match must keep its brace"
   end
+
+  # One plus on each side of an optional unit needs a character for each, and
+  # a run of optional units covers at most one character apiece.
+  # @behavior RX-326
+  def test_each_quantified_unit_keeps_its_own_count_beside_an_optional_one
+    {
+      '/a+b?a+/.match("a")' => [], '/a+b?a+/.match("aa")' => %w[aa], '/^\d+-?\d+$/.match("1")' => [],
+      '/^\d+-?\d+$/.match("1-2")' => %w[1-2], '/^.?a?.?$/.match("aba")' => [], '/^.?a?.?$/.match("ab")' => %w[ab]
+    }.each do |code, expected|
+      assert_equal expected, eval_regexp("#{code}.to_a"),
+                   "#{code} must match each quantified unit for its own count, as CRuby's does"
+    end
+  end
 end

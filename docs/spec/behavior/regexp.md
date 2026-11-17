@@ -2114,3 +2114,15 @@ Memoizing a compiled pattern is meant to be invisible, so its scenarios assert r
 | Given | a Sandbox over the regexp-capable Guest Binary |
 | When | guest code compiles a named backreference whose name is empty or starts with a multibyte character |
 | Then | an empty name raises `RegexpError`, and a multibyte one reads its group, with or without a level, as CRuby's does |
+
+## `RX-326` Each quantified unit keeps its own count beside an optional one
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RX-309` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox over the regexp-capable Guest Binary |
+| When | guest code matches a pattern that quantifies units on either side of an optional one, as `a+b?a+` or `^.?a?.?$` |
+| Then | each unit matches its own count, as CRuby's does. `a+b?a+` does not match `"a"`, and `^.?a?.?$` does not match `"aba"` |
