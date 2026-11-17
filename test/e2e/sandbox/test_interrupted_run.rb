@@ -86,4 +86,25 @@ class TestE2EInterruptedRun < Minitest::Test
     assert_equal "timed_out", run_ruby(SERVICE_TIMEOUT_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 20),
                  "a Timeout inside a Service of a Sandbox with gvl: :release must fire while the Service runs"
   end
+
+  HOST_MASK_CHILD = <<~RUBY
+    require "kobako"
+    sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release)
+    sandbox.bind("Host::Wait", lambda do
+      sleep 5
+      :slept
+    rescue RuntimeError
+      :raised_inside
+    end)
+    main = Thread.current
+    Thread.new { sleep 0.1; main.raise "poke" }
+    print Thread.handle_interrupt(Object => :never) { sandbox.eval("Host::Wait.call").value }
+  RUBY
+
+  # @behavior S-218
+  def test_a_service_takes_an_interrupt_under_the_host_apps_own_mask
+    assert_equal "raised_inside", run_ruby(HOST_MASK_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 20),
+                 "a Thread#raise during a Service of a Sandbox with gvl: :release must reach the Service even " \
+                 "inside the Host App's Thread.handle_interrupt(Object => :never)"
+  end
 end

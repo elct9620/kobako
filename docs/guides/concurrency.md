@@ -53,7 +53,7 @@ takes them as they come. Two things differ from `:hold`.
 | A `Thread.handle_interrupt` mask around the run | a Service call does not inherit it |
 | A main-Thread `trap` block that raises or exits | may stop the run where it cannot unwind |
 
-A trap that only sets a flag, or `:hold`, keeps both away.
+`:hold` keeps both away. A trap that only sets a flag keeps the second away.
 
 ## Pooling
 
