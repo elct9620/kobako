@@ -38,9 +38,7 @@ use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_transport::envelope::{Bindings, Flag, Preamble, Snippet, Snippets};
 use kobako_wasmtime::{Config, Driver};
 
-use crate::{
-    errors, escape, filesystem, gvl, name_of, network, symbol_name_of, to_bytes, value_by_name,
-};
+use crate::{errors, filesystem, gvl, name_of, network, symbol_name_of, to_bytes, value_by_name};
 use snapshot::Snapshot;
 
 /// `kind` arrives as a Symbol so the registry never names the wire's
@@ -392,16 +390,11 @@ impl Runtime {
         // Release the GVL around the guest span iff this Sandbox asks for it;
         // the closure touches no Ruby VALUE (the runtime is magnus-free, and a
         // guest→host dispatch, or a mount's block, re-acquires the GVL).
-        let run = escape::Run::enter();
-        let result = gvl::defer_interrupts(&ruby, self.release_gvl, || {
-            gvl::region(self.release_gvl, || {
-                self.runtime.invoke(entry, &preamble, handler, &grants)
-            })
-        });
-        run.finish()?;
-        result?
-            .map(|snapshot| Snapshot::new(snapshot, verb))
-            .map_err(|e| errors::from_invoke(&ruby, e))
+        gvl::run(&ruby, self.release_gvl, || {
+            self.runtime.invoke(entry, &preamble, handler, &grants)
+        })?
+        .map(|snapshot| Snapshot::new(snapshot, verb))
+        .map_err(|e| errors::from_invoke(&ruby, e))
     }
 
     /// The bytecode of the source snippets, one binary String each in
@@ -413,12 +406,7 @@ impl Runtime {
     fn compile(&self, preamble: RArray) -> Result<Option<RArray>, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let preamble = to_preamble(&ruby, preamble)?;
-        let run = escape::Run::enter();
-        let bytecodes = gvl::defer_interrupts(&ruby, self.release_gvl, || {
-            gvl::region(self.release_gvl, || self.runtime.compile(&preamble))
-        });
-        run.finish()?;
-        let bytecodes = bytecodes?;
+        let bytecodes = gvl::run(&ruby, self.release_gvl, || self.runtime.compile(&preamble))?;
         Ok(bytecodes.map(|bytecodes| {
             ruby.ary_from_iter(
                 bytecodes

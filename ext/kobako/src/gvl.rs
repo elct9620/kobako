@@ -40,7 +40,7 @@ thread_local! {
     static GVL_RELEASED: Cell<bool> = const { Cell::new(false) };
 }
 
-pub(crate) fn region<F, R>(release: bool, f: F) -> R
+fn region<F, R>(release: bool, f: F) -> R
 where
     F: FnOnce() -> R,
 {
@@ -163,10 +163,20 @@ where
     .expect("rb_thread_call_with_gvl always runs its function")
 }
 
-/// Run `f` as a run that gives up the GVL when `release` says so, with Ruby's
-/// interrupts deferred until it is back in Ruby, where one comes as the error.
-/// A run keeping the GVL meets no interrupt check outside its callbacks.
-pub(crate) fn defer_interrupts<R>(
+/// Run `f` as one run of a Sandbox: giving up the GVL when `release` says so,
+/// with Ruby's interrupts deferred until it is back in Ruby, and one the run
+/// kept raised once it ends.
+pub(crate) fn run<R>(ruby: &Ruby, release: bool, f: impl FnOnce() -> R) -> Result<R, MagnusError> {
+    let run = escape::Run::enter();
+    let ran = defer_interrupts(ruby, release, || region(release, f));
+    run.finish()?;
+    ran
+}
+
+/// Run `f` with Ruby's interrupts deferred, when `release` says the run gives
+/// up the GVL, until it is back in Ruby, where one comes as the error. A run
+/// keeping the GVL meets no interrupt check outside its callbacks.
+fn defer_interrupts<R>(
     ruby: &Ruby,
     release: bool,
     f: impl FnOnce() -> R,
