@@ -718,5 +718,5 @@ A mount Linux would refuse fails the run, unless only its last name is missing. 
 | Step | Statement |
 | --- | --- |
 | Given | a writable Bind at `/data` holding `a/`, `b/key`, and a link `l` to `a/../b`, and a Tmpfs at `/data/l` |
-| When | one run removes `/data/a`, and the next reads `/data/b/key` |
-| Then | the removal raises `Errno::EBUSY`, and the read raises `Errno::ENOENT`. Linux removes `a`, the mount staying on `b` |
+| When | one run removes or renames `/data/a`, and the next reads `/data/b/key` |
+| Then | the change raises `Errno::EBUSY`, and the read raises `Errno::ENOENT`. Linux changes `a`, the mount staying on `b` |

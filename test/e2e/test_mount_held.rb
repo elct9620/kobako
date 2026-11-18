@@ -16,6 +16,13 @@ class TestE2EMountHeld < Minitest::Test
     "rename" => 'begin; File.rename("/data/link", "/data/l2"); :changed; rescue Errno::EBUSY; :ebusy; end'
   }.freeze
 
+  # Scripts changing the directory +hiding_past_climb+'s link climbs out of,
+  # by name, each answering +:ebusy+ when refused.
+  CLIMBED_CHANGES = {
+    "removal" => 'begin; Dir.rmdir("/data/a"); :changed; rescue Errno::EBUSY; :ebusy; end',
+    "rename" => 'begin; File.rename("/data/a", "/data/a2"); :changed; rescue Errno::EBUSY; :ebusy; end'
+  }.freeze
+
   # A Sandbox with +outer+ at +/data+ and a read-only Tmpfs at
   # +/data/repo/hooks+, whose last name +outer+ does not hold.
   def guarding_hooks(outer)
@@ -107,13 +114,15 @@ class TestE2EMountHeld < Minitest::Test
   # @behavior MT-059
   def test_a_directory_a_nested_mount_link_climbs_out_of_neither_moves_nor_goes
     skip "this host makes no links" if Gem.win_platform?
-    TestPaths.host_directory do |host|
-      sandbox = hiding_past_climb(host)
-      removed = sandbox.eval('begin; Dir.rmdir("/data/a"); :removed; rescue Errno::EBUSY; :ebusy; end')
-      read = sandbox.eval('begin; File.read("/data/b/key"); rescue Errno::ENOENT; :enoent; end')
+    CLIMBED_CHANGES.each do |name, change|
+      TestPaths.host_directory do |host|
+        sandbox = hiding_past_climb(host)
+        changed = sandbox.eval(change)
+        read = sandbox.eval('begin; File.read("/data/b/key"); rescue Errno::ENOENT; :enoent; end')
 
-      assert_equal %i[ebusy enoent], [removed.value, read.value],
-                   "Dir.rmdir of a directory a nested Sandbox#mount's link climbs out of must raise EBUSY"
+        assert_equal %i[ebusy enoent], [changed.value, read.value],
+                     "a #{name} of a directory a Sandbox#mount's link climbs out of must raise EBUSY, still hiding"
+      end
     end
   end
 end
