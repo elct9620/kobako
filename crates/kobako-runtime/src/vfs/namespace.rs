@@ -1,7 +1,6 @@
 //! Which mount stands on which dentry, as Linux's mount namespace holds the
 //! tree `__lookup_mnt` answers from, so a walk reaching a mount point by any
-//! spelling, through any link, or after a directory above it moved steps onto
-//! what is mounted there.
+//! spelling or through any link steps onto what is mounted there.
 
 use std::sync::Arc;
 
@@ -61,7 +60,7 @@ impl MntNamespace {
             };
             let path = at[root_at.len()..].trim_start_matches('/');
             let walker = cred.with_mnt_ns(Arc::new(namespace.clone()));
-            let root = Path::root(&namespace.topmost_mount_of(root));
+            let root = Path::root(&namespace.topmost_overmount(root));
             let spot = namespace
                 .where_to_mount(&walker, &root, path)
                 .map_err(|errno| UnplacedMountError {
@@ -84,13 +83,11 @@ impl MntNamespace {
     }
 
     /// Where a mount at `path` beneath `root` stands as `cred` walks it, as
-    /// `do_mount` looks its target up and `where_to_mount` stacks it on what is
-    /// mounted there: the mount and dentry the walk lands on, or, on a nested
-    /// mount's root, the dentry that mount stands on, where the later of the
-    /// two is the one a walk steps onto, as Linux shows the topmost. A name
-    /// standing for nothing is stood on as it is. A walk that fails answers
-    /// its error, and one landing on no directory ENOTDIR, as `graft_tree`
-    /// refuses it.
+    /// `do_mount` looks its target up and `where_to_mount` stacks it: on the
+    /// dentry the walk lands on, which on a mounted name is the root of the
+    /// topmost mount there, so the new one stands over it. A name standing for
+    /// nothing is stood on as it is. A walk that fails answers its error, and
+    /// one landing on no directory ENOTDIR, as `graft_tree` refuses it.
     fn where_to_mount(
         &self,
         cred: &Arc<Cred>,
@@ -112,30 +109,22 @@ impl MntNamespace {
         if dentry.file_type() != Ok(FileType::Dir) {
             return Err(Errno::NotADirectory);
         }
-        if !Arc::ptr_eq(&dentry, nd.mnt.root()) {
-            return Ok((nd.mnt.clone(), dentry));
+        Ok((nd.mnt.clone(), dentry))
+    }
+
+    /// The mount standing over the root of `mnt`, and over that one's, to the
+    /// last, as Linux's `topmost_overmount` follows each `overmount`; `mnt`
+    /// itself when none does.
+    pub(crate) fn topmost_overmount(&self, mnt: &Arc<VfsMount>) -> Arc<VfsMount> {
+        let mut top = Arc::clone(mnt);
+        while let Some(over) = self.__lookup_mnt(&top, top.root()) {
+            top = over;
         }
-        Ok(
-            match self
-                .mounted
-                .iter()
-                .find(|child| Arc::ptr_eq(&child.mnt, &nd.mnt))
-            {
-                Some(child) => (Arc::clone(&child.parent), Arc::clone(&child.mountpoint)),
-                None => (nd.mnt.clone(), dentry),
-            },
-        )
+        top
     }
 
-    /// The mount a walk from the root of the outermost `mnt` stands on: the
-    /// last made of those standing over that root, or `mnt` itself.
-    pub(crate) fn topmost_mount_of(&self, mnt: &Arc<VfsMount>) -> Arc<VfsMount> {
-        self.__lookup_mnt(mnt, mnt.root())
-            .unwrap_or_else(|| Arc::clone(mnt))
-    }
-
-    /// The mount standing on `dentry` beneath `mnt`, as Linux's `__lookup_mnt`:
-    /// the last made of those standing there, which overmounts the rest.
+    /// The mount standing on `dentry` beneath `mnt`, as Linux's `__lookup_mnt`.
+    /// One stands there at most, as a later mount stacks on its root.
     pub(crate) fn __lookup_mnt(
         &self,
         mnt: &Arc<VfsMount>,
@@ -143,9 +132,7 @@ impl MntNamespace {
     ) -> Option<Arc<VfsMount>> {
         self.mounted
             .iter()
-            .rfind(|child| {
-                Arc::ptr_eq(&child.parent, mnt) && Arc::ptr_eq(&child.mountpoint, dentry)
-            })
+            .find(|child| Arc::ptr_eq(&child.parent, mnt) && Arc::ptr_eq(&child.mountpoint, dentry))
             .map(|child| Arc::clone(&child.mnt))
     }
 

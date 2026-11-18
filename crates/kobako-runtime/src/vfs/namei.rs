@@ -343,9 +343,11 @@ impl Nameidata {
         }
     }
 
-    /// Step onto the root of `mnt`, keeping where the walk stood, as
-    /// `traverse_mounts` follows a mount point down to what is mounted there.
+    /// Step onto the root of `mnt`, or of the topmost mount stacked over it,
+    /// keeping where the walk stood, as `__traverse_mounts` follows a mount
+    /// point down to what is mounted there, however many stand on it.
     fn traverse_mounts(&mut self, mnt: Arc<VfsMount>) {
+        let mnt = self.cred.mnt_ns().topmost_overmount(&mnt);
         let dir = std::mem::replace(&mut self.dir, mnt.root().clone());
         self.crossed
             .push((std::mem::replace(&mut self.mnt, mnt), dir));

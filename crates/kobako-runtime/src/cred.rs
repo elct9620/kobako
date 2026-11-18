@@ -83,11 +83,10 @@ impl Cred {
         })
     }
 
-    /// The mount a walk from the root of the outermost `mnt` stands on: the
-    /// last made of the mounts standing over that root, as Linux shows the one
-    /// mounted over the rest.
-    pub fn topmost_mount_of(&self, mnt: &Arc<VfsMount>) -> Arc<VfsMount> {
-        self.mnt_ns.topmost_mount_of(mnt)
+    /// The mount a walk from the root of `mnt` stands on: the topmost of those
+    /// stacked over that root, as Linux's `topmost_overmount` answers.
+    pub fn topmost_overmount(&self, mnt: &Arc<VfsMount>) -> Arc<VfsMount> {
+        self.mnt_ns.topmost_overmount(mnt)
     }
 
     /// This Cred seeing entries as `profile` does, as a task's credentials

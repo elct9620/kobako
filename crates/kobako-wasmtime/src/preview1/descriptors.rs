@@ -103,7 +103,7 @@ impl Descriptors {
             used.insert(fd, Descriptor::for_stream(Resource::Output(output)));
         }
         for (fd, mount) in (3..).zip(mounts) {
-            let root = File::root(&guest.topmost_mount_of(mount.mnt()), opener)?;
+            let root = File::root(&guest.topmost_overmount(mount.mnt()), opener)?;
             used.insert(
                 fd,
                 Descriptor {
