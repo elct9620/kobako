@@ -9,15 +9,13 @@ module Kobako
 
       UINT: Hash[Integer, String]
 
+      FLOAT_FORMATS: Hash[Integer, String]
+
       FLOATS: Regexp
 
       NAN_ENTRY: Integer
 
-      FLOAT_FORMATS: Hash[Integer, String]
-
       def self.assert_within: (String bytes, Integer? budget) -> void
-
-      def self.step: (String bytes, Integer pos) -> [Integer?, Integer]
 
       class Count
         class OpenContainer < Struct[untyped]
@@ -43,7 +41,7 @@ module Kobako
 
         private
 
-        def count_value: (Integer pos, Integer children) -> void
+        def count_value: (Integer pos, Integer children, bool keyed) -> void
 
         def close_value: (bool holds_nan) -> void
 
@@ -51,18 +49,18 @@ module Kobako
 
         def spend: (Integer values) -> void
 
-        def map?: (Integer? marker) -> bool
+        def nan?: (Integer pos) -> bool
 
-        def nan?: (Integer? marker, Integer pos) -> bool
+        def step: (Integer pos) -> [Integer?, Integer, bool]
+
+        def step_framed: (Integer pos, Integer marker) -> [Integer?, Integer, bool]
+
+        def uint: (Integer pos, Integer width) -> Integer
       end
 
       private
 
       def self.within_by_size?: (String bytes, Integer budget) -> bool
-
-      def self.step_framed:(String bytes, Integer pos, Integer marker) -> [Integer?, Integer]
-
-      def self.uint: (String bytes, Integer pos, Integer width) -> Integer
     end
   end
 end

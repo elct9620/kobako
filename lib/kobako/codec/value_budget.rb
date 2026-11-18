@@ -6,8 +6,8 @@ module Kobako
   module Codec
     # Counts the values a payload holds before the decoder builds any, so a
     # guest cannot make the host build more objects than it could hold in
-    # its own memory. Every value takes at
-    # least one byte, so a payload no longer than the budget needs no count.
+    # its own memory. Every value takes at least one byte, so a payload no
+    # longer than the budget, and holding no float, needs no count.
     #
     # A map key holding a NaN costs one more value for each such key the
     # map already holds, as a Ruby Hash compares it with each: every NaN
@@ -23,7 +23,8 @@ module Kobako
         0xd0 => 1, 0xd1 => 2, 0xd2 => 4, 0xd3 => 8,
         0xd4 => 2, 0xd5 => 3, 0xd6 => 5, 0xd7 => 9, 0xd8 => 17
       }.freeze
-      # Marker to a container's count width and the values each entry holds.
+      # Marker to a container's count width and the values each entry holds:
+      # two for a map's key and value.
       COUNTS = { 0xdc => [2, 1], 0xdd => [4, 1], 0xde => [2, 2], 0xdf => [4, 2] }.freeze
       # Marker to a str, bin, or ext's length width and type tag width.
       LENGTHS = {
@@ -34,14 +35,14 @@ module Kobako
       UINT = { 1 => "C", 2 => "n", 4 => "N" }.freeze
       private_constant :SCALARS, :COUNTS, :LENGTHS, :UINT
 
-      # A float frame's marker; a payload without one holds no NaN.
-      FLOATS = /[\xca\xcb]/n
-      # The fewest bytes a NaN key and its value take: a float 32 frame and
-      # a one-byte value.
-      NAN_ENTRY = 6
       # A float frame's marker to how its body unpacks.
       FLOAT_FORMATS = { 0xca => "g", 0xcb => "G" }.freeze
-      private_constant :FLOATS, :NAN_ENTRY, :FLOAT_FORMATS
+      # A float frame's marker; a payload without one holds no NaN.
+      FLOATS = Regexp.union(FLOAT_FORMATS.keys.map(&:chr))
+      # The fewest bytes a NaN key and its value take: a float 32 frame and
+      # a one-byte value.
+      NAN_ENTRY = 1 + SCALARS.fetch(0xca) + 1
+      private_constant :FLOAT_FORMATS, :FLOATS, :NAN_ENTRY
 
       def self.assert_within(bytes, budget)
         return if budget.nil? || within_by_size?(bytes, budget)
@@ -80,10 +81,10 @@ module Kobako
         def run
           pos = 0
           loop do
-            after, children = ValueBudget.step(@bytes, pos)
+            after, children, keyed = step(pos)
             return if after.nil?
 
-            count_value(pos, children)
+            count_value(pos, children, keyed)
             return if @ended
 
             pos = after
@@ -92,13 +93,13 @@ module Kobako
 
         private
 
-        # Count the value at +pos+, which holds +children+ directly.
-        def count_value(pos, children)
-          marker = @bytes.getbyte(pos)
+        # Count the value at +pos+, which holds +children+ directly, keyed
+        # when it is a map.
+        def count_value(pos, children, keyed)
           spend(1)
-          return close_value(nan?(marker, pos)) unless children.positive?
+          return close_value(nan?(pos)) unless children.positive?
 
-          @open << OpenContainer.new(children, map?(marker), 0, 0, false)
+          @open << OpenContainer.new(children, keyed, 0, 0, false)
         end
 
         # Count a value that ended, and each container it ends, noting once
@@ -127,54 +128,51 @@ module Kobako
           raise InvalidTypeError, "payload holds more than #{@budget} values" if @remaining.negative?
         end
 
-        def map?(marker)
-          (0x80..0x8f).cover?(marker) || marker == 0xde || marker == 0xdf
+        def nan?(pos)
+          marker = @bytes.getbyte(pos)
+          format = FLOAT_FORMATS[marker] or return false
+          float = @bytes.byteslice(pos + 1, SCALARS.fetch(marker)).to_s.unpack1(format)
+          float.is_a?(Float) && float.nan?
         end
 
-        def nan?(marker, pos)
-          format = FLOAT_FORMATS[marker] or return false
-          float = @bytes.byteslice(pos + 1, format == "g" ? 4 : 8).to_s.unpack1(format)
-          float.is_a?(Float) && float.nan?
+        # The position after the value at +pos+, nil for one the payload
+        # cannot frame, the values it holds directly, and whether it is a map.
+        def step(pos)
+          marker = @bytes.getbyte(pos) or return [nil, 0, false]
+          pos += 1
+          case marker
+          when 0x00..0x7f, 0xe0..0xff then [pos, 0, false]
+          when 0x80..0x8f then [pos, (marker & 0x0f) * 2, true]
+          when 0x90..0x9f then [pos, marker & 0x0f, false]
+          when 0xa0..0xbf then [pos + (marker & 0x1f), 0, false]
+          else step_framed(pos, marker)
+          end
+        end
+
+        def step_framed(pos, marker)
+          return [pos + SCALARS.fetch(marker), 0, false] if SCALARS.key?(marker)
+
+          width, per = COUNTS[marker]
+          return [pos + width, uint(pos, width) * per, per == 2] if width && per
+
+          width, tag = LENGTHS[marker]
+          return [nil, 0, false] unless width && tag
+
+          [pos + width + tag + uint(pos, width), 0, false]
+        end
+
+        # A length cut short reads as zero, so the count runs off the end and
+        # stops there.
+        def uint(pos, width)
+          slice = @bytes.byteslice(pos, width).to_s
+          return 0 if slice.bytesize < width
+
+          slice.unpack1(UINT.fetch(width)) # : Integer
         end
       end
       private_constant :Count
 
-      # The position after the value at +pos+, nil for one the payload
-      # cannot frame, and the values it holds directly.
-      def self.step(bytes, pos)
-        marker = bytes.getbyte(pos) or return [nil, 0]
-        pos += 1
-        case marker
-        when 0x00..0x7f, 0xe0..0xff then [pos, 0]
-        when 0x80..0x8f then [pos, (marker & 0x0f) * 2]
-        when 0x90..0x9f then [pos, marker & 0x0f]
-        when 0xa0..0xbf then [pos + (marker & 0x1f), 0]
-        else step_framed(bytes, pos, marker)
-        end
-      end
-
-      def self.step_framed(bytes, pos, marker)
-        return [pos + SCALARS.fetch(marker), 0] if SCALARS.key?(marker)
-
-        width, per = COUNTS[marker]
-        return [pos + width, uint(bytes, pos, width) * per] if width && per
-
-        width, tag = LENGTHS[marker]
-        return [nil, 0] unless width && tag
-
-        [pos + width + tag + uint(bytes, pos, width), 0]
-      end
-
-      # A length cut short reads as zero, so the count runs off the end and
-      # stops there.
-      def self.uint(bytes, pos, width)
-        slice = bytes.byteslice(pos, width).to_s
-        return 0 if slice.bytesize < width
-
-        slice.unpack1(UINT.fetch(width)) # : Integer
-      end
-
-      private_class_method :within_by_size?, :step_framed, :uint
+      private_class_method :within_by_size?
     end
   end
 end
