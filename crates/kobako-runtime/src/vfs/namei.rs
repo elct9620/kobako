@@ -324,6 +324,16 @@ impl Nameidata {
         Ok(self.lookup_mnt(&dentry))
     }
 
+    /// What a removal or move of `dentry`, a name where nothing stands,
+    /// answers: busy where a mount stands all the same, which Linux never lets
+    /// one do, as on a name that stands; else ENOENT.
+    fn missing_errno(&self, dentry: &Arc<Dentry>) -> Errno {
+        match self.lookup_mnt(dentry) {
+            Some(_) => Errno::ResourceBusy,
+            None => Errno::NotFound,
+        }
+    }
+
     /// The mount standing on `dentry` beneath the mount the walk stands on, as
     /// `__traverse_mounts` asks `DCACHE_MOUNTED` before `lookup_mnt`.
     fn lookup_mnt(&self, dentry: &Arc<Dentry>) -> Option<Arc<VfsMount>> {
@@ -1021,10 +1031,7 @@ fn start_dirop(nd: &mut Nameidata) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Er
     let child = nd.lookup_last_locked()?;
     match child.inode() {
         Some(_) => Ok((held, child)),
-        // A mount may stand where its parent holds nothing, which Linux never
-        // lets one do; it is busy there as on a name that stands.
-        None if nd.lookup_mnt(&child).is_some() => Err(Errno::ResourceBusy),
-        None => Err(Errno::NotFound),
+        None => Err(nd.missing_errno(&child)),
     }
 }
 
@@ -1118,10 +1125,9 @@ pub fn filename_renameat2(
             (target.dentry(), &target.last),
             None,
         ) {
-            // A mount standing where its parent holds nothing is busy all the
-            // same, as start_dirop answers it.
-            Err(Errno::NotFound) if source.lookup_mnt_by_name(&source.last)?.is_some() => {
-                return Err(Errno::ResourceBusy)
+            Err(Errno::NotFound) => {
+                let child = lookup_dentry(sb, source.dentry(), &source.last)?;
+                return Err(source.missing_errno(&child));
             }
             rd => rd?,
         };
@@ -3447,11 +3453,19 @@ mod tests {
                 &crate::grant::Grant::Mount(inner),
             ],
         );
+        let during = vfs::vfs_fstatat(&cred, &outer_root, "inner/l/../y/c", false);
+        // Any move in the process answers a `..` so, and tests beside this one
+        // make them.
+        let mut after = Err(Errno::WouldBlock);
+        crate::sched::testing::wait_until("the call made again answering", || {
+            after = vfs::vfs_fstatat(&cred, &outer_root, "inner/../y/c", false);
+            after != Err(Errno::WouldBlock)
+        });
         assert_eq!(
-            vfs::vfs_fstatat(&cred, &outer_root, "inner/l/../y/c", false).map(|stat| stat.size),
-            Err(Errno::WouldBlock),
-            "vfs_fstatat through a `..` out of a nested mount's root with a move landing \
-             during the walk must answer EAGAIN, as handle_dots reads r_seq however `..` climbs"
+            (during.map(|_| ()), after.map(|stat| stat.size)),
+            (Err(Errno::WouldBlock), Ok(5)),
+            "a stat through a `..` out of a nested mount's root, with a move landing during \
+             the walk, must answer EAGAIN, and made again reach where the moved directory stands"
         );
     }
 
