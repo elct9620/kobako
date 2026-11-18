@@ -49,11 +49,12 @@ mount, however it spells the path.
 |---|---|
 | a path ending at a link | the mount where the link leads |
 | a link to nothing or to no directory | the run fails, as Linux refuses it |
+| a link leaving the outermost mount | the run fails, where Linux follows it |
 | missing directories above it | the run fails, as Linux refuses it |
 | a later one over a directory above it | no mount, as it is hidden |
 | no such name in the outer one | the mount all the same |
 | two landing on one directory | the deeper path's, else the later one |
-| a rename of or onto a directory above it | `Errno::EBUSY`, as each run places it by its path |
+| a removal or rename of a name its path leads through | `Errno::EBUSY`, as each run places it by that path |
 | a removal or rename of it | `Errno::EBUSY`, once a Policy allows it |
 | a rename to its own name | nothing changed |
 

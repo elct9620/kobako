@@ -14,7 +14,7 @@ A mount is a registration, so it is refused once the Sandbox is sealed. A path m
 
 A mount may sit inside another, and every spelling of a path reaches what stands there. It hides what its parent holds where it stands. Unlike Linux, it stands even where the parent holds nothing by that name.
 
-A mount neither moves nor goes while mounted, as in Linux. Unlike Linux, a directory above it does not move either, since each run places it again by its path.
+A mount neither moves nor goes while mounted, as in Linux. Unlike Linux, no name its path leads through moves or goes, as each run places it again by that path.
 
 A mount's block judges each access a call makes. An open that may create asks a change, then what it opens for. Its refusal reaches the guest as a denied call and leaves the run going. A block raising a StandardError refuses the same way, and anything else it raises belongs to the host.
 
@@ -27,7 +27,9 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 ### Where a nested mount stands
 
-Only the outermost mounts are preopens, so a mount inside another is reached by a walk alone. Mounts are placed shallowest first, each where Linux's `mount` places it, following a link at its last name. A mount Linux would refuse fails the run, unless only its last name is missing. One a later mount covers is hidden.
+Only the outermost mounts are preopens, so a mount inside another is reached by a walk alone. Mounts are placed shallowest first, each where Linux's `mount` places it, following a link at its last name. One a later mount covers is hidden.
+
+A mount Linux would refuse fails the run, unless only its last name is missing. So does one whose link leaves the outermost mount, or reaches a missing name.
 
 ## Includes
 
@@ -35,6 +37,7 @@ Only the outermost mounts are preopens, so a mount inside another is reached by 
 - `test/e2e/test_mount_nested.rb`
 - `test/e2e/test_mount_point.rb`
 - `test/e2e/test_mount_placement.rb`
+- `test/e2e/test_mount_held.rb`
 - `test/e2e/test_mount_unreached.rb`
 - `test/e2e/test_host_exception.rb`
 - `test/e2e/test_mount_limit.rb`
@@ -646,17 +649,17 @@ Only the outermost mounts are preopens, so a mount inside another is reached by 
 | When | the script reads `/data/inner/../note` |
 | Then | it reads the Bind's note, as Linux's `..` climbs from a mount's root to where it stands |
 
-## `MT-054` A nested mount a past run removed the directory of fails the next run
+## `MT-054` A removal of a directory above a nested mount raises EBUSY
 
 | Attribute | Value |
 | --- | --- |
-| refines | `MT-051` |
+| refines | `MT-038` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a writable Tmpfs holding an empty `repo/` at `/data`, and a read-only Tmpfs at `/data/repo/hooks` |
-| When | one run removes `/data/repo`, and the Sandbox runs again |
-| Then | the next run raises `Kobako::SandboxError`, so no run writes where the read-only mount stood |
+| Given | a writable Tmpfs holding `repo/.keep` at `/data`, and a read-only Tmpfs at `/data/repo/hooks` |
+| When | the script deletes `/data/repo/.keep`, removes `/data/repo`, then writes `/data/repo/hooks/x` |
+| Then | the removal raises `Errno::EBUSY`, and the write raises `Errno::EROFS`. Linux raises `Errno::ENOTEMPTY`, as its `hooks` must exist |
 
 ## `MT-055` A rename onto a directory above a nested mount raises EBUSY
 
@@ -666,8 +669,8 @@ Only the outermost mounts are preopens, so a mount inside another is reached by 
 
 | Step | Statement |
 | --- | --- |
-| Given | a writable Tmpfs holding an empty `repo/` and an empty `q/` at `/data`, and a Tmpfs at `/data/repo/hooks` |
-| When | the script renames `/data/q` to `/data/repo` |
+| Given | a writable Tmpfs holding `repo/.keep` and `q/.keep` at `/data`, and a Tmpfs at `/data/repo/hooks` |
+| When | the script deletes both `.keep` files, then renames `/data/q` to `/data/repo` |
 | Then | it raises `Errno::EBUSY`. Linux raises `Errno::ENOTEMPTY`, as its `hooks` must exist |
 
 ## `MT-056` A nested mount hides what its parent holds in every later run
@@ -693,3 +696,27 @@ Only the outermost mounts are preopens, so a mount inside another is reached by 
 | Given | a Bind at `/data` holding `q/`, a link to `/data/q`, and a link to `..`, and a Tmpfs at either link |
 | When | the Sandbox runs a script |
 | Then | the run fails naming the mount and `EXDEV`. Linux's `mount` follows the link from the container's root; kobako refuses, as a walk never leaves the outermost mount |
+
+## `MT-058` A link a nested mount's path follows neither moves nor goes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-038` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a writable Bind at `/data` holding `real/key` and a link `link` to `real`, and a Tmpfs at `/data/link` |
+| When | one run deletes or renames `/data/link`, and the next reads `/data/real/key` |
+| Then | the change raises `Errno::EBUSY`, and the read raises `Errno::ENOENT`. Linux removes the link, the mount staying on `real` |
+
+## `MT-059` A mount whose link leads to a mount on a missing name fails the run
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-034` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data` holding a link `l` to a missing `n`, and a Tmpfs at `/data/n` and at `/data/l` |
+| When | the Sandbox runs a script |
+| Then | the run fails naming `/data/l` and `ENOENT`, whichever was mounted first, as Linux's `mount` finds nothing at `n` |

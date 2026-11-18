@@ -63,6 +63,9 @@ pub(crate) struct Nameidata {
     /// The links followed through every walk of one call, as Linux's
     /// `total_link_count` carries into a walk made again for ESTALE.
     total_link_count: Rc<Cell<usize>>,
+    /// Each link this walk followed, so a mount placed by it keeps the names
+    /// its path leads through.
+    pub(crate) followed: Vec<Arc<Dentry>>,
     /// The last name, as Linux's `nd->last`, empty unless it is a `Norm` one.
     pub(crate) last: String,
     last_type: LastType,
@@ -374,8 +377,9 @@ impl Nameidata {
 
     /// Walk on through where the link `dentry` names points, before
     /// whatever is left of the path.
-    fn pick_link(&mut self, dentry: &Dentry) -> Result<(), Errno> {
+    fn pick_link(&mut self, dentry: &Arc<Dentry>) -> Result<(), Errno> {
         self.total_link_count.set(self.total_link_count.get() + 1);
+        self.followed.push(Arc::clone(dentry));
         if self.total_link_count.get() > MAXSYMLINKS {
             return Err(Errno::FilesystemLoop);
         }
@@ -730,6 +734,7 @@ fn set_nameidata(
         crossed: Vec::new(),
         pending: parts(path),
         total_link_count: total_link_count.clone(),
+        followed: Vec::new(),
         last: String::new(),
         last_type: LastType::Dot,
         trailing_slash: false,
@@ -1303,7 +1308,7 @@ pub(crate) fn vfs_rename(cred: &Cred, sb: &SuperBlock, rd: &RenameData) -> Resul
         flags,
     )?;
     let mnt_ns = cred.mnt_ns();
-    if mnt_ns.holds_mountpoint(old) || mnt_ns.holds_mountpoint(new) {
+    if mnt_ns.leads_to_mount(old) || mnt_ns.leads_to_mount(new) {
         return Err(Errno::ResourceBusy);
     }
     old_dir
@@ -1333,7 +1338,7 @@ pub(crate) fn vfs_rmdir(
 ) -> Result<(), Errno> {
     may_delete_dentry(cred, sb, dir, victim.file_type().ok(), true)?;
     let _victim = victim.inode_lock()?;
-    if cred.mnt_ns().is_local_mountpoint(victim) {
+    if cred.mnt_ns().leads_to_mount(victim) {
         return Err(Errno::ResourceBusy);
     }
     dir.inode_ops()?.rmdir(victim)?;
@@ -1355,7 +1360,7 @@ pub(crate) fn vfs_unlink(
 ) -> Result<(), Errno> {
     may_delete_dentry(cred, sb, dir, victim.file_type().ok(), false)?;
     let _victim = victim.inode_lock()?;
-    if cred.mnt_ns().is_local_mountpoint(victim) {
+    if cred.mnt_ns().leads_to_mount(victim) {
         return Err(Errno::ResourceBusy);
     }
     dir.inode_ops()?.unlink(victim)?;
