@@ -7,9 +7,10 @@ use std::sync::Arc;
 
 use super::dentry::Dentry;
 use super::mount::VfsMount;
-use super::namei::{filename_parentat, lookup_dentry};
+use super::namei::{filename_lookup, filename_parentat, lookup_dentry};
 use super::path::Path;
 use crate::cred::Cred;
+use crate::Errno;
 
 /// One mount standing on a dentry of another, as Linux's `struct mount` keeps
 /// `mnt_parent` and `mnt_mountpoint`. The mount point is held while the mount
@@ -97,13 +98,21 @@ impl MntNamespace {
 }
 
 /// The dentry `path` reaches beneath the root of `parent` as `cred` walks it,
-/// marked a mount point, as `do_mount` looks its target up and
-/// `get_mountpoint` pins it; none where a directory above its last name
-/// stands nowhere.
+/// following a link at its last name too, marked a mount point, as `do_mount`
+/// looks its target up with `LOOKUP_FOLLOW` and `get_mountpoint` pins it. Where
+/// the last name stands for nothing, the mount stands on that name; none
+/// stands where a directory above it stands nowhere.
 fn get_mountpoint(cred: &Arc<Cred>, parent: &Arc<VfsMount>, path: &str) -> Option<Arc<Dentry>> {
     let path = path.trim_start_matches('/');
-    let nd = filename_parentat(cred, &Path::root(parent), path).ok()?;
-    let dentry = lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last).ok()?;
+    let root = Path::root(parent);
+    let dentry = match filename_lookup(cred, &root, path, true) {
+        Ok(nd) => nd.path().ok()?,
+        Err(Errno::NotFound) => {
+            let nd = filename_parentat(cred, &root, path).ok()?;
+            lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last).ok()?
+        }
+        Err(_) => return None,
+    };
     dentry.d_set_mounted();
     Some(dentry)
 }
