@@ -324,8 +324,8 @@ impl Nameidata {
         Ok(self.lookup_mnt(&dentry))
     }
 
-    /// What a removal or move of `dentry`, a name where nothing stands,
-    /// answers: busy where a mount stands all the same, which Linux never lets
+    /// What a removal or move answers once its name was found missing: busy
+    /// where nothing stands at `dentry` yet a mount does, which Linux never lets
     /// one do, as on a name that stands; else ENOENT.
     fn missing_errno(&self, dentry: &Arc<Dentry>) -> Errno {
         match dentry.inode().is_none() && self.lookup_mnt(dentry).is_some() {

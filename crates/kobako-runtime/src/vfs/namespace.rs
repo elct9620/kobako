@@ -39,10 +39,10 @@ impl MntNamespace {
     /// holds. Each stands on the name its path spells in that parent as `cred`
     /// walks it, following links above that name but not one at it, unlike
     /// `do_mount`'s `LOOKUP_FOLLOW`, as the guest finds a mount's preopen by
-    /// the text of its path. The last name may stand for
-    /// nothing, which Linux never lets a mount do, so the parent's name is
-    /// hidden even once made. A mount whose directories above it stand nowhere
-    /// in its parent is reached by no walk.
+    /// the text of its path. The last name may stand for nothing, which Linux
+    /// never lets a mount do, so the parent's name is hidden even once made. A
+    /// mount whose directories above it stand nowhere in its parent is reached
+    /// by no walk.
     pub(crate) fn new<'a>(
         cred: &Arc<Cred>,
         mounts: impl IntoIterator<Item = (&'a str, &'a Arc<VfsMount>)>,
