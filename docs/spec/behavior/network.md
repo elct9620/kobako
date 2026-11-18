@@ -2921,3 +2921,16 @@ endpoint "api.example.com", port: 443
 | Given | a process watching a guest's host socket, then forked |
 | When | the child lets that socket go |
 | Then | the parent still wakes on the socket's events. Linux shares the epoll instance across a fork, so the child removes no entry |
+
+## `NW-233` An Invocation's end aborts a socket something still waits on
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-016` |
+| relates | `NW-164` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP socket or an HTTP request still connecting, or waiting on its peer |
+| When | the Invocation ends |
+| Then | each waiter wakes with `ECONNABORTED`, and the request fails as its connection failing there does. Linux's `tcp_abort` ends a socket from outside this way |

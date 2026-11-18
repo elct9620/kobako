@@ -458,10 +458,18 @@ impl TcpSock {
         }
     }
 
-    /// Let go of an orphan still sending, as the Invocation's end does with
-    /// whatever its sockets still hold.
-    pub(crate) fn abandon(&self) {
-        let orphan = Self::let_go(&mut self.state());
+    /// End the socket from outside, as the Invocation's end does, the way
+    /// `tcp_abort` ends one: a connect under way or a connection fails with
+    /// `ECONNABORTED` and wakes whoever waits on it, and an orphan still
+    /// sending lets go of what it holds.
+    pub(crate) fn abort(&self) {
+        let mut state = self.state();
+        if matches!(state.phase, Phase::Connecting | Phase::Connected) {
+            Self::done_with_error(&mut state, Errno::ConnectionAborted);
+        }
+        let orphan = Self::let_go(&mut state);
+        drop(state);
+        self.wait.wake_up();
         drop(orphan);
     }
 

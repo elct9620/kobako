@@ -69,13 +69,13 @@ impl Translations {
 }
 
 /// Every TCP socket an Invocation made, the guest's and the L7 proxy's
-/// upstream ones alike, so an orphan still sending ends with the Invocation.
+/// upstream ones alike, so each one still open ends with the Invocation.
 #[derive(Default)]
 pub(crate) struct TcpSockets(Mutex<Vec<Weak<TcpSock>>>);
 
 impl TcpSockets {
-    /// Hold `sock`, so it ends with the Invocation should it be orphaned
-    /// still sending, as a namespace's exit ends its sockets.
+    /// Hold `sock`, so it ends with the Invocation should it still be open,
+    /// as a namespace's exit ends its sockets.
     pub(crate) fn hold(&self, sock: &Arc<TcpSock>) {
         let mut sockets = self.0.lock().unwrap_or_else(PoisonError::into_inner);
         sockets.retain(|sock| sock.strong_count() > 0);
@@ -90,8 +90,8 @@ impl TcpSockets {
     }
 }
 
-/// The Invocation's end lets go of every orphan still sending, so nothing it
-/// made outlives it.
+/// The Invocation's end aborts every socket still open, so nothing it made
+/// outlives it and nothing waits on one for good.
 impl Drop for Namespace {
     fn drop(&mut self) {
         let sockets = std::mem::take(
@@ -102,7 +102,7 @@ impl Drop for Namespace {
                 .unwrap_or_else(PoisonError::into_inner),
         );
         for sock in sockets.iter().filter_map(Weak::upgrade) {
-            sock.abandon();
+            sock.abort();
         }
     }
 }
@@ -604,6 +604,78 @@ mod tests {
             (1, Some(Errno::WouldBlock), 1),
             "a socket's connect after an HTTP request spent the Invocation's connection limit of \
              1 must answer EAGAIN and dial nothing"
+        );
+    }
+
+    /// Whether a task waiting here was woken.
+    #[derive(Default)]
+    struct Woken(std::sync::atomic::AtomicBool);
+
+    impl std::task::Wake for Woken {
+        fn wake(self: Arc<Self>) {
+            self.0.store(true, Ordering::SeqCst);
+        }
+    }
+
+    // @behavior NW-233
+    #[test]
+    fn the_invocations_end_aborts_a_socket_something_waits_on() {
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut entry = crate::network::Builder::default();
+        entry
+            .endpoint(
+                Endpoint::new("127.0.0.1", listener.local_addr().unwrap().port())
+                    .unwrap()
+                    .with_protocol(Protocol::Tcp),
+            )
+            .endpoint(Endpoint::new("127.0.0.1", listener.local_addr().unwrap().port()).unwrap());
+        let network = Network::new("db", Arc::new(entry)).unwrap();
+        let namespace = Namespace::new(
+            [&network],
+            &Backends::default(),
+            OpenConnections::new(None),
+            None,
+        )
+        .unwrap();
+        let cred = prepare_creds(&[], None);
+        let sock = dial(&namespace, &cred, listener.local_addr().unwrap()).unwrap();
+        let (_peer, _) = listener.accept().unwrap();
+        settle(&sock);
+        let woken = Arc::new(Woken::default());
+        sock.sk_sleep().add(&std::task::Waker::from(woken.clone()));
+        let mut file = crate::net::sock_alloc_file(sock, &cred);
+        let request = crate::net::send(
+            &namespace,
+            &cred,
+            OutgoingRequest::new(
+                "GET",
+                Scheme::Http,
+                listener.local_addr().unwrap().to_string(),
+            ),
+        )
+        .expect("an endpoint names the authority");
+        let (_upstream, _) = listener.accept().unwrap();
+        drop(namespace);
+        let deadline = std::time::Instant::now() + Duration::from_secs(10);
+        let failed = loop {
+            match request.response() {
+                Some(answer) => break answer.is_err(),
+                None if std::time::Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(1))
+                }
+                None => break false,
+            }
+        };
+        assert_eq!(
+            (
+                woken.0.load(Ordering::SeqCst),
+                file.read(&mut [0; 8]).err(),
+                failed
+            ),
+            (true, Some(Errno::ConnectionAborted), true),
+            "the Invocation's end must wake a task waiting on a connected TCP socket, whose read \
+             then answers ECONNABORTED, and fail an HTTP request awaiting its response head \
+             rather than leave it waiting"
         );
     }
 
