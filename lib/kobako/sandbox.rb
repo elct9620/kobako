@@ -234,9 +234,10 @@ module Kobako
                   preamble: preamble(@snippets.entries))
     end
 
-    # Ruby runs a signal's trap handler on the main Thread alone, and one that
-    # raises as a run releasing the GVL takes it back after a Service call
-    # leaves the run where it cannot unwind. The first such run warns once.
+    # Ruby runs a signal's trap handler, and a Ractor's +require+, on the main
+    # Thread alone, and either raising as a run releasing the GVL takes it back
+    # after a Service call leaves the run where it cannot unwind. The first such
+    # run warns once.
     def warn_release_on_main_thread
       MainThreadRelease.warn_once if @options.gvl == :release && Thread.current == Thread.main
     end

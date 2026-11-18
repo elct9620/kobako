@@ -46,17 +46,18 @@ the same. Dispatch-heavy scripts match or trail `:hold` under `:release`;
 ### Interrupts Under Release
 
 `:release` defers Ruby's interrupts while the guest runs, and each Service call
-takes them as they come. Two things differ from `:hold`.
+takes them as they come. Three things differ from `:hold`.
 
 | Case | Under `:release` |
 |---|---|
 | A `Thread.handle_interrupt` mask around the run | a Service call does not inherit it |
 | A main-Thread `trap` block that raises or exits | may stop the run where it cannot unwind |
+| On Ruby 3.4+, another Ractor's `require` whose Thread fails to start | may stop the run the same way |
 
-`:hold` keeps both away. A trap that only sets a flag keeps the second away.
-Ruby runs trap handlers on the main Thread alone. So a run on another Thread
-is outside the second case, and the first run releasing the GVL on the main
-Thread warns once.
+`:hold` keeps all three away. A trap that only sets a flag keeps the second away.
+Ruby runs trap handlers and a Ractor's `require` on the main Thread alone. So a
+run on another Thread is outside the last two cases, and the first run releasing
+the GVL on the main Thread warns once.
 
 ## Pooling
 

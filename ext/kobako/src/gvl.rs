@@ -16,9 +16,11 @@
 //! `rb_thread_call_without_gvl2`, which declines rather than raises, and a run
 //! releasing the GVL defers Ruby's interrupts (`defer_interrupts`) outside its
 //! callbacks, as `rb_thread_call_with_gvl` checks for one as it gives the GVL
-//! back. An interrupt waits for the run to end instead. A main-thread trap
-//! handler runs whatever the mask says, so one that raises there still jumps;
-//! no public Ruby API defers it.
+//! back. An interrupt waits for the run to end instead. Two kinds of work on the
+//! main thread run whatever the mask says, so one that raises there still
+//! jumps: a trap handler, and on Ruby 3.4+ the Thread another Ractor's
+//! `require` starts there, which raises when it cannot start. No public Ruby
+//! API defers either.
 
 use std::cell::Cell;
 use std::os::raw::c_void;
