@@ -76,17 +76,4 @@ class TestE2EMountUnreached < Minitest::Test
                       "Sandbox#eval with a mount beneath a directory its parent lacks must fail naming it"
     end
   end
-
-  # @behavior MT-059
-  def test_a_mount_whose_link_leads_to_a_mount_on_a_missing_name_fails_the_run
-    skip "this host makes no links" if Gem.win_platform?
-    [%w[/data/n /data/l], %w[/data/l /data/n]].each do |order|
-      TestPaths.host_directory do |host|
-        File.symlink("n", File.join(host, "l"))
-        error = assert_raises(Kobako::SandboxError) { bind_with(host, order.to_h { |at| [at, INNER] }).eval("nil") }
-        assert_includes error.message, %("/data/l" stands nowhere: ENOENT),
-                        "Sandbox#eval with a mount at a link to a missing name must fail, mounted in order #{order}"
-      end
-    end
-  end
 end

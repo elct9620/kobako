@@ -29,7 +29,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 Only the outermost mounts are preopens, so a mount inside another is reached by a walk alone. Mounts are placed shallowest first, each where Linux's `mount` places it, following a link at its last name. One a later mount covers is hidden.
 
-A mount Linux would refuse fails the run, unless only its last name is missing. So does one whose link leaves the outermost mount, or reaches a missing name.
+A mount Linux would refuse fails the run, unless only its last name is missing. So does one whose link leaves the outermost mount.
 
 ## Includes
 
@@ -709,14 +709,14 @@ A mount Linux would refuse fails the run, unless only its last name is missing. 
 | When | one run deletes or renames `/data/link`, and the next reads `/data/real/key` |
 | Then | the change raises `Errno::EBUSY`, and the read raises `Errno::ENOENT`. Linux removes the link, the mount staying on `real` |
 
-## `MT-059` A mount whose link leads to a mount on a missing name fails the run
+## `MT-059` A directory a nested mount's link climbs out of neither moves nor goes
 
 | Attribute | Value |
 | --- | --- |
-| relates | `MT-034` |
+| refines | `MT-058` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind at `/data` holding a link `l` to a missing `n`, and a Tmpfs at `/data/n` and at `/data/l` |
-| When | the Sandbox runs a script |
-| Then | the run fails naming `/data/l` and `ENOENT`, whichever was mounted first, as Linux's `mount` finds nothing at `n` |
+| Given | a writable Bind at `/data` holding `a/`, `b/key`, and a link `l` to `a/../b`, and a Tmpfs at `/data/l` |
+| When | one run removes `/data/a`, and the next reads `/data/b/key` |
+| Then | the removal raises `Errno::EBUSY`, and the read raises `Errno::ENOENT`. Linux removes `a`, the mount staying on `b` |

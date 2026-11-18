@@ -45,6 +45,17 @@ class TestE2EMountHeld < Minitest::Test
                    .mount("/data/link", Kobako::Filesystem::Tmpfs.new, access: :read)
   end
 
+  # A Sandbox with a writable Bind over +host+ at +/data+, whose +b/key+ an
+  # empty Tmpfs at +/data/l+, a link to +a/../b+, hides.
+  def hiding_past_climb(host)
+    FileUtils.mkdir_p([File.join(host, "a"), File.join(host, "b")])
+    File.write(File.join(host, "b", "key"), "hidden")
+    File.symlink("a/../b", File.join(host, "l"))
+    Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                   .mount("/data", Kobako::Filesystem::Bind.new(host), access: :read_write)
+                   .mount("/data/l", Kobako::Filesystem::Tmpfs.new, access: :read)
+  end
+
   # @behavior MT-054
   def test_a_removal_of_a_directory_above_a_nested_mount_raises_ebusy
     sandbox = guarding_hooks(Kobako::Filesystem::Tmpfs.new("repo/.keep" => ""))
@@ -90,6 +101,19 @@ class TestE2EMountHeld < Minitest::Test
         assert_equal %i[ebusy enoent], [changed.value, read.value],
                      "a #{name} of a link a nested Sandbox#mount's path follows must raise EBUSY and keep it hiding"
       end
+    end
+  end
+
+  # @behavior MT-059
+  def test_a_directory_a_nested_mount_link_climbs_out_of_neither_moves_nor_goes
+    skip "this host makes no links" if Gem.win_platform?
+    TestPaths.host_directory do |host|
+      sandbox = hiding_past_climb(host)
+      removed = sandbox.eval('begin; Dir.rmdir("/data/a"); :removed; rescue Errno::EBUSY; :ebusy; end')
+      read = sandbox.eval('begin; File.read("/data/b/key"); rescue Errno::ENOENT; :enoent; end')
+
+      assert_equal %i[ebusy enoent], [removed.value, read.value],
+                   "Dir.rmdir of a directory a nested Sandbox#mount's link climbs out of must raise EBUSY"
     end
   end
 end

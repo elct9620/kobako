@@ -15,13 +15,13 @@ use crate::Errno;
 
 /// One mount standing on a dentry of another, as Linux's `struct mount` keeps
 /// `mnt_parent` and `mnt_mountpoint`. The mount point is held while the mount
-/// stands, so a walk finds that one dentry and no other. The links its path
+/// stands, so a walk finds that one dentry and no other. The dentries its path
 /// led through are kept too, as each Invocation places it by that path again.
 struct Mounted {
     parent: Arc<VfsMount>,
     mountpoint: Arc<Dentry>,
     mnt: Arc<VfsMount>,
-    followed: Vec<Arc<Dentry>>,
+    trail: Vec<Arc<Dentry>>,
 }
 
 impl Drop for Mounted {
@@ -31,11 +31,11 @@ impl Drop for Mounted {
 }
 
 /// Where a mount is to stand: the mount and dentry it stands on, and each
-/// link its path led through.
+/// dentry its path led through.
 struct Spot {
     parent: Arc<VfsMount>,
     mountpoint: Arc<Dentry>,
-    followed: Vec<Arc<Dentry>>,
+    trail: Vec<Arc<Dentry>>,
 }
 
 /// The mounts one Invocation reaches beneath the outermost ones, each standing
@@ -89,7 +89,7 @@ impl MntNamespace {
             parent: spot.parent,
             mountpoint: spot.mountpoint,
             mnt: Arc::clone(mnt),
-            followed: spot.followed,
+            trail: spot.trail,
         }));
     }
 
@@ -97,9 +97,8 @@ impl MntNamespace {
     /// `do_mount` looks its target up and `where_to_mount` stacks it: on the
     /// dentry the walk lands on, which on a mounted name is the root of the
     /// topmost mount there, so the new one stands over it. A name standing for
-    /// nothing is stood on as it is, though not through a link, as Linux finds
-    /// nothing there to follow. A walk that fails answers its error, and one
-    /// landing on no directory ENOTDIR, as `graft_tree` refuses it.
+    /// nothing is stood on as it is. A walk that fails answers its error, and
+    /// one landing on no directory ENOTDIR, as `graft_tree` refuses it.
     fn where_to_mount(&self, cred: &Arc<Cred>, root: &Path, path: &str) -> Result<Spot, Errno> {
         let nd = match filename_lookup(cred, root, path, true) {
             Ok(nd) => nd,
@@ -110,7 +109,7 @@ impl MntNamespace {
                     None => Ok(Spot {
                         parent: nd.mnt.clone(),
                         mountpoint: dentry,
-                        followed: nd.followed,
+                        trail: nd.trail,
                     }),
                     Some(_) => Err(errno),
                 };
@@ -120,31 +119,11 @@ impl MntNamespace {
         if dentry.file_type() != Ok(FileType::Dir) {
             return Err(Errno::NotADirectory);
         }
-        if !nd.followed.is_empty() && self.stands_on_nothing(&nd.mnt) {
-            return Err(Errno::NotFound);
-        }
         Ok(Spot {
             parent: nd.mnt.clone(),
             mountpoint: dentry,
-            followed: nd.followed,
+            trail: nd.trail,
         })
-    }
-
-    /// Whether `mnt`, or a mount it stands in, stands on a name its parent
-    /// holds nothing by.
-    fn stands_on_nothing(&self, mnt: &Arc<VfsMount>) -> bool {
-        let mut at = Arc::clone(mnt);
-        while let Some(child) = self
-            .mounted
-            .iter()
-            .find(|child| Arc::ptr_eq(&child.mnt, &at))
-        {
-            if child.mountpoint.inode().is_none() {
-                return true;
-            }
-            at = Arc::clone(&child.parent);
-        }
-        false
     }
 
     /// The mount standing over the root of `mnt`, and over that one's, to the
@@ -171,15 +150,15 @@ impl MntNamespace {
             .map(|child| Arc::clone(&child.mnt))
     }
 
-    /// Whether a mount of this namespace stands on `dentry` or beneath it, or
-    /// its path led through `dentry` or beneath it by a link. A removal or a
-    /// move asks it where Linux asks `is_local_mountpoint`: each Invocation
-    /// places a mount again by its path, so a name that path leads through
-    /// going would open what the mount hides to the next Invocation.
-    pub(crate) fn leads_to_mount(&self, dentry: &Arc<Dentry>) -> bool {
+    /// Whether the path of a mount of this namespace leads through `dentry`:
+    /// the mount stands on it or beneath it, or the walk placing the mount
+    /// stepped onto it or beneath it. A removal or a move asks it where Linux
+    /// asks `is_local_mountpoint`: each Invocation places a mount again by its
+    /// path, so such a name going would open what the mount hides to the next.
+    pub(crate) fn is_on_mount_path(&self, dentry: &Arc<Dentry>) -> bool {
         self.mounted.iter().any(|child| {
             child.mountpoint.is_subdir(dentry)
-                || child.followed.iter().any(|link| link.is_subdir(dentry))
+                || child.trail.iter().any(|stepped| stepped.is_subdir(dentry))
         })
     }
 
