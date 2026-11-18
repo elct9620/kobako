@@ -4,15 +4,15 @@ require "test_helper"
 
 # E2E — a Sandbox#mount nested inside another through the real Guest Binary:
 # reached however its path is spelled, hiding what its parent holds there,
-# and busy while mounted.
+# and what a read-only one refuses beneath it.
 class TestE2EMountNested < Minitest::Test
   include E2eGuestHelper
 
-  # A Sandbox with +outer+ at +/data+ and +inner+ at +/data/inner+.
-  def nested(outer, inner, inner_access: :read)
+  # A Sandbox with +outer+ at +/data+ and a read-only +inner+ at +/data/inner+.
+  def nested(outer, inner)
     Kobako::Sandbox.new(wasm_path: REAL_WASM)
                    .mount("/data", outer, access: :read_write)
-                   .mount("/data/inner", inner, access: inner_access)
+                   .mount("/data/inner", inner, access: :read)
   end
 
   # A Bind over +host+ holding its own +inner/note+, which a nested mount hides.
@@ -108,14 +108,6 @@ class TestE2EMountNested < Minitest::Test
                  "File.read beneath a directory renamed above a nested Sandbox#mount must reach that mount"
   end
 
-  # @behavior MT-034
-  def test_a_nested_mount_stands_where_its_parent_holds_nothing_by_its_name
-    sandbox = nested(Kobako::Filesystem::Tmpfs.new, Kobako::Filesystem::Tmpfs.new("note" => "inner"))
-
-    assert_equal "inner", sandbox.eval('File.read("/data/./inner/note")').value,
-                 "a Sandbox#mount nested where its parent holds no such name must still be reached"
-  end
-
   # @behavior MT-035
   def test_a_read_only_nested_mount_refuses_a_change_however_the_path_is_spelled
     outer = Kobako::Filesystem::Tmpfs.new("inner/.keep" => "")
@@ -127,20 +119,5 @@ class TestE2EMountNested < Minitest::Test
     outer_alone = Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/outer", outer, access: :read)
     assert_equal [".keep"], outer_alone.eval('Dir.children("/outer/inner")').value,
                  "the writable Tmpfs beneath a read-only nested Sandbox#mount must hold no inner/new"
-  end
-
-  # @behavior MT-036
-  def test_a_mount_point_neither_moves_nor_goes
-    sandbox = nested(Kobako::Filesystem::Tmpfs.new("inner/.keep" => ""),
-                     Kobako::Filesystem::Tmpfs.new("note" => "inner"), inner_access: :read_write)
-    script = <<~RUBY
-      busy = [-> { Dir.rmdir("/data/./inner") }, -> { File.rename("/data/./inner", "/data/moved") }].map do |call|
-        begin; call.call; nil; rescue Errno::EBUSY; :ebusy; end
-      end
-      busy + [File.read("/data/./inner/note"), File.exist?("/data/moved")]
-    RUBY
-
-    assert_equal [:ebusy, :ebusy, "inner", false], sandbox.eval(script).value,
-                 "removing or renaming a Sandbox#mount's mount point must raise EBUSY and change neither Filesystem"
   end
 end

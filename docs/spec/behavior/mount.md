@@ -27,6 +27,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 - `test/e2e/test_mount.rb`
 - `test/e2e/test_mount_nested.rb`
+- `test/e2e/test_mount_point.rb`
 - `test/e2e/test_host_exception.rb`
 - `test/e2e/test_mount_limit.rb`
 - `test/e2e/test_mount_rename.rb`
@@ -416,9 +417,9 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a Tmpfs holding no `inner` at `/data`, and another holding `note` at `/data/inner` |
-| When | the script reads `/data/./inner/note` |
-| Then | it reads the inner Filesystem's note |
+| Given | a Sandbox with a writable Tmpfs holding no `inner` at `/data`, and another holding `note` at `/data/inner` |
+| When | the script reads `/data/./inner/note`, then removes `/data/./inner` and renames it to `/data/moved` |
+| Then | it reads the inner Filesystem's note, and each change raises `Errno::EBUSY` as at a mount point its parent holds |
 
 ## `MT-035` A read-only nested mount refuses a change however the path is spelled
 
@@ -468,3 +469,27 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Sandbox with a writable Tmpfs holding `a/b/note` at `/data`, and a Tmpfs holding `note` at `/data/a/b` |
 | When | the script renames `/data/a` to `/data/c` and reads `/data/c/b/note` |
 | Then | it reads the inner Filesystem's note, as a Linux mount stays on its mount point when a directory above moves |
+
+## `MT-039` A Policy refuses a change at a mount point before it is busy
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-036` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a writable Tmpfs holding `inner` at `/data` under a Policy refusing `/data/inner`, and another at `/data/inner` |
+| When | the script removes `/data/./inner` |
+| Then | it raises `Errno::EACCES`, as Linux asks the security hook before it finds the mount point busy |
+
+## `MT-040` A mount point renamed to its own name stays
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-036` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a writable Tmpfs holding `inner` at `/data`, and a Tmpfs holding `note` at `/data/inner` |
+| When | the script renames `/data/./inner` to the same name and reads `/data/inner/note` |
+| Then | the rename returns 0 and the read finds the inner note. Linux changes nothing on a rename to the same name |

@@ -1020,6 +1020,9 @@ fn start_dirop(nd: &mut Nameidata) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Er
     let child = nd.lookup_last_locked()?;
     match child.inode() {
         Some(_) => Ok((held, child)),
+        // A mount may stand where its parent holds nothing, which Linux never
+        // lets one do; it is busy there as on a name that stands.
+        None if nd.lookup_mnt(&child).is_some() => Err(Errno::ResourceBusy),
         None => Err(Errno::NotFound),
     }
 }
@@ -1052,9 +1055,6 @@ pub fn filename_rmdir(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Resul
                 LastType::DotDot => return Err(Errno::DirectoryNotEmpty),
             }
             nd.mnt.mnt_want_write()?;
-            if nd.lookup_mnt_by_name(&nd.last)?.is_some() {
-                return Err(Errno::ResourceBusy);
-            }
             let (_held, child) = start_dirop(&mut nd)?;
             on_path(&nd.mnt, &child, |path| cred.security_path_rmdir(path))?;
             vfs_rmdir(cred, nd.mnt.sb(), nd.dentry(), &child)
@@ -1073,9 +1073,6 @@ pub fn filename_unlinkat(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Re
                 return Err(Errno::IsADirectory);
             }
             nd.mnt.mnt_want_write()?;
-            if nd.lookup_mnt_by_name(&nd.last)?.is_some() {
-                return Err(Errno::IsADirectory);
-            }
             let (_held, child) = start_dirop(&mut nd)?;
             if nd.trailing_slash {
                 return Err(match child.file_type() {
@@ -1112,19 +1109,21 @@ pub fn filename_renameat2(
             return Err(Errno::ResourceBusy);
         }
         source.mnt.mnt_want_write()?;
-        if source.lookup_mnt_by_name(&source.last)?.is_some()
-            || target.lookup_mnt_by_name(&target.last)?.is_some()
-        {
-            return Err(Errno::ResourceBusy);
-        }
         let mnt = source.mnt.clone();
         let sb = mnt.sb();
-        let rd = __start_renaming(
+        let rd = match __start_renaming(
             sb,
             (source.dentry(), &source.last),
             (target.dentry(), &target.last),
             None,
-        )?;
+        ) {
+            // A mount standing where its parent holds nothing is busy all the
+            // same, as start_dirop answers it.
+            Err(Errno::NotFound) if source.lookup_mnt_by_name(&source.last)?.is_some() => {
+                return Err(Errno::ResourceBusy)
+            }
+            rd => rd?,
+        };
         // Unless the source is a directory, a trailing `/` on either side is
         // refused, as `filename_renameat2` refuses it.
         let is_dir = rd.old_dentry.file_type()? == FileType::Dir;
@@ -1294,6 +1293,10 @@ pub(crate) fn vfs_rename(cred: &Cred, sb: &SuperBlock, rd: &RenameData) -> Resul
         Arc::ptr_eq(old_dir, new_dir),
         flags,
     )?;
+    let mnt_ns = cred.mnt_ns();
+    if mnt_ns.is_local_mountpoint(old) || mnt_ns.is_local_mountpoint(new) {
+        return Err(Errno::ResourceBusy);
+    }
     old_dir
         .inode_ops()?
         .rename(old, new_dir.inode_ops()?.as_ref(), new, flags)?;
@@ -1321,6 +1324,9 @@ pub(crate) fn vfs_rmdir(
 ) -> Result<(), Errno> {
     may_delete_dentry(cred, sb, dir, victim.file_type().ok(), true)?;
     let _victim = victim.inode_lock()?;
+    if cred.mnt_ns().is_local_mountpoint(victim) {
+        return Err(Errno::ResourceBusy);
+    }
     dir.inode_ops()?.rmdir(victim)?;
     sb.dentries().shrink_dcache_parent(victim);
     victim.mark_dead();
@@ -1340,6 +1346,9 @@ pub(crate) fn vfs_unlink(
 ) -> Result<(), Errno> {
     may_delete_dentry(cred, sb, dir, victim.file_type().ok(), false)?;
     let _victim = victim.inode_lock()?;
+    if cred.mnt_ns().is_local_mountpoint(victim) {
+        return Err(Errno::ResourceBusy);
+    }
     dir.inode_ops()?.unlink(victim)?;
     sb.dentries().unhash(victim);
     Ok(())
