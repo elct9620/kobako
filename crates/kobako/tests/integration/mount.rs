@@ -177,6 +177,28 @@ fn a_runtime_presenting_no_filesystem_refuses_the_mount() {
     );
 }
 
+// @behavior MT-051
+#[test]
+fn a_mount_whose_directories_above_it_stand_nowhere_fails_the_run() {
+    let Some(mut sandbox) = real_sandbox() else {
+        return;
+    };
+    sandbox
+        .mount("/data", tmpfs("hello"), Access::Read)
+        .expect("mount a Tmpfs at /data");
+    sandbox
+        .mount("/data/x/y", tmpfs("inner"), Access::Read)
+        .expect("mount a Tmpfs at /data/x/y");
+
+    let failure = sandbox.eval("nil").err();
+    assert!(
+        matches!(&failure, Some(Error::Setup(setup))
+            if setup.to_string().contains(r#""/data/x/y" stands nowhere: ENOENT"#)),
+        "Sandbox::eval with a mount beneath a directory its parent lacks must fail naming it, \
+         not {failure:?}"
+    );
+}
+
 // @behavior MT-028
 #[test]
 fn a_policy_cannot_make_a_read_only_mount_writable() {

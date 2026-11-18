@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::cred::Cred;
 use crate::grant::Grant;
 use crate::memcg::MemoryBudget;
-use crate::mount::Mount;
+use crate::mount::{Mount, UnplacedMount};
 use crate::vfs::{d_revalidate, Dentry, FMode, FileType, MntNamespace, OpenHow, Path, VfsMount};
 use crate::Errno;
 
@@ -148,18 +148,21 @@ pub fn prepare_creds(
 /// what either Cred charges counts against one limit, as
 /// `landlock_restrict_self` adds a domain ruling both paths and ports. Its
 /// mount namespace holds the Mounts among `grants`, each where Linux's `mount`
-/// would place it, so a walk reaching one by any spelling steps onto it.
-pub fn restrict_self<'a>(cred: &Cred, grants: impl IntoIterator<Item = &'a Grant>) -> Arc<Cred> {
+/// would place it, so a walk reaching one by any spelling steps onto it. A
+/// Mount Linux's `mount` refuses makes no Cred, as a container fails to start.
+pub fn restrict_self<'a>(
+    cred: &Cred,
+    grants: impl IntoIterator<Item = &'a Grant>,
+) -> Result<Arc<Cred>, UnplacedMount> {
     let grants: Vec<&Grant> = grants.into_iter().collect();
     let mounts = grants.iter().filter_map(|grant| match grant {
         Grant::Mount(mount) => Some((mount.at(), mount.mnt())),
         Grant::Network(_) => None,
     });
-    cred.with_modules(policies_of(grants.iter().copied()))
-        .with_mnt_ns(Arc::new(MntNamespace::new(
-            &cred.with_modules(Vec::new()),
-            mounts,
-        )))
+    let mnt_ns = MntNamespace::new(&cred.with_modules(Vec::new()), mounts)?;
+    Ok(cred
+        .with_modules(policies_of(grants.iter().copied()))
+        .with_mnt_ns(Arc::new(mnt_ns)))
 }
 
 fn policies_of<'a>(
@@ -224,7 +227,8 @@ mod tests {
             .with_policy(Arc::new(RefusesChangesInQ));
         let plain =
             Mount::new("/plain", filesystem, Access::ReadWrite).expect("/plain is a guest path");
-        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(guarded.clone())]);
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(guarded.clone())])
+            .expect("every Mount stands");
         let write = OpenHow {
             write: true,
             ..Default::default()
@@ -234,7 +238,7 @@ mod tests {
                 .unwrap_or_else(|_| panic!("the file must open"));
         let root = Path::root(plain.mnt());
         crate::vfs::filename_renameat2(
-            &restrict_self(&prepare_creds(&[], None), []),
+            &restrict_self(&prepare_creds(&[], None), []).expect("every Mount stands"),
             &root,
             "p/f",
             &root,
@@ -260,7 +264,8 @@ mod tests {
         let mount = Mount::new("/data", filesystem, Access::ReadWrite)
             .expect("/data is a guest path")
             .with_policy(policy.clone());
-        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(mount.clone())]);
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(mount.clone())])
+            .expect("every Mount stands");
         let opened = crate::vfs::kern_path::filp_open(
             &cred,
             &Path::root(mount.mnt()),
@@ -296,7 +301,8 @@ mod tests {
         )
         .expect("/data is a guest path");
         let mount = prepare(mount);
-        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(mount.clone())]);
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(mount.clone())])
+            .expect("every Mount stands");
         let root = Path::root(mount.mnt());
         let how = crate::vfs::OpenHow {
             read: true,
@@ -378,7 +384,8 @@ mod tests {
             .with_policy(Arc::new(Counts::default()));
         let plain =
             Mount::new("/plain", filesystem, Access::ReadWrite).expect("/plain is a guest path");
-        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(guarded.clone())]);
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(guarded.clone())])
+            .expect("every Mount stands");
         let how = crate::vfs::OpenHow {
             read: true,
             directory: true,
@@ -411,7 +418,7 @@ mod tests {
                 .expect("the call must ask revalidate");
             let root = Path::root(plain.mnt());
             crate::vfs::filename_renameat2(
-                &restrict_self(&prepare_creds(&[], None), []),
+                &restrict_self(&prepare_creds(&[], None), []).expect("every Mount stands"),
                 &root,
                 "p/d",
                 &root,
@@ -461,7 +468,7 @@ mod tests {
                 let root = self.plain.get().expect("the plain Mount stands").clone();
                 std::thread::spawn(move || {
                     crate::vfs::filename_renameat2(
-                        &restrict_self(&prepare_creds(&[], None), []),
+                        &restrict_self(&prepare_creds(&[], None), []).expect("every Mount stands"),
                         &root,
                         &format!("{from}/d"),
                         &root,
@@ -526,7 +533,7 @@ mod tests {
                 scope.spawn(|| {
                     let (root, cred) = (
                         Path::root(plain.mnt()),
-                        restrict_self(&prepare_creds(&[], None), []),
+                        restrict_self(&prepare_creds(&[], None), []).expect("every Mount stands"),
                     );
                     while !stop.load(Ordering::SeqCst) {
                         for (from, to) in [("p/d", "q/d"), ("q/d", "p/d")] {

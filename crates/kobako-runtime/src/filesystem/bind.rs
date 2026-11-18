@@ -1249,7 +1249,8 @@ mod tests {
         let cred = crate::security::restrict_self(
             &crate::security::prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
-        );
+        )
+        .expect("every Mount stands");
         let read = OpenHow {
             read: true,
             ..OpenHow::default()
@@ -1318,7 +1319,8 @@ mod tests {
             &crate::security::restrict_self(
                 &crate::security::prepare_creds(&[], None),
                 [&crate::grant::Grant::Mount(mount.clone())],
-            ),
+            )
+            .expect("every Mount stands"),
             &VfsPath::root(mount.mnt()),
             "public/x",
             &read,
@@ -1452,7 +1454,8 @@ mod tests {
         let cred = crate::security::restrict_self(
             &crate::security::prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
-        );
+        )
+        .expect("every Mount stands");
         let directory = OpenHow {
             read: true,
             directory: true,

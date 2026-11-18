@@ -3452,7 +3452,8 @@ mod tests {
                 &crate::grant::Grant::Mount(outer),
                 &crate::grant::Grant::Mount(inner),
             ],
-        );
+        )
+        .expect("every Mount stands");
         let during = vfs::vfs_fstatat(&cred, &outer_root, "inner/l/../y/c", false);
         // Any move in the process answers a `..` so, and tests beside this one
         // make them.
@@ -3840,7 +3841,8 @@ mod tests {
         let cred = crate::security::restrict_self(
             &crate::security::prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
-        );
+        )
+        .expect("every Mount stands");
         let root = Path::root(mount.mnt());
         [
             vfs::filename_mkdirat(&cred, &root, "dir"),
@@ -3999,7 +4001,8 @@ mod tests {
                 &crate::grant::Grant::Mount(plain.clone()),
                 &crate::grant::Grant::Mount(links.clone()),
             ],
-        );
+        )
+        .expect("every Mount stands");
         let (plain, links) = (Path::root(plain.mnt()), Path::root(links.mnt()));
         assert_eq!(
             (
@@ -4093,7 +4096,8 @@ mod tests {
         };
         assert_eq!(
             vfs::kern_path::filp_open(
-                &crate::security::restrict_self(&crate::security::prepare_creds(&[], None), []),
+                &crate::security::restrict_self(&crate::security::prepare_creds(&[], None), [])
+                    .expect("every Mount stands"),
                 &root,
                 "w",
                 &how
@@ -4210,7 +4214,8 @@ mod tests {
         let cred = crate::security::restrict_self(
             &crate::security::prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
-        );
+        )
+        .expect("every Mount stands");
         let opener = {
             let (root, cred) = (root.clone(), cred.clone());
             thread::spawn(move || {
@@ -5062,7 +5067,8 @@ mod tests {
         let cred = crate::security::restrict_self(
             &crate::security::prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
-        );
+        )
+        .expect("every Mount stands");
         vfs::kern_path::filp_open(&cred, &Path::root(mount.mnt()), path, how).err()
     }
 
@@ -5690,7 +5696,8 @@ mod tests {
         let cred = crate::security::restrict_self(
             &crate::security::prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
-        );
+        )
+        .expect("every Mount stands");
         let root = Path::root(mount.mnt());
         let holder = {
             let root = root.clone();

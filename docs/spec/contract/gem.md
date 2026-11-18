@@ -826,7 +826,7 @@ end
 
 ## `Kobako::SandboxError`
 
-An invocation the guest's own code or the wire failed.
+An invocation the guest's own code, the wire, or a Mount that stands nowhere failed.
 
 ```ruby
 module Kobako

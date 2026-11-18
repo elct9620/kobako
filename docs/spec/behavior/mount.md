@@ -606,7 +606,7 @@ Only the outermost mounts are preopens, so a mount inside another is reached by 
 | --- | --- |
 | Given | a Bind at `/data` holding `note` and a link to itself, a file, or nothing, and a Tmpfs at it |
 | When | the Sandbox runs a script |
-| Then | the run raises `Kobako::SandboxError` naming the mount and `ELOOP`, `ENOTDIR`, or `ENOENT`, as Linux's `mount` refuses it |
+| Then | the run fails naming the mount and `ELOOP`, `ENOTDIR`, or `ENOENT`, as Linux's `mount` refuses it. Ruby raises `Kobako::SandboxError` |
 
 ## `MT-050` A mount whose link leads above its name hides that directory
 
@@ -630,7 +630,7 @@ Only the outermost mounts are preopens, so a mount inside another is reached by 
 | --- | --- |
 | Given | a Bind at `/data` holding no `x`, and a Tmpfs holding `note` at `/data/x/y` |
 | When | the Sandbox runs a script |
-| Then | the run raises `Kobako::SandboxError` naming the mount and `ENOENT`, as Linux's `mount` refuses it |
+| Then | the run fails naming the mount and `ENOENT`. Ruby raises `Kobako::SandboxError`, and Rust answers `Error::Setup` |
 
 ## `MT-052` A path a moved directory left behind reaches no mount
 

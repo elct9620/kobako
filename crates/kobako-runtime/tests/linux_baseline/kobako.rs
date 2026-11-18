@@ -77,7 +77,8 @@ impl Kobako {
     /// an Overlay and overlayfs each count of a directory their own way.
     pub fn new(filesystem: Arc<Filesystem>, access: Access, merged: bool) -> Self {
         let mount = Mount::new("/baseline", filesystem, access).expect("/baseline is a guest path");
-        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(mount.clone())]);
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(mount.clone())])
+            .expect("every Mount stands");
         let root = File::root(mount.mnt(), &cred)
             .unwrap_or_else(|error| panic!("the root must open: {error:?}"));
         Self {
@@ -97,7 +98,8 @@ impl Kobako {
         let mount = Mount::new("/baseline", filesystem, Access::ReadWrite)
             .expect("/baseline is a guest path")
             .with_policy(policy);
-        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(mount.clone())]);
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Mount(mount.clone())])
+            .expect("every Mount stands");
         let root = File::root(mount.mnt(), &cred)
             .unwrap_or_else(|error| panic!("the root must open: {error:?}"));
         Self {

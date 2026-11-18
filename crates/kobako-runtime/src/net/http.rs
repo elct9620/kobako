@@ -1514,6 +1514,7 @@ mod tests {
                 &prepare_creds(&[], limit),
                 [&crate::grant::Grant::Network(network.clone())],
             )
+            .expect("every Mount stands")
         };
         let request = || greeting_request(&format!("localhost:{port}"));
         let cramped = crate::net::send(

@@ -442,7 +442,8 @@ mod tests {
         )
         .expect("the endpoints compile");
         let grants = networks.into_iter().map(Grant::Network).collect::<Vec<_>>();
-        let cred = restrict_self(&prepare_creds(modules, None), &grants);
+        let cred =
+            restrict_self(&prepare_creds(modules, None), &grants).expect("every Mount stands");
         (namespace, cred, family, seen)
     }
 
@@ -502,7 +503,8 @@ mod tests {
             Arc::new(CountsDials::default()),
             Arc::new(crate::net::HyperOutbound::new()),
         );
-        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Network(network)]);
+        let cred = restrict_self(&prepare_creds(&[], None), [&Grant::Network(network)])
+            .expect("every Mount stands");
         let get = |authority: &str| OutgoingRequest::new("GET", Scheme::Http, authority);
         let hooked = crate::net::send(&namespace, &cred, get("refused.example:4567")).err();
         let ipv6 = crate::net::send(&namespace, &cred, get("[::1]:4567")).err();

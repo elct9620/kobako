@@ -54,7 +54,8 @@ module Kobako
   end
 
   # The guest failed: the script raised or did not compile, the Guest Binary
-  # could not start the run, or what it produced could not be read.
+  # could not start the run, a nested Mount stood nowhere Linux would place
+  # it, or what it produced could not be read.
   # +origin+ (<tt>"sandbox"</tt> or <tt>"service"</tt>), +class_name+ and
   # +backtrace_lines+ say where it came from, which class raised it, and its
   # backtrace. +execution+ is the failed run's Execution, as on TrapError.

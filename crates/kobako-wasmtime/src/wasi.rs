@@ -65,13 +65,6 @@ impl Wasi {
             config.profile,
             grants,
         )?;
-        if let Some((at, errno)) = wasi.cred().unplaced_mount() {
-            return Err(SetupError::Intact(format!(
-                "the Mount at {at:?} stands nowhere: {}",
-                errno.posix_name().unwrap_or("EIO")
-            ))
-            .into());
-        }
         wasi.network = to_network(grants, &config.network, &config.limits)?;
         Ok(wasi)
     }
@@ -95,7 +88,7 @@ impl Wasi {
     /// A compile's context, on the hermetic profile whatever the Sandbox
     /// requested: compiling the Snippets needs no ambient authority, so
     /// it is granted none.
-    pub(crate) fn for_compile(config: &Config) -> Result<Self, Trap> {
+    pub(crate) fn for_compile(config: &Config) -> Result<Self, InvokeError> {
         Self::new(
             Vec::new(),
             config.limits.stdout_limit,
@@ -111,7 +104,7 @@ impl Wasi {
     /// artifact's start section, yet reading a version needs no input, no
     /// ambient authority, and no output: the probe takes an empty stdin, the
     /// hermetic profile, and pipes sized to keep nothing.
-    pub(crate) fn for_probe() -> Result<Self, Trap> {
+    pub(crate) fn for_probe() -> Result<Self, InvokeError> {
         Self::new(
             Vec::new(),
             Some(0),
@@ -124,13 +117,13 @@ impl Wasi {
     }
 
     /// A hermetic context presenting the outermost of `mounts` as preopens
-    /// from descriptor 3, at most `open_file_limit` files open, so a test reaches preview1's calls
-    /// as an invocation does.
+    /// from descriptor 3, at most `open_file_limit` files open, so a test
+    /// reaches preview1's calls as an invocation does.
     #[cfg(test)]
     pub(crate) fn with_mounts(
         mounts: Vec<kobako_runtime::mount::Mount>,
         open_file_limit: Option<usize>,
-    ) -> Result<Self, Trap> {
+    ) -> Result<Self, InvokeError> {
         let grants = mounts.into_iter().map(Grant::Mount).collect::<Vec<_>>();
         Self::new(
             Vec::new(),
@@ -153,7 +146,7 @@ impl Wasi {
         opener: Arc<Cred>,
         profile: Profile,
         grants: &[Grant],
-    ) -> Result<Self, Trap> {
+    ) -> Result<Self, InvokeError> {
         // The guest sees entries as its profile allows, through whichever
         // encoding asks.
         let opener = opener.with_profile(profile);
@@ -181,7 +174,8 @@ impl Wasi {
         // `landlock_restrict_self`, so a Policy judges only what the guest
         // asks for; the guest's Cred, with the hooks `restrict_self` adds,
         // decides what each walk reaches from there.
-        let cred = restrict_self(&opener, grants);
+        let cred = restrict_self(&opener, grants)
+            .map_err(|unplaced| SetupError::Intact(unplaced.to_string()))?;
         let descriptors = Descriptors::new(
             create_pipe_files(&PipeInodeInfo::from_bytes(stdin), &opener).0,
             create_pipe_files(&stdout, &opener).1,

@@ -11,7 +11,7 @@ use super::namei::{filename_lookup, filename_parentat, lookup_dentry};
 use super::path::Path;
 use crate::cred::Cred;
 use crate::filesystem::FileType;
-use crate::mount::outermost_holder_of;
+use crate::mount::{outermost_holder_of, UnplacedMount};
 use crate::Errno;
 
 /// One mount standing on a dentry of another, as Linux's `struct mount` keeps
@@ -34,7 +34,6 @@ impl Drop for Mounted {
 #[derive(Default, Clone)]
 pub(crate) struct MntNamespace {
     mounted: Vec<Arc<Mounted>>,
-    unplaced: Option<(String, Errno)>,
 }
 
 impl MntNamespace {
@@ -46,14 +45,13 @@ impl MntNamespace {
     /// first, as a container runtime mounts a parent before its children, and
     /// of two landing where one stands, the later stands over the earlier and
     /// hides it. The last name may stand for nothing, which Linux never lets a
-    /// mount do, so the parent's name is hidden even once made. The first
-    /// mount Linux's `mount` refuses, its walk failing or landing on no
-    /// directory, is kept with why, so the invocation fails as a container
-    /// fails to start.
+    /// mount do, so the parent's name is hidden even once made. A mount
+    /// Linux's `mount` refuses, its walk failing or landing on no directory,
+    /// refuses the whole tree, as a container fails to start.
     pub(crate) fn new<'a>(
         cred: &Arc<Cred>,
         mounts: impl IntoIterator<Item = (&'a str, &'a Arc<VfsMount>)>,
-    ) -> Self {
+    ) -> Result<Self, UnplacedMount> {
         let mut mounts: Vec<_> = mounts.into_iter().collect();
         mounts.sort_by_key(|(at, _)| at.split('/').filter(|name| !name.is_empty()).count());
         let mut namespace = Self::default();
@@ -64,14 +62,15 @@ impl MntNamespace {
             let path = at[root_at.len()..].trim_start_matches('/');
             let walker = cred.with_mnt_ns(Arc::new(namespace.clone()));
             let root = Path::root(&namespace.topmost_mount_of(root));
-            match namespace.where_to_mount(&walker, &root, path) {
-                Ok(spot) => namespace.mount(spot, mnt),
-                Err(errno) => {
-                    namespace.unplaced.get_or_insert((at.to_string(), errno));
-                }
-            }
+            let spot = namespace
+                .where_to_mount(&walker, &root, path)
+                .map_err(|errno| UnplacedMount {
+                    at: at.to_string(),
+                    errno,
+                })?;
+            namespace.mount(spot, mnt);
         }
-        namespace
+        Ok(namespace)
     }
 
     /// Stand `mnt` on `spot`, marking its dentry a mount point.
@@ -126,14 +125,6 @@ impl MntNamespace {
                 None => (nd.mnt.clone(), dentry),
             },
         )
-    }
-
-    /// The path of the first mount that stands nowhere, and why Linux's `mount`
-    /// refuses it.
-    pub(crate) fn unplaced_mount(&self) -> Option<(&str, &Errno)> {
-        self.unplaced
-            .as_ref()
-            .map(|(at, errno)| (at.as_str(), errno))
     }
 
     /// The mount a walk from the root of the outermost `mnt` stands on: the

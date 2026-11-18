@@ -9,6 +9,7 @@ use std::sync::Arc;
 use crate::filesystem::Filesystem;
 use crate::policy::Policy;
 use crate::vfs::VfsMount;
+use crate::Errno;
 
 /// What a Mount allows a guest beneath it, and what a Policy is asked to allow
 /// for one path.
@@ -107,6 +108,29 @@ impl Mount {
         &self.at
     }
 }
+
+/// A Mount Linux's `mount` refuses to place, as its walk fails or lands on no
+/// directory: its guest path, and the errno Linux refuses it with.
+#[derive(Debug)]
+pub struct UnplacedMount {
+    pub at: String,
+    pub errno: Errno,
+}
+
+impl fmt::Display for UnplacedMount {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self.errno.posix_name() {
+            Some(name) => write!(f, "the Mount at {:?} stands nowhere: {name}", self.at),
+            None => write!(
+                f,
+                "the Mount at {:?} stands nowhere: {:?}",
+                self.at, self.errno
+            ),
+        }
+    }
+}
+
+impl std::error::Error for UnplacedMount {}
 
 /// The Mounts among `mounts` no other one's path holds, the roots every guest
 /// path starts from. One beneath another is reached only by a walk into it, so

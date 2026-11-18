@@ -10,7 +10,6 @@ use crate::memcg::MemoryBudget;
 use crate::profile::Profile;
 use crate::security::SecurityOperations;
 use crate::vfs::{MntNamespace, VfsMount};
-use crate::Errno;
 
 /// Who a call is made for, holding the security modules registered for it, as
 /// `cred->security` holds a Landlock domain, and the memory budget the host
@@ -89,12 +88,6 @@ impl Cred {
     /// mounted over the rest.
     pub fn topmost_mount_of(&self, mnt: &Arc<VfsMount>) -> Arc<VfsMount> {
         self.mnt_ns.topmost_mount_of(mnt)
-    }
-
-    /// The path of the first Mount its namespace could not place, and why
-    /// Linux's `mount` refuses it.
-    pub fn unplaced_mount(&self) -> Option<(&str, &Errno)> {
-        self.mnt_ns.unplaced_mount()
     }
 
     /// This Cred seeing entries as `profile` does, as a task's credentials

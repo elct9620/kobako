@@ -240,7 +240,8 @@ mod tests {
         let cred = restrict_self(
             &prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
-        );
+        )
+        .expect("every Mount stands");
         let root = Path::root(mount.mnt());
         let how = crate::vfs::OpenHow {
             read: true,
@@ -283,7 +284,8 @@ mod tests {
                     &restrict_self(
                         &prepare_creds(&[], None),
                         [&crate::grant::Grant::Mount(mount.clone())],
-                    ),
+                    )
+                    .expect("every Mount stands"),
                     &Path::root(mount.mnt()),
                     &times()
                 ),
