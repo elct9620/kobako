@@ -58,14 +58,14 @@ class TestE2EMountRelocation < Minitest::Test
   def test_a_mount_stays_reached_when_a_later_one_covers_its_links_path
     skip "this host makes no links" if Gem.win_platform?
     TestPaths.host_directory do |host|
-      assert_equal %w[A A S S], read_notes(covered_later(host), %w[/data/a /data/./a /data/a/s /data/./a/s]),
+      assert_equal %w[A A S S], read_notes(beneath_a_later_mount(host), %w[/data/a /data/./a /data/a/s /data/./a/s]),
                    "a Sandbox#mount whose link's path a later one covers must be reached by every spelling"
     end
   end
 
   # A Sandbox with a Bind over +host+ at +/data+ whose link +a+ leads to
   # +q/t+, Tmpfs A at +/data/a+, then Q at +/data/q+, then S at +/data/a/s+.
-  def covered_later(host)
+  def beneath_a_later_mount(host)
     FileUtils.mkdir_p(File.join(host, "q", "t"))
     File.symlink("q/t", File.join(host, "a"))
     tmpfs = Kobako::Filesystem::Tmpfs
@@ -80,14 +80,14 @@ class TestE2EMountRelocation < Minitest::Test
   def test_a_mount_moved_onto_its_name_stays_reached_when_another_covers_its_parent
     skip "this host makes no links" if Gem.win_platform?
     TestPaths.host_directory do |host|
-      assert_equal %w[S S], read_notes(covered_twice(host), %w[/data/a/s /data/./a/s]),
+      assert_equal %w[S S], read_notes(beneath_two_later_mounts(host), %w[/data/a/s /data/./a/s]),
                    "a Sandbox#mount whose parent another covers after it moved must be reached by every spelling"
     end
   end
 
   # A Sandbox with a Bind over +host+ at +/data+ linking +a+ to +q/t+ and +c+
   # to +q+, then S at +/data/a/s+, T at +/data/q/t+, and M at +/data/c/t+.
-  def covered_twice(host)
+  def beneath_two_later_mounts(host)
     FileUtils.mkdir_p(File.join(host, "q", "t", "s"))
     File.symlink("q/t", File.join(host, "a"))
     File.symlink("q", File.join(host, "c"))
