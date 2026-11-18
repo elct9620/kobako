@@ -25,6 +25,7 @@ use super::reactor::{Reactor, Task};
 use super::transport::Connector;
 use super::{new_platform_tls, MAX_SOCKET_BUFFER};
 use crate::cred::Cred;
+use crate::errno::CarriedErrno;
 use crate::filesystem::anon_inode_getfile;
 use crate::memcg::MemoryCharge;
 use crate::vfs::{FMode, File, FileOperations, Kiocb, OpenHow, PollMask};
@@ -1039,12 +1040,20 @@ impl HttpError {
         if err.kind() == io::ErrorKind::UnexpectedEof {
             return Self::ConnectionTerminated;
         }
-        match Errno::from_io_error(err) {
+        Self::from_open_connection(&Errno::from_io_error(err)).unwrap_or(Self::TlsProtocol)
+    }
+
+    /// The code an open connection failing with `err` answers: one the peer or
+    /// the Invocation's end cut as `connection-terminated`, and memory the
+    /// socket could not reserve as the seam's own failure; `None` for a
+    /// failure the protocol over it names.
+    fn from_open_connection(err: &Errno) -> Option<Self> {
+        match err {
             Errno::ConnectionReset | Errno::ConnectionAborted | Errno::BrokenPipe => {
-                Self::ConnectionTerminated
+                Some(Self::ConnectionTerminated)
             }
-            Errno::OutOfMemory => Self::Internal,
-            _ => Self::TlsProtocol,
+            Errno::OutOfMemory => Some(Self::Internal),
+            _ => None,
         }
     }
 
@@ -1065,8 +1074,18 @@ impl HttpError {
         }
     }
 
-    /// The code a failed exchange answers.
+    /// The code a failed exchange answers. Its connection failing under it
+    /// answers as an open connection's failure does, as the TLS handshake's
+    /// does, so a failure answers one code wherever in the exchange it lands.
     fn from_hyper(err: &hyper::Error) -> Self {
+        let failed = std::error::Error::source(err)
+            .and_then(|source| source.downcast_ref::<io::Error>())
+            .and_then(io::Error::get_ref)
+            .and_then(|inner| inner.downcast_ref::<CarriedErrno>());
+        if let Some(code) = failed.and_then(|CarriedErrno(errno)| Self::from_open_connection(errno))
+        {
+            return code;
+        }
         if err.is_parse() || err.is_parse_status() {
             Self::ProtocolError
         } else if err.is_timeout() {

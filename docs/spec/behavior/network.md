@@ -2933,4 +2933,4 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a TCP socket or an HTTP request still connecting, or waiting on its peer |
 | When | the Invocation ends |
-| Then | each waiter wakes with `ECONNABORTED`, and the request fails as its connection failing there does. Linux's `tcp_abort` ends a socket from outside this way |
+| Then | each waiter wakes with `ECONNABORTED`, and the request answers `connection-terminated` wherever it stood. Linux's `tcp_abort` ends a socket from outside this way |

@@ -657,25 +657,29 @@ mod tests {
         let (_upstream, _) = listener.accept().unwrap();
         drop(namespace);
         let deadline = std::time::Instant::now() + Duration::from_secs(10);
-        let failed = loop {
+        let answer = loop {
             match request.response() {
-                Some(answer) => break answer.is_err(),
+                Some(answer) => break answer.err(),
                 None if std::time::Instant::now() < deadline => {
                     std::thread::sleep(Duration::from_millis(1))
                 }
-                None => break false,
+                None => break None,
             }
         };
         assert_eq!(
             (
                 woken.0.load(Ordering::SeqCst),
                 file.read(&mut [0; 8]).err(),
-                failed
+                answer
             ),
-            (true, Some(Errno::ConnectionAborted), true),
+            (
+                true,
+                Some(Errno::ConnectionAborted),
+                Some(HttpError::ConnectionTerminated)
+            ),
             "the Invocation's end must wake a task waiting on a connected TCP socket, whose read \
-             then answers ECONNABORTED, and fail an HTTP request awaiting its response head \
-             rather than leave it waiting"
+             then answers ECONNABORTED, and fail an HTTP request awaiting its response head with \
+             connection-terminated"
         );
     }
 
