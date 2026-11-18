@@ -1,5 +1,58 @@
 # Changelog
 
+## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.20.0...kobako-sdk-v0.21.0) (2026-11-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **transport:** kobako_transport::envelope::Reply is CallReply.
+* **transport:** call Driver::from_file in place of Driver::new;
+* **guest:** call Kobako::handle_id_of, Kobako::backtrace_of,
+* **runtime:** match SetupError::GuestBinaryNotFound in place of
+* **sdk:** write Backend { path, lifetime: Lifetime::Static(..) } in place of Backend { path, provider: Provider::Static(..) }.
+* **sdk:** Sandbox::mount_with_policy and Context::mount_with_policy take (at, filesystem, access, policy); pass Access::ReadWrite for the previous read-write mount.
+* **sdk:** an implementation of Receiver or ValueReceiver overrides responds_to_guest in place of respond_to_guest.
+* **kobako:** Error::Argument is a struct variant, Error::Argument { kind, message }, instead of Error::Argument(String). Match Error::Argument { message, .. } where the message was matched, and Error::Argument { kind: ArgumentKind::Taken, .. } to tell one mistake from another; a match on ArgumentKind keeps a wildcard arm.
+* **sdk:** `kobako::Options` and `kobako_wasmtime::Config` read and set every cap through `limits`: write `options.limits.timeout = …` where `options.timeout = …` was written, and likewise for `setup_timeout`, `memory_limit`, `stdout_limit`, `stderr_limit`, `open_file_limit`, `open_connection_limit`, and `connection_limit`.
+* **sdk:** `RunPayload::bytes`, `RunPayload::build`, and `RunPayload::values` are now `RunPayload::from_bytes`, `RunPayload::from_fn`, and `RunPayload::from_values`, taking the same arguments.
+* **runtime:** `kobako_runtime::FilesystemError`, `kobako_runtime::vfs::FilesystemError`, and `kobako_runtime::filesystem::FilesystemError` are now `kobako_runtime::Errno`, also reachable as `kobako::Errno`. Rename the type in a Filesystem or security module; its variants are unchanged.
+
+### Features
+
+* bound a guest's connections per Sandbox, per run, and per process ([7a4f869](https://github.com/elct9620/kobako/commit/7a4f8692cbc788a23c582b90112cd0275739d496))
+* **kobako:** name which mistake an Error::Argument refused ([43dfd57](https://github.com/elct9620/kobako/commit/43dfd5711a8250075524fa9f1fc003102e928c76))
+* **network:** route and refuse a Mock's dials by protocol, UDP included ([9e8b44d](https://github.com/elct9620/kobako/commit/9e8b44d425db205fe0bb2faccca0782acf1e1b4e))
+* **runtime:** make a Filesystem from its kind without wrapping it first ([e7eb8a0](https://github.com/elct9620/kobako/commit/e7eb8a00a37794226edce2aa7f1bdcab2ef6790b))
+* **sdk:** let a Rust mount with a policy keep the access it is given ([3d10278](https://github.com/elct9620/kobako/commit/3d102786f481d1e832c262b05e62616da4f8be28))
+* **sdk:** take the network's backends from Options ([5b5b5d2](https://github.com/elct9620/kobako/commit/5b5b5d2b437eed5df83c8476ba4ff5eea178ea9f))
+* **transport:** spell once the form of a name a guest interns ([95c10bc](https://github.com/elct9620/kobako/commit/95c10bcf7180fc0e5ef432a9935ce3f856c75c9f))
+
+
+### Bug Fixes
+
+* **codec:** charge a map's NaN keys for the comparisons they cost a host ([62eead4](https://github.com/elct9620/kobako/commit/62eead43663705a16e78e00740ed73e79a3be76f))
+* **guest:** say a guest supports no block, as the glossary words an Unsupported ([3aa9a78](https://github.com/elct9620/kobako/commit/3aa9a7844780ba095fa2d197c3ab1a163a33dce6))
+* **network:** answer an endpoint the ruleset refuses as the Host App's argument ([1c6d710](https://github.com/elct9620/kobako/commit/1c6d710855495f874761eef1933f51c93a7a62b0))
+* **network:** read a Mock's names with the URL host parser ([a170e19](https://github.com/elct9620/kobako/commit/a170e197a85a1f7ca1dd6d00d62cb7dfa33b39b7))
+* **runtime:** refuse a cap of zero in one place both frontends ask ([aef531e](https://github.com/elct9620/kobako/commit/aef531eda4f2b32bc4748b0d09b98058331af3b6))
+* **sdk:** answer an unsupported yield a Receiver propagates on runtime ([ed84c1e](https://github.com/elct9620/kobako/commit/ed84c1e4910e94d25ebf90d9742c08f133cc1f74))
+* **sdk:** refuse a run argument carrying a Handle the Host App wrote ([c094a9b](https://github.com/elct9620/kobako/commit/c094a9b137d8090b137f4cd12210ee23d28cfc73))
+* **security:** make no Cred for a Mount that stands nowhere ([c2c6190](https://github.com/elct9620/kobako/commit/c2c619095eb452d19be1aab65941b7cb86b339dd))
+* **transport:** route a Ruby dispatch before reading its arguments ([10c7635](https://github.com/elct9620/kobako/commit/10c76356d106ccd8f2da615075de93170b21a086))
+
+
+### Code Refactoring
+
+* **guest:** name the guest seams a Guest author calls by Rust's and the ABI's words ([f36c91d](https://github.com/elct9620/kobako/commit/f36c91db8bda69b5812a7982b6260b3a7d66abd6))
+* **runtime:** name the errno type Errno at the crate root ([f608e31](https://github.com/elct9620/kobako/commit/f608e31e81d1be9ddc6bb2fc8f6a26e5acafced4))
+* **runtime:** name the missing Guest Binary's setup failure after what is missing ([732b8be](https://github.com/elct9620/kobako/commit/732b8bece8e796bd36d5e350b623c5ab8db28349))
+* **sdk:** ask a Receiver whether it responds to the guest in the third person ([f897fc2](https://github.com/elct9620/kobako/commit/f897fc2a537bf221672ee24d64cd670fda9759dd))
+* **sdk:** hold a Sandbox's caps as the runtime's Limits ([9730d6a](https://github.com/elct9620/kobako/commit/9730d6a73fec595c2b75ac8981aeb655937045df))
+* **sdk:** name how long an Extension backend's object lives Lifetime ([110ba8a](https://github.com/elct9620/kobako/commit/110ba8ae08aa42054ff42abd9265e28144220224))
+* **sdk:** name RunPayload's constructors with from_ ([6e95532](https://github.com/elct9620/kobako/commit/6e955327f6e9d7c29641f89ac2b1edb58ed24993))
+* **transport:** load a Driver from its file, and read an origin as a lookup that may miss ([4ec8d79](https://github.com/elct9620/kobako/commit/4ec8d792ddf14bb21cfd36437b64b2389ee6df89))
+* **transport:** name a Call's reply CallReply beside YieldReply and CompileReply ([f34063e](https://github.com/elct9620/kobako/commit/f34063ee94edb723800b4a0670cf912aa1a445e0))
+
 ## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.19.0...kobako-sdk-v0.20.0) (2026-11-07)
 
 

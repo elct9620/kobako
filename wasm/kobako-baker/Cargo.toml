@@ -15,7 +15,7 @@
 
 [package]
 name = "kobako-baker"
-version = "0.20.0"
+version = "0.21.0"
 edition = "2021"
 description = "Build-time pre-initializer for kobako Guest Binaries — bakes the canonical boot state via wizer."
 license = "Apache-2.0"
@@ -42,4 +42,4 @@ wasmtime = "50.0.1"
 pollster = "1.0"
 # The kobako ABI names the deterministic linker answers, spelled where the
 # host and the guest read them.
-kobako-transport = { version = "0.20.0", path = "../../crates/kobako-transport" }
+kobako-transport = { version = "0.21.0", path = "../../crates/kobako-transport" }

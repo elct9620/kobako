@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.20.0...kobako-regexp-v0.21.0) (2026-11-18)
+
+
+### Bug Fixes
+
+* **regexp:** read a backreference name past its first character, not its first byte ([51ce34f](https://github.com/elct9620/kobako/commit/51ce34fcc755b235ecfcb5b510c0817f3e1f3379))
+
 ## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-regexp-v0.19.0...kobako-regexp-v0.20.0) (2026-11-07)
 
 

@@ -1,5 +1,30 @@
 # Changelog
 
+## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.20.0...kobako-mruby-v0.21.0) (2026-11-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **guest:** call kobako_core::abi::handle and return_reply in place of serve and answer.
+* **guest:** call Kobako::exc_backtrace in place of
+* **guest:** call Kobako::handle_id_of, Kobako::backtrace_of,
+
+### Features
+
+* **transport:** spell once the Service and entrypoint names a Panic carries ([fd09028](https://github.com/elct9620/kobako/commit/fd09028dee973397c66eb2029f7fd75bf6e7ee26))
+
+
+### Bug Fixes
+
+* **mruby:** refuse a keyword name that is neither a Symbol nor a String ([2cf08b6](https://github.com/elct9620/kobako/commit/2cf08b6b7e12c0afdca2c833069f1c446459e438))
+
+
+### Code Refactoring
+
+* **guest:** handle a downcall's request and return its Reply ([d1fea6d](https://github.com/elct9620/kobako/commit/d1fea6d07f6c060562877e46cc0809a8ce856633))
+* **guest:** name the guest seams a Guest author calls by Rust's and the ABI's words ([f36c91d](https://github.com/elct9620/kobako/commit/f36c91db8bda69b5812a7982b6260b3a7d66abd6))
+* **guest:** read an exception's backtrace by mruby's own name ([589f97e](https://github.com/elct9620/kobako/commit/589f97ef4297664b8407307b5c02b6cb3ef9cdbc))
+
 ## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-mruby-v0.19.0...kobako-mruby-v0.20.0) (2026-11-07)
 
 

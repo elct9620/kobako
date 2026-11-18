@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.20.0...kobako-core-v0.21.0) (2026-11-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **transport:** kobako_transport::envelope::Reply is CallReply.
+* **guest:** call kobako_core::abi::handle and return_reply in place of serve and answer.
+* **guest:** call Kobako::handle_id_of, Kobako::backtrace_of,
+* **transport:** a Guest Binary built against ABI 5 is refused at construction. Rebuild it against kobako-core, whose export_guest! emits the new names. kobako-transport drops ABI_VERSION as a u32, FRAME_LEN_SIZE, MAX_FRAME_LEN, pack_ptr_len, and unpack_ptr_len, and names the ABI through ABI_VERSION ("0.6.0"), GUEST_INTERFACE, HOST_INTERFACE, DOWNCALL, UPCALL, and PREAMBLE. kobako-core drops alloc; answer returns the return area's address.
+
+### Features
+
+* **transport:** carry the Guest ABI in the Canonical ABI's core shape ([34b9560](https://github.com/elct9620/kobako/commit/34b956001a05e15fe29febd7098b2ceb054e1bab))
+
+
+### Bug Fixes
+
+* **core:** take no room for an empty list the host lowers ([f2fac23](https://github.com/elct9620/kobako/commit/f2fac236de645f69e479fa5bff97979005e344eb))
+* **guest:** say a guest supports no block, as the glossary words an Unsupported ([3aa9a78](https://github.com/elct9620/kobako/commit/3aa9a7844780ba095fa2d197c3ab1a163a33dce6))
+
+
+### Reverts
+
+* **guest:** keep the ABI's realloc and the glossary's preloads as designed ([58fb5ce](https://github.com/elct9620/kobako/commit/58fb5ce76796f32dc70a48603af8115c8372bfa8))
+
+
+### Code Refactoring
+
+* **guest:** handle a downcall's request and return its Reply ([d1fea6d](https://github.com/elct9620/kobako/commit/d1fea6d07f6c060562877e46cc0809a8ce856633))
+* **guest:** name the guest seams a Guest author calls by Rust's and the ABI's words ([f36c91d](https://github.com/elct9620/kobako/commit/f36c91db8bda69b5812a7982b6260b3a7d66abd6))
+* **transport:** name a Call's reply CallReply beside YieldReply and CompileReply ([f34063e](https://github.com/elct9620/kobako/commit/f34063ee94edb723800b4a0670cf912aa1a445e0))
+
 ## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.19.0...kobako-core-v0.20.0) (2026-11-07)
 
 
