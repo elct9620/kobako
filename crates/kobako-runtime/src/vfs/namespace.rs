@@ -137,7 +137,7 @@ impl MntNamespace {
     }
 
     /// Whether a mount of this namespace stands on `dentry`, as Linux's
-    /// `is_local_mountpoint` asks before a removal or a move.
+    /// `is_local_mountpoint` asks before a removal.
     pub(crate) fn is_local_mountpoint(&self, dentry: &Arc<Dentry>) -> bool {
         dentry.d_mountpoint()
             && self
