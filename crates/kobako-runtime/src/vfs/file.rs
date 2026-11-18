@@ -436,8 +436,8 @@ impl File {
         Ok(Self::new(path, ops, mode, how, cred, security))
     }
 
-    /// The root of `mnt` opened as a directory for `cred`. A Wasm Driver opens each
-    /// Mount's root with the Cred its Policies are added to afterwards, as a
+    /// The root of `mnt` opened as a directory for `cred`. A Wasm Driver opens
+    /// each outermost Mount's root with the Cred its Policies are added to afterwards, as a
     /// Linux task opens what it keeps before `landlock_restrict_self`.
     pub fn root(mnt: &Arc<VfsMount>, cred: &Arc<Cred>) -> Result<Self, Errno> {
         let read = OpenHow {

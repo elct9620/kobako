@@ -52,7 +52,7 @@ impl Resource {
 /// What one descriptor stands for, as Linux's fd table holds a `struct file`.
 pub(crate) struct Descriptor {
     pub(crate) resource: Resource,
-    /// The guest path a preopen names; a Mount's own root has one.
+    /// The guest path a preopen names; an outermost Mount's root has one.
     pub(crate) preopen_path: Option<String>,
 }
 
@@ -84,8 +84,8 @@ impl Descriptors {
     /// Channels, then one preopen per Mount among `mounts`, from descriptor
     /// 3. Each counts against the open files in `table`, as a process's
     /// `RLIMIT_NOFILE` counts every one it holds. Each opens, as `opener`, the
-    /// Cred the Driver prepared, the mount standing topmost on its root for
-    /// `guest`, as Linux shows the one mounted over the rest.
+    /// Cred the Driver prepared, the topmost mount stacked on its root for
+    /// `guest`, as Linux's `topmost_overmount` answers.
     pub(crate) fn new(
         stdin: File,
         stdout: File,
