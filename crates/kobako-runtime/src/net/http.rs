@@ -1324,50 +1324,77 @@ mod tests {
     // @behavior NW-022
     #[test]
     fn a_released_requests_upstream_still_sending_holds_its_place() {
-        let listener = std::net::TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
-        let port = listener.local_addr().unwrap().port();
-        let mut entry = Builder::default();
-        entry.endpoint(Endpoint::new("127.0.0.1", port).unwrap());
-        let network = Network::new("web", Arc::new(entry)).unwrap();
-        let namespace = Namespace::new(
-            [&network],
-            &crate::net::Backends::new(Arc::new(HostInet), Arc::new(HostInet)),
-            OpenConnections::new(Some(1)),
-            None,
-        )
-        .expect("the endpoints compile")
-        .with_outbound(Arc::new(HyperOutbound::new()));
-        let cred = prepare_creds(&[], None);
-        let authority = format!("127.0.0.1:{port}");
-        let mut request = OutgoingRequest::new("POST", Scheme::Http, &authority);
-        request.path_with_query = "/".to_string();
-        request.body = vec![b'b'; 32 * 1024 * 1024];
-        let exchange =
-            crate::net::send(&namespace, &cred, request).expect("the endpoint admits it");
-        // The peer accepts and never reads, so the request's bytes stay queued.
-        let (peer, _) = listener.accept().expect("the listener accepts");
-        // A locked send buffer stops Linux from growing it, so the host
-        // socket fills and the connection's own queue still holds bytes.
-        for upstream in namespace.tcp_sockets().held() {
-            upstream.lock_host_send_buffer(4096);
-        }
-        thread::sleep(Duration::from_millis(200));
-        exchange.release();
-        let while_sending = crate::net::send(&namespace, &cred, greeting_request(&authority)).err();
-        drop(peer);
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        let once_closed = loop {
-            match crate::net::send(&namespace, &cred, greeting_request(&authority)) {
-                Ok(_) => break true,
-                Err(_) if std::time::Instant::now() < deadline => {
-                    thread::sleep(Duration::from_millis(1))
-                }
-                Err(_) => break false,
+        // A released connection's queue only shrinks, so one still holding
+        // bytes after the second request was sent held them while it was
+        // sent. A try whose queue drained first proves nothing and goes again.
+        let attempt = || {
+            // TCP fixes a connection's window scale in its handshake and never
+            // shrinks a window it offered, so only a receive buffer set before
+            // listening keeps what the peer takes to a few kilobytes.
+            let listener = socket2::Socket::new(socket2::Domain::IPV4, socket2::Type::STREAM, None)
+                .expect("a loopback socket");
+            listener.set_recv_buffer_size(4096).unwrap();
+            listener
+                .bind(&SocketAddr::from(([127, 0, 0, 1], 0)).into())
+                .expect("a loopback listener");
+            listener.listen(1).unwrap();
+            let listener = std::net::TcpListener::from(listener);
+            let port = listener.local_addr().unwrap().port();
+            let mut entry = Builder::default();
+            entry.endpoint(Endpoint::new("127.0.0.1", port).unwrap());
+            let network = Network::new("web", Arc::new(entry)).unwrap();
+            let namespace = Namespace::new(
+                [&network],
+                &crate::net::Backends::new(Arc::new(HostInet), Arc::new(HostInet)),
+                OpenConnections::new(Some(1)),
+                None,
+            )
+            .expect("the endpoints compile")
+            .with_outbound(Arc::new(HyperOutbound::new()));
+            let cred = prepare_creds(&[], None);
+            let authority = format!("127.0.0.1:{port}");
+            let mut request = OutgoingRequest::new("POST", Scheme::Http, &authority);
+            request.path_with_query = "/".to_string();
+            // Linux sizes a send buffer as the connection opens, from its
+            // MSS, up to `tcp_wmem`'s default most of 4 MiB, so a body past
+            // that always leaves bytes in the upstream's queue.
+            request.body = vec![b'b'; 8 * 1024 * 1024];
+            let exchange =
+                crate::net::send(&namespace, &cred, request).expect("the endpoint admits it");
+            // The peer accepts and never reads, so the request's bytes stay queued.
+            let (peer, _) = listener.accept().expect("the listener accepts");
+            // A send buffer set by hand stops growing, so once the peer's
+            // window is full the host takes no more of the body.
+            let upstreams = namespace.tcp_sockets().held();
+            for upstream in &upstreams {
+                upstream.lock_host_send_buffer(4096);
             }
+            let give_up = Instant::now() + Duration::from_secs(5);
+            while upstreams.iter().all(|upstream| upstream.is_drained()) {
+                assert!(
+                    Instant::now() < give_up,
+                    "the request's body never queued on its upstream in five seconds"
+                );
+                thread::sleep(Duration::from_millis(1));
+            }
+            exchange.release();
+            let while_sending =
+                crate::net::send(&namespace, &cred, greeting_request(&authority)).err();
+            let still_sending = upstreams.iter().any(|upstream| !upstream.is_drained());
+            drop(peer);
+            let deadline = Instant::now() + Duration::from_secs(5);
+            let once_closed = loop {
+                match crate::net::send(&namespace, &cred, greeting_request(&authority)) {
+                    Ok(_) => break true,
+                    Err(_) if Instant::now() < deadline => thread::sleep(Duration::from_millis(1)),
+                    Err(_) => break false,
+                }
+            };
+            still_sending.then_some((while_sending, once_closed))
         };
         assert_eq!(
-            (while_sending, once_closed),
-            (Some(HttpError::ConnectionLimitReached), true),
+            (0..5).find_map(|_| attempt()),
+            Some((Some(HttpError::ConnectionLimitReached), true)),
             "a request past an open_connection_limit of 1 must answer ConnectionLimitReached \
              while a released request's connection still sends its queued body, and send once \
              that connection closed"
