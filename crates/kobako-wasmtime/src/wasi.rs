@@ -11,7 +11,7 @@ use crate::ambient::{self, Clocks};
 use crate::config::Config;
 use crate::preview1::descriptors::{Descriptors, FileRef, FileRefMut};
 use crate::preview2;
-use kobako_runtime::error::{InvokeError, Trap};
+use kobako_runtime::error::{InvokeError, SetupError, Trap};
 use kobako_runtime::snapshot::Capture;
 use std::sync::Arc;
 
@@ -52,8 +52,9 @@ impl Wasi {
     /// An invocation's context, granting the profile the Sandbox requested
     /// and presenting each of the invocation's outermost Mounts as a preopen,
     /// from descriptor 3 in order. A network entry whose endpoints the ruleset
-    /// refuses answers `InvokeError::Entry`, the Host App's argument.
-    /// Descriptor 0 reads nothing.
+    /// refuses answers `InvokeError::Entry`, the Host App's argument, and a
+    /// nested Mount Linux's `mount` would refuse answers `InvokeError::Setup`,
+    /// as a container fails to start. Descriptor 0 reads nothing.
     pub(crate) fn for_invocation(config: &Config, grants: &[Grant]) -> Result<Self, InvokeError> {
         let mut wasi = Self::new(
             Vec::new(),
@@ -64,6 +65,13 @@ impl Wasi {
             config.profile,
             grants,
         )?;
+        if let Some((at, errno)) = wasi.cred().unplaced_mount() {
+            return Err(SetupError::Intact(format!(
+                "the Mount at {at:?} stands nowhere: {}",
+                errno.posix_name().unwrap_or("EIO")
+            ))
+            .into());
+        }
         wasi.network = to_network(grants, &config.network, &config.limits)?;
         Ok(wasi)
     }

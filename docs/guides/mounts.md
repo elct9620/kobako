@@ -48,8 +48,8 @@ mount, however it spells the path.
 | Case | The guest sees |
 |---|---|
 | a path ending at a link | the mount where the link leads |
-| a link to nothing or to no directory | no mount, as Linux refuses it |
-| missing directories above it | no mount, as Linux refuses it |
+| a link to nothing or to no directory | the run fails, as Linux refuses it |
+| missing directories above it | the run fails, as Linux refuses it |
 | a later one over a directory above it | no mount, as it is hidden |
 | no such name in the outer one | the mount all the same |
 | two landing on one directory | the deeper path's, else the later one |

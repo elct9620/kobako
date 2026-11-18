@@ -25,7 +25,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 ### Where a nested mount stands
 
-Only the outermost mounts are preopens, so a mount inside another is reached by a walk alone. Mounts are placed shallowest first, each where Linux's `mount` places it, following a link at its last name. A mount Linux would refuse stands nowhere, unless only its last name is missing. One a later mount covers is hidden.
+Only the outermost mounts are preopens, so a mount inside another is reached by a walk alone. Mounts are placed shallowest first, each where Linux's `mount` places it, following a link at its last name. A mount Linux would refuse fails the run, unless only its last name is missing. One a later mount covers is hidden.
 
 ## Includes
 
@@ -580,9 +580,9 @@ Only the outermost mounts are preopens, so a mount inside another is reached by 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind at `/data` linking `a` to `q/t`, then Tmpfs A at `/data/a`, Q at `/data/q`, S at `/data/a/s` |
-| When | the script reads `note` through `/data/a`, `/data/a/s`, and `/data/q` |
-| Then | the first two raise `Errno::ENOENT`, and the last reads Q's note. Q hides A, and S stands nowhere |
+| Given | a Bind at `/data` linking `a` to `q/t`, then Tmpfs A at `/data/a` and Q at `/data/q` |
+| When | the script reads `note` through `/data/a` and `/data/q` |
+| Then | the first raises `Errno::ENOENT`, and the second reads Q's note. Q hides A |
 
 ## `MT-048` A mount landing on a later one's directory stands over it
 
@@ -596,7 +596,7 @@ Only the outermost mounts are preopens, so a mount inside another is reached by 
 | When | the script reads `/data/a/s/note` and `/data/./a/s/note` |
 | Then | both read M's note. T hides S, and M stands over T |
 
-## `MT-049` A mount whose link leads to nothing or to no directory stands nowhere
+## `MT-049` A mount whose link leads to nothing or to no directory fails the run
 
 | Attribute | Value |
 | --- | --- |
@@ -605,8 +605,8 @@ Only the outermost mounts are preopens, so a mount inside another is reached by 
 | Step | Statement |
 | --- | --- |
 | Given | a Bind at `/data` holding `note` and a link to itself, a file, or nothing, and a Tmpfs at it |
-| When | the script reads `note` beneath the link, and `/data/note` |
-| Then | the first raises `Errno::ELOOP`, `Errno::ENOTDIR`, or `Errno::ENOENT`, and `/data/note` is the Bind's |
+| When | the Sandbox runs a script |
+| Then | the run raises `Kobako::SandboxError` naming the mount and `ELOOP`, `ENOTDIR`, or `ENOENT`, as Linux's `mount` refuses it |
 
 ## `MT-050` A mount whose link leads above its name hides that directory
 
@@ -620,7 +620,7 @@ Only the outermost mounts are preopens, so a mount inside another is reached by 
 | When | the script reads `/data/a/note`, `/data/a/b/note`, and `/data/./a/b/note` |
 | Then | the first reads the Tmpfs's note, and the other two raise `Errno::ENOENT`. The Tmpfs stands on `/data/a` |
 
-## `MT-051` A mount whose directories above it stand nowhere stands nowhere
+## `MT-051` A mount whose directories above it stand nowhere fails the run
 
 | Attribute | Value |
 | --- | --- |
@@ -629,8 +629,8 @@ Only the outermost mounts are preopens, so a mount inside another is reached by 
 | Step | Statement |
 | --- | --- |
 | Given | a Bind at `/data` holding no `x`, and a Tmpfs holding `note` at `/data/x/y` |
-| When | the script reads `/data/x/y/note` |
-| Then | it raises `Errno::ENOENT`, as Linux's `mount` refuses a path whose directories are missing |
+| When | the Sandbox runs a script |
+| Then | the run raises `Kobako::SandboxError` naming the mount and `ENOENT`, as Linux's `mount` refuses it |
 
 ## `MT-052` A path a moved directory left behind reaches no mount
 
@@ -655,3 +655,15 @@ Only the outermost mounts are preopens, so a mount inside another is reached by 
 | Given | a Bind at `/data` holding `note` and `inner/`, and a Tmpfs at `/data/inner` |
 | When | the script reads `/data/inner/../note` |
 | Then | it reads the Bind's note, as Linux's `..` climbs from a mount's root to where it stands |
+
+## `MT-054` A nested mount a past run moved away fails the next run
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-051` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a writable Tmpfs holding `repo/hooks/` at `/data`, and a read-only Tmpfs at `/data/repo/hooks` |
+| When | one run renames `/data/repo` to `/data/r2`, and the Sandbox runs again |
+| Then | the next run raises `Kobako::SandboxError`, so no run writes where the read-only mount stood |

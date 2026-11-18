@@ -12,6 +12,7 @@ use super::path::Path;
 use crate::cred::Cred;
 use crate::filesystem::FileType;
 use crate::mount::outermost_holder_of;
+use crate::Errno;
 
 /// One mount standing on a dentry of another, as Linux's `struct mount` keeps
 /// `mnt_parent` and `mnt_mountpoint`. The mount point is held while the mount
@@ -33,6 +34,7 @@ impl Drop for Mounted {
 #[derive(Default, Clone)]
 pub(crate) struct MntNamespace {
     mounted: Vec<Arc<Mounted>>,
+    unplaced: Option<(String, Errno)>,
 }
 
 impl MntNamespace {
@@ -44,9 +46,10 @@ impl MntNamespace {
     /// first, as a container runtime mounts a parent before its children, and
     /// of two landing where one stands, the later stands over the earlier and
     /// hides it. The last name may stand for nothing, which Linux never lets a
-    /// mount do, so the parent's name is hidden even once made. A mount
-    /// Linux's `mount` refuses, its walk failing or landing on no directory,
-    /// stands nowhere.
+    /// mount do, so the parent's name is hidden even once made. The first
+    /// mount Linux's `mount` refuses, its walk failing or landing on no
+    /// directory, is kept with why, so the invocation fails as a container
+    /// fails to start.
     pub(crate) fn new<'a>(
         cred: &Arc<Cred>,
         mounts: impl IntoIterator<Item = (&'a str, &'a Arc<VfsMount>)>,
@@ -61,8 +64,11 @@ impl MntNamespace {
             let path = at[root_at.len()..].trim_start_matches('/');
             let walker = cred.with_mnt_ns(Arc::new(namespace.clone()));
             let root = Path::root(&namespace.topmost_mount_of(root));
-            if let Some(spot) = namespace.where_to_mount(&walker, &root, path) {
-                namespace.mount(spot, mnt);
+            match namespace.where_to_mount(&walker, &root, path) {
+                Ok(spot) => namespace.mount(spot, mnt),
+                Err(errno) => {
+                    namespace.unplaced.get_or_insert((at.to_string(), errno));
+                }
             }
         }
         namespace
@@ -83,27 +89,34 @@ impl MntNamespace {
     /// mounted there: the mount and dentry the walk lands on, or, on a nested
     /// mount's root, the dentry that mount stands on, where the later of the
     /// two is the one a walk steps onto, as Linux shows the topmost. A name
-    /// standing for nothing is stood on as it is. None where the walk fails or
-    /// lands on no directory.
+    /// standing for nothing is stood on as it is. A walk that fails answers
+    /// its error, and one landing on no directory ENOTDIR, as `graft_tree`
+    /// refuses it.
     fn where_to_mount(
         &self,
         cred: &Arc<Cred>,
         root: &Path,
         path: &str,
-    ) -> Option<(Arc<VfsMount>, Arc<Dentry>)> {
-        let Ok(nd) = filename_lookup(cred, root, path, true) else {
-            let nd = filename_parentat(cred, root, path).ok()?;
-            let dentry = lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last).ok()?;
-            return dentry.inode().is_none().then(|| (nd.mnt.clone(), dentry));
+    ) -> Result<(Arc<VfsMount>, Arc<Dentry>), Errno> {
+        let nd = match filename_lookup(cred, root, path, true) {
+            Ok(nd) => nd,
+            Err(errno) => {
+                let nd = filename_parentat(cred, root, path)?;
+                let dentry = lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last)?;
+                return match dentry.inode() {
+                    None => Ok((nd.mnt.clone(), dentry)),
+                    Some(_) => Err(errno),
+                };
+            }
         };
-        let dentry = nd.path().ok()?;
+        let dentry = nd.path()?;
         if dentry.file_type() != Ok(FileType::Dir) {
-            return None;
+            return Err(Errno::NotADirectory);
         }
         if !Arc::ptr_eq(&dentry, nd.mnt.root()) {
-            return Some((nd.mnt.clone(), dentry));
+            return Ok((nd.mnt.clone(), dentry));
         }
-        Some(
+        Ok(
             match self
                 .mounted
                 .iter()
@@ -113,6 +126,14 @@ impl MntNamespace {
                 None => (nd.mnt.clone(), dentry),
             },
         )
+    }
+
+    /// The path of the first mount that stands nowhere, and why Linux's `mount`
+    /// refuses it.
+    pub(crate) fn unplaced_mount(&self) -> Option<(&str, &Errno)> {
+        self.unplaced
+            .as_ref()
+            .map(|(at, errno)| (at.as_str(), errno))
     }
 
     /// The mount a walk from the root of the outermost `mnt` stands on: the
