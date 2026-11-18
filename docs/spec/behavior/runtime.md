@@ -4475,3 +4475,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a frontend call that sets the guest up, runs it, and tears it down |
 | When | the thread is interrupted while the guest is set up or torn down |
 | Then | that run's waits end. The thread's next run waits as usual, as a fatal signal stays with the task it reached |
+
+## `RT-404` A file time past what a preview1 timestamp holds answers OVERFLOW
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-156` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation on the weaker profile, with a Mount whose Filesystem reports a file modified in 2600 |
+| When | the guest reads what the path names |
+| Then | it answers `OVERFLOW`, as wasmtime-wasi answers a time its nanoseconds cannot count |

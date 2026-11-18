@@ -24,9 +24,15 @@ pub(crate) use table::Table;
 const MAX_READ_SIZE_ALLOC: usize = 64 * 1024;
 
 /// `duration` as the nanoseconds a WASI `duration`, `instant`, or preview1
-/// `timestamp` counts, the largest one for a time past what it holds.
+/// `timestamp` counts, none for a time past what it holds.
+pub(crate) fn try_to_nanos(duration: std::time::Duration) -> Option<u64> {
+    u64::try_from(duration.as_nanos()).ok()
+}
+
+/// `duration` as `try_to_nanos` counts it, the largest one for a time past
+/// what it holds, as a clock reads or a wait lasts.
 pub(crate) fn to_nanos(duration: std::time::Duration) -> u64 {
-    u64::try_from(duration.as_nanos()).unwrap_or(u64::MAX)
+    try_to_nanos(duration).unwrap_or(u64::MAX)
 }
 
 #[allow(clippy::all, unused_parens)]

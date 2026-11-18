@@ -72,6 +72,7 @@ const ERRNO_ISDIR: i32 = 31;
 const ERRNO_LOOP: i32 = 32;
 const ERRNO_NOENT: i32 = 44;
 const ERRNO_NOMEM: i32 = 48;
+const ERRNO_OVERFLOW: i32 = 61;
 const ERRNO_NOTDIR: i32 = 54;
 const ERRNO_NOTEMPTY: i32 = 55;
 const ERRNO_NOSPC: i32 = 51;
@@ -1983,6 +1984,62 @@ fn a_time_another_profile_wrote_reaches_the_hermetic_profile_as_the_epoch() {
         [0; 3],
         "path_filestat_get through preview1 on the hermetic profile, of a file the permissive \
          profile wrote into the same Tmpfs, must report each time as the Unix epoch"
+    );
+}
+
+/// A Filesystem holding `file.txt`, modified in the year 2600, more
+/// nanoseconds after the epoch than a `u64` counts. A guest sets a time in
+/// those nanoseconds, so only a Filesystem of its own can report one.
+struct ModifiedIn2600;
+
+impl ModifiedIn2600 {
+    fn stat(path: &str) -> Option<Kstat> {
+        let year_2600 = std::time::UNIX_EPOCH + std::time::Duration::from_secs(19_880_879_760);
+        match path {
+            "" => Some(Kstat::new(FileType::Dir, 0)),
+            "file.txt" => {
+                Some(Kstat::new(FileType::RegFile, 0).with_times(None, Some(year_2600), None))
+            }
+            _ => None,
+        }
+    }
+}
+
+impl FileSystemType for ModifiedIn2600 {
+    fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
+        sb.d_make_root(vfs::Inode::new(
+            &vfs::Kstat::new(vfs::FileType::Dir, 0),
+            self,
+        ));
+        Ok(())
+    }
+}
+
+impl InodeOperations for ModifiedIn2600 {
+    fn getattr(&self, dentry: &Dentry) -> Result<Kstat, Errno> {
+        Self::stat(&dentry.path_raw()[1..]).ok_or(Errno::NotFound)
+    }
+
+    fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
+        Ok(match Self::stat(&dentry.path_raw()[1..]) {
+            Some(found) => Lookup::Found(Inode::new(&found, Arc::new(Self))),
+            None => Lookup::Absent,
+        })
+    }
+}
+
+// @behavior RT-404
+#[test]
+fn a_file_time_past_what_a_timestamp_holds_answers_overflow() {
+    let mut guest = Guest::for_profile(
+        Profile::Permissive,
+        &[grant(Arc::new(ModifiedIn2600), Access::Read, None)],
+    );
+    assert_eq!(
+        guest.stat_flagged(FILE, 0),
+        ERRNO_OVERFLOW,
+        "path_filestat_get through preview1 of a file its Filesystem reports modified in the \
+         year 2600 must answer OVERFLOW, as wasmtime-wasi does"
     );
 }
 

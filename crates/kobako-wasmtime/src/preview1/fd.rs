@@ -17,7 +17,7 @@ use super::descriptors::{Descriptor, FileRef, FileRefMut};
 use super::errno::{Answer, Errno};
 use super::memory::GuestMemory;
 use super::types::{self, Fdflags, Filetype, Fstflags, Rights};
-use crate::preview2::{filesystem, to_nanos};
+use crate::preview2::{filesystem, try_to_nanos};
 use crate::wasi::Wasi;
 
 /// What a preopen allows itself: every path call, as wasmtime-wasi hands
@@ -125,25 +125,28 @@ fn to_filetype(file_type: FileType) -> Filetype {
 
 /// A `filestat` for what a Filesystem reports a path names, as `cred` sees
 /// it, at time zero where it keeps no time.
-pub(crate) fn to_filestat(cred: &Cred, stat: Kstat) -> types::Filestat {
+pub(crate) fn to_filestat(cred: &Cred, stat: Kstat) -> Answer<types::Filestat> {
     let stat = vfs::cp_new_stat(cred, stat);
-    types::Filestat {
+    Ok(types::Filestat {
         dev: stat.dev,
         ino: stat.ino,
         filetype: to_filetype(stat.file_type),
         nlink: stat.nlink,
         size: stat.size,
-        atim: to_timestamp(stat.atime),
-        mtim: to_timestamp(stat.mtime),
-        ctim: to_timestamp(stat.ctime),
-    }
+        atim: to_timestamp(stat.atime)?,
+        mtim: to_timestamp(stat.mtime)?,
+        ctim: to_timestamp(stat.ctime)?,
+    })
 }
 
-/// `time` as a preview1 `timestamp`, nanoseconds since the Unix epoch;
-/// zero for none, and the largest timestamp for a time past it.
-fn to_timestamp(time: Option<SystemTime>) -> u64 {
-    time.and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map_or(0, to_nanos)
+/// `time` as a preview1 `timestamp`, nanoseconds since the Unix epoch, and
+/// zero for none or one before it. One past what the `u64` holds answers
+/// `OVERFLOW`, as wasmtime-wasi's conversion from a `datetime` does.
+fn to_timestamp(time: Option<SystemTime>) -> Answer<u64> {
+    let Some(since) = time.and_then(|time| time.duration_since(UNIX_EPOCH).ok()) else {
+        return Ok(0);
+    };
+    try_to_nanos(since).ok_or_else(|| Errno::Overflow.into())
 }
 
 /// Set the times `flags` ask through `call`, answering before it looks at the
@@ -259,7 +262,7 @@ pub(crate) fn fdstat_set_rights(wasi: &Wasi, fd: u32) -> Answer {
 
 pub(crate) fn filestat_get(wasi: &Wasi, fd: u32) -> Answer<types::Filestat> {
     let stat = get_raw_file(wasi, fd)?.getattr()?;
-    Ok(to_filestat(wasi.cred(), stat))
+    to_filestat(wasi.cred(), stat)
 }
 
 /// Refuse a size or offset Linux's signed `loff_t` reads as negative, before

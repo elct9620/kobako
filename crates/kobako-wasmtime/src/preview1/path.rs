@@ -55,7 +55,7 @@ pub(crate) fn filestat_get(
     let path = mem.read_path(path)?;
     let follow = flags.contains(types::Lookupflags::SYMLINK_FOLLOW);
     let stat = retry_eagain(|| vfs::vfs_fstatat(wasi.cred(), &start_of(wasi, fd), &path, follow))?;
-    Ok(to_filestat(wasi.cred(), stat))
+    to_filestat(wasi.cred(), stat)
 }
 
 pub(crate) fn filestat_set_times(
