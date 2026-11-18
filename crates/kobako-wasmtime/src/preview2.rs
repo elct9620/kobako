@@ -24,9 +24,11 @@ pub(crate) use table::Table;
 const MAX_READ_SIZE_ALLOC: usize = 64 * 1024;
 
 /// `duration` as the nanoseconds a WASI `duration`, `instant`, or preview1
-/// `timestamp` counts, none for a time past what it holds.
-pub(crate) fn try_to_nanos(duration: std::time::Duration) -> Option<u64> {
-    u64::try_from(duration.as_nanos()).ok()
+/// `timestamp` counts, refused for a time past what it holds.
+pub(crate) fn try_to_nanos(
+    duration: std::time::Duration,
+) -> Result<u64, std::num::TryFromIntError> {
+    u64::try_from(duration.as_nanos())
 }
 
 /// `duration` as `try_to_nanos` counts it, the largest one for a time past

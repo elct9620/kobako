@@ -146,7 +146,7 @@ fn to_timestamp(time: Option<SystemTime>) -> Answer<u64> {
     let Some(since) = time.and_then(|time| time.duration_since(UNIX_EPOCH).ok()) else {
         return Ok(0);
     };
-    try_to_nanos(since).ok_or_else(|| Errno::Overflow.into())
+    try_to_nanos(since).map_err(|_| Errno::Overflow.into())
 }
 
 /// Set the times `flags` ask through `call`, answering before it looks at the
