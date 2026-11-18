@@ -66,7 +66,9 @@ impl MntNamespace {
         Self { mounted }
     }
 
-    /// The mount standing on `dentry` beneath `mnt`, as Linux's `__lookup_mnt`.
+    /// The mount standing on `dentry` beneath `mnt`, as Linux's `__lookup_mnt`:
+    /// the last made of those standing on it, as a later mount there
+    /// overmounts the earlier.
     pub(crate) fn __lookup_mnt(
         &self,
         mnt: &Arc<VfsMount>,
@@ -74,7 +76,9 @@ impl MntNamespace {
     ) -> Option<Arc<VfsMount>> {
         self.mounted
             .iter()
-            .find(|child| Arc::ptr_eq(&child.parent, mnt) && Arc::ptr_eq(&child.mountpoint, dentry))
+            .rfind(|child| {
+                Arc::ptr_eq(&child.parent, mnt) && Arc::ptr_eq(&child.mountpoint, dentry)
+            })
             .map(|child| Arc::clone(&child.mnt))
     }
 

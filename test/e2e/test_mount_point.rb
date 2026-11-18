@@ -77,4 +77,18 @@ class TestE2EMountPoint < Minitest::Test
                    "a Sandbox#mount at a link must stand on the directory the link leads to"
     end
   end
+
+  # @behavior MT-042
+  def test_two_mounts_landing_on_one_directory_show_the_later
+    skip "this host makes no links" if Gem.win_platform?
+    TestPaths.host_directory do |host|
+      Dir.mkdir(File.join(host, "real"))
+      File.symlink("real", File.join(host, "inner"))
+      sandbox = nested(Kobako::Filesystem::Bind.new(host))
+                .mount("/data/real", Kobako::Filesystem::Tmpfs.new("note" => "later"), access: :read)
+
+      assert_equal "later", sandbox.eval('File.read("/data/./real/note")').value,
+                   "of two Sandbox#mounts standing on one directory, a read must reach the one mounted later"
+    end
+  end
 end
