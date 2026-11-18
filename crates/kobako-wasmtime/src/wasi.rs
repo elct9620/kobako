@@ -50,8 +50,8 @@ pub(crate) struct Wasi {
 
 impl Wasi {
     /// An invocation's context, granting the profile the Sandbox requested
-    /// and presenting each of the invocation's Mounts as a preopen, from
-    /// descriptor 3 in order. A network entry whose endpoints the ruleset
+    /// and presenting each of the invocation's outermost Mounts as a preopen,
+    /// from descriptor 3 in order. A network entry whose endpoints the ruleset
     /// refuses answers `InvokeError::Entry`, the Host App's argument.
     /// Descriptor 0 reads nothing.
     pub(crate) fn for_invocation(config: &Config, grants: &[Grant]) -> Result<Self, InvokeError> {
@@ -115,8 +115,8 @@ impl Wasi {
         )
     }
 
-    /// A hermetic context presenting `mounts` as preopens from descriptor 3,
-    /// at most `open_file_limit` files open, so a test reaches preview1's calls
+    /// A hermetic context presenting the outermost of `mounts` as preopens
+    /// from descriptor 3, at most `open_file_limit` files open, so a test reaches preview1's calls
     /// as an invocation does.
     #[cfg(test)]
     pub(crate) fn with_mounts(

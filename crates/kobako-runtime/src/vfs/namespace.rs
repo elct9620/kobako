@@ -11,7 +11,7 @@ use super::namei::{filename_lookup, filename_parentat, lookup_dentry};
 use super::path::Path;
 use crate::cred::Cred;
 use crate::filesystem::FileType;
-use crate::mount::outermost_holding;
+use crate::mount::outermost_holder_of;
 
 /// One mount standing on a dentry of another, as Linux's `struct mount` keeps
 /// `mnt_parent` and `mnt_mountpoint`. The mount point is held while the mount
@@ -55,14 +55,9 @@ impl MntNamespace {
         mounts.sort_by_key(|(at, _)| at.split('/').filter(|name| !name.is_empty()).count());
         let mut namespace = Self::default();
         for &(at, mnt) in &mounts {
-            let Some(root_at) = outermost_holding(at, mounts.iter().map(|(above, _)| *above))
-            else {
+            let Some((root_at, root)) = outermost_holder_of(at, mounts.iter().copied()) else {
                 continue;
             };
-            let root = mounts
-                .iter()
-                .find_map(|(above, root)| (*above == root_at).then_some(*root))
-                .expect("the outermost path holding a mount is one of the mounts");
             let path = at[root_at.len()..].trim_start_matches('/');
             let walker = cred.with_mnt_ns(Arc::new(namespace.clone()));
             let root = Path::root(&namespace.topmost_mount_of(root));

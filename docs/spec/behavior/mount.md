@@ -12,7 +12,7 @@ each invocation ─ Grants ─> runtime ─ preopen ─> guest File
 
 A mount is a registration, so it is refused once the Sandbox is sealed. A path means one mount, as Docker refuses a duplicate mount point. A Context replaces a mount but never adds one.
 
-A mount may sit inside another, and every spelling of its path reaches the same mount. It hides what its parent holds by its name. Unlike Linux, it stands even where the parent holds nothing by that name. As in Linux, it neither moves nor goes while mounted.
+A mount may sit inside another, and every spelling of a path reaches what stands there. It hides what its parent holds where it stands. Unlike Linux, it stands even where the parent holds nothing by that name. As in Linux, it neither moves nor goes while mounted.
 
 A mount's block judges each access a call makes. An open that may create asks a change, then what it opens for. Its refusal reaches the guest as a denied call and leaves the run going. A block raising a StandardError refuses the same way, and anything else it raises belongs to the host.
 
@@ -25,7 +25,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 ### Where a nested mount stands
 
-Only the outermost mounts are the guest's preopens. A mount inside another is reached only by a walk, so every spelling meets what the mount namespace holds. Mounts are placed shallowest first, each where Linux's `mount` places it, following a link at its last name. Otherwise a mount Linux would refuse stands nowhere, and one a later mount covers is hidden.
+Only the outermost mounts are preopens, so a mount inside another is reached by a walk alone. Mounts are placed shallowest first, each where Linux's `mount` places it, following a link at its last name. A mount Linux would refuse stands nowhere, unless only its last name is missing. One a later mount covers is hidden.
 
 ## Includes
 
@@ -596,7 +596,7 @@ Only the outermost mounts are the guest's preopens. A mount inside another is re
 | When | the script reads `/data/a/s/note` and `/data/./a/s/note` |
 | Then | both read M's note. T hides S, and M stands over T |
 
-## `MT-049` A mount whose link leads to no directory stands nowhere
+## `MT-049` A mount whose link leads to nothing or to no directory stands nowhere
 
 | Attribute | Value |
 | --- | --- |
@@ -604,9 +604,9 @@ Only the outermost mounts are the guest's preopens. A mount inside another is re
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind at `/data` holding `note` and a link to itself or a file, and a Tmpfs at the link |
+| Given | a Bind at `/data` holding `note` and a link to itself, a file, or nothing, and a Tmpfs at it |
 | When | the script reads `note` beneath the link, and `/data/note` |
-| Then | the first raises `Errno::ELOOP` or `Errno::ENOTDIR`, and `/data/note` is the Bind's. Linux's `mount` refuses both |
+| Then | the first raises `Errno::ELOOP`, `Errno::ENOTDIR`, or `Errno::ENOENT`, and `/data/note` is the Bind's |
 
 ## `MT-050` A mount whose link leads above its name hides that directory
 

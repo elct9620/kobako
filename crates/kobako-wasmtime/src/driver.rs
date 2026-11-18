@@ -167,8 +167,8 @@ impl ContractRuntime for Driver {
         self.config.profile
     }
 
-    /// A Mount becomes a preopen of kobako's own descriptor table, which
-    /// answers every preview1 call beneath it; the network entries become one
+    /// An outermost Mount becomes a preopen of kobako's own descriptor table,
+    /// which answers every preview1 call beneath it; the network entries become one
     /// network the preview2 sockets reach.
     fn supports(&self, kind: GrantKind) -> bool {
         matches!(kind, GrantKind::Mount | GrantKind::Network)

@@ -41,14 +41,16 @@ inside another.
 
 ### Nested Mounts
 
-A nested mount stands where Linux would place it. The guest reaches it by a
-walk from the outermost mount, however it spells the path.
+A nested mount stands where Linux would place it, or on a name the outer one
+lacks. The guest reaches what stands at a path by a walk from the outermost
+mount, however it spells the path.
 
 | Case | The guest sees |
 |---|---|
 | a path ending at a link | the mount where the link leads |
-| a link to no directory, or missing directories above | no mount, as Linux refuses it |
-| a later one covering it | no mount, as it is hidden |
+| a link to nothing or to no directory | no mount, as Linux refuses it |
+| missing directories above it | no mount, as Linux refuses it |
+| a later one over a directory above it | no mount, as it is hidden |
 | no such name in the outer one | the mount all the same |
 | two landing on one directory | the deeper path's, else the later one |
 | a directory above it renamed | the mount moving with it |

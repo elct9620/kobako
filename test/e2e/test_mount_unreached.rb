@@ -8,6 +8,11 @@ class TestE2EMountUnreached < Minitest::Test
   include E2eGuestHelper
   include MountReads
 
+  # Links Linux's mount refuses to stand on, by name: each one's target and
+  # the error a read beneath it raises.
+  REFUSED_LINKS = { "loop" => %w[loop Errno::ELOOP], "file" => %w[f Errno::ENOTDIR],
+                    "dangle" => %w[gone Errno::ENOENT] }.freeze
+
   # @behavior MT-047
   def test_a_mount_a_later_one_covers_is_hidden
     skip "this host makes no links" if Gem.win_platform?
@@ -23,16 +28,16 @@ class TestE2EMountUnreached < Minitest::Test
   end
 
   # @behavior MT-049
-  def test_a_mount_whose_link_leads_to_no_directory_stands_nowhere
+  def test_a_mount_whose_link_leads_to_nothing_or_to_no_directory_stands_nowhere
     skip "this host makes no links" if Gem.win_platform?
-    { "loop" => %w[loop Errno::ELOOP], "file" => %w[f Errno::ENOTDIR] }.each do |name, (target, refusal)|
+    REFUSED_LINKS.each do |name, (target, refusal)|
       TestPaths.host_directory do |host|
         { "note" => "outer", "f" => "" }.each { |file, body| File.write(File.join(host, file), body) }
         File.symlink(target, File.join(host, name))
         sandbox = bind_with(host, "/data/#{name}" => INNER)
 
         assert_equal [refusal, "outer"], read_notes(sandbox, ["/data/#{name}", "/data"]),
-                     "a Sandbox#mount at a link to #{name} must stand nowhere, as Linux's mount refuses it"
+                     "a Sandbox#mount at a #{name} link must stand nowhere, as Linux's mount refuses it"
       end
     end
   end

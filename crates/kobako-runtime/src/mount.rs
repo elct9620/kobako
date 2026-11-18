@@ -116,24 +116,24 @@ pub fn outermost_of<'a>(mounts: &[&'a Mount]) -> Vec<&'a Mount> {
         .iter()
         .copied()
         .filter(|mount| {
-            outermost_holding(&mount.at, mounts.iter().map(|other| other.at())).is_none()
+            outermost_holder_of(&mount.at, mounts.iter().map(|other| (other.at(), ()))).is_none()
         })
         .collect()
 }
 
-/// The outermost of the guest paths `paths` holding the guest path `at`
-/// strictly beneath it, none where no path holds it.
-pub(crate) fn outermost_holding<'a>(
+/// The outermost of `holders`, each a guest path with what stands there,
+/// holding the guest path `at` strictly beneath it; none where none holds it.
+pub(crate) fn outermost_holder_of<'a, T>(
     at: &str,
-    paths: impl IntoIterator<Item = &'a str>,
-) -> Option<&'a str> {
-    paths
+    holders: impl IntoIterator<Item = (&'a str, T)>,
+) -> Option<(&'a str, T)> {
+    holders
         .into_iter()
-        .filter(|above| {
+        .filter(|(above, _)| {
             *above != at
                 && at
                     .strip_prefix(above)
                     .is_some_and(|rest| *above == "/" || rest.starts_with('/'))
         })
-        .min_by_key(|above| above.len())
+        .min_by_key(|(above, _)| above.len())
 }
