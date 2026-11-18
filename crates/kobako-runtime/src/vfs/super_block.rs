@@ -82,7 +82,7 @@ impl SuperBlock {
         self.dentries.set_ops(ops);
     }
 
-    /// What every dentry of this instance answers through, as `s_d_op`.
+    /// What every dentry of this instance answers through, as `__s_d_op`.
     pub fn d_op(&self) -> Option<&Arc<dyn DentryOperations>> {
         self.dentries.ops()
     }

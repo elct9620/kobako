@@ -60,7 +60,7 @@ pub struct Dentry {
     /// What the Filesystem keeps on the name, set once, as Linux's
     /// `d_fsdata` holds a filesystem's own state for a dentry.
     fsdata: OnceLock<Arc<dyn Any + Send + Sync>>,
-    /// What answers about this name, as `d_alloc` copies `s_d_op` from the
+    /// What answers about this name, as `d_alloc` copies `__s_d_op` from the
     /// super block.
     ops: Option<Arc<dyn DentryOperations>>,
     /// Wakes the walks waiting while another looks this name up, as Linux's
@@ -749,7 +749,7 @@ impl Dentries {
     }
 
     /// Have every dentry made from now on answer through `ops`, as
-    /// `set_default_d_op` sets `s_d_op` for each `d_alloc` after it.
+    /// `set_default_d_op` sets `__s_d_op` for each `d_alloc` after it.
     pub(super) fn set_ops(&mut self, ops: Arc<dyn DentryOperations>) {
         self.ops = Some(ops);
     }
