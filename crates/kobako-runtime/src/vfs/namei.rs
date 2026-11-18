@@ -67,7 +67,8 @@ pub(crate) struct Nameidata {
     /// included, kept only for a walk placing a mount, so the mount holds the
     /// names its path leads through.
     pub(crate) trail: Vec<Arc<Dentry>>,
-    /// Whether this walk keeps its `trail`.
+    /// Whether this walk keeps its `trail`, as only one placing a mount
+    /// reads it.
     keeps_trail: bool,
     /// The last name, as Linux's `nd->last`, empty unless it is a `Norm` one.
     pub(crate) last: String,
@@ -802,10 +803,10 @@ pub(crate) fn filename_lookup(
     walk_with_reval(|| path_lookupat(set_nameidata(cred, start, path, &total_link_count)?, follow))
 }
 
-/// `path` beneath `start` walked to what it names, following a last link, as
-/// `filename_lookup` walks it, keeping each dentry it steps onto by a name, as
-/// placing a mount asks.
-pub(crate) fn filename_lookup_keeping_trail(
+/// Walk `path` beneath `start` to where a mount is to stand, following a last
+/// link, as `do_mount` looks its target up, keeping each dentry the walk steps
+/// onto by a name.
+pub(crate) fn walk_mountpoint(
     cred: &Arc<Cred>,
     start: &impl Start,
     path: &str,
