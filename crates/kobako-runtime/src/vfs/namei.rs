@@ -361,8 +361,8 @@ impl Nameidata {
     /// or follow the link standing there.
     fn walk_component(&mut self, name: &str) -> Result<(), Errno> {
         let dentry = lookup_dentry(self.mnt.sb(), self.dentry(), name)?;
-        self.trail.push(Arc::clone(&dentry));
         if let Some(mnt) = self.lookup_mnt(&dentry) {
+            self.trail.push(dentry);
             self.traverse_mounts(mnt);
             return Ok(());
         }
@@ -370,6 +370,7 @@ impl Nameidata {
         match inode.file_type() {
             FileType::Symlink => self.pick_link(&dentry),
             FileType::Dir => {
+                self.trail.push(Arc::clone(&dentry));
                 self.dir = dentry;
                 Ok(())
             }
@@ -1310,7 +1311,7 @@ pub(crate) fn vfs_rename(cred: &Cred, sb: &SuperBlock, rd: &RenameData) -> Resul
         flags,
     )?;
     let mnt_ns = cred.mnt_ns();
-    if mnt_ns.is_on_mount_path(old) || mnt_ns.is_on_mount_path(new) {
+    if mnt_ns.pins(old) || mnt_ns.pins(new) {
         return Err(Errno::ResourceBusy);
     }
     old_dir
@@ -1340,7 +1341,7 @@ pub(crate) fn vfs_rmdir(
 ) -> Result<(), Errno> {
     may_delete_dentry(cred, sb, dir, victim.file_type().ok(), true)?;
     let _victim = victim.inode_lock()?;
-    if cred.mnt_ns().is_on_mount_path(victim) {
+    if cred.mnt_ns().pins(victim) {
         return Err(Errno::ResourceBusy);
     }
     dir.inode_ops()?.rmdir(victim)?;
@@ -1362,7 +1363,7 @@ pub(crate) fn vfs_unlink(
 ) -> Result<(), Errno> {
     may_delete_dentry(cred, sb, dir, victim.file_type().ok(), false)?;
     let _victim = victim.inode_lock()?;
-    if cred.mnt_ns().is_on_mount_path(victim) {
+    if cred.mnt_ns().pins(victim) {
         return Err(Errno::ResourceBusy);
     }
     dir.inode_ops()?.unlink(victim)?;

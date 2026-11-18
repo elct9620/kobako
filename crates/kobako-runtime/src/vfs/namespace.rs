@@ -30,9 +30,9 @@ impl Drop for Mounted {
     }
 }
 
-/// Where a mount is to stand: the mount and dentry it stands on, and each
-/// dentry its path led through.
-struct Spot {
+/// Where a mount is to stand, as Linux's `pinned_mountpoint` holds the parent
+/// and the mount point: and each dentry its path led through.
+struct PinnedMountpoint {
     parent: Arc<VfsMount>,
     mountpoint: Arc<Dentry>,
     trail: Vec<Arc<Dentry>>,
@@ -71,25 +71,25 @@ impl MntNamespace {
             let path = at[root_at.len()..].trim_start_matches('/');
             let walker = cred.with_mnt_ns(Arc::new(namespace.clone()));
             let root = Path::root(&namespace.topmost_overmount(root));
-            let spot = namespace
+            let pinned = namespace
                 .where_to_mount(&walker, &root, path)
                 .map_err(|errno| UnplacedMountError {
                     at: at.to_string(),
                     errno,
                 })?;
-            namespace.mount(spot, mnt);
+            namespace.mount(pinned, mnt);
         }
         Ok(namespace)
     }
 
-    /// Stand `mnt` on `spot`, marking its dentry a mount point.
-    fn mount(&mut self, spot: Spot, mnt: &Arc<VfsMount>) {
-        spot.mountpoint.d_set_mounted();
+    /// Stand `mnt` on `pinned`, marking its dentry a mount point.
+    fn mount(&mut self, pinned: PinnedMountpoint, mnt: &Arc<VfsMount>) {
+        pinned.mountpoint.d_set_mounted();
         self.mounted.push(Arc::new(Mounted {
-            parent: spot.parent,
-            mountpoint: spot.mountpoint,
+            parent: pinned.parent,
+            mountpoint: pinned.mountpoint,
             mnt: Arc::clone(mnt),
-            trail: spot.trail,
+            trail: pinned.trail,
         }));
     }
 
@@ -99,14 +99,19 @@ impl MntNamespace {
     /// topmost mount there, so the new one stands over it. A name standing for
     /// nothing is stood on as it is. A walk that fails answers its error, and
     /// one landing on no directory ENOTDIR, as `graft_tree` refuses it.
-    fn where_to_mount(&self, cred: &Arc<Cred>, root: &Path, path: &str) -> Result<Spot, Errno> {
+    fn where_to_mount(
+        &self,
+        cred: &Arc<Cred>,
+        root: &Path,
+        path: &str,
+    ) -> Result<PinnedMountpoint, Errno> {
         let nd = match filename_lookup(cred, root, path, true) {
             Ok(nd) => nd,
             Err(errno) => {
                 let nd = filename_parentat(cred, root, path)?;
                 let dentry = lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last)?;
                 return match dentry.inode() {
-                    None => Ok(Spot {
+                    None => Ok(PinnedMountpoint {
                         parent: nd.mnt.clone(),
                         mountpoint: dentry,
                         trail: nd.trail,
@@ -119,7 +124,7 @@ impl MntNamespace {
         if dentry.file_type() != Ok(FileType::Dir) {
             return Err(Errno::NotADirectory);
         }
-        Ok(Spot {
+        Ok(PinnedMountpoint {
             parent: nd.mnt.clone(),
             mountpoint: dentry,
             trail: nd.trail,
@@ -150,12 +155,13 @@ impl MntNamespace {
             .map(|child| Arc::clone(&child.mnt))
     }
 
-    /// Whether the path of a mount of this namespace leads through `dentry`:
-    /// the mount stands on it or beneath it, or the walk placing the mount
-    /// stepped onto it or beneath it. A removal or a move asks it where Linux
-    /// asks `is_local_mountpoint`: each Invocation places a mount again by its
-    /// path, so such a name going would open what the mount hides to the next.
-    pub(crate) fn is_on_mount_path(&self, dentry: &Arc<Dentry>) -> bool {
+    /// Whether a mount of this namespace pins `dentry`, its path leading
+    /// through it: the mount stands on it or beneath it, or the walk placing
+    /// the mount stepped onto it or beneath it. A removal or a move asks it
+    /// where Linux asks `is_local_mountpoint`: each Invocation places a mount
+    /// again by its path, so a pinned name going would open what the mount
+    /// hides to the next.
+    pub(crate) fn pins(&self, dentry: &Arc<Dentry>) -> bool {
         self.mounted.iter().any(|child| {
             child.mountpoint.is_subdir(dentry)
                 || child.trail.iter().any(|stepped| stepped.is_subdir(dentry))
