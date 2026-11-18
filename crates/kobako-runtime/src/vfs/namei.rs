@@ -1301,7 +1301,7 @@ pub(crate) fn vfs_rename(cred: &Cred, sb: &SuperBlock, rd: &RenameData) -> Resul
         flags,
     )?;
     let mnt_ns = cred.mnt_ns();
-    if mnt_ns.is_local_mountpoint(old) || mnt_ns.is_local_mountpoint(new) {
+    if mnt_ns.holds_mountpoint(old) || mnt_ns.holds_mountpoint(new) {
         return Err(Errno::ResourceBusy);
     }
     old_dir

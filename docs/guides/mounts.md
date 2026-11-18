@@ -53,7 +53,7 @@ mount, however it spells the path.
 | a later one over a directory above it | no mount, as it is hidden |
 | no such name in the outer one | the mount all the same |
 | two landing on one directory | the deeper path's, else the later one |
-| a directory above it renamed | the mount moving with it |
+| a rename of or onto a directory above it | `Errno::EBUSY`, as each run places it by its path |
 | a removal or rename of it | `Errno::EBUSY`, once a Policy allows it |
 | a rename to its own name | nothing changed |
 

@@ -159,6 +159,16 @@ impl MntNamespace {
                 .any(|child| Arc::ptr_eq(&child.mountpoint, dentry))
     }
 
+    /// Whether a mount of this namespace stands on `dentry` or beneath it. A
+    /// rename asks it where Linux asks `is_local_mountpoint`: each Invocation
+    /// places a mount again by its path, so a directory above one moving would
+    /// open what it hides to the next Invocation.
+    pub(crate) fn holds_mountpoint(&self, dentry: &Arc<Dentry>) -> bool {
+        self.mounted
+            .iter()
+            .any(|child| child.mountpoint.is_subdir(dentry))
+    }
+
     /// Whether any mount stands beneath `mnt`, as Linux finds its `mnt_mounts`
     /// not empty.
     pub(crate) fn has_children(&self, mnt: &Arc<VfsMount>) -> bool {

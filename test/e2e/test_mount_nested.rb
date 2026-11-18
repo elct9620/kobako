@@ -99,14 +99,15 @@ class TestE2EMountNested < Minitest::Test
   end
 
   # @behavior MT-038
-  def test_a_nested_mount_moves_with_a_directory_above_it
+  def test_a_directory_above_a_nested_mount_refuses_to_move
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
                              .mount("/data", Kobako::Filesystem::Tmpfs.new("a/b/note" => "outer"), access: :read_write)
                              .mount("/data/a/b", Kobako::Filesystem::Tmpfs.new("note" => "inner"), access: :read)
-    script = 'File.rename("/data/a", "/data/c"); File.read("/data/c/b/note")'
+    script = 'moved = begin; File.rename("/data/a", "/data/c"); :moved; rescue Errno::EBUSY; :ebusy; end; ' \
+             '[moved, File.read("/data/a/b/note")]'
 
-    assert_equal "inner", sandbox.eval(script).value,
-                 "File.read beneath a directory renamed above a nested Sandbox#mount must reach that mount"
+    assert_equal [:ebusy, "inner"], sandbox.eval(script).value,
+                 "File.rename of a directory above a nested Sandbox#mount must raise EBUSY and leave the mount reached"
   end
 
   # @behavior MT-035
@@ -120,18 +121,6 @@ class TestE2EMountNested < Minitest::Test
     outer_alone = Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/outer", outer, access: :read)
     assert_equal [".keep"], outer_alone.eval('Dir.children("/outer/inner")').value,
                  "the writable Tmpfs beneath a read-only nested Sandbox#mount must hold no inner/new"
-  end
-
-  # @behavior MT-052
-  def test_a_path_a_moved_directory_left_behind_reaches_no_mount
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-                             .mount("/data", Kobako::Filesystem::Tmpfs.new("p/x/.keep" => ""), access: :read_write)
-                             .mount("/data/p/x", Kobako::Filesystem::Tmpfs.new(INNER), access: :read)
-    script = 'File.rename("/data/p", "/data/r"); ' \
-             '%w[/data/p/x /data/r/x].map { |dir| begin; File.read(dir + "/note"); rescue => e; e.class.to_s; end }'
-
-    assert_equal %w[Errno::ENOENT inner], sandbox.eval(script).value,
-                 "after File.rename of a directory above a nested Sandbox#mount, its old path must reach nothing"
   end
 
   # @behavior MT-053
