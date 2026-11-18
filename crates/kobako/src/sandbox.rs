@@ -184,8 +184,8 @@ impl Sandbox {
     /// `at`, where the guest's `File` reaches it with `access`; a write
     /// beneath a read-only mount fails as `Errno::EROFS` in the guest. One
     /// instance mounted twice is shared, as a bind mount is. A path may sit
-    /// beneath another Mount, and the guest reaches the innermost one. A
-    /// malformed or duplicate path is refused, and so is a runtime that
+    /// beneath another Mount, standing where Linux's `mount` would place it,
+    /// and a run fails where Linux would refuse it. A malformed or duplicate path is refused, and so is a runtime that
     /// presents no filesystem to the guest. Refused once sealed.
     pub fn mount(
         &mut self,

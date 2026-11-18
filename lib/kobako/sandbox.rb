@@ -95,8 +95,8 @@ module Kobako
     # or a StandardError, fails that call as <tt>Errno::EACCES</tt> in the
     # guest and leaves the script running.
     #
-    # A path may sit beneath another mount, and the guest reaches the
-    # innermost one.
+    # A path may sit beneath another mount, standing where Linux's +mount+
+    # would place it, and a run fails where Linux would refuse it.
     #
     # Raises TypeError for a path that is no String or something other than
     # a Filesystem, ArgumentError for a malformed or duplicate path or an
