@@ -328,9 +328,9 @@ impl Nameidata {
     /// answers: busy where a mount stands all the same, which Linux never lets
     /// one do, as on a name that stands; else ENOENT.
     fn missing_errno(&self, dentry: &Arc<Dentry>) -> Errno {
-        match self.lookup_mnt(dentry) {
-            Some(_) => Errno::ResourceBusy,
-            None => Errno::NotFound,
+        match dentry.inode().is_none() && self.lookup_mnt(dentry).is_some() {
+            true => Errno::ResourceBusy,
+            false => Errno::NotFound,
         }
     }
 
