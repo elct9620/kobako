@@ -10,7 +10,7 @@ use std::sync::Arc;
 use crate::cred::Cred;
 use crate::grant::Grant;
 use crate::memcg::MemoryBudget;
-use crate::mount::{Mount, UnplacedMount};
+use crate::mount::{Mount, UnplacedMountError};
 use crate::vfs::{d_revalidate, Dentry, FMode, FileType, MntNamespace, OpenHow, Path, VfsMount};
 use crate::Errno;
 
@@ -153,7 +153,7 @@ pub fn prepare_creds(
 pub fn restrict_self<'a>(
     cred: &Cred,
     grants: impl IntoIterator<Item = &'a Grant>,
-) -> Result<Arc<Cred>, UnplacedMount> {
+) -> Result<Arc<Cred>, UnplacedMountError> {
     let grants: Vec<&Grant> = grants.into_iter().collect();
     let mounts = grants.iter().filter_map(|grant| match grant {
         Grant::Mount(mount) => Some((mount.at(), mount.mnt())),

@@ -112,12 +112,12 @@ impl Mount {
 /// A Mount Linux's `mount` refuses to place, as its walk fails or lands on no
 /// directory: its guest path, and the errno Linux refuses it with.
 #[derive(Debug)]
-pub struct UnplacedMount {
+pub struct UnplacedMountError {
     pub at: String,
     pub errno: Errno,
 }
 
-impl fmt::Display for UnplacedMount {
+impl fmt::Display for UnplacedMountError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self.errno.posix_name() {
             Some(name) => write!(f, "the Mount at {:?} stands nowhere: {name}", self.at),
@@ -130,7 +130,7 @@ impl fmt::Display for UnplacedMount {
     }
 }
 
-impl std::error::Error for UnplacedMount {}
+impl std::error::Error for UnplacedMountError {}
 
 /// The Mounts among `mounts` no other one's path holds, the roots every guest
 /// path starts from. One beneath another is reached only by a walk into it, so

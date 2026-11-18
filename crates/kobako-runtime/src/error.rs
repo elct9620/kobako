@@ -7,6 +7,7 @@
 
 use std::fmt;
 
+use crate::mount::UnplacedMountError;
 use crate::network::EntryError;
 
 /// A guest invocation that faulted in the wasm engine, or a host-detected
@@ -66,6 +67,14 @@ pub enum InvokeError {
 impl From<EntryError> for InvokeError {
     fn from(err: EntryError) -> Self {
         InvokeError::Entry(err)
+    }
+}
+
+/// A Mount Linux's `mount` refuses fails the run before the guest starts,
+/// with the runtime still live, as a container fails to start.
+impl From<UnplacedMountError> for InvokeError {
+    fn from(err: UnplacedMountError) -> Self {
+        InvokeError::Setup(SetupError::Intact(err.to_string()))
     }
 }
 

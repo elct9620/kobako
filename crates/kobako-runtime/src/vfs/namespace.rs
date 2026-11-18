@@ -11,7 +11,7 @@ use super::namei::{filename_lookup, filename_parentat, lookup_dentry};
 use super::path::Path;
 use crate::cred::Cred;
 use crate::filesystem::FileType;
-use crate::mount::{outermost_holder_of, UnplacedMount};
+use crate::mount::{outermost_holder_of, UnplacedMountError};
 use crate::Errno;
 
 /// One mount standing on a dentry of another, as Linux's `struct mount` keeps
@@ -51,7 +51,7 @@ impl MntNamespace {
     pub(crate) fn new<'a>(
         cred: &Arc<Cred>,
         mounts: impl IntoIterator<Item = (&'a str, &'a Arc<VfsMount>)>,
-    ) -> Result<Self, UnplacedMount> {
+    ) -> Result<Self, UnplacedMountError> {
         let mut mounts: Vec<_> = mounts.into_iter().collect();
         mounts.sort_by_key(|(at, _)| at.split('/').filter(|name| !name.is_empty()).count());
         let mut namespace = Self::default();
@@ -64,7 +64,7 @@ impl MntNamespace {
             let root = Path::root(&namespace.topmost_mount_of(root));
             let spot = namespace
                 .where_to_mount(&walker, &root, path)
-                .map_err(|errno| UnplacedMount {
+                .map_err(|errno| UnplacedMountError {
                     at: at.to_string(),
                     errno,
                 })?;

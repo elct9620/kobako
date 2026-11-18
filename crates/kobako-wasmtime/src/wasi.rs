@@ -11,7 +11,7 @@ use crate::ambient::{self, Clocks};
 use crate::config::Config;
 use crate::preview1::descriptors::{Descriptors, FileRef, FileRefMut};
 use crate::preview2;
-use kobako_runtime::error::{InvokeError, SetupError, Trap};
+use kobako_runtime::error::{InvokeError, Trap};
 use kobako_runtime::snapshot::Capture;
 use std::sync::Arc;
 
@@ -174,8 +174,7 @@ impl Wasi {
         // `landlock_restrict_self`, so a Policy judges only what the guest
         // asks for; the guest's Cred, with the hooks `restrict_self` adds,
         // decides what each walk reaches from there.
-        let cred = restrict_self(&opener, grants)
-            .map_err(|unplaced| SetupError::Intact(unplaced.to_string()))?;
+        let cred = restrict_self(&opener, grants)?;
         let descriptors = Descriptors::new(
             create_pipe_files(&PipeInodeInfo::from_bytes(stdin), &opener).0,
             create_pipe_files(&stdout, &opener).1,
