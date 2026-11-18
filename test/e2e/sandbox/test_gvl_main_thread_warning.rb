@@ -21,13 +21,16 @@ class TestE2EGvlMainThreadWarning < Minitest::Test
     off_main = $stderr.string.scan("main Thread").size
     2.times { sandbox.eval("1") }
     Thread.new { sandbox.eval("1") }.join
-    print [off_main, $stderr.string.scan("main Thread").size].inspect
+    warned = $stderr.string
+    print [off_main, warned.scan("main Thread").size, warned.include?("trap handler"),
+           warned.include?("Ractor's require")].inspect
   RUBY
 
   # @behavior S-220
   def test_a_run_releasing_the_gvl_on_the_main_thread_warns_once
-    assert_equal "[0, 1]", run_ruby(CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 20),
+    assert_equal "[0, 1, true, true]", run_ruby(CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 20),
                  "Sandbox#eval with gvl: :release must warn nothing on another Thread, and warn once over two " \
-                 "runs on the main Thread and one more on another Thread"
+                 "runs on the main Thread and one more on another Thread, naming a trap handler and a Ractor's " \
+                 "require"
   end
 end
