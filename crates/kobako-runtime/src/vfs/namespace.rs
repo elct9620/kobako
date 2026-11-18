@@ -10,7 +10,6 @@ use super::mount::VfsMount;
 use super::namei::{filename_lookup, filename_parentat, lookup_dentry};
 use super::path::Path;
 use crate::cred::Cred;
-use crate::Errno;
 
 /// One mount standing on a dentry of another, as Linux's `struct mount` keeps
 /// `mnt_parent` and `mnt_mountpoint`. The mount point is held while the mount
@@ -27,8 +26,9 @@ impl Drop for Mounted {
     }
 }
 
-/// The mounts one Invocation reaches, each under the one whose path holds its
-/// own nearest, as Linux's `mnt_namespace` links each mount to its parent.
+/// The mounts one Invocation reaches, each standing on a dentry of the mount
+/// its path's walk landed in, as Linux's `mnt_namespace` links each mount to
+/// its parent.
 #[derive(Default)]
 pub(crate) struct MntNamespace {
     mounted: Vec<Arc<Mounted>>,
@@ -81,7 +81,11 @@ impl MntNamespace {
 
     /// Where a mount at `path` beneath the root of `root` stands, as `cred`
     /// walks it: the mount and the dentry, or where a mount the walk landed on
-    /// stands, so the new one stands over it.
+    /// stands, so the new one stands over it. A walk that fails at the link it
+    /// follows, or lands on a root no mount of this namespace stands on, such
+    /// as the outermost mount's, leaves the mount on the name `path` spells, so
+    /// a preopen and a walk still meet it there; none stands where a directory
+    /// above that name stands nowhere.
     fn get_mountpoint(
         &self,
         cred: &Arc<Cred>,
@@ -90,26 +94,22 @@ impl MntNamespace {
     ) -> Option<(Arc<VfsMount>, Arc<Dentry>)> {
         let path = path.trim_start_matches('/');
         let root = Path::root(root);
-        match filename_lookup(cred, &root, path, true) {
-            Ok(nd) => {
-                let dentry = nd.path().ok()?;
-                let under = self
-                    .mounted
-                    .iter()
-                    .rfind(|child| Arc::ptr_eq(&child.mnt, &nd.mnt))
-                    .filter(|_| Arc::ptr_eq(&dentry, nd.mnt.root()));
-                Some(match under {
-                    Some(child) => (Arc::clone(&child.parent), Arc::clone(&child.mountpoint)),
-                    None => (nd.mnt.clone(), dentry),
-                })
+        if let Ok(nd) = filename_lookup(cred, &root, path, true) {
+            let dentry = nd.path().ok()?;
+            if !Arc::ptr_eq(&dentry, nd.mnt.root()) {
+                return Some((nd.mnt.clone(), dentry));
             }
-            Err(Errno::NotFound | Errno::Escape) => {
-                let nd = filename_parentat(cred, &root, path).ok()?;
-                let dentry = lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last).ok()?;
-                Some((nd.mnt.clone(), dentry))
+            if let Some(child) = self
+                .mounted
+                .iter()
+                .rfind(|child| Arc::ptr_eq(&child.mnt, &nd.mnt))
+            {
+                return Some((Arc::clone(&child.parent), Arc::clone(&child.mountpoint)));
             }
-            Err(_) => None,
         }
+        let nd = filename_parentat(cred, &root, path).ok()?;
+        let dentry = lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last).ok()?;
+        Some((nd.mnt.clone(), dentry))
     }
 
     /// The mount a walk to where `mnt` stands steps onto: the last made of

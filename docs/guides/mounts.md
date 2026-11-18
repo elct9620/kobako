@@ -48,7 +48,7 @@ however it spells the path, through a link too.
 |---|---|
 | a path ending at a link | the mount on the directory the link leads to |
 | no such name in the outer one | the mount all the same |
-| two landing on one directory | the later one |
+| two landing on one directory | the deeper path's, else the later one |
 | a directory above it renamed | the mount moving with it |
 | a removal or rename of it | `Errno::EBUSY`, once a Policy allows it |
 | a rename to its own name | nothing changed |

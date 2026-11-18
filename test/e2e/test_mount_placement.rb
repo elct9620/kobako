@@ -69,4 +69,26 @@ class TestE2EMountPlacement < Minitest::Test
     assert_equal ["inner"], read_notes(sandbox, %w[/data/./a/b]),
                  "a Sandbox#mount nested beneath one made after it must still be reached"
   end
+
+  # @behavior MT-045
+  def test_a_mount_whose_link_leads_nowhere_it_can_stand_stays_on_its_name
+    skip "this host makes no links" if Gem.win_platform?
+    { "inner" => ".", "loop" => "loop" }.each do |name, target|
+      TestPaths.host_directory do |host|
+        assert_equal %w[inner inner outer], read_notes(at_link_to(host, name, target),
+                                                       ["/data/#{name}", "/data/./#{name}", "/data"]),
+                     "a Sandbox#mount at a link leading to its parent's root or to itself must stand on its name"
+      end
+    end
+  end
+
+  # A Sandbox with a Bind over +host+ at +/data+ holding +note+ and a link
+  # +name+ to +target+, and a Tmpfs holding +note+ "inner" at that link.
+  def at_link_to(host, name, target)
+    File.write(File.join(host, "note"), "outer")
+    File.symlink(target, File.join(host, name))
+    Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                   .mount("/data", Kobako::Filesystem::Bind.new(host), access: :read)
+                   .mount("/data/#{name}", Kobako::Filesystem::Tmpfs.new("note" => "inner"), access: :read)
+  end
 end

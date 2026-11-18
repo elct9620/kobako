@@ -542,3 +542,15 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Sandbox mounting a Tmpfs holding `note` at `/data/a/b`, then a Tmpfs holding `b/` at `/data/a`, then one at `/data` |
 | When | the script reads `/data/./a/b/note` |
 | Then | it reads the inner Tmpfs's note, as a container runtime mounts a parent before its children |
+
+## `MT-045` A mount whose link leads nowhere it can stand stays on its name
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-041` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data` holding `note` and a link to `.` or to itself, with a Tmpfs at the link |
+| When | the script reads `note` beneath the link through its preopen's path and through `/data/./` |
+| Then | both read the Tmpfs's note, and `/data/note` the Bind's, as a mount stands on the name its path spells |

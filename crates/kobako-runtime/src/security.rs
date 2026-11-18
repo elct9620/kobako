@@ -147,8 +147,8 @@ pub fn prepare_creds(
 /// added, the modules it held and the memory held on its behalf shared, so
 /// what either Cred charges counts against one limit, as
 /// `landlock_restrict_self` adds a domain ruling both paths and ports. Its
-/// mount namespace holds the Mounts among `grants`, each beneath the one whose
-/// path holds it, so a walk reaching one by any spelling steps onto it.
+/// mount namespace holds the Mounts among `grants`, each where Linux's `mount`
+/// would place it, so a walk reaching one by any spelling steps onto it.
 pub fn restrict_self<'a>(cred: &Cred, grants: impl IntoIterator<Item = &'a Grant>) -> Arc<Cred> {
     let grants: Vec<&Grant> = grants.into_iter().collect();
     let mounts = grants.iter().filter_map(|grant| match grant {
