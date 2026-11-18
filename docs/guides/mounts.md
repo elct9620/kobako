@@ -37,12 +37,23 @@ end
 Every Invocation reaches the same Filesystem, so a run that must start empty
 replaces the mount with its own Tmpfs through `ctx.mount`. `ctx.mount` replaces
 only a path already mounted. Mounts seal with the Sandbox, and a mount may sit
-inside another. The guest reaches the innermost one however it spells the path,
-through a link too. A nested mount hides what the outer one holds by its name,
-and needs no directory there. A removal or rename of it raises `Errno::EBUSY`.
-Where the outer one holds its name, a Policy refusing the change answers first,
-and a rename to its own name changes nothing. A nested mount moves with a
-directory above it that is renamed.
+inside another.
+
+### Nested Mounts
+
+A nested mount stands where Linux would place it, and the guest reaches it
+however it spells the path, through a link too.
+
+| Case | The guest sees |
+|---|---|
+| a path ending at a link | the mount on the directory the link leads to |
+| no such name in the outer one | the mount all the same |
+| two landing on one directory | the later one |
+| a directory above it renamed | the mount moving with it |
+| a removal or rename of it | `Errno::EBUSY`, once a Policy allows it |
+| a rename to its own name | nothing changed |
+
+A mount whose outer one holds no such name is busy before any Policy answers.
 
 ### Tmpfs Bounds
 

@@ -172,16 +172,16 @@ impl Wasi {
         // `landlock_restrict_self`, so a Policy judges only what the guest
         // asks for. The order is all this sets up: `restrict_self` and the
         // hooks it adds decide what the Cred reaches.
+        let cred = restrict_self(&opener, grants);
         let descriptors = Descriptors::new(
             create_pipe_files(&PipeInodeInfo::from_bytes(stdin), &opener).0,
             create_pipe_files(&stdout, &opener).1,
             create_pipe_files(&stderr, &opener).1,
             &mounts,
             &mut table,
-            &opener,
+            (&opener, &cred),
         )
         .map_err(|err| Trap::Other(format!("a Mount's root did not open: {err:?}")))?;
-        let cred = restrict_self(&opener, grants);
         let walk_guard = WalkGuard::new(mounts);
 
         let mut builder = WasiCtxBuilder::new();

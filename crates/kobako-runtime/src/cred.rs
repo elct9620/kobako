@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::memcg::MemoryBudget;
 use crate::profile::Profile;
 use crate::security::SecurityOperations;
-use crate::vfs::MntNamespace;
+use crate::vfs::{MntNamespace, VfsMount};
 
 /// Who a call is made for, holding the security modules registered for it, as
 /// `cred->security` holds a Landlock domain, and the memory budget the host
@@ -74,13 +74,19 @@ impl Cred {
 
     /// This Cred with `mnt_ns` as its mount namespace, as a task that unshared
     /// its mounts holds a namespace of its own.
-    pub(crate) fn with_mnt_ns(&self, mnt_ns: MntNamespace) -> Arc<Self> {
+    pub(crate) fn with_mnt_ns(&self, mnt_ns: Arc<MntNamespace>) -> Arc<Self> {
         Arc::new(Self {
             security: self.security.clone(),
             memory: self.memory.clone(),
             profile: self.profile,
-            mnt_ns: Arc::new(mnt_ns),
+            mnt_ns,
         })
+    }
+
+    /// The mount a walk to where `mnt` stands steps onto: the last made of the
+    /// mounts standing there, as Linux shows the one mounted over the rest.
+    pub fn topmost_mount_of(&self, mnt: &Arc<VfsMount>) -> Arc<VfsMount> {
+        self.mnt_ns.topmost_of(mnt)
     }
 
     /// This Cred seeing entries as `profile` does, as a task's credentials

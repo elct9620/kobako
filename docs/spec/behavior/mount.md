@@ -28,6 +28,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 - `test/e2e/test_mount.rb`
 - `test/e2e/test_mount_nested.rb`
 - `test/e2e/test_mount_point.rb`
+- `test/e2e/test_mount_placement.rb`
 - `test/e2e/test_host_exception.rb`
 - `test/e2e/test_mount_limit.rb`
 - `test/e2e/test_mount_rename.rb`
@@ -493,3 +494,51 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Sandbox with a writable Tmpfs holding `inner` at `/data`, and a Tmpfs holding `note` at `/data/inner` |
 | When | the script renames `/data/./inner` to the same name and reads `/data/inner/note` |
 | Then | the rename returns 0 and the read finds the inner note. Linux changes nothing on a rename to the same name |
+
+## `MT-041` A mount whose last name is a link stands where the link leads
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-033` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data` holding `real/note` and a link `inner` to `real`, and a Tmpfs at `/data/inner` |
+| When | the script reads `note` through `/data/inner`, `/data/./inner`, and `/data/real` |
+| Then | each reads the Tmpfs's note, as Linux's `mount` follows a link at its last name |
+
+## `MT-042` Two mounts landing on one directory show the later
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-041` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data` holding `real/` and a link `inner` to `real`, a Tmpfs at `/data/inner`, then another at `/data/real` |
+| When | the script reads `note` through `/data/inner`, `/data/./inner`, `/data/real`, and `/data/./real` |
+| Then | each reads the later Tmpfs's note, as a later Linux mount on a directory hides the earlier |
+
+## `MT-043` A mount beneath a hidden one stands in the mount over it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-042` |
+
+| Step | Statement |
+| --- | --- |
+| Given | the Sandbox of MT-042, then a third Tmpfs holding `note` at `/data/inner/x` |
+| When | the script reads `x/note` through `/data/inner` and `/data/./real` |
+| Then | each reads the third Tmpfs's note, as Linux walks a mount's path through the mounts before it |
+
+## `MT-044` A nested mount made before its parent stands beneath it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-033` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox mounting a Tmpfs holding `note` at `/data/a/b`, then a Tmpfs holding `b/` at `/data/a`, then one at `/data` |
+| When | the script reads `/data/./a/b/note` |
+| Then | it reads the inner Tmpfs's note, as a container runtime mounts a parent before its children |

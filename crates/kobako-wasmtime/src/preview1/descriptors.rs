@@ -83,15 +83,16 @@ impl Descriptors {
     /// The table every invocation starts from: stdin, then the two
     /// Channels, then one preopen per Mount among `mounts`, from descriptor
     /// 3. Each counts against the open files in `table`, as a process's
-    /// `RLIMIT_NOFILE` counts every one it holds. Each Mount's root opens as
-    /// `opener`, the Cred the Driver prepared.
+    /// `RLIMIT_NOFILE` counts every one it holds. Each opens, as `opener`, the
+    /// Cred the Driver prepared, the root of the mount a walk to its path
+    /// reaches for `guest`, so a preopen and a walk agree on what a path holds.
     pub(crate) fn new(
         stdin: File,
         stdout: File,
         stderr: File,
         mounts: &[&Mount],
         table: &mut Table,
-        opener: &Arc<Cred>,
+        (opener, guest): (&Arc<Cred>, &Arc<Cred>),
     ) -> Result<Self, Errno> {
         let mut used = BTreeMap::new();
         let input = InputStream::new(Stream::from(stdin));
@@ -102,7 +103,7 @@ impl Descriptors {
             used.insert(fd, Descriptor::for_stream(Resource::Output(output)));
         }
         for (fd, mount) in (3..).zip(mounts) {
-            let root = File::root(mount.mnt(), opener)?;
+            let root = File::root(&guest.topmost_mount_of(mount.mnt()), opener)?;
             used.insert(
                 fd,
                 Descriptor {
@@ -274,7 +275,7 @@ mod tests {
             pipe_end(),
             &[],
             &mut table,
-            &prepare_creds(&[], None),
+            (&prepare_creds(&[], None), &prepare_creds(&[], None)),
         )
         .unwrap_or_else(|_| panic!("a table holding no Mount must make"));
         let mut open = |descriptors: &mut Descriptors| {
