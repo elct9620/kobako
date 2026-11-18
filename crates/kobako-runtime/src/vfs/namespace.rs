@@ -43,8 +43,9 @@ impl MntNamespace {
     /// up with `LOOKUP_FOLLOW`, never above that root. Shallower paths go
     /// first, as a container runtime mounts a parent before its children, and
     /// of two landing where one stands, the later stands over the earlier. A
-    /// mount stands only where a walk of its own path reaches it once placed,
-    /// so a preopen and a walk meet it at every spelling: a link leading out
+    /// mount stands only where a walk of its own path reaches it, asked again
+    /// as each later mount is placed, so a preopen and a walk meet it at every
+    /// spelling: a link leading out
     /// of that root, back to it, to nothing, to no directory, or through a
     /// mount it then stands over leaves the mount on the name its path
     /// spells. The last name may stand for nothing, which Linux
@@ -57,6 +58,7 @@ impl MntNamespace {
         let mut mounts: Vec<_> = mounts.into_iter().collect();
         mounts.sort_by_key(|(at, _)| at.split('/').filter(|name| !name.is_empty()).count());
         let mut placed = Self::default();
+        let mut walked = Vec::new();
         for &(at, mnt) in &mounts {
             let Some((root_at, root)) = mounts
                 .iter()
@@ -72,16 +74,39 @@ impl MntNamespace {
                 continue;
             };
             placed.mount(spot, mnt);
-            if !placed.reaches(cred, &root, path, mnt) {
-                placed.umount();
-                let walker = placed.walker(cred);
-                let Some(spot) = name_spot(&walker, &root, path) else {
-                    continue;
-                };
-                placed.mount(spot, mnt);
-            }
+            walked.push((root, path, mnt));
+            placed.settle(cred, &mut walked);
         }
         placed
+    }
+
+    /// Move onto its name each mount in `walked` a walk of its own path no
+    /// longer reaches, as a mount placed since covered a directory its link
+    /// ran through, until none moves; each moves at most once, and leaves
+    /// `walked` as it does.
+    fn settle(&mut self, cred: &Arc<Cred>, walked: &mut Vec<(Path, &str, &Arc<VfsMount>)>) {
+        while let Some(at) = walked
+            .iter()
+            .position(|(root, path, mnt)| !self.reaches(cred, root, path, mnt))
+        {
+            let (root, path, mnt) = walked.swap_remove(at);
+            let Some(index) = self
+                .mounted
+                .iter()
+                .position(|child| Arc::ptr_eq(&child.mnt, mnt))
+            else {
+                continue;
+            };
+            let Some((parent, mountpoint)) = name_spot(&self.walker(cred), &root, path) else {
+                continue;
+            };
+            mountpoint.d_set_mounted();
+            self.mounted[index] = Arc::new(Mounted {
+                parent,
+                mountpoint,
+                mnt: Arc::clone(mnt),
+            });
+        }
     }
 
     /// `cred` walking through the mounts placed so far.
@@ -101,16 +126,14 @@ impl MntNamespace {
         }));
     }
 
-    /// Take back the mount placed last, as Linux's `umount` does.
-    fn umount(&mut self) {
-        self.mounted.pop();
-    }
-
     /// Whether a walk of `path` beneath `root` through the mounts placed so
-    /// far, following a link at its end, lands on the root of `mnt`.
+    /// far, following a link at its end, lands on the root of what a preopen
+    /// of `mnt` opens: `mnt`, or the mount standing over it.
     fn reaches(&self, cred: &Arc<Cred>, root: &Path, path: &str, mnt: &Arc<VfsMount>) -> bool {
+        let shown = self.topmost_of(mnt);
         filename_lookup(&self.walker(cred), root, path, true).is_ok_and(|nd| {
-            Arc::ptr_eq(&nd.mnt, mnt) && nd.path().is_ok_and(|end| Arc::ptr_eq(&end, mnt.root()))
+            Arc::ptr_eq(&nd.mnt, &shown)
+                && nd.path().is_ok_and(|end| Arc::ptr_eq(&end, shown.root()))
         })
     }
 

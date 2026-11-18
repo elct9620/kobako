@@ -566,3 +566,15 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Bind at `/data` holding a link `x` to `m/sub/..`, a Tmpfs holding `sub/` at `/data/m`, and another at `/data/x` |
 | When | the script reads `note` through `/data/x` and `/data/./x` |
 | Then | both read the Tmpfs at `/data/x`, since standing over `/data/m` would leave its own path leading nowhere |
+
+## `MT-047` A mount stays reached when a later one covers its link's path
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-046` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data` linking `a` to `q/t`, then Tmpfs A at `/data/a`, Q at `/data/q`, S at `/data/a/s` |
+| When | the script reads `note` through `/data/a`, `/data/./a`, `/data/a/s`, and `/data/./a/s` |
+| Then | each reads A's note, then S's beneath. Q leaves A's link leading nowhere, so A moves onto the link |

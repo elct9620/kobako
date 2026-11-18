@@ -114,4 +114,26 @@ class TestE2EMountPlacement < Minitest::Test
                    .mount("/data/m", Kobako::Filesystem::Tmpfs.new("sub/.keep" => ""), access: :read)
                    .mount("/data/x", Kobako::Filesystem::Tmpfs.new("note" => "inner"), access: :read)
   end
+
+  # @behavior MT-047
+  def test_a_mount_stays_reached_when_a_later_one_covers_its_links_path
+    skip "this host makes no links" if Gem.win_platform?
+    TestPaths.host_directory do |host|
+      assert_equal %w[A A S S], read_notes(covered_later(host), %w[/data/a /data/./a /data/a/s /data/./a/s]),
+                   "a Sandbox#mount whose link's path a later one covers must be reached by every spelling"
+    end
+  end
+
+  # A Sandbox with a Bind over +host+ at +/data+ whose link +a+ leads to
+  # +q/t+, Tmpfs A at +/data/a+, then Q at +/data/q+, then S at +/data/a/s+.
+  def covered_later(host)
+    FileUtils.mkdir_p(File.join(host, "q", "t"))
+    File.symlink("q/t", File.join(host, "a"))
+    tmpfs = Kobako::Filesystem::Tmpfs
+    Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                   .mount("/data", Kobako::Filesystem::Bind.new(host), access: :read)
+                   .mount("/data/a", tmpfs.new("note" => "A", "s/.keep" => ""), access: :read)
+                   .mount("/data/q", tmpfs.new("note" => "Q"), access: :read)
+                   .mount("/data/a/s", tmpfs.new("note" => "S"), access: :read)
+  end
 end
