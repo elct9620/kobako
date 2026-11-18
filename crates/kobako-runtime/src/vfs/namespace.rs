@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::dentry::Dentry;
 use super::mount::VfsMount;
-use super::namei::filename_lookup;
+use super::namei::filename_lookup_keeping_trail;
 use super::path::Path;
 use crate::cred::Cred;
 use crate::filesystem::FileType;
@@ -103,7 +103,7 @@ impl MntNamespace {
         root: &Path,
         path: &str,
     ) -> Result<PinnedMountpoint, Errno> {
-        let nd = filename_lookup(cred, root, path, true)?;
+        let nd = filename_lookup_keeping_trail(cred, root, path)?;
         let dentry = nd.path()?;
         if dentry.file_type() != Ok(FileType::Dir) {
             return Err(Errno::NotADirectory);

@@ -64,9 +64,11 @@ pub(crate) struct Nameidata {
     /// `total_link_count` carries into a walk made again for ESTALE.
     total_link_count: Rc<Cell<usize>>,
     /// Each dentry this walk stepped onto by a name, a link it followed
-    /// included, so a mount placed by it holds the names its path leads
-    /// through.
+    /// included, kept only for a walk placing a mount, so the mount holds the
+    /// names its path leads through.
     pub(crate) trail: Vec<Arc<Dentry>>,
+    /// Whether this walk keeps its `trail`.
+    keeps_trail: bool,
     /// The last name, as Linux's `nd->last`, empty unless it is a `Norm` one.
     pub(crate) last: String,
     last_type: LastType,
@@ -352,7 +354,7 @@ impl Nameidata {
     fn walk_component(&mut self, name: &str) -> Result<(), Errno> {
         let dentry = lookup_dentry(self.mnt.sb(), self.dentry(), name)?;
         if let Some(mnt) = self.lookup_mnt(&dentry) {
-            self.trail.push(dentry);
+            self.record_step(&dentry);
             self.traverse_mounts(mnt);
             return Ok(());
         }
@@ -360,7 +362,7 @@ impl Nameidata {
         match inode.file_type() {
             FileType::Symlink => self.pick_link(&dentry),
             FileType::Dir => {
-                self.trail.push(Arc::clone(&dentry));
+                self.record_step(&dentry);
                 self.dir = dentry;
                 Ok(())
             }
@@ -368,11 +370,18 @@ impl Nameidata {
         }
     }
 
+    /// Add `dentry` to the trail of a walk that keeps one.
+    fn record_step(&mut self, dentry: &Arc<Dentry>) {
+        if self.keeps_trail {
+            self.trail.push(Arc::clone(dentry));
+        }
+    }
+
     /// Walk on through where the link `dentry` names points, before
     /// whatever is left of the path.
     fn pick_link(&mut self, dentry: &Arc<Dentry>) -> Result<(), Errno> {
         self.total_link_count.set(self.total_link_count.get() + 1);
-        self.trail.push(Arc::clone(dentry));
+        self.record_step(dentry);
         if self.total_link_count.get() > MAXSYMLINKS {
             return Err(Errno::FilesystemLoop);
         }
@@ -728,6 +737,7 @@ fn set_nameidata(
         pending: parts(path),
         total_link_count: total_link_count.clone(),
         trail: Vec::new(),
+        keeps_trail: false,
         last: String::new(),
         last_type: LastType::Dot,
         trailing_slash: false,
@@ -790,6 +800,22 @@ pub(crate) fn filename_lookup(
 ) -> Result<Nameidata, Errno> {
     let total_link_count = Rc::default();
     walk_with_reval(|| path_lookupat(set_nameidata(cred, start, path, &total_link_count)?, follow))
+}
+
+/// `path` beneath `start` walked to what it names, following a last link, as
+/// `filename_lookup` walks it, keeping each dentry it steps onto by a name, as
+/// placing a mount asks.
+pub(crate) fn filename_lookup_keeping_trail(
+    cred: &Arc<Cred>,
+    start: &impl Start,
+    path: &str,
+) -> Result<Nameidata, Errno> {
+    let total_link_count = Rc::default();
+    walk_with_reval(|| {
+        let mut nd = set_nameidata(cred, start, path, &total_link_count)?;
+        nd.keeps_trail = true;
+        path_lookupat(nd, true)
+    })
 }
 
 /// Walk `nd` to what its path names, as Linux's `path_lookupat`.
