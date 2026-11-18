@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-baker-v0.20.0...kobako-baker-v0.21.0) (2026-11-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **transport:** a Guest Binary built against ABI 5 is refused at construction. Rebuild it against kobako-core, whose export_guest! emits the new names. kobako-transport drops ABI_VERSION as a u32, FRAME_LEN_SIZE, MAX_FRAME_LEN, pack_ptr_len, and unpack_ptr_len, and names the ABI through ABI_VERSION ("0.6.0"), GUEST_INTERFACE, HOST_INTERFACE, DOWNCALL, UPCALL, and PREAMBLE. kobako-core drops alloc; answer returns the return area's address.
+
+### Features
+
+* **transport:** carry the Guest ABI in the Canonical ABI's core shape ([34b9560](https://github.com/elct9620/kobako/commit/34b956001a05e15fe29febd7098b2ceb054e1bab))
+
 ## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-baker-v0.19.0...kobako-baker-v0.20.0) (2026-11-07)
 
 

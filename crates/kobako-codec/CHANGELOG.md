@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.20.0...kobako-codec-v0.21.0) (2026-11-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **guest:** call Kobako::handle_id_of, Kobako::backtrace_of,
+
+### Bug Fixes
+
+* **codec:** charge a map's NaN keys for the comparisons they cost a host ([62eead4](https://github.com/elct9620/kobako/commit/62eead43663705a16e78e00740ed73e79a3be76f))
+* **codec:** refuse a String or binary too long for a MessagePack length ([d699d50](https://github.com/elct9620/kobako/commit/d699d50982f1c00398ee21e7bc647f8436a57267))
+
+
+### Code Refactoring
+
+* **guest:** name the guest seams a Guest author calls by Rust's and the ABI's words ([f36c91d](https://github.com/elct9620/kobako/commit/f36c91db8bda69b5812a7982b6260b3a7d66abd6))
+
 ## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.19.0...kobako-codec-v0.20.0) (2026-11-07)
 
 

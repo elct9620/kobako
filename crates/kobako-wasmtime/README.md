@@ -29,7 +29,7 @@ Add the crate beside `kobako-runtime` to run a Guest Binary through its
 
 ```toml
 [dependencies]
-kobako-wasmtime = "0.20.0" # x-release-please-version
+kobako-wasmtime = "0.21.0" # x-release-please-version
 ```
 
 ## License

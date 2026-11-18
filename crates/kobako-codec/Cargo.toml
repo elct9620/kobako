@@ -14,7 +14,7 @@
 
 [package]
 name = "kobako-codec"
-version = "0.20.0"
+version = "0.21.0"
 edition = "2021"
 description = "Payload codecs for the kobako wire — the replaceable half that rides inside the Envelope, MessagePack by default."
 license = "Apache-2.0"
@@ -38,7 +38,7 @@ msgpack = ["dep:rmp", "dep:kobako-transport"]
 [dependencies]
 # The fixed tier, for the Capability Handle id range a namespace carrying
 # Handles holds to; it brings no dependency of its own.
-kobako-transport = { path = "../kobako-transport", version = "0.20.0", optional = true }
+kobako-transport = { path = "../kobako-transport", version = "0.21.0", optional = true }
 
 # `rmp` is the low-level (no-serde) Pure Rust MessagePack codec — the
 # Rust counterpart of the msgpack-ruby gem used on the host side. The

@@ -50,7 +50,7 @@ A third-party guest shell built on
 
 ```toml
 [dependencies]
-kobako-baker = "0.20.0" # x-release-please-version
+kobako-baker = "0.21.0" # x-release-please-version
 ```
 
 ```rust

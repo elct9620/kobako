@@ -1,5 +1,36 @@
 # Changelog
 
+## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-transport-v0.20.0...kobako-transport-v0.21.0) (2026-11-18)
+
+
+### ⚠ BREAKING CHANGES
+
+* **transport:** kobako_transport::envelope::Reply is CallReply.
+* **transport:** call Driver::from_file in place of Driver::new;
+* **transport:** a Guest Binary built against ABI 5 is refused at construction. Rebuild it against kobako-core, whose export_guest! emits the new names. kobako-transport drops ABI_VERSION as a u32, FRAME_LEN_SIZE, MAX_FRAME_LEN, pack_ptr_len, and unpack_ptr_len, and names the ABI through ABI_VERSION ("0.6.0"), GUEST_INTERFACE, HOST_INTERFACE, DOWNCALL, UPCALL, and PREAMBLE. kobako-core drops alloc; answer returns the return area's address.
+* **transport:** kobako_transport::abi::MAX_DISPATCH_PAYLOAD is renamed to MAX_MESSAGE_LEN; its value is unchanged.
+
+### Features
+
+* **transport:** carry the Guest ABI in the Canonical ABI's core shape ([34b9560](https://github.com/elct9620/kobako/commit/34b956001a05e15fe29febd7098b2ceb054e1bab))
+* **transport:** expose the Capability Handle id bound the Envelope holds ([8a48012](https://github.com/elct9620/kobako/commit/8a48012cbac62c6a4a67c0c47664ee03a8089605))
+* **transport:** spell once the form of a name a guest interns ([95c10bc](https://github.com/elct9620/kobako/commit/95c10bcf7180fc0e5ef432a9935ce3f856c75c9f))
+* **transport:** spell once the names a Panic carries that a Frontend reads ([d1fb291](https://github.com/elct9620/kobako/commit/d1fb291082abcc376fc17d2f53b2e7d69dbf5da2))
+* **transport:** spell once the Service and entrypoint names a Panic carries ([fd09028](https://github.com/elct9620/kobako/commit/fd09028dee973397c66eb2029f7fd75bf6e7ee26))
+
+
+### Bug Fixes
+
+* **guest:** say a guest supports no block, as the glossary words an Unsupported ([3aa9a78](https://github.com/elct9620/kobako/commit/3aa9a7844780ba095fa2d197c3ab1a163a33dce6))
+* **transport:** refuse a Call target past the wire's Handle id range ([8a9b169](https://github.com/elct9620/kobako/commit/8a9b1694f96dc0769fff3251a76c3e1cb52a4866))
+
+
+### Code Refactoring
+
+* **transport:** load a Driver from its file, and read an origin as a lookup that may miss ([4ec8d79](https://github.com/elct9620/kobako/commit/4ec8d792ddf14bb21cfd36437b64b2389ee6df89))
+* **transport:** name a Call's reply CallReply beside YieldReply and CompileReply ([f34063e](https://github.com/elct9620/kobako/commit/f34063ee94edb723800b4a0670cf912aa1a445e0))
+* **transport:** name the message cap by what it bounds ([133e1c1](https://github.com/elct9620/kobako/commit/133e1c151506a1f41d5f2d17ac2678648c6ed262))
+
 ## [0.20.0](https://github.com/elct9620/kobako/compare/kobako-transport-v0.19.0...kobako-transport-v0.20.0) (2026-11-07)
 
 
