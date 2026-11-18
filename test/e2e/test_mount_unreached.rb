@@ -69,11 +69,13 @@ class TestE2EMountUnreached < Minitest::Test
   end
 
   # @behavior MT-051
-  def test_a_mount_whose_directories_above_it_stand_nowhere_fails_the_run
-    TestPaths.host_directory do |host|
-      error = assert_raises(Kobako::SandboxError) { bind_with(host, "/data/x/y" => INNER).eval("nil") }
-      assert_includes error.message, %("/data/x/y" stands nowhere: ENOENT),
-                      "Sandbox#eval with a mount beneath a directory its parent lacks must fail naming it"
+  def test_a_mount_whose_path_its_parent_lacks_fails_the_run
+    %w[/data/x /data/x/y].each do |at|
+      TestPaths.host_directory do |host|
+        error = assert_raises(Kobako::SandboxError) { bind_with(host, at => INNER).eval("nil") }
+        assert_includes error.message, %("#{at}" stands nowhere: ENOENT),
+                        "Sandbox#eval with a mount at #{at}, which its parent lacks, must fail naming it"
+      end
     end
   end
 end

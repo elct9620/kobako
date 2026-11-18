@@ -41,24 +41,21 @@ inside another.
 
 ### Nested Mounts
 
-A nested mount stands where Linux would place it, or on a name the outer one
-lacks. The guest reaches what stands at a path by a walk from the outermost
-mount, however it spells the path.
+A nested mount stands where Linux would place it. The guest reaches what
+stands at a path by a walk from the outermost mount, however it spells the
+path.
 
 | Case | The guest sees |
 |---|---|
 | a path ending at a link | the mount where the link leads |
 | a link to nothing or to no directory | the run fails, as Linux refuses it |
 | a link leaving the outermost mount | the run fails, where Linux follows it |
-| missing directories above it | the run fails, as Linux refuses it |
+| a path the outer one lacks | the run fails, as Linux refuses it |
 | a later one over a directory above it | no mount, as it is hidden |
-| no such name in the outer one | the mount all the same |
 | two landing on one directory | the deeper path's, else the later one |
 | a removal or rename of a name its path leads through | `Errno::EBUSY`, as each run places it by that path |
 | a removal or rename of it | `Errno::EBUSY`, once a Policy allows it |
 | a rename to its own name | nothing changed |
-
-A mount whose outer one holds no such name is busy before any Policy answers.
 
 ### Tmpfs Bounds
 

@@ -36,7 +36,7 @@ class TestE2EMountRename < Minitest::Test
   # @behavior MT-027
   def test_a_rename_from_one_mount_into_another_raises_exdev
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
-                             .mount("/data", Kobako::Filesystem::Tmpfs.new, access: :read_write)
+                             .mount("/data", Kobako::Filesystem::Tmpfs.new("inner/.keep" => ""), access: :read_write)
                              .mount("/data/inner", Kobako::Filesystem::Tmpfs.new("note" => "x"), access: :read_write)
     script = <<~RUBY
       moved = begin; File.rename("/data/inner/note", "/data/note"); :moved; rescue Errno::EXDEV; :refused; end

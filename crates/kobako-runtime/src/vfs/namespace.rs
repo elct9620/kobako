@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use super::dentry::Dentry;
 use super::mount::VfsMount;
-use super::namei::{filename_lookup, filename_parentat, lookup_dentry};
+use super::namei::filename_lookup;
 use super::path::Path;
 use crate::cred::Cred;
 use crate::filesystem::FileType;
@@ -53,10 +53,8 @@ impl MntNamespace {
     /// up with `LOOKUP_FOLLOW`, never above that root. Shallower paths go
     /// first, as a container runtime mounts a parent before its children, and
     /// of two landing where one stands, the later stands over the earlier and
-    /// hides it. The last name may stand for nothing, which Linux never lets a
-    /// mount do, so the parent's name is hidden even once made. A mount
-    /// Linux's `mount` refuses, its walk failing or landing on no directory,
-    /// refuses the whole tree, as a container fails to start.
+    /// hides it. A mount Linux's `mount` refuses, its walk failing or landing
+    /// on no directory, refuses the whole tree, as a container fails to start.
     pub(crate) fn new<'a>(
         cred: &Arc<Cred>,
         mounts: impl IntoIterator<Item = (&'a str, &'a Arc<VfsMount>)>,
@@ -96,30 +94,16 @@ impl MntNamespace {
     /// Where a mount at `path` beneath `root` stands as `cred` walks it, as
     /// `do_mount` looks its target up and `where_to_mount` stacks it: on the
     /// dentry the walk lands on, which on a mounted name is the root of the
-    /// topmost mount there, so the new one stands over it. A name standing for
-    /// nothing is stood on as it is. A walk that fails answers its error, and
-    /// one landing on no directory ENOTDIR, as `graft_tree` refuses it.
+    /// topmost mount there, so the new one stands over it. A walk that fails
+    /// answers its error, and one landing on no directory ENOTDIR, as
+    /// `graft_tree` refuses it.
     fn where_to_mount(
         &self,
         cred: &Arc<Cred>,
         root: &Path,
         path: &str,
     ) -> Result<PinnedMountpoint, Errno> {
-        let nd = match filename_lookup(cred, root, path, true) {
-            Ok(nd) => nd,
-            Err(errno) => {
-                let nd = filename_parentat(cred, root, path)?;
-                let dentry = lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last)?;
-                return match dentry.inode() {
-                    None => Ok(PinnedMountpoint {
-                        parent: nd.mnt.clone(),
-                        mountpoint: dentry,
-                        trail: nd.trail,
-                    }),
-                    Some(_) => Err(errno),
-                };
-            }
-        };
+        let nd = filename_lookup(cred, root, path, true)?;
         let dentry = nd.path()?;
         if dentry.file_type() != Ok(FileType::Dir) {
             return Err(Errno::NotADirectory);

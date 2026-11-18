@@ -59,7 +59,7 @@ class TestE2EMountPlacement < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
                              .mount("/data/a/b", Kobako::Filesystem::Tmpfs.new("note" => "inner"), access: :read)
                              .mount("/data/a", Kobako::Filesystem::Tmpfs.new("b/.keep" => ""), access: :read)
-                             .mount("/data", Kobako::Filesystem::Tmpfs.new, access: :read)
+                             .mount("/data", Kobako::Filesystem::Tmpfs.new("a/.keep" => ""), access: :read)
 
     assert_equal ["inner"], read_notes(sandbox, %w[/data/./a/b]),
                  "a Sandbox#mount nested beneath one made after it must still be reached"

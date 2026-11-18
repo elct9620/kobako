@@ -24,16 +24,6 @@ class TestE2EMountPoint < Minitest::Test
                    .mount("/data/inner", Kobako::Filesystem::Tmpfs.new("note" => "inner"), access: :read_write)
   end
 
-  # @behavior MT-034
-  def test_a_nested_mount_stands_where_its_parent_holds_nothing_by_its_name
-    sandbox = inside(Kobako::Filesystem::Tmpfs.new)
-    script = "[File.read('/data/./inner/note')] + (#{BUSY})"
-
-    assert_equal ["inner", :ebusy, :ebusy], sandbox.eval(script).value,
-                 "a Sandbox#mount nested where its parent holds no such name must be reached, and busy to a removal " \
-                 "or a rename"
-  end
-
   # @behavior MT-036
   def test_a_mount_point_neither_moves_nor_goes
     sandbox = inside(Kobako::Filesystem::Tmpfs.new("inner/.keep" => ""))

@@ -24,7 +24,7 @@ class TestE2EMountHeld < Minitest::Test
   }.freeze
 
   # A Sandbox with +outer+ at +/data+ and a read-only Tmpfs at
-  # +/data/repo/hooks+, whose last name +outer+ does not hold.
+  # +/data/repo/hooks+, which +outer+ must hold.
   def guarding_hooks(outer)
     Kobako::Sandbox.new(wasm_path: REAL_WASM)
                    .mount("/data", outer, access: :read_write)
@@ -65,9 +65,8 @@ class TestE2EMountHeld < Minitest::Test
 
   # @behavior MT-054
   def test_a_removal_of_a_directory_above_a_nested_mount_raises_ebusy
-    sandbox = guarding_hooks(Kobako::Filesystem::Tmpfs.new("repo/.keep" => ""))
-    script = 'File.delete("/data/repo/.keep"); ' \
-             'removed = begin; Dir.rmdir("/data/repo"); :removed; rescue Errno::EBUSY; :ebusy; end; ' \
+    sandbox = guarding_hooks(Kobako::Filesystem::Tmpfs.new("repo/hooks/.keep" => ""))
+    script = 'removed = begin; Dir.rmdir("/data/repo"); :removed; rescue Errno::EBUSY; :ebusy; end; ' \
              '[removed, begin; File.write("/data/repo/hooks/x", "evil"); :wrote; rescue Errno::EROFS; :erofs; end]'
 
     assert_equal %i[ebusy erofs], sandbox.eval(script).value,
@@ -76,8 +75,8 @@ class TestE2EMountHeld < Minitest::Test
 
   # @behavior MT-055
   def test_a_rename_onto_a_directory_above_a_nested_mount_raises_ebusy
-    sandbox = guarding_hooks(Kobako::Filesystem::Tmpfs.new("repo/.keep" => "", "q/.keep" => ""))
-    script = 'File.delete("/data/repo/.keep", "/data/q/.keep"); ' \
+    sandbox = guarding_hooks(Kobako::Filesystem::Tmpfs.new("repo/hooks/.keep" => "", "q/.keep" => ""))
+    script = 'File.delete("/data/q/.keep"); ' \
              'begin; File.rename("/data/q", "/data/repo"); :moved; rescue Errno::EBUSY; :ebusy; end'
 
     assert_equal :ebusy, sandbox.eval(script).value,

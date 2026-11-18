@@ -12,7 +12,7 @@ each invocation ─ Grants ─> runtime ─ preopen ─> guest File
 
 A mount is a registration, so it is refused once the Sandbox is sealed. A path means one mount, as Docker refuses a duplicate mount point. A Context replaces a mount but never adds one.
 
-A mount may sit inside another, and every spelling of a path reaches what stands there. It hides what its parent holds where it stands. Unlike Linux, it stands even where the parent holds nothing by that name.
+A mount may sit inside another, and every spelling of a path reaches what stands there. It hides what its parent holds where it stands.
 
 A mount neither moves nor goes while mounted, as in Linux. Unlike Linux, no name its path leads through moves or goes, as each run places it again by that path.
 
@@ -29,7 +29,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 Only the outermost mounts are preopens, so a mount inside another is reached by a walk alone. Mounts are placed shallowest first, each where Linux's `mount` places it, following a link at its last name. One a later mount covers is hidden.
 
-A mount Linux would refuse fails the run, unless only its last name is missing. So does one whose link leaves the outermost mount.
+A mount Linux would refuse fails the run, and so does one whose link leaves the outermost mount.
 
 ## Includes
 
@@ -344,7 +344,7 @@ A mount Linux would refuse fails the run, unless only its last name is missing. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox with a writable Tmpfs at `/data`, and another nested at `/data/inner` |
+| Given | a Sandbox with a writable Tmpfs holding `inner/` at `/data`, and another nested at `/data/inner` |
 | When | the script renames `/data/inner/note` to `/data/note` |
 | Then | it raises `Errno::EXDEV`, and the note stays where it was |
 
@@ -419,18 +419,6 @@ A mount Linux would refuse fails the run, unless only its last name is missing. 
 | Given | a Bind at `/data` holding `inner/note` and a link to it, and a Tmpfs holding `note` at `/data/inner` |
 | When | the script reads the note through `/data/./inner/note`, `/data/./inner/../inner/note`, and `/data/link` |
 | Then | each reads the inner Filesystem's note |
-
-## `MT-034` A nested mount stands where its parent holds nothing by its name
-
-| Attribute | Value |
-| --- | --- |
-| refines | `MT-005` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Sandbox with a writable Tmpfs holding no `inner` at `/data`, and another holding `note` at `/data/inner` |
-| When | the script reads `/data/./inner/note`, then removes `/data/./inner` and renames it to `/data/moved` |
-| Then | it reads the inner Filesystem's note, and each change raises `Errno::EBUSY` as at a mount point its parent holds |
 
 ## `MT-035` A read-only nested mount refuses a change however the path is spelled
 
@@ -549,7 +537,7 @@ A mount Linux would refuse fails the run, unless only its last name is missing. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox mounting a Tmpfs holding `note` at `/data/a/b`, then a Tmpfs holding `b/` at `/data/a`, then one at `/data` |
+| Given | a Sandbox mounting a Tmpfs holding `note` at `/data/a/b`, one holding `b/` at `/data/a`, then one holding `a/` at `/data` |
 | When | the script reads `/data/./a/b/note` |
 | Then | it reads the inner Tmpfs's note, as a container runtime mounts a parent before its children |
 
@@ -625,15 +613,15 @@ A mount Linux would refuse fails the run, unless only its last name is missing. 
 | When | the script reads `/data/a/note`, `/data/a/b/note`, and `/data/./a/b/note` |
 | Then | the first reads the Tmpfs's note, and the other two raise `Errno::ENOENT`. The Tmpfs stands on `/data/a` |
 
-## `MT-051` A mount whose directories above it stand nowhere fails the run
+## `MT-051` A mount whose path its parent lacks fails the run
 
 | Attribute | Value |
 | --- | --- |
-| refines | `MT-034` |
+| refines | `MT-005` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind at `/data` holding no `x`, and a Tmpfs holding `note` at `/data/x/y` |
+| Given | a Bind at `/data` holding no `x`, and a Tmpfs at `/data/x` or at `/data/x/y` |
 | When | the Sandbox runs a script |
 | Then | the run fails naming the mount and `ENOENT`. Ruby raises `Kobako::SandboxError`, and Rust answers `Error::Setup` |
 
@@ -657,9 +645,9 @@ A mount Linux would refuse fails the run, unless only its last name is missing. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a writable Tmpfs holding `repo/.keep` at `/data`, and a read-only Tmpfs at `/data/repo/hooks` |
-| When | the script deletes `/data/repo/.keep`, removes `/data/repo`, then writes `/data/repo/hooks/x` |
-| Then | the removal raises `Errno::EBUSY`, and the write raises `Errno::EROFS`. Linux raises `Errno::ENOTEMPTY`, as its `hooks` must exist |
+| Given | a writable Tmpfs holding `repo/hooks/` at `/data`, and a read-only Tmpfs at `/data/repo/hooks` |
+| When | the script removes `/data/repo`, then writes `/data/repo/hooks/x` |
+| Then | the removal raises `Errno::EBUSY`, and the write raises `Errno::EROFS`. Linux raises `Errno::ENOTEMPTY` |
 
 ## `MT-055` A rename onto a directory above a nested mount raises EBUSY
 
@@ -669,9 +657,9 @@ A mount Linux would refuse fails the run, unless only its last name is missing. 
 
 | Step | Statement |
 | --- | --- |
-| Given | a writable Tmpfs holding `repo/.keep` and `q/.keep` at `/data`, and a Tmpfs at `/data/repo/hooks` |
-| When | the script deletes both `.keep` files, then renames `/data/q` to `/data/repo` |
-| Then | it raises `Errno::EBUSY`. Linux raises `Errno::ENOTEMPTY`, as its `hooks` must exist |
+| Given | a writable Tmpfs holding `repo/hooks/` and `q/.keep` at `/data`, and a Tmpfs at `/data/repo/hooks` |
+| When | the script deletes `/data/q/.keep`, then renames `/data/q` to `/data/repo` |
+| Then | it raises `Errno::EBUSY`. Linux raises `Errno::ENOTEMPTY` |
 
 ## `MT-056` A nested mount hides what its parent holds in every later run
 

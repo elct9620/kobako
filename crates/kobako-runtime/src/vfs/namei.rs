@@ -328,16 +328,6 @@ impl Nameidata {
         Ok(self.lookup_mnt(&dentry))
     }
 
-    /// What a removal or move answers once its name was found missing: busy
-    /// where nothing stands at `dentry` yet a mount does, which Linux never lets
-    /// one do, as on a name that stands; else ENOENT.
-    fn missing_errno(&self, dentry: &Arc<Dentry>) -> Errno {
-        match dentry.inode().is_none() && self.lookup_mnt(dentry).is_some() {
-            true => Errno::ResourceBusy,
-            false => Errno::NotFound,
-        }
-    }
-
     /// The mount standing on `dentry` beneath the mount the walk stands on, as
     /// `__traverse_mounts` asks `DCACHE_MOUNTED` before `lookup_mnt`.
     fn lookup_mnt(&self, dentry: &Arc<Dentry>) -> Option<Arc<VfsMount>> {
@@ -1041,7 +1031,7 @@ fn start_dirop(nd: &mut Nameidata) -> Result<(RwSemaphoreGuard, Arc<Dentry>), Er
     let child = nd.lookup_last_locked()?;
     match child.inode() {
         Some(_) => Ok((held, child)),
-        None => Err(nd.missing_errno(&child)),
+        None => Err(Errno::NotFound),
     }
 }
 
@@ -1129,18 +1119,12 @@ pub fn filename_renameat2(
         source.mnt.mnt_want_write()?;
         let mnt = source.mnt.clone();
         let sb = mnt.sb();
-        let rd = match __start_renaming(
+        let rd = __start_renaming(
             sb,
             (source.dentry(), &source.last),
             (target.dentry(), &target.last),
             None,
-        ) {
-            Err(Errno::NotFound) => {
-                let child = lookup_dentry(sb, source.dentry(), &source.last)?;
-                return Err(source.missing_errno(&child));
-            }
-            rd => rd?,
-        };
+        )?;
         // Unless the source is a directory, a trailing `/` on either side is
         // refused, as `filename_renameat2` refuses it.
         let is_dir = rd.old_dentry.file_type()? == FileType::Dir;
