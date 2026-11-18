@@ -2411,7 +2411,7 @@ mod tests {
 
     /// The answer `exchange` settles on, once it settles. Ten seconds is far
     /// past any timeout these tests set, so an exchange still unsettled then
-    /// is one whose dial never completed and left no timeout running.
+    /// is one no timeout was left to end.
     fn settled(exchange: &Exchange) -> Result<ResponseHead, HttpError> {
         let give_up = std::time::Instant::now() + Duration::from_secs(10);
         loop {
@@ -2421,8 +2421,12 @@ mod tests {
                     thread::sleep(Duration::from_millis(1))
                 }
                 None => panic!(
-                    "the exchange never settled: its dial to the loopback listener did not \
-                     complete, so look at the reactor driving the dial before the timeouts"
+                    "the exchange never settled in ten seconds; its dial {}, so a connected one \
+                     lost its first-byte timeout and an unconnected one its socket's wake",
+                    match exchange.connected.get() {
+                        Some(_) => "connected",
+                        None => "never connected",
+                    }
                 ),
             }
         }
@@ -2433,6 +2437,9 @@ mod tests {
     fn a_request_past_its_connect_or_first_byte_timeout_answers_that_timeout() {
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
+        // Each request's namespace lives as long as the test: the Invocation's
+        // end aborts what it still holds.
+        let namespaces = std::cell::RefCell::new(Vec::new());
         let timed = |seam: Arc<dyn Outbound>, timeouts: Timeouts| {
             let mut entry = Builder::default();
             entry.endpoint(
@@ -2444,8 +2451,10 @@ mod tests {
             let namespace = Namespace::for_network(&network, Arc::new(HostInet), seam);
             let mut request = greeting_request(&format!("127.0.0.1:{port}"));
             request.timeouts = timeouts;
-            crate::net::send(&namespace, &prepare_creds(&[], None), request)
-                .expect("the endpoint names the authority")
+            let exchange = crate::net::send(&namespace, &prepare_creds(&[], None), request)
+                .expect("the endpoint names the authority");
+            namespaces.borrow_mut().push(namespace);
+            exchange
         };
         let at_once = Some(Duration::ZERO);
         let unconnected = timed(
@@ -2474,8 +2483,10 @@ mod tests {
                 Some(at) => break *at,
                 None if Instant::now() < give_up => thread::sleep(Duration::from_millis(1)),
                 None => panic!(
-                    "the request never connected to the loopback listener, so look at the \
-                     reactor driving the dial before the head's bound"
+                    "the request never connected to the loopback listener in ten seconds and \
+                     answered {:?}: an answer names why its dial failed, none that its socket \
+                     was never woken",
+                    unset_head.response()
                 ),
             }
         };
