@@ -14,6 +14,10 @@ A mount is a registration, so it is refused once the Sandbox is sealed. A path m
 
 A mount may sit inside another, and the guest reaches the innermost one however its path is spelled. It hides what its parent holds by its name. Unlike Linux, it stands even where the parent holds nothing by that name. As in Linux, it neither moves nor goes while mounted.
 
+### Where a nested mount stands
+
+Only the outermost mounts are the guest's preopens. A mount inside another is reached only by a walk, so every spelling meets what Linux would hold there. Each mount stands where Linux's `mount` places it, following a link at its last name. A mount Linux would refuse stands nowhere, and one a later mount covers is hidden.
+
 A mount's block judges each access a call makes. An open that may create asks a change, then what it opens for. Its refusal reaches the guest as a denied call and leaves the run going. A block raising a StandardError refuses the same way, and anything else it raises belongs to the host.
 
 ```
@@ -29,7 +33,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 - `test/e2e/test_mount_nested.rb`
 - `test/e2e/test_mount_point.rb`
 - `test/e2e/test_mount_placement.rb`
-- `test/e2e/test_mount_relocation.rb`
+- `test/e2e/test_mount_unreached.rb`
 - `test/e2e/test_host_exception.rb`
 - `test/e2e/test_mount_limit.rb`
 - `test/e2e/test_mount_rename.rb`
@@ -544,7 +548,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | When | the script reads `/data/./a/b/note` |
 | Then | it reads the inner Tmpfs's note, as a container runtime mounts a parent before its children |
 
-## `MT-045` A mount whose link leads nowhere it can stand stays on its name
+## `MT-045` A mount whose link leads to its parent's root stands over it
 
 | Attribute | Value |
 | --- | --- |
@@ -552,42 +556,102 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind at `/data` holding `note` and a link to `.`, itself, or a file, with a Tmpfs at it |
-| When | the script reads `note` beneath the link through its preopen's path and through `/data/./` |
-| Then | both read the Tmpfs's note, and `/data/note` and the file the Bind's, as a mount stands on its path's name |
+| Given | a Bind at `/data` holding `note`, `f`, and a link `inner` to `.`, and a Tmpfs holding `note` at `/data/inner` |
+| When | the script reads `/data/inner/note`, `/data/note`, and `/data/f` |
+| Then | the Tmpfs hides the Bind: `/data/note` is the Tmpfs's, and the other two raise `Errno::ENOENT` |
 
-## `MT-046` A mount whose link runs through a mount it would cover stays on its name
+## `MT-046` A mount whose link runs through another mount stands over that mount
 
 | Attribute | Value |
 | --- | --- |
-| relates | `MT-045` |
+| relates | `MT-042` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a Bind at `/data` holding a link `x` to `m/sub/..`, a Tmpfs holding `sub/` at `/data/m`, and another at `/data/x` |
-| When | the script reads `note` through `/data/x` and `/data/./x` |
-| Then | both read the Tmpfs at `/data/x`, since standing over `/data/m` would leave its own path leading nowhere |
+| When | the script reads `/data/x/note` and `/data/m/note` |
+| Then | the first raises `Errno::ENOENT` and the second reads the Tmpfs at `/data/x`, as Linux's `mount` stands on `/data/m` |
 
-## `MT-047` A mount stays reached when a later one covers its link's path
+## `MT-047` A mount a later one covers is hidden
 
 | Attribute | Value |
 | --- | --- |
-| relates | `MT-046` |
+| relates | `MT-042` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a Bind at `/data` linking `a` to `q/t`, then Tmpfs A at `/data/a`, Q at `/data/q`, S at `/data/a/s` |
-| When | the script reads `note` through `/data/a`, `/data/./a`, `/data/a/s`, and `/data/./a/s` |
-| Then | each reads A's note, then S's beneath. Q leaves A's link leading nowhere, so A moves onto the link |
+| When | the script reads `note` through `/data/a`, `/data/a/s`, and `/data/q` |
+| Then | the first two raise `Errno::ENOENT`, and the last reads Q's note. Q hides A, and S stands nowhere |
 
-## `MT-048` A mount moved onto its name stays reached when another covers its parent
+## `MT-048` A mount landing on a later one's directory stands over it
 
 | Attribute | Value |
 | --- | --- |
-| relates | `MT-047` |
+| relates | `MT-042` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a Bind at `/data` linking `a` to `q/t`, `c` to `q`; S at `/data/a/s`, T at `/data/q/t`, M at `/data/c/t` |
 | When | the script reads `/data/a/s/note` and `/data/./a/s/note` |
-| Then | both read S's note, as each placed mount is asked again whenever another moves |
+| Then | both read M's note. T hides S, and M stands over T |
+
+## `MT-049` A mount whose link leads to no directory stands nowhere
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-041` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data` holding `note` and a link to itself or a file, and a Tmpfs at the link |
+| When | the script reads `note` beneath the link, and `/data/note` |
+| Then | the first raises `Errno::ELOOP` or `Errno::ENOTDIR`, and `/data/note` is the Bind's. Linux's `mount` refuses both |
+
+## `MT-050` A mount whose link leads above its name hides that directory
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-041` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data` holding `a/note` and a link `a/b` to `.`, and a Tmpfs holding `note` at `/data/a/b` |
+| When | the script reads `/data/a/note`, `/data/a/b/note`, and `/data/./a/b/note` |
+| Then | the first reads the Tmpfs's note, and the other two raise `Errno::ENOENT`. The Tmpfs stands on `/data/a` |
+
+## `MT-051` A mount whose directories above it stand nowhere stands nowhere
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-034` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data` holding no `x`, and a Tmpfs holding `note` at `/data/x/y` |
+| When | the script reads `/data/x/y/note` |
+| Then | it raises `Errno::ENOENT`, as Linux's `mount` refuses a path whose directories are missing |
+
+## `MT-052` A path a moved directory left behind reaches no mount
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-038` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a writable Tmpfs holding `p/x/` at `/data`, and a Tmpfs holding `note` at `/data/p/x` |
+| When | the script renames `/data/p` to `/data/r`, then reads `/data/p/x/note` and `/data/r/x/note` |
+| Then | the first raises `Errno::ENOENT`, and the second reads the inner note |
+
+## `MT-053` A `..` out of a nested mount climbs into its parent
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-033` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data` holding `note` and `inner/`, and a Tmpfs at `/data/inner` |
+| When | the script reads `/data/inner/../note` |
+| Then | it reads the Bind's note, as Linux's `..` climbs from a mount's root to where it stands |

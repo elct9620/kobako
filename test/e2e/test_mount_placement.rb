@@ -3,9 +3,9 @@
 require "test_helper"
 
 # E2E — where a Sandbox#mount nested inside another stands, through the real
-# Guest Binary: where a link at its path leads, over an earlier mount landing
-# there, and beneath its parent whatever order they were made in. A guest
-# reaches each the same through a preopen's path and a walk's.
+# Guest Binary, as Linux's mount answers for the same layout: where a link at
+# its path leads, over a mount landing there, and beneath its parent whatever
+# order they were made in.
 class TestE2EMountPlacement < Minitest::Test
   include E2eGuestHelper
   include MountReads
@@ -63,5 +63,48 @@ class TestE2EMountPlacement < Minitest::Test
 
     assert_equal ["inner"], read_notes(sandbox, %w[/data/./a/b]),
                  "a Sandbox#mount nested beneath one made after it must still be reached"
+  end
+
+  # @behavior MT-045
+  def test_a_mount_whose_link_leads_to_its_parents_root_stands_over_it
+    skip "this host makes no links" if Gem.win_platform?
+    TestPaths.host_directory do |host|
+      File.write(File.join(host, "note"), "outer")
+      File.write(File.join(host, "f"), "")
+      File.symlink(".", File.join(host, "inner"))
+      sandbox = bind_with(host, "/data/inner" => INNER)
+
+      assert_equal %w[Errno::ENOENT inner Errno::ENOENT],
+                   read_notes(sandbox, %w[/data/inner /data]) + read_notes(sandbox, %w[/data], "f"),
+                   "a Sandbox#mount at a link to its parent's root must hide that whole Bind, as Linux's mount does"
+    end
+  end
+
+  # @behavior MT-046
+  def test_a_mount_whose_link_runs_through_another_mount_stands_over_that_mount
+    skip "this host makes no links" if Gem.win_platform?
+    TestPaths.host_directory do |host|
+      Dir.mkdir(File.join(host, "m"))
+      File.symlink("m/sub/..", File.join(host, "x"))
+      sandbox = bind_with(host, "/data/m" => { "sub/.keep" => "" }, "/data/x" => INNER)
+
+      assert_equal %w[Errno::ENOENT inner], read_notes(sandbox, %w[/data/x /data/m]),
+                   "a Sandbox#mount whose link runs through another mount must stand over that mount, as Linux's does"
+    end
+  end
+
+  # @behavior MT-048
+  def test_a_mount_landing_on_a_later_ones_directory_stands_over_it
+    skip "this host makes no links" if Gem.win_platform?
+    TestPaths.host_directory do |host|
+      FileUtils.mkdir_p(File.join(host, "q", "t", "s"))
+      File.symlink("q/t", File.join(host, "a"))
+      File.symlink("q", File.join(host, "c"))
+      sandbox = bind_with(host, "/data/a/s" => { "note" => "S" }, "/data/q/t" => { "s/.keep" => "" },
+                                "/data/c/t" => { "s/note" => "M" })
+
+      assert_equal %w[M M], read_notes(sandbox, %w[/data/a/s /data/./a/s]),
+                   "a Sandbox#mount landing on a later one's directory must stand over it, by every spelling"
+    end
   end
 end

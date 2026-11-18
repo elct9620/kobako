@@ -25,7 +25,7 @@ The Guest Binary crosses three ABIs. `wasm-tools print` shows the same 122 impor
 
 The Wasm Driver only wires the kobako ABI's import to `endpoint`.
 
-kobako answers 36 of the 46 preview1 imports: every `fd_*`, `path_*`, and `sock_*` call, and `poll_oneoff`. Those are the calls that read the descriptor table, so the guest stays on one table where each Mount is a preopen. The 14 the Guest Binary never imports serve a third-party guest. The other ten read no descriptor and stay wasmtime-wasi's.
+kobako answers 36 of the 46 preview1 imports: every `fd_*`, `path_*`, and `sock_*` call, and `poll_oneoff`. Those are the calls that read the descriptor table, so the guest stays on one table where each outermost Mount is a preopen. A walk reaches each Mount inside one. The 14 the Guest Binary never imports serve a third-party guest. The other ten read no descriptor and stay wasmtime-wasi's.
 
 ## Syscall Table
 

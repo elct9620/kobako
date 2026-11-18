@@ -84,8 +84,8 @@ impl Descriptors {
     /// Channels, then one preopen per Mount among `mounts`, from descriptor
     /// 3. Each counts against the open files in `table`, as a process's
     /// `RLIMIT_NOFILE` counts every one it holds. Each opens, as `opener`, the
-    /// Cred the Driver prepared, the root of the mount a walk to its path
-    /// reaches for `guest`, so a preopen and a walk agree on what a path holds.
+    /// Cred the Driver prepared, the mount standing topmost on its root for
+    /// `guest`, as Linux shows the one mounted over the rest.
     pub(crate) fn new(
         stdin: File,
         stdout: File,

@@ -3,10 +3,11 @@
 require "test_helper"
 
 # E2E — a Sandbox#mount nested inside another through the real Guest Binary:
-# reached however its path is spelled, hiding what its parent holds there,
-# and what a read-only one refuses beneath it.
+# reached however its path is spelled and only by a walk, hiding what its
+# parent holds there, and what a read-only one refuses beneath it.
 class TestE2EMountNested < Minitest::Test
   include E2eGuestHelper
+  include MountReads
 
   # A Sandbox with +outer+ at +/data+ and a read-only +inner+ at +/data/inner+.
   def inside(outer, inner)
@@ -119,5 +120,28 @@ class TestE2EMountNested < Minitest::Test
     outer_alone = Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/outer", outer, access: :read)
     assert_equal [".keep"], outer_alone.eval('Dir.children("/outer/inner")').value,
                  "the writable Tmpfs beneath a read-only nested Sandbox#mount must hold no inner/new"
+  end
+
+  # @behavior MT-052
+  def test_a_path_a_moved_directory_left_behind_reaches_no_mount
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                             .mount("/data", Kobako::Filesystem::Tmpfs.new("p/x/.keep" => ""), access: :read_write)
+                             .mount("/data/p/x", Kobako::Filesystem::Tmpfs.new(INNER), access: :read)
+    script = 'File.rename("/data/p", "/data/r"); ' \
+             '%w[/data/p/x /data/r/x].map { |dir| begin; File.read(dir + "/note"); rescue => e; e.class.to_s; end }'
+
+    assert_equal %w[Errno::ENOENT inner], sandbox.eval(script).value,
+                 "after File.rename of a directory above a nested Sandbox#mount, its old path must reach nothing"
+  end
+
+  # @behavior MT-053
+  def test_a_dot_dot_out_of_a_nested_mount_climbs_into_its_parent
+    TestPaths.host_directory do |host|
+      File.write(File.join(host, "note"), "outer")
+      Dir.mkdir(File.join(host, "inner"))
+
+      assert_equal ["outer"], read_notes(bind_with(host, "/data/inner" => INNER), %w[/data/inner/..]),
+                   "a .. out of a nested Sandbox#mount must climb into the Bind it stands in, as Linux's .. does"
+    end
   end
 end

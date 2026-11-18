@@ -107,3 +107,22 @@ impl Mount {
         &self.at
     }
 }
+
+/// The Mounts among `mounts` no other one's path holds, the roots every guest
+/// path starts from. One beneath another is reached only by a walk into it, so
+/// each spelling of its path meets what Linux's mount namespace holds there.
+pub fn outermost_of<'a>(mounts: &[&'a Mount]) -> Vec<&'a Mount> {
+    mounts
+        .iter()
+        .copied()
+        .filter(|mount| !mounts.iter().any(|above| is_beneath(&above.at, &mount.at)))
+        .collect()
+}
+
+/// Whether the guest path `inner` lies strictly beneath `outer`.
+pub(crate) fn is_beneath(outer: &str, inner: &str) -> bool {
+    outer != inner
+        && inner
+            .strip_prefix(outer)
+            .is_some_and(|rest| outer == "/" || rest.starts_with('/'))
+}

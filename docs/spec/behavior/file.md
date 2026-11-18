@@ -3,7 +3,7 @@
 What a script reaches through the default Guest Binary's `File`, beneath the paths a Mount places.
 
 ```
-script ─ File / IO ─> wasi-libc ─ preopen at the Mount's path ─> runtime ─> Filesystem
+script ─ File / IO ─> wasi-libc ─ preopen at the outermost Mount's path ─> runtime ─> Filesystem
 ```
 
 ### Why these scenarios

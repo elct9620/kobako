@@ -1,8 +1,8 @@
 //! The guest's WASI context for one instance: what stdin holds, a capture
-//! pipe for each of stdout and stderr, the ambient authority
-//! the instance's purpose grants, a preopen for each Mount an invocation
-//! was handed, and the preview2 resources it holds, with the network its
-//! network Grants open.
+//! pipe for each of stdout and stderr, the ambient authority the instance's
+//! purpose grants, a preopen for each outermost Mount an invocation was
+//! handed, and the preview2 resources it holds, with the network its network
+//! Grants open.
 
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::WasiCtxBuilder;
@@ -19,6 +19,7 @@ use kobako_runtime::cred::Cred;
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::limits::Limits;
+use kobako_runtime::mount::outermost_of;
 use kobako_runtime::net::{Backends, Namespace, OpenConnections};
 use kobako_runtime::network::EntryError;
 use kobako_runtime::profile::Profile;
@@ -167,17 +168,17 @@ impl Wasi {
                 _ => None,
             })
             .collect::<Vec<_>>();
-        // Each Mount's root opens before its Policy applies, as a Landlock
-        // sandboxer opens what it keeps and then calls
+        // The opener Cred opens each preopen's root before any Policy judges
+        // it, as a Landlock sandboxer opens what it keeps and then calls
         // `landlock_restrict_self`, so a Policy judges only what the guest
-        // asks for. The order is all this sets up: `restrict_self` and the
-        // hooks it adds decide what the Cred reaches.
+        // asks for; the guest's Cred, with the hooks `restrict_self` adds,
+        // decides what each walk reaches from there.
         let cred = restrict_self(&opener, grants);
         let descriptors = Descriptors::new(
             create_pipe_files(&PipeInodeInfo::from_bytes(stdin), &opener).0,
             create_pipe_files(&stdout, &opener).1,
             create_pipe_files(&stderr, &opener).1,
-            &mounts,
+            &outermost_of(&mounts),
             &mut table,
             (&opener, &cred),
         )

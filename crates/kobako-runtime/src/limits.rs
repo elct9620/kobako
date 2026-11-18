@@ -22,8 +22,8 @@ pub struct Limits {
     pub stdout_limit: Option<usize>,
     /// Byte cap for guest stderr capture, the same as `stdout_limit`.
     pub stderr_limit: Option<usize>,
-    /// Descriptors one invocation may hold open, the standard ones and
-    /// each Mount's preopen included; an open past it answers `MFILE`.
+    /// Descriptors one invocation may hold open, the standard ones and each
+    /// outermost Mount's preopen included; an open past it answers `MFILE`.
     /// Only the guest's descriptors count, as `RLIMIT_NOFILE` counts a
     /// process's: the host descriptors a Filesystem holds behind one are
     /// its own, up to two for a file and one for each Layer holding a
