@@ -11,7 +11,7 @@ use super::namei::{filename_lookup, filename_parentat, lookup_dentry};
 use super::path::Path;
 use crate::cred::Cred;
 use crate::filesystem::FileType;
-use crate::mount::is_beneath;
+use crate::mount::outermost_holding;
 
 /// One mount standing on a dentry of another, as Linux's `struct mount` keeps
 /// `mnt_parent` and `mnt_mountpoint`. The mount point is held while the mount
@@ -55,13 +55,14 @@ impl MntNamespace {
         mounts.sort_by_key(|(at, _)| at.split('/').filter(|name| !name.is_empty()).count());
         let mut namespace = Self::default();
         for &(at, mnt) in &mounts {
-            let Some((root_at, root)) = mounts
-                .iter()
-                .filter(|(above, _)| is_beneath(above, at))
-                .min_by_key(|(above, _)| above.len())
+            let Some(root_at) = outermost_holding(at, mounts.iter().map(|(above, _)| *above))
             else {
                 continue;
             };
+            let root = mounts
+                .iter()
+                .find_map(|(above, root)| (*above == root_at).then_some(*root))
+                .expect("the outermost path holding a mount is one of the mounts");
             let path = at[root_at.len()..].trim_start_matches('/');
             let walker = cred.with_mnt_ns(Arc::new(namespace.clone()));
             let root = Path::root(&namespace.topmost_mount_of(root));
@@ -83,10 +84,12 @@ impl MntNamespace {
     }
 
     /// Where a mount at `path` beneath `root` stands as `cred` walks it, as
-    /// `do_mount` looks its target up and `where_to_mount` picks the mount and
-    /// dentry: those the walk lands on, or, on a mount's root, where that mount
-    /// stands, so the new one stands over it. A name standing for nothing is
-    /// stood on as it is. None where the walk fails or lands on no directory.
+    /// `do_mount` looks its target up and `where_to_mount` stacks it on what is
+    /// mounted there: the mount and dentry the walk lands on, or, on a nested
+    /// mount's root, the dentry that mount stands on, where the later of the
+    /// two is the one a walk steps onto, as Linux shows the topmost. A name
+    /// standing for nothing is stood on as it is. None where the walk fails or
+    /// lands on no directory.
     fn where_to_mount(
         &self,
         cred: &Arc<Cred>,

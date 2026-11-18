@@ -115,14 +115,25 @@ pub fn outermost_of<'a>(mounts: &[&'a Mount]) -> Vec<&'a Mount> {
     mounts
         .iter()
         .copied()
-        .filter(|mount| !mounts.iter().any(|above| is_beneath(&above.at, &mount.at)))
+        .filter(|mount| {
+            outermost_holding(&mount.at, mounts.iter().map(|other| other.at())).is_none()
+        })
         .collect()
 }
 
-/// Whether the guest path `inner` lies strictly beneath `outer`.
-pub(crate) fn is_beneath(outer: &str, inner: &str) -> bool {
-    outer != inner
-        && inner
-            .strip_prefix(outer)
-            .is_some_and(|rest| outer == "/" || rest.starts_with('/'))
+/// The outermost of the guest paths `paths` holding the guest path `at`
+/// strictly beneath it, none where no path holds it.
+pub(crate) fn outermost_holding<'a>(
+    at: &str,
+    paths: impl IntoIterator<Item = &'a str>,
+) -> Option<&'a str> {
+    paths
+        .into_iter()
+        .filter(|above| {
+            *above != at
+                && at
+                    .strip_prefix(above)
+                    .is_some_and(|rest| *above == "/" || rest.starts_with('/'))
+        })
+        .min_by_key(|above| above.len())
 }

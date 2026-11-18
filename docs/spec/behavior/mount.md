@@ -12,11 +12,7 @@ each invocation ─ Grants ─> runtime ─ preopen ─> guest File
 
 A mount is a registration, so it is refused once the Sandbox is sealed. A path means one mount, as Docker refuses a duplicate mount point. A Context replaces a mount but never adds one.
 
-A mount may sit inside another, and the guest reaches the innermost one however its path is spelled. It hides what its parent holds by its name. Unlike Linux, it stands even where the parent holds nothing by that name. As in Linux, it neither moves nor goes while mounted.
-
-### Where a nested mount stands
-
-Only the outermost mounts are the guest's preopens. A mount inside another is reached only by a walk, so every spelling meets what Linux would hold there. Each mount stands where Linux's `mount` places it, following a link at its last name. A mount Linux would refuse stands nowhere, and one a later mount covers is hidden.
+A mount may sit inside another, and every spelling of its path reaches the same mount. It hides what its parent holds by its name. Unlike Linux, it stands even where the parent holds nothing by that name. As in Linux, it neither moves nor goes while mounted.
 
 A mount's block judges each access a call makes. An open that may create asks a change, then what it opens for. Its refusal reaches the guest as a denied call and leaves the run going. A block raising a StandardError refuses the same way, and anything else it raises belongs to the host.
 
@@ -26,6 +22,10 @@ block answers falsy         -> Errno::EACCES in the guest, the script goes on
 block raises StandardError  -> Errno::EACCES in the guest, the script goes on
 block raises anything else  -> the run ends, and it raises in the Host App
 ```
+
+### Where a nested mount stands
+
+Only the outermost mounts are the guest's preopens. A mount inside another is reached only by a walk, so every spelling meets what the mount namespace holds. Mounts are placed shallowest first, each where Linux's `mount` places it, following a link at its last name. Otherwise a mount Linux would refuse stands nowhere, and one a later mount covers is hidden.
 
 ## Includes
 
