@@ -551,6 +551,18 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind at `/data` holding `note` and a link to `.` or to itself, with a Tmpfs at the link |
+| Given | a Bind at `/data` holding `note` and a link to `.`, itself, or a file, with a Tmpfs at it |
 | When | the script reads `note` beneath the link through its preopen's path and through `/data/./` |
-| Then | both read the Tmpfs's note, and `/data/note` the Bind's, as a mount stands on the name its path spells |
+| Then | both read the Tmpfs's note, and `/data/note` and the file the Bind's, as a mount stands on its path's name |
+
+## `MT-046` A mount whose link runs through a mount it would cover stays on its name
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-045` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data` holding a link `x` to `m/sub/..`, a Tmpfs holding `sub/` at `/data/m`, and another at `/data/x` |
+| When | the script reads `note` through `/data/x` and `/data/./x` |
+| Then | both read the Tmpfs at `/data/x`, since standing over `/data/m` would leave its own path leading nowhere |

@@ -10,6 +10,7 @@ use super::mount::VfsMount;
 use super::namei::{filename_lookup, filename_parentat, lookup_dentry};
 use super::path::Path;
 use crate::cred::Cred;
+use crate::filesystem::FileType;
 
 /// One mount standing on a dentry of another, as Linux's `struct mount` keeps
 /// `mnt_parent` and `mnt_mountpoint`. The mount point is held while the mount
@@ -42,8 +43,11 @@ impl MntNamespace {
     /// up with `LOOKUP_FOLLOW`, never above that root. Shallower paths go
     /// first, as a container runtime mounts a parent before its children, and
     /// of two landing where one stands, the later stands over the earlier. A
-    /// link leading out of that root, or to nothing, leaves the mount on the
-    /// name its path spells. The last name may stand for nothing, which Linux
+    /// mount stands only where a walk of its own path reaches it once placed,
+    /// so a preopen and a walk meet it at every spelling: a link leading out
+    /// of that root, back to it, to nothing, to no directory, or through a
+    /// mount it then stands over leaves the mount on the name its path
+    /// spells. The last name may stand for nothing, which Linux
     /// never lets a mount do, so the parent's name is hidden even once made. A
     /// mount whose directories above it stand nowhere is reached by no walk.
     pub(crate) fn new<'a>(
@@ -61,41 +65,73 @@ impl MntNamespace {
             else {
                 continue;
             };
-            let walker = cred.with_mnt_ns(Arc::new(Self {
-                mounted: placed.mounted.clone(),
-            }));
-            let Some((parent, mountpoint)) =
-                placed.get_mountpoint(&walker, root, &at[root_at.len()..])
-            else {
+            let path = at[root_at.len()..].trim_start_matches('/');
+            let root = Path::root(root);
+            let walker = placed.walker(cred);
+            let Some(spot) = placed.get_mountpoint(&walker, &root, path) else {
                 continue;
             };
-            mountpoint.d_set_mounted();
-            placed.mounted.push(Arc::new(Mounted {
-                parent,
-                mountpoint,
-                mnt: Arc::clone(mnt),
-            }));
+            placed.mount(spot, mnt);
+            if !placed.reaches(cred, &root, path, mnt) {
+                placed.umount();
+                let walker = placed.walker(cred);
+                let Some(spot) = name_spot(&walker, &root, path) else {
+                    continue;
+                };
+                placed.mount(spot, mnt);
+            }
         }
         placed
+    }
+
+    /// `cred` walking through the mounts placed so far.
+    fn walker(&self, cred: &Arc<Cred>) -> Arc<Cred> {
+        cred.with_mnt_ns(Arc::new(Self {
+            mounted: self.mounted.clone(),
+        }))
+    }
+
+    /// Stand `mnt` on `spot`, marking its dentry a mount point.
+    fn mount(&mut self, (parent, mountpoint): (Arc<VfsMount>, Arc<Dentry>), mnt: &Arc<VfsMount>) {
+        mountpoint.d_set_mounted();
+        self.mounted.push(Arc::new(Mounted {
+            parent,
+            mountpoint,
+            mnt: Arc::clone(mnt),
+        }));
+    }
+
+    /// Take back the mount placed last, as Linux's `umount` does.
+    fn umount(&mut self) {
+        self.mounted.pop();
+    }
+
+    /// Whether a walk of `path` beneath `root` through the mounts placed so
+    /// far, following a link at its end, lands on the root of `mnt`.
+    fn reaches(&self, cred: &Arc<Cred>, root: &Path, path: &str, mnt: &Arc<VfsMount>) -> bool {
+        filename_lookup(&self.walker(cred), root, path, true).is_ok_and(|nd| {
+            Arc::ptr_eq(&nd.mnt, mnt) && nd.path().is_ok_and(|end| Arc::ptr_eq(&end, mnt.root()))
+        })
     }
 
     /// Where a mount at `path` beneath the root of `root` stands, as `cred`
     /// walks it: the mount and the dentry, or where a mount the walk landed on
     /// stands, so the new one stands over it. A walk that fails at the link it
-    /// follows, or lands on a root no mount of this namespace stands on, such
-    /// as the outermost mount's, leaves the mount on the name `path` spells, so
-    /// a preopen and a walk still meet it there; none stands where a directory
-    /// above that name stands nowhere.
+    /// follows, lands on no directory, or on a root no mount of this namespace
+    /// stands on, such as the outermost mount's, leaves the mount on the name
+    /// `path` spells; none stands where a directory above that name stands
+    /// nowhere.
     fn get_mountpoint(
         &self,
         cred: &Arc<Cred>,
-        root: &Arc<VfsMount>,
+        root: &Path,
         path: &str,
     ) -> Option<(Arc<VfsMount>, Arc<Dentry>)> {
-        let path = path.trim_start_matches('/');
-        let root = Path::root(root);
-        if let Ok(nd) = filename_lookup(cred, &root, path, true) {
+        if let Ok(nd) = filename_lookup(cred, root, path, true) {
             let dentry = nd.path().ok()?;
+            if dentry.file_type() != Ok(FileType::Dir) {
+                return name_spot(cred, root, path);
+            }
             if !Arc::ptr_eq(&dentry, nd.mnt.root()) {
                 return Some((nd.mnt.clone(), dentry));
             }
@@ -107,9 +143,7 @@ impl MntNamespace {
                 return Some((Arc::clone(&child.parent), Arc::clone(&child.mountpoint)));
             }
         }
-        let nd = filename_parentat(cred, &root, path).ok()?;
-        let dentry = lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last).ok()?;
-        Some((nd.mnt.clone(), dentry))
+        name_spot(cred, root, path)
     }
 
     /// The mount a walk to where `mnt` stands steps onto: the last made of
@@ -154,6 +188,14 @@ impl MntNamespace {
             .iter()
             .any(|child| Arc::ptr_eq(&child.parent, mnt))
     }
+}
+
+/// The name `path` spells beneath `root`, standing or not, as `cred` walks the
+/// directories above it; none where one of them stands nowhere.
+fn name_spot(cred: &Arc<Cred>, root: &Path, path: &str) -> Option<(Arc<VfsMount>, Arc<Dentry>)> {
+    let nd = filename_parentat(cred, root, path).ok()?;
+    let dentry = lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last).ok()?;
+    Some((nd.mnt.clone(), dentry))
 }
 
 /// Whether the guest path `inner` lies strictly beneath `outer`.

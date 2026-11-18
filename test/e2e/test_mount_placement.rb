@@ -11,7 +11,7 @@ class TestE2EMountPlacement < Minitest::Test
 
   # Reads +note+ beneath each of +dirs+, or the error's class.
   def read_notes(sandbox, dirs, name = "note")
-    script = "#{dirs.inspect}.map { |dir| File.read(dir + '/#{name}') rescue $!.class.to_s }"
+    script = "#{dirs.inspect}.map { |dir| begin; File.read(dir + '/#{name}'); rescue => e; e.class.to_s; end }"
     sandbox.eval(script).value
   end
 
@@ -73,11 +73,13 @@ class TestE2EMountPlacement < Minitest::Test
   # @behavior MT-045
   def test_a_mount_whose_link_leads_nowhere_it_can_stand_stays_on_its_name
     skip "this host makes no links" if Gem.win_platform?
-    { "inner" => ".", "loop" => "loop" }.each do |name, target|
+    { "inner" => ".", "loop" => "loop", "file" => "f" }.each do |name, target|
       TestPaths.host_directory do |host|
-        assert_equal %w[inner inner outer], read_notes(at_link_to(host, name, target),
-                                                       ["/data/#{name}", "/data/./#{name}", "/data"]),
-                     "a Sandbox#mount at a link leading to its parent's root or to itself must stand on its name"
+        sandbox = at_link_to(host, name, target)
+        read = read_notes(sandbox, ["/data/#{name}", "/data/./#{name}", "/data"]) + read_notes(sandbox, ["/data"], "f")
+        assert_equal ["inner", "inner", "outer", ""], read,
+                     "a Sandbox#mount at a link leading to its parent's root, to itself, or to a file must stand " \
+                     "on its name"
       end
     end
   end
@@ -86,9 +88,30 @@ class TestE2EMountPlacement < Minitest::Test
   # +name+ to +target+, and a Tmpfs holding +note+ "inner" at that link.
   def at_link_to(host, name, target)
     File.write(File.join(host, "note"), "outer")
+    File.write(File.join(host, "f"), "")
     File.symlink(target, File.join(host, name))
     Kobako::Sandbox.new(wasm_path: REAL_WASM)
                    .mount("/data", Kobako::Filesystem::Bind.new(host), access: :read)
                    .mount("/data/#{name}", Kobako::Filesystem::Tmpfs.new("note" => "inner"), access: :read)
+  end
+
+  # @behavior MT-046
+  def test_a_mount_whose_link_runs_through_a_mount_it_would_cover_stays_on_its_name
+    skip "this host makes no links" if Gem.win_platform?
+    TestPaths.host_directory do |host|
+      assert_equal %w[inner inner], read_notes(through_a_mount(host), %w[/data/x /data/./x]),
+                   "a Sandbox#mount whose link runs through a mount it would cover must be reached by every spelling"
+    end
+  end
+
+  # A Sandbox with a Bind over +host+ at +/data+ whose link +x+ runs through
+  # +m+, a Tmpfs holding +sub/+ at +/data/m+, then one holding +note+ at +/data/x+.
+  def through_a_mount(host)
+    Dir.mkdir(File.join(host, "m"))
+    File.symlink("m/sub/..", File.join(host, "x"))
+    Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                   .mount("/data", Kobako::Filesystem::Bind.new(host), access: :read)
+                   .mount("/data/m", Kobako::Filesystem::Tmpfs.new("sub/.keep" => ""), access: :read)
+                   .mount("/data/x", Kobako::Filesystem::Tmpfs.new("note" => "inner"), access: :read)
   end
 end

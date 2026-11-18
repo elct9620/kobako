@@ -46,7 +46,7 @@ however it spells the path, through a link too.
 
 | Case | The guest sees |
 |---|---|
-| a path ending at a link | the mount on the directory the link leads to |
+| a path ending at a link | the mount where the link leads, else on the link |
 | no such name in the outer one | the mount all the same |
 | two landing on one directory | the deeper path's, else the later one |
 | a directory above it renamed | the mount moving with it |
