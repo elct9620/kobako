@@ -397,11 +397,12 @@ impl Nameidata {
             let (mnt, dir) = self.crossed.pop().ok_or(Errno::Escape)?;
             self.mnt = mnt;
             self.dir = dir;
-            return Ok(());
+        } else {
+            self.dir = self.dir.parent();
         }
-        self.dir = self.dir.parent();
         // A move along the way may have carried `..` above where the walk started,
-        // so the caller makes the call again, as `handle_dots` answers a scoped walk.
+        // so the caller makes the call again, as `handle_dots` answers a scoped walk
+        // however the `..` was taken.
         if RENAME_LOCK.read_seqretry(self.r_seq) {
             return Err(Errno::WouldBlock);
         }
@@ -3401,6 +3402,56 @@ mod tests {
             (Err(Errno::WouldBlock), Ok(5)),
             "vfs_fstatat through `..` with a move landing during the walk must answer EAGAIN, \
              as handle_dots reads r_seq, and the call made again reaches where it stands now"
+        );
+    }
+
+    // The `..` here leaves the root of a nested mount, which climbs back to where
+    // the walk stepped onto it rather than reading a parent.
+    // @behavior RT-240
+    #[test]
+    fn a_dotdot_out_of_a_nested_mount_a_move_landed_before_asks_the_caller_again() {
+        let outer = Mount::new(
+            "/data",
+            Filesystem::new(
+                [("inner/keep", "k"), ("x/c", "moved")]
+                    .into_iter()
+                    .collect::<Tmpfs>(),
+            )
+            .expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data is a guest path");
+        let root = Arc::new(OnceLock::new());
+        let link = MovesWhenFollowed {
+            cred: Arc::default(),
+            root: root.clone(),
+            from: "x",
+            to: "y",
+        };
+        let wrapped = Wrap::new(
+            Arc::new(Tmpfs::default()),
+            Arc::new(LinkAtL(Arc::new(link))),
+        );
+        let inner = Mount::new(
+            "/data/inner",
+            Filesystem::new(wrapped).expect("the instance must stand"),
+            Access::ReadWrite,
+        )
+        .expect("/data/inner is a guest path");
+        let outer_root = Path::root(outer.mnt());
+        root.set(outer_root.clone()).ok().expect("set only here");
+        let cred = crate::security::restrict_self(
+            &Arc::default(),
+            [
+                &crate::grant::Grant::Mount(outer),
+                &crate::grant::Grant::Mount(inner),
+            ],
+        );
+        assert_eq!(
+            vfs::vfs_fstatat(&cred, &outer_root, "inner/l/../y/c", false).map(|stat| stat.size),
+            Err(Errno::WouldBlock),
+            "vfs_fstatat through a `..` out of a nested mount's root with a move landing \
+             during the walk must answer EAGAIN, as handle_dots reads r_seq however `..` climbs"
         );
     }
 
