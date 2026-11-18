@@ -493,27 +493,3 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Sandbox with a writable Tmpfs holding `inner` at `/data`, and a Tmpfs holding `note` at `/data/inner` |
 | When | the script renames `/data/./inner` to the same name and reads `/data/inner/note` |
 | Then | the rename returns 0 and the read finds the inner note. Linux changes nothing on a rename to the same name |
-
-## `MT-041` A mount whose last name is a link stands where the link leads
-
-| Attribute | Value |
-| --- | --- |
-| relates | `MT-033` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Bind at `/data` holding `real/note` and a link `inner` to `real`, and a Tmpfs at `/data/inner` |
-| When | the script reads `/data/real/note` |
-| Then | it reads the Tmpfs's note, as Linux's `mount` follows a link at its last name |
-
-## `MT-042` Two mounts landing on one directory show the later
-
-| Attribute | Value |
-| --- | --- |
-| relates | `MT-041` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Bind at `/data` holding `real/` and a link `inner` to `real`, a Tmpfs at `/data/inner`, then another at `/data/real` |
-| When | the script reads `/data/./real/note` |
-| Then | it reads the later Tmpfs's note, as a later Linux mount on a directory overmounts the earlier |

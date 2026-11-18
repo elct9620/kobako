@@ -7,10 +7,9 @@ use std::sync::Arc;
 
 use super::dentry::Dentry;
 use super::mount::VfsMount;
-use super::namei::{filename_lookup, filename_parentat, lookup_dentry};
+use super::namei::{filename_parentat, lookup_dentry};
 use super::path::Path;
 use crate::cred::Cred;
-use crate::Errno;
 
 /// One mount standing on a dentry of another, as Linux's `struct mount` keeps
 /// `mnt_parent` and `mnt_mountpoint`. The mount point is held while the mount
@@ -37,12 +36,13 @@ pub(crate) struct MntNamespace {
 impl MntNamespace {
     /// The tree the mounts at their absolute guest paths make: each one beneath
     /// the mount whose path holds it most closely, none above one no other
-    /// holds. Each stands on the dentry its path reaches in that parent as
-    /// `cred` walks it, following links, as `do_mount` looks its target up with
-    /// `LOOKUP_FOLLOW`. The last name may stand for nothing, which Linux never
-    /// lets a mount do, so the parent's name is hidden even once made. A mount
-    /// whose directories above it stand nowhere in its parent is reached by no
-    /// walk.
+    /// holds. Each stands on the name its path spells in that parent as `cred`
+    /// walks it, following links above that name but not one at it, unlike
+    /// `do_mount`'s `LOOKUP_FOLLOW`, as the guest finds a mount's preopen by
+    /// the text of its path. The last name may stand for
+    /// nothing, which Linux never lets a mount do, so the parent's name is
+    /// hidden even once made. A mount whose directories above it stand nowhere
+    /// in its parent is reached by no walk.
     pub(crate) fn new<'a>(
         cred: &Arc<Cred>,
         mounts: impl IntoIterator<Item = (&'a str, &'a Arc<VfsMount>)>,
@@ -66,9 +66,7 @@ impl MntNamespace {
         Self { mounted }
     }
 
-    /// The mount standing on `dentry` beneath `mnt`, as Linux's `__lookup_mnt`:
-    /// the last made of those standing on it, as a later mount there
-    /// overmounts the earlier.
+    /// The mount standing on `dentry` beneath `mnt`, as Linux's `__lookup_mnt`.
     pub(crate) fn __lookup_mnt(
         &self,
         mnt: &Arc<VfsMount>,
@@ -76,9 +74,7 @@ impl MntNamespace {
     ) -> Option<Arc<VfsMount>> {
         self.mounted
             .iter()
-            .rfind(|child| {
-                Arc::ptr_eq(&child.parent, mnt) && Arc::ptr_eq(&child.mountpoint, dentry)
-            })
+            .find(|child| Arc::ptr_eq(&child.parent, mnt) && Arc::ptr_eq(&child.mountpoint, dentry))
             .map(|child| Arc::clone(&child.mnt))
     }
 
@@ -102,21 +98,12 @@ impl MntNamespace {
 }
 
 /// The dentry `path` reaches beneath the root of `parent` as `cred` walks it,
-/// following a link at its last name too, marked a mount point, as `do_mount`
-/// looks its target up with `LOOKUP_FOLLOW` and `get_mountpoint` pins it. Where
-/// the last name stands for nothing, the mount stands on that name; none
-/// stands where a directory above it stands nowhere.
+/// marked a mount point, as `get_mountpoint` pins it; none where a directory
+/// above its last name stands nowhere.
 fn get_mountpoint(cred: &Arc<Cred>, parent: &Arc<VfsMount>, path: &str) -> Option<Arc<Dentry>> {
     let path = path.trim_start_matches('/');
-    let root = Path::root(parent);
-    let dentry = match filename_lookup(cred, &root, path, true) {
-        Ok(nd) => nd.path().ok()?,
-        Err(Errno::NotFound) => {
-            let nd = filename_parentat(cred, &root, path).ok()?;
-            lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last).ok()?
-        }
-        Err(_) => return None,
-    };
+    let nd = filename_parentat(cred, &Path::root(parent), path).ok()?;
+    let dentry = lookup_dentry(nd.mnt.sb(), nd.dentry(), &nd.last).ok()?;
     dentry.d_set_mounted();
     Some(dentry)
 }
