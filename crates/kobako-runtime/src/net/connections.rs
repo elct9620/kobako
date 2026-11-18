@@ -7,7 +7,7 @@
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
-use crate::fork::ProcessLocal;
+use crate::fork::{Pid, ProcessLocal};
 
 /// The process's limit until a Host App sets its own, as tokio caps its
 /// blocking pool.
@@ -62,8 +62,8 @@ impl OpenConnections {
 
     /// One given back, counted in `pid`; one a parent counted is not this
     /// process's to give back.
-    fn close(&self, pid: u32) {
-        if pid == std::process::id() {
+    fn close(&self, pid: Pid) {
+        if pid.is_current() {
             self.count.with(|count| {
                 if let Some(count) = count {
                     *count -= 1;
@@ -77,7 +77,7 @@ impl OpenConnections {
 /// it drops, as a task's exit uncharges its cgroup.
 pub(crate) struct Place {
     owners: [Arc<OpenConnections>; 2],
-    pid: u32,
+    pid: Pid,
 }
 
 impl Drop for Place {
@@ -98,7 +98,7 @@ pub(super) fn open_within(
     sandbox: &Arc<OpenConnections>,
     process: &Arc<OpenConnections>,
 ) -> Option<Place> {
-    let pid = std::process::id();
+    let pid = Pid::current();
     if !sandbox.try_open() {
         return None;
     }

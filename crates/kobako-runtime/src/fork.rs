@@ -5,18 +5,41 @@
 
 use std::sync::{Mutex, PoisonError};
 
+/// The process a value was made in, as Linux's `struct pid` names a task: a
+/// forked child inherits the value, but not having made it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) struct Pid(u32);
+
+impl Pid {
+    /// This process.
+    pub(crate) fn current() -> Self {
+        Self(std::process::id())
+    }
+
+    /// Whether this process is the one named.
+    pub(crate) fn is_current(self) -> bool {
+        self == Self::current()
+    }
+
+    /// Another process than this one, as a forked child sees its parent.
+    #[cfg(test)]
+    pub(crate) fn parent() -> Self {
+        Self(std::process::id().wrapping_add(1))
+    }
+}
+
 /// A value of the process that made it, as `thread_local!` keeps one per
 /// thread: a forked child, which inherits the memory but none of the parent's
 /// other threads, sees none until it makes its own.
 pub struct ProcessLocal<T> {
-    slot: Mutex<(u32, Option<T>)>,
+    slot: Mutex<(Option<Pid>, Option<T>)>,
 }
 
 impl<T> ProcessLocal<T> {
     /// None made yet.
     pub const fn new() -> Self {
         Self {
-            slot: Mutex::new((0, None)),
+            slot: Mutex::new((None, None)),
         }
     }
 
@@ -24,9 +47,8 @@ impl<T> ProcessLocal<T> {
     /// made it.
     pub fn with<R>(&self, f: impl FnOnce(&mut Option<T>) -> R) -> R {
         let mut slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
-        let pid = std::process::id();
-        if slot.0 != pid {
-            *slot = (pid, None);
+        if !slot.0.is_some_and(Pid::is_current) {
+            *slot = (Some(Pid::current()), None);
         }
         f(&mut slot.1)
     }
@@ -35,7 +57,7 @@ impl<T> ProcessLocal<T> {
     #[cfg(test)]
     pub(crate) fn inherit(&self) {
         let mut slot = self.slot.lock().unwrap_or_else(PoisonError::into_inner);
-        slot.0 = std::process::id().wrapping_add(1);
+        slot.0 = Some(Pid::parent());
     }
 }
 

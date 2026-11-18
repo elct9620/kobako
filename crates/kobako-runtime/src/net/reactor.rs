@@ -19,7 +19,7 @@ use std::time::{Duration, Instant};
 use mio::event::Source;
 use mio::{Events, Interest, Registry, Token};
 
-use crate::fork::ProcessLocal;
+use crate::fork::{Pid, ProcessLocal};
 
 /// What a host socket does once the reactor saw it change, as a socket's
 /// `sk_data_ready` and `sk_write_space` do: move what it can without blocking,
@@ -206,6 +206,7 @@ impl Reactor {
         Ok(Registration {
             token,
             reactor: self.clone(),
+            pid: Pid::current(),
         })
     }
 
@@ -261,13 +262,18 @@ impl Reactor {
 pub(crate) struct Registration {
     token: Token,
     reactor: Arc<Reactor>,
+    pid: Pid,
 }
 
 impl Registration {
     /// Stop watching `source`, which the socket closes next; the token goes
-    /// once the registration drops.
+    /// once the registration drops. A forked child leaves its parent's
+    /// registration be: the epoll instance is shared, and removing the one
+    /// `<fd, file>` entry would stop the parent watching its own socket.
     pub(crate) fn deregister(&self, source: &mut impl Source) {
-        let _ = self.reactor.registry.deregister(source);
+        if self.pid.is_current() {
+            let _ = self.reactor.registry.deregister(source);
+        }
     }
 
     /// Run `ready`'s `on_event` again after the reactor's next round of
@@ -363,6 +369,43 @@ mod tests {
             !Arc::ptr_eq(&inherited, &own),
             "Reactor::current must start a reactor of its own once the one it holds was started \
              in another process"
+        );
+    }
+
+    /// A socket the reactor tells of each change through a channel.
+    struct Tells(Mutex<mpsc::Sender<()>>);
+
+    impl Ready for Tells {
+        fn on_event(&self) {
+            let _ = self.0.lock().unwrap().send(());
+        }
+    }
+
+    // A forked child shares its parent's epoll instance, where an inherited
+    // socket's `<fd, file>` entry stands once for both, so a child letting the
+    // socket go must leave the parent watching it.
+    // @behavior NW-232
+    #[test]
+    fn a_registration_made_in_another_process_stays_watched_once_let_go() {
+        let reactor = Reactor::current().expect("a reactor starts");
+        let (tx, rx) = mpsc::channel();
+        let ready: Arc<dyn Ready> = Arc::new(Tells(Mutex::new(tx)));
+        let addr = "127.0.0.1:0".parse().unwrap();
+        let mut socket = mio::net::UdpSocket::bind(addr).expect("a UDP socket binds");
+        let mut registration = reactor
+            .register(&mut socket, Arc::downgrade(&ready))
+            .expect("the socket registers");
+        while rx.recv_timeout(Duration::from_millis(50)).is_ok() {}
+        registration.pid = Pid::parent();
+        registration.deregister(&mut socket);
+        let sender = std::net::UdpSocket::bind(addr).expect("a UDP socket binds");
+        sender
+            .send_to(b"x", socket.local_addr().unwrap())
+            .expect("the datagram goes");
+        assert!(
+            rx.recv_timeout(Duration::from_secs(5)).is_ok(),
+            "Registration::deregister in a process that did not register the socket must \
+             leave it watched, as the parent still waits on it through the shared epoll"
         );
     }
 

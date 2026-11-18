@@ -94,6 +94,7 @@ endpoint "api.example.com", port: 443
 - `crates/kobako-runtime/src/net/resolv.rs`
 - `crates/kobako-runtime/src/net/resolv/stub/tests.rs`
 - `crates/kobako-runtime/src/net/udp.rs`
+- `crates/kobako-runtime/src/net/reactor.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
 - `crates/kobako-wasmtime/src/preview2/http.rs`
 - `crates/kobako-wasmtime/src/preview2/sockets.rs`
@@ -2908,3 +2909,15 @@ endpoint "api.example.com", port: 443
 | Given | a guest's output stream that took every byte of a `blocking-write-and-flush` |
 | When | the stream closes while the call waits for the bytes to leave |
 | Then | the call answers success, as wasmtime-wasi-io ignores `closed` from its flush |
+
+## `NW-232` A forked child letting an inherited socket go leaves its parent watching it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-216` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process watching a guest's host socket, then forked |
+| When | the child lets that socket go |
+| Then | the parent still wakes on the socket's events. Linux shares the epoll instance across a fork, so the child removes no entry |
