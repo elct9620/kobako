@@ -9,7 +9,7 @@ class TestE2EMountNested < Minitest::Test
   include E2eGuestHelper
 
   # A Sandbox with +outer+ at +/data+ and a read-only +inner+ at +/data/inner+.
-  def nested(outer, inner)
+  def inside(outer, inner)
     Kobako::Sandbox.new(wasm_path: REAL_WASM)
                    .mount("/data", outer, access: :read_write)
                    .mount("/data/inner", inner, access: :read)
@@ -27,7 +27,7 @@ class TestE2EMountNested < Minitest::Test
   # @behavior MT-033
   def test_a_nested_mount_is_reached_however_the_path_is_spelled
     TestPaths.host_directory do |host|
-      sandbox = nested(hiding(host), Kobako::Filesystem::Tmpfs.new("note" => "inner"))
+      sandbox = inside(hiding(host), Kobako::Filesystem::Tmpfs.new("note" => "inner"))
       script = '["/data/./inner/note", "/data/./inner/../inner/note"].map { |at| File.read(at) }'
 
       assert_equal %w[inner inner], sandbox.eval(script).value,
@@ -40,7 +40,7 @@ class TestE2EMountNested < Minitest::Test
     skip "this host makes no links" if Gem.win_platform?
     TestPaths.host_directory do |host|
       File.symlink("inner/note", File.join(host, "link"))
-      sandbox = nested(hiding(host), Kobako::Filesystem::Tmpfs.new("note" => "inner"))
+      sandbox = inside(hiding(host), Kobako::Filesystem::Tmpfs.new("note" => "inner"))
 
       assert_equal "inner", sandbox.eval('File.read("/data/link")').value,
                    "File.read through a link to inner/note must reach a nested Sandbox#mount"
@@ -55,7 +55,7 @@ class TestE2EMountNested < Minitest::Test
     TestPaths.host_directory do |host|
       outer = hiding(host)
       skip "the host directory matches names exactly" unless File.exist?(File.join(host, "INNER"))
-      sandbox = nested(outer, Kobako::Filesystem::Tmpfs.new("note" => "inner"))
+      sandbox = inside(outer, Kobako::Filesystem::Tmpfs.new("note" => "inner"))
 
       assert_equal "inner", sandbox.eval('File.read("/data/INNER/note")').value,
                    "File.read in another case on a folding host must reach the nested Sandbox#mount"
@@ -111,7 +111,7 @@ class TestE2EMountNested < Minitest::Test
   # @behavior MT-035
   def test_a_read_only_nested_mount_refuses_a_change_however_the_path_is_spelled
     outer = Kobako::Filesystem::Tmpfs.new("inner/.keep" => "")
-    sandbox = nested(outer, Kobako::Filesystem::Tmpfs.new)
+    sandbox = inside(outer, Kobako::Filesystem::Tmpfs.new)
     script = 'begin; File.write("/data/./inner/new", "x"); nil; rescue Errno::EROFS; :erofs; end'
 
     assert_equal :erofs, sandbox.eval(script).value,
