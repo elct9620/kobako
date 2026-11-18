@@ -1987,4 +1987,4 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | --- | --- |
 | Given | a process whose Sandbox releases the GVL |
 | When | it runs twice on the main Thread, and once on another Thread |
-| Then | the first run warns that a trap handler there can stop the run, and no other run warns. A run off the main Thread never warns, as Ruby runs trap handlers on the main Thread alone |
+| Then | the first run warns that a trap handler or a Ractor's `require` can stop the run. No other run warns. A run off the main Thread never warns. Ruby runs both on the main Thread alone |

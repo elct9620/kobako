@@ -246,8 +246,8 @@ module Kobako
     # Thread.
     module MainThreadRelease
       MESSAGE = "Kobako::Sandbox with gvl: :release runs on the main Thread, where a trap handler " \
-                "that raises or exits can stop the run where it cannot unwind; run it on another " \
-                "Thread, or keep trap handlers to setting a flag"
+                "that raises or exits, or another Ractor's require, can stop the run where it cannot " \
+                "unwind; run it on another Thread, or keep trap handlers to setting a flag"
       @warned = false
 
       def self.warn_once
