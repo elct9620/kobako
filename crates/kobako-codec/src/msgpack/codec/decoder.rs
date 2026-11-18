@@ -23,7 +23,8 @@ impl<'a> Decoder<'a> {
     }
 
     /// Refuse to read more than `budget` values in all, each array, map,
-    /// key, and element counting as one; `None` reads without a budget.
+    /// key, and element counting as one, and a map key holding a NaN one more
+    /// for each such key the map already holds; `None` reads without a budget.
     pub fn with_value_budget(mut self, budget: Option<usize>) -> Self {
         self.budget = budget;
         self
