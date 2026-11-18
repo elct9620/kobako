@@ -41,6 +41,20 @@ class TestE2EMountUnreached < Minitest::Test
     end
   end
 
+  # @behavior MT-057
+  def test_a_mount_whose_link_leads_out_of_its_outermost_mount_fails_the_run
+    skip "this host makes no links" if Gem.win_platform?
+    { "abs" => "/data/q", "up" => ".." }.each do |name, target|
+      TestPaths.host_directory do |host|
+        Dir.mkdir(File.join(host, "q"))
+        File.symlink(target, File.join(host, name))
+        error = assert_raises(Kobako::SandboxError) { bind_with(host, "/data/#{name}" => INNER).eval("nil") }
+        assert_includes error.message, %("/data/#{name}" stands nowhere: EXDEV),
+                        "Sandbox#eval with a mount at a link leading to #{target} must fail naming it"
+      end
+    end
+  end
+
   # @behavior MT-050
   def test_a_mount_whose_link_leads_above_its_name_hides_that_directory
     skip "this host makes no links" if Gem.win_platform?

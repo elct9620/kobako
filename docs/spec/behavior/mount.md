@@ -681,3 +681,15 @@ Only the outermost mounts are preopens, so a mount inside another is reached by 
 | Given | a writable Bind at `/data` holding `repo/secret/key`, and a Tmpfs at `/data/repo/secret` |
 | When | one run renames `/data/repo` to `/data/r2`, and the next reads `/data/r2/secret/key` |
 | Then | the rename raises `Errno::EBUSY`, and the read raises `Errno::ENOENT` |
+
+## `MT-057` A mount whose link leads out of its outermost mount fails the run
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-049` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data` holding `q/`, a link to `/data/q`, and a link to `..`, and a Tmpfs at either link |
+| When | the Sandbox runs a script |
+| Then | the run fails naming the mount and `EXDEV`. Linux's `mount` follows the link from the container's root; kobako refuses, as a walk never leaves the outermost mount |
