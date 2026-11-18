@@ -43,14 +43,14 @@ impl MntNamespace {
     /// up with `LOOKUP_FOLLOW`, never above that root. Shallower paths go
     /// first, as a container runtime mounts a parent before its children, and
     /// of two landing where one stands, the later stands over the earlier. A
-    /// mount stands only where a walk of its own path reaches it, asked again
-    /// as each later mount is placed, so a preopen and a walk meet it at every
-    /// spelling: a link leading out
-    /// of that root, back to it, to nothing, to no directory, or through a
-    /// mount it then stands over leaves the mount on the name its path
-    /// spells. The last name may stand for nothing, which Linux
-    /// never lets a mount do, so the parent's name is hidden even once made. A
-    /// mount whose directories above it stand nowhere is reached by no walk.
+    /// mount stands only where a walk of its own path reaches it, every placed
+    /// one asked again as each later mount is placed, so a preopen and a walk
+    /// meet it at every spelling: a link leading out of that root, back to it,
+    /// to nothing, to no directory, or through a mount covered later leaves
+    /// the mount on the name its path spells. The last name may stand for
+    /// nothing, which Linux never lets a mount do, so the parent's name is
+    /// hidden even once made. A mount whose directories above it stand
+    /// nowhere is reached by no walk.
     pub(crate) fn new<'a>(
         cred: &Arc<Cred>,
         mounts: impl IntoIterator<Item = (&'a str, &'a Arc<VfsMount>)>,
@@ -75,36 +75,42 @@ impl MntNamespace {
             };
             placed.mount(spot, mnt);
             walked.push((root, path, mnt));
-            placed.settle(cred, &mut walked);
+            placed.settle(cred, &walked);
         }
         placed
     }
 
     /// Move onto its name each mount in `walked` a walk of its own path no
     /// longer reaches, as a mount placed since covered a directory its link
-    /// ran through, until none moves; each moves at most once, and leaves
-    /// `walked` as it does.
-    fn settle(&mut self, cred: &Arc<Cred>, walked: &mut Vec<(Path, &str, &Arc<VfsMount>)>) {
-        while let Some(at) = walked
-            .iter()
-            .position(|(root, path, mnt)| !self.reaches(cred, root, path, mnt))
-        {
-            let (root, path, mnt) = walked.swap_remove(at);
-            let Some(index) = self
-                .mounted
-                .iter()
-                .position(|child| Arc::ptr_eq(&child.mnt, mnt))
-            else {
-                continue;
+    /// ran through, asking every one again after each move, until none stands
+    /// apart from its name unreached. The moves are bounded by the square of
+    /// the mounts placed, so the asking ends even were two to keep moving each
+    /// other.
+    fn settle(&mut self, cred: &Arc<Cred>, walked: &[(Path, &str, &Arc<VfsMount>)]) {
+        for _ in 0..walked.len() * walked.len() {
+            let Some((index, spot)) = walked.iter().find_map(|(root, path, mnt)| {
+                if self.reaches(cred, root, path, mnt) {
+                    return None;
+                }
+                let index = self
+                    .mounted
+                    .iter()
+                    .position(|child| Arc::ptr_eq(&child.mnt, mnt))?;
+                let (parent, mountpoint) = name_spot(&self.walker(cred), root, path)?;
+                let child = &self.mounted[index];
+                let moved = !Arc::ptr_eq(&child.parent, &parent)
+                    || !Arc::ptr_eq(&child.mountpoint, &mountpoint);
+                moved.then_some((index, (parent, mountpoint)))
+            }) else {
+                return;
             };
-            let Some((parent, mountpoint)) = name_spot(&self.walker(cred), &root, path) else {
-                continue;
-            };
+            let (parent, mountpoint) = spot;
             mountpoint.d_set_mounted();
+            let mnt = Arc::clone(&self.mounted[index].mnt);
             self.mounted[index] = Arc::new(Mounted {
                 parent,
                 mountpoint,
-                mnt: Arc::clone(mnt),
+                mnt,
             });
         }
     }

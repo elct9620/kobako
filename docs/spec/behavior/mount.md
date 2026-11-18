@@ -29,6 +29,7 @@ block raises anything else  -> the run ends, and it raises in the Host App
 - `test/e2e/test_mount_nested.rb`
 - `test/e2e/test_mount_point.rb`
 - `test/e2e/test_mount_placement.rb`
+- `test/e2e/test_mount_relocation.rb`
 - `test/e2e/test_host_exception.rb`
 - `test/e2e/test_mount_limit.rb`
 - `test/e2e/test_mount_rename.rb`
@@ -578,3 +579,15 @@ block raises anything else  -> the run ends, and it raises in the Host App
 | Given | a Bind at `/data` linking `a` to `q/t`, then Tmpfs A at `/data/a`, Q at `/data/q`, S at `/data/a/s` |
 | When | the script reads `note` through `/data/a`, `/data/./a`, `/data/a/s`, and `/data/./a/s` |
 | Then | each reads A's note, then S's beneath. Q leaves A's link leading nowhere, so A moves onto the link |
+
+## `MT-048` A mount moved onto its name stays reached when another covers its parent
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-047` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data` linking `a` to `q/t`, `c` to `q`; S at `/data/a/s`, T at `/data/q/t`, M at `/data/c/t` |
+| When | the script reads `/data/a/s/note` and `/data/./a/s/note` |
+| Then | both read S's note, as each placed mount is asked again whenever another moves |
