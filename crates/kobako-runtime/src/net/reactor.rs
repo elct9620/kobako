@@ -404,8 +404,8 @@ mod tests {
             .expect("the datagram goes");
         assert!(
             rx.recv_timeout(Duration::from_secs(5)).is_ok(),
-            "Registration::deregister in a process that did not register the socket must \
-             leave it watched, as the parent still waits on it through the shared epoll"
+            "a forked child letting go of a guest's socket its parent watches must leave the \
+             parent woken by that socket's events"
         );
     }
 
