@@ -41,7 +41,7 @@ global budget.
 | `timeout` | wall time inside the guest, Service calls included |
 | `setup_timeout` | instantiating a Guest Binary and reading its ABI version, not compiling it |
 | `memory_limit` | the run's `memory.grow` and what the host holds for it |
-| `open_file_limit` | every descriptor one run holds: the standard three, outermost mounts, sockets, lookups, HTTP requests |
+| `open_file_limit` | every descriptor one run holds: the standard three, the root, sockets, lookups, HTTP requests |
 
 The socket buffers, listings, lookups, and handles the host holds for a run take
 from the same `memory_limit` as the guest's growth.

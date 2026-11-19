@@ -39,11 +39,20 @@ replaces the mount with its own Tmpfs through `ctx.mount`. `ctx.mount` replaces
 only a path already mounted. Mounts seal with the Sandbox, and a mount may sit
 inside another.
 
+### The Root
+
+Every mount stands beneath `/`, so a `..` out of one reaches another, as in
+Linux. A mount at `/` is the root itself.
+
+| Mounted at `/` | The guest sees at `/` |
+|---|---|
+| nothing | a read-only directory holding only the way to each mount |
+| a Filesystem | that Filesystem, each other mount standing on a directory it holds |
+
 ### Nested Mounts
 
 A nested mount stands where Linux would place it. The guest reaches what
-stands at a path by a walk from the outermost mount, however it spells the
-path.
+stands at a path by a walk from `/`, however it spells the path.
 
 | Case | The guest sees |
 |---|---|

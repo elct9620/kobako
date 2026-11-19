@@ -23,7 +23,7 @@ An Engine is the WebAssembly runtime that executes a Guest Binary, such as wasmt
 
 | kobako provides | Because |
 |---|---|
-| every preview1 call that reads the descriptor table: `fd_*`, `path_*`, `sock_*`, `poll_oneoff` | each outermost Mount is a descriptor, and one table answers every call reading one |
+| every preview1 call that reads the descriptor table: `fd_*`, `path_*`, `sock_*`, `poll_oneoff` | the guest's root is a descriptor, and one table answers every call reading one |
 | every `wasi:sockets` and `wasi:http` import, and the `wasi:io` they stand on | a socket must pass the endpoints a Grant names, which no Engine knows |
 | the monotonic clock's `subscribe-duration` | its pollable waits in kobako's `wasi:io`, beside a socket's |
 | the host side of the kobako ABI | no Engine knows that ABI |
