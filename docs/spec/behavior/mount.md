@@ -493,7 +493,20 @@ A mount Linux would refuse fails the run, and so does one whose link leaves the 
 | When | the script renames `/data/./inner` to the same name and reads `/data/inner/note` |
 | Then | the rename returns 0 and the read finds the inner note. Linux changes nothing on a rename to the same name |
 
-## `MT-041` A mount whose last name is a link stands where the link leads
+## `MT-041` A mount whose path passes a link fails the run
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-005` |
+| relates | `MT-051`, `MT-056` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind at `/data`, alone or beneath an Overlay, holding `real/x/` and a link `inner` to `real`, and a Tmpfs at `/data/inner` or at `/data/inner/x` |
+| When | the Sandbox runs a script |
+| Then | the run fails naming the mount and `ELOOP`. Ruby raises `Kobako::SandboxError`. Linux's `mount` follows the link; kobako refuses, as each run places the mount by its path again and a link changed meanwhile would move it |
+
+## `MT-042` Two mounts landing on one directory show the later
 
 | Attribute | Value |
 | --- | --- |
@@ -501,20 +514,8 @@ A mount Linux would refuse fails the run, and so does one whose link leaves the 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind at `/data` holding `real/note` and a link `inner` to `real`, and a Tmpfs at `/data/inner` |
-| When | the script reads `note` through `/data/inner`, `/data/./inner`, and `/data/real` |
-| Then | each reads the Tmpfs's note, as Linux's `mount` follows a link at its last name |
-
-## `MT-042` Two mounts landing on one directory show the later
-
-| Attribute | Value |
-| --- | --- |
-| relates | `MT-041` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Bind at `/data` holding `real/` and a link `inner` to `real`, a Tmpfs at `/data/inner`, then another at `/data/real` |
-| When | the script reads `note` through `/data/inner`, `/data/./inner`, `/data/real`, and `/data/./real` |
+| Given | a Bind at `/data` holding `real/` on a host folding case, a Tmpfs at `/data/real`, then another at `/data/REAL` |
+| When | the script reads `note` through `/data/real` and `/data/./REAL` |
 | Then | each reads the later Tmpfs's note, as a later Linux mount on a directory hides the earlier |
 
 ## `MT-043` A mount beneath a hidden one stands in the mount over it
@@ -525,8 +526,8 @@ A mount Linux would refuse fails the run, and so does one whose link leaves the 
 
 | Step | Statement |
 | --- | --- |
-| Given | the Sandbox of MT-042, then a third Tmpfs holding `note` at `/data/inner/x` |
-| When | the script reads `x/note` through `/data/inner` and `/data/./real` |
+| Given | the Sandbox of MT-042, then a third Tmpfs holding `note` at `/data/real/x` |
+| When | the script reads `x/note` through `/data/real` and `/data/./REAL` |
 | Then | each reads the third Tmpfs's note, as Linux walks a mount's path through the mounts before it |
 
 ## `MT-044` A nested mount made before its parent stands beneath it
@@ -541,79 +542,7 @@ A mount Linux would refuse fails the run, and so does one whose link leaves the 
 | When | the script reads `/data/./a/b/note` |
 | Then | it reads the inner Tmpfs's note, as a container runtime mounts a parent before its children |
 
-## `MT-045` A mount whose link leads to its parent's root stands over it
-
-| Attribute | Value |
-| --- | --- |
-| relates | `MT-041` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Bind at `/data` holding `note`, `f`, and a link `inner` to `.`, and a Tmpfs holding `note` at `/data/inner` |
-| When | the script reads `/data/inner/note`, `/data/note`, and `/data/f` |
-| Then | the Tmpfs hides the Bind: `/data/note` is the Tmpfs's, and the other two raise `Errno::ENOENT` |
-
-## `MT-046` A mount whose link runs through another mount stands over that mount
-
-| Attribute | Value |
-| --- | --- |
-| relates | `MT-042` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Bind at `/data` holding a link `x` to `m/sub/..`, a Tmpfs holding `sub/` at `/data/m`, and another at `/data/x` |
-| When | the script reads `/data/x/note` and `/data/m/note` |
-| Then | the first raises `Errno::ENOENT` and the second reads the Tmpfs at `/data/x`, as Linux's `mount` stands on `/data/m` |
-
-## `MT-047` A mount a later one covers is hidden
-
-| Attribute | Value |
-| --- | --- |
-| relates | `MT-042` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Bind at `/data` linking `a` to `q/t`, then Tmpfs A at `/data/a` and Q at `/data/q` |
-| When | the script reads `note` through `/data/a` and `/data/q` |
-| Then | the first raises `Errno::ENOENT`, and the second reads Q's note. Q hides A |
-
-## `MT-048` A mount landing on a later one's directory stands over it
-
-| Attribute | Value |
-| --- | --- |
-| relates | `MT-042` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Bind at `/data` linking `a` to `q/t`, `c` to `q`; S at `/data/a/s`, T at `/data/q/t`, M at `/data/c/t` |
-| When | the script reads `/data/a/s/note` and `/data/./a/s/note` |
-| Then | both read M's note. T hides S, and M stands over T |
-
-## `MT-049` A mount whose link leads to nothing or to no directory fails the run
-
-| Attribute | Value |
-| --- | --- |
-| relates | `MT-041` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Bind at `/data` holding `note` and a link to itself, a file, or nothing, and a Tmpfs at it |
-| When | the Sandbox runs a script |
-| Then | the run fails naming the mount and `ELOOP`, `ENOTDIR`, or `ENOENT`, as Linux's `mount` refuses it. Ruby raises `Kobako::SandboxError` |
-
-## `MT-050` A mount whose link leads above its name hides that directory
-
-| Attribute | Value |
-| --- | --- |
-| relates | `MT-041` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Bind at `/data` holding `a/note` and a link `a/b` to `.`, and a Tmpfs holding `note` at `/data/a/b` |
-| When | the script reads `/data/a/note`, `/data/a/b/note`, and `/data/./a/b/note` |
-| Then | the first reads the Tmpfs's note, and the other two raise `Errno::ENOENT`. The Tmpfs stands on `/data/a` |
-
-## `MT-051` A mount whose path its parent lacks fails the run
+## `MT-051` A mount whose path its parent lacks as a directory fails the run
 
 | Attribute | Value |
 | --- | --- |
@@ -621,9 +550,9 @@ A mount Linux would refuse fails the run, and so does one whose link leaves the 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind at `/data` holding no `x`, and a Tmpfs at `/data/x` or at `/data/x/y` |
+| Given | a Bind at `/data` holding a file `f` and no `x`, and a Tmpfs at `/data/x`, at `/data/x/y`, or at `/data/f` |
 | When | the Sandbox runs a script |
-| Then | the run fails naming the mount and `ENOENT`. Ruby raises `Kobako::SandboxError`, and Rust answers `Error::Setup` |
+| Then | the run fails naming the mount and `ENOENT`, or `ENOTDIR` at the file. Ruby raises `Kobako::SandboxError`, and Rust answers `Error::Setup` |
 
 ## `MT-053` A `..` out of a nested mount climbs into its parent
 
@@ -673,38 +602,3 @@ A mount Linux would refuse fails the run, and so does one whose link leaves the 
 | When | one run renames `/data/repo` to `/data/r2`, and the next reads `/data/r2/secret/key` |
 | Then | the rename raises `Errno::EBUSY`, and the read raises `Errno::ENOENT` |
 
-## `MT-057` A mount whose link leads out of its outermost mount fails the run
-
-| Attribute | Value |
-| --- | --- |
-| relates | `MT-049` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Bind at `/data` holding `q/`, a link to `/data/q`, and a link to `..`, and a Tmpfs at either link |
-| When | the Sandbox runs a script |
-| Then | the run fails naming the mount and `EXDEV`. Linux's `mount` follows the link from the container's root; kobako refuses, as a walk never leaves the outermost mount |
-
-## `MT-058` A link a nested mount's path follows neither moves nor goes
-
-| Attribute | Value |
-| --- | --- |
-| refines | `MT-038` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a writable Bind at `/data` holding `real/key` and a link `link` to `real`, and a Tmpfs at `/data/link` |
-| When | one run deletes or renames `/data/link`, and the next reads `/data/real/key` |
-| Then | the change raises `Errno::EBUSY`, and the read raises `Errno::ENOENT`. Linux removes the link, the mount staying on `real` |
-
-## `MT-059` A directory a nested mount's link climbs out of neither moves nor goes
-
-| Attribute | Value |
-| --- | --- |
-| refines | `MT-058` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a writable Bind at `/data` holding `a/`, `b/key`, and a link `l` to `a/../b`, and a Tmpfs at `/data/l` |
-| When | one run removes or renames `/data/a`, and the next reads `/data/b/key` |
-| Then | the change raises `Errno::EBUSY`, and the read raises `Errno::ENOENT`. Linux changes `a`, the mount staying on `b` |

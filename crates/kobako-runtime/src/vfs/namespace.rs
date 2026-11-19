@@ -15,13 +15,11 @@ use crate::Errno;
 
 /// One mount standing on a dentry of another, as Linux's `struct mount` keeps
 /// `mnt_parent` and `mnt_mountpoint`. The mount point is held while the mount
-/// stands, so a walk finds that one dentry and no other. The dentries its path
-/// led through are kept too, as each Invocation places it by that path again.
+/// stands, so a walk finds that one dentry and no other.
 struct Mounted {
     parent: Arc<VfsMount>,
     mountpoint: Arc<Dentry>,
     mnt: Arc<VfsMount>,
-    trail: Vec<Arc<Dentry>>,
 }
 
 impl Drop for Mounted {
@@ -31,11 +29,10 @@ impl Drop for Mounted {
 }
 
 /// Where a mount is to stand, as Linux's `pinned_mountpoint` holds the parent
-/// and the mount point: and each dentry its path led through.
+/// and the mount point.
 struct PinnedMountpoint {
     parent: Arc<VfsMount>,
     mountpoint: Arc<Dentry>,
-    trail: Vec<Arc<Dentry>>,
 }
 
 /// The mounts one Invocation reaches beneath the outermost ones, each standing
@@ -48,9 +45,8 @@ pub(crate) struct MntNamespace {
 impl MntNamespace {
     /// The tree the mounts at their absolute guest paths make, each placed as
     /// Linux's `mount` places it: its path walked from the root of the
-    /// outermost mount holding it, through the mounts placed before it,
-    /// following a link at its last name too, as `do_mount` looks its target
-    /// up with `LOOKUP_FOLLOW`, never above that root. Shallower paths go
+    /// outermost mount holding it, through the mounts placed before it, never
+    /// through a link, as `LOOKUP_NO_SYMLINKS` refuses one. Shallower paths go
     /// first, as a container runtime mounts a parent before its children, and
     /// of two landing where one stands, the later stands over the earlier and
     /// hides it. A mount Linux's `mount` refuses, its walk failing or landing
@@ -87,7 +83,6 @@ impl MntNamespace {
             parent: pinned.parent,
             mountpoint: pinned.mountpoint,
             mnt: Arc::clone(mnt),
-            trail: pinned.trail,
         }));
     }
 
@@ -111,7 +106,6 @@ impl MntNamespace {
         Ok(PinnedMountpoint {
             parent: nd.mnt.clone(),
             mountpoint: dentry,
-            trail: nd.trail,
         })
     }
 
@@ -140,16 +134,14 @@ impl MntNamespace {
     }
 
     /// Whether a mount of this namespace pins `dentry`, its path leading
-    /// through it: the mount stands on it or beneath it, or the walk placing
-    /// the mount stepped onto it or beneath it. A removal or a move asks it
-    /// where Linux asks `is_local_mountpoint`: each Invocation places a mount
-    /// again by its path, so a pinned name going would open what the mount
-    /// hides to the next.
+    /// through it: the mount stands on it or beneath it. A removal or a move
+    /// asks it where Linux asks `is_local_mountpoint`: each Invocation places a
+    /// mount again by its path, so a pinned name going would open what the
+    /// mount hides to the next.
     pub(crate) fn pins(&self, dentry: &Arc<Dentry>) -> bool {
-        self.mounted.iter().any(|child| {
-            child.mountpoint.is_subdir(dentry)
-                || child.trail.iter().any(|stepped| stepped.is_subdir(dentry))
-        })
+        self.mounted
+            .iter()
+            .any(|child| child.mountpoint.is_subdir(dentry))
     }
 
     /// Whether any mount stands beneath `mnt`, as Linux finds its `mnt_mounts`

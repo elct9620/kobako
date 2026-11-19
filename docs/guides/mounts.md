@@ -47,13 +47,10 @@ path.
 
 | Case | The guest sees |
 |---|---|
-| a path ending at a link | the mount where the link leads |
-| a link to nothing or to no directory | the run fails, as Linux refuses it |
-| a link leaving the outermost mount | the run fails, where Linux follows it |
-| a path the outer one lacks | the run fails, as Linux refuses it |
-| a later one over a directory above it | no mount, as it is hidden |
-| two landing on one directory | the deeper path's, else the later one |
-| a removal or rename of a name its path leads through | `Errno::EBUSY`, as each run places it by that path |
+| a path through a link | the run fails, where Linux follows it; a changed link would move it |
+| a path the outer one lacks as a directory | the run fails, as Linux refuses it |
+| two landing on one directory, as a host folding case allows | the later one |
+| a removal or rename of a directory above it | `Errno::EBUSY`, as each run places it by that path |
 | a removal or rename of it | `Errno::EBUSY`, once a Policy allows it |
 | a rename to its own name | nothing changed |
 

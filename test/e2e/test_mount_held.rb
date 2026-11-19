@@ -4,24 +4,9 @@ require "test_helper"
 
 # E2E — what a nested Sandbox#mount's path leads through, held through the real
 # Guest Binary: each run places the mount again by that path, so no directory
-# above it and no link it follows moves or goes, and no later run reaches what
-# it hides.
+# above it moves or goes, and no later run reaches what it hides.
 class TestE2EMountHeld < Minitest::Test
   include E2eGuestHelper
-
-  # Scripts changing the link +hiding_through_link+ mounts through, by name,
-  # each answering +:ebusy+ when refused.
-  LINK_CHANGES = {
-    "delete" => 'begin; File.delete("/data/link"); :changed; rescue Errno::EBUSY; :ebusy; end',
-    "rename" => 'begin; File.rename("/data/link", "/data/l2"); :changed; rescue Errno::EBUSY; :ebusy; end'
-  }.freeze
-
-  # Scripts changing the directory +hiding_past_climb+'s link climbs out of,
-  # by name, each answering +:ebusy+ when refused.
-  CLIMBED_CHANGES = {
-    "removal" => 'begin; Dir.rmdir("/data/a"); :changed; rescue Errno::EBUSY; :ebusy; end',
-    "rename" => 'begin; File.rename("/data/a", "/data/a2"); :changed; rescue Errno::EBUSY; :ebusy; end'
-  }.freeze
 
   # A Sandbox with +outer+ at +/data+ and a read-only Tmpfs at
   # +/data/repo/hooks+, which +outer+ must hold.
@@ -39,28 +24,6 @@ class TestE2EMountHeld < Minitest::Test
     Kobako::Sandbox.new(wasm_path: REAL_WASM)
                    .mount("/data", Kobako::Filesystem::Bind.new(host), access: :read_write)
                    .mount("/data/repo/secret", Kobako::Filesystem::Tmpfs.new, access: :read)
-  end
-
-  # A Sandbox with a writable Bind over +host+ at +/data+, whose +real/key+
-  # an empty Tmpfs at +/data/link+, a link to +real+, hides.
-  def hiding_through_link(host)
-    Dir.mkdir(File.join(host, "real"))
-    File.write(File.join(host, "real", "key"), "hidden")
-    File.symlink("real", File.join(host, "link"))
-    Kobako::Sandbox.new(wasm_path: REAL_WASM)
-                   .mount("/data", Kobako::Filesystem::Bind.new(host), access: :read_write)
-                   .mount("/data/link", Kobako::Filesystem::Tmpfs.new, access: :read)
-  end
-
-  # A Sandbox with a writable Bind over +host+ at +/data+, whose +b/key+ an
-  # empty Tmpfs at +/data/l+, a link to +a/../b+, hides.
-  def hiding_past_climb(host)
-    FileUtils.mkdir_p([File.join(host, "a"), File.join(host, "b")])
-    File.write(File.join(host, "b", "key"), "hidden")
-    File.symlink("a/../b", File.join(host, "l"))
-    Kobako::Sandbox.new(wasm_path: REAL_WASM)
-                   .mount("/data", Kobako::Filesystem::Bind.new(host), access: :read_write)
-                   .mount("/data/l", Kobako::Filesystem::Tmpfs.new, access: :read)
   end
 
   # @behavior MT-054
@@ -92,36 +55,6 @@ class TestE2EMountHeld < Minitest::Test
 
       assert_equal %i[ebusy enoent], [moved.value, read.value],
                    "a later Sandbox#eval must never read what a nested Sandbox#mount hides in its parent"
-    end
-  end
-
-  # @behavior MT-058
-  def test_a_link_a_nested_mount_path_follows_neither_moves_nor_goes
-    skip "this host makes no links" if Gem.win_platform?
-    LINK_CHANGES.each do |name, change|
-      TestPaths.host_directory do |host|
-        sandbox = hiding_through_link(host)
-        changed = sandbox.eval(change)
-        read = sandbox.eval('begin; File.read("/data/real/key"); rescue Errno::ENOENT; :enoent; end')
-
-        assert_equal %i[ebusy enoent], [changed.value, read.value],
-                     "a #{name} of a link a nested Sandbox#mount's path follows must raise EBUSY and keep it hiding"
-      end
-    end
-  end
-
-  # @behavior MT-059
-  def test_a_directory_a_nested_mount_link_climbs_out_of_neither_moves_nor_goes
-    skip "this host makes no links" if Gem.win_platform?
-    CLIMBED_CHANGES.each do |name, change|
-      TestPaths.host_directory do |host|
-        sandbox = hiding_past_climb(host)
-        changed = sandbox.eval(change)
-        read = sandbox.eval('begin; File.read("/data/b/key"); rescue Errno::ENOENT; :enoent; end')
-
-        assert_equal %i[ebusy enoent], [changed.value, read.value],
-                     "a #{name} of a directory a Sandbox#mount's link climbs out of must raise EBUSY, still hiding"
-      end
     end
   end
 end
