@@ -2945,6 +2945,6 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | several Threads sharing one Sandbox with a network entry named `api`, each Context replacing it with an entry of its own |
+| Given | several Threads sharing one Sandbox with a network entry named `api`, each Context replacing it with its own entry |
 | When | their invocations look a name up at once |
 | Then | each lookup is judged by its own invocation's entry alone, and the Sandbox's own entry is left as it was |
