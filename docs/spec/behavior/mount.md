@@ -14,7 +14,7 @@ A mount is a registration, so it is refused once the Sandbox is sealed. A path m
 
 A mount may sit inside another, and every spelling of a path reaches what stands there. It hides what its parent holds where it stands.
 
-A mount neither moves nor goes while mounted, as in Linux. Unlike Linux, no directory above it moves or goes, and its path passes no link, as each run places it again by that path.
+A mount neither moves nor goes while mounted, as in Linux. Unlike Linux, no directory above it moves or goes. Its path passes no link either, as each run places it again by that path.
 
 A mount's block judges each access a call makes. An open that may create asks a change, then what it opens for. Its refusal reaches the guest as a denied call and leaves the run going. A block raising a StandardError refuses the same way, and anything else it raises belongs to the host.
 
@@ -27,7 +27,9 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 ### Where a mount stands
 
-The guest holds one preopen, `/`, so every mount is reached by a walk from it, as Linux walks from a process's root. Where the Host App mounts nothing at `/`, the root is read-only and holds only the directories leading to each outermost mount, as a container runtime makes its mount points. Mounts are placed shallowest first, each where Linux's `mount` places it, and of two landing on one directory the later hides the earlier.
+The guest holds one preopen, `/`, and walks from it to every mount, as Linux walks from a process's root. Where the Host App mounts nothing at `/`, the root is read-only. It holds only the directories leading to each mount, as a container runtime makes its mount points.
+
+Mounts are placed shallowest first, each where Linux's `mount` places it. Of two landing on one directory, the later hides the earlier.
 
 A mount Linux would refuse fails the run, and so does one whose path passes a link.
 
@@ -504,9 +506,9 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind at `/data`, alone or beneath an Overlay, holding `real/x/` and a link `inner` to `real`, and a Tmpfs at `/data/inner` or at `/data/inner/x` |
+| Given | a Bind at `/data`, alone or beneath an Overlay, holds `real/x/` and a link `inner` to `real`. A Tmpfs stands at `/data/inner` or at `/data/inner/x` |
 | When | the Sandbox runs a script |
-| Then | the run fails naming the mount and `ELOOP`. Ruby raises `Kobako::SandboxError`. Linux's `mount` follows the link; kobako refuses, as each run places the mount by its path again and a link changed meanwhile would move it |
+| Then | the run fails naming the mount and `ELOOP`. Ruby raises `Kobako::SandboxError`. Linux's `mount` follows the link. kobako refuses it, as each run places the mount again by its path. A link changed between runs would move it |
 
 ## `MT-042` Two mounts landing on one directory show the later
 
@@ -552,7 +554,7 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind at `/data` holding a file `f` and no `x`, and a Tmpfs at `/data/x`, at `/data/x/y`, or at `/data/f` |
+| Given | a Bind at `/data` holding a file `f` and no `x`. A Tmpfs stands at `/data/x`, at `/data/x/y`, or at `/data/f` |
 | When | the Sandbox runs a script |
 | Then | the run fails naming the mount and `ENOENT`, or `ENOTDIR` at the file. Ruby raises `Kobako::SandboxError`, and Rust answers `Error::Setup` |
 
