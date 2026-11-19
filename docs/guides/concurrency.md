@@ -11,17 +11,26 @@ Thread B --eval--> +---------+ --> Execution B
 
 One Thread still runs one Invocation at a time.
 
-## Shared Bindings
+## Shared Setup
 
-Sharing a Sandbox adds one obligation, and it falls on what you bound once.
+Sharing a Sandbox makes its setup a template every Invocation starts from.
 
-| What you bind | Who reaches it | What it owes |
+| What you set up | Who reaches it | What it owes |
 |---|---|---|
-| bound once at setup | every Thread sharing the Sandbox | its own thread safety |
-| `ctx.bind`, or an Extension `provider:` | that Invocation alone | nothing |
+| `bind`, `mount`, `network` on the Sandbox | every Thread sharing the Sandbox | thread safety; only what every request may reach |
+| `ctx.bind`, `ctx.mount`, `ctx.network`, or an Extension `provider:` | that Invocation alone | nothing |
 
-Choosing the object per Invocation keeps concurrent identities apart, such as
-one request's user from another's.
+Keep the template minimal and give each request the rest through its
+Context. A Context may grant more than the Sandbox does, but only at a path
+or name the Sandbox declared.
+
+```ruby
+sandbox = Kobako::Sandbox.new.mount("/data", Kobako::Filesystem::Tmpfs.new)
+sandbox.eval(script) { |ctx| ctx.mount("/data", tenant_files, access: :read_write) }
+```
+
+Choosing per Invocation keeps concurrent requests apart, such as one
+tenant's files or user from another's.
 
 ## GVL Modes
 
