@@ -5,10 +5,9 @@ require "support/in_memory_file_system"
 require "support/extension_fixtures"
 
 # E2E — the Host App's journeys: routing failures through the three-class
-# error taxonomy, exposing a block-yielding Service, serving concurrent
-# requests from a warm Sandbox pool, installing a native idiom, and
-# evaluating submissions under a deadline. The agent author's walk is
-# test_journeys.rb.
+# error taxonomy, exposing a block-yielding Service, installing a native
+# idiom, and evaluating submissions under a deadline. The agent author's
+# walk is test_journeys.rb.
 class TestE2EHostAppJourneys < Minitest::Test
   include E2eGuestHelper
 
@@ -59,27 +58,6 @@ class TestE2EHostAppJourneys < Minitest::Test
     assert_equal [2, 4, 6], result,
                  "a block-yielding Service called through #eval must run the guest block once per element " \
                  "and return the mapped collection to the Host App"
-  end
-
-  # ── Host App serves concurrent requests from a warm Sandbox pool ──
-  #
-  # The whole journey in one walk — setup (preload) paid
-  # once per pooled Sandbox, then concurrent handlers each run the worker
-  # exclusively; checkout/checkin mechanics are pinned in test/pool/.
-
-  # @behavior J-009 PL-025
-  def test_j08_concurrent_requests_each_receive_their_own_worker_result
-    pool = Kobako::Pool.new(size: 2) do |sandbox|
-      sandbox.preload(code: 'Worker = ->(req) { "done:" + req }', name: :Worker)
-    end
-
-    results = Array.new(4) do |i|
-      Thread.new { pool.with { |sandbox| sandbox.run(:Worker, "req#{i}").value } }
-    end.map(&:value)
-
-    assert_equal %w[done:req0 done:req1 done:req2 done:req3], results.sort,
-                 "every concurrent request through Pool#with must receive its own " \
-                 "request's worker result"
   end
 
   # ── Host App installs an Extension so guest code uses a native idiom ──

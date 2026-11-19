@@ -4,12 +4,11 @@ The walks a Host App takes end to end, each one reaching what it set out for.
 
 ### Step composition
 
-Every step in these walks is declared somewhere else, and that is the point. A journey settles that the steps compose. No scenario about one step can say that. Four correct pieces can still leave a Host App unable to run model-generated code:
+Every step in these walks is declared somewhere else, and that is the point. A journey settles that the steps compose. No scenario about one step can say that. Three correct pieces can still leave a Host App unable to run model-generated code:
 
 - A dispatch that works.
 - A taxonomy that separates.
 - A yield that unwinds.
-- A pool that hands out warm Sandboxes.
 
 Composing them is its own thing to get wrong.
 
@@ -89,14 +88,6 @@ A walk that reuses one Sandbox across requests arrives somewhere a Sandbox scena
 | Given | a Sandbox with a Service that yields each element to a block |
 | When | generated source calls it with a block |
 | Then | the Host App reads the collection the guest block mapped |
-
-## `J-009` Concurrent requests each receive their own result
-
-| Step | Statement |
-| --- | --- |
-| Given | a Pool whose Sandboxes each preloaded an entrypoint |
-| When | more requests than slots run that entrypoint at once, each with its own argument |
-| Then | each request reads the result of its own |
 
 ## `J-010` Source that will not compile says where the parse stopped
 

@@ -1,6 +1,0 @@
-# The block form rbs 4.2.0 leaves out. ruby/rbs types it after that release
-# (7c396890); this goes once a release carrying it is the floor.
-class Thread
-  def self.handle_interrupt: [T] (Hash[Class, :immediate | :on_blocking | :never] hash) { (nil) -> T } -> T
-                           | ...
-end

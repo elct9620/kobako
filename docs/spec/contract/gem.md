@@ -19,7 +19,6 @@ plainly the code works.
 - `lib/kobako/filesystem.rb`
 - `lib/kobako/handle.rb`
 - `lib/kobako/network.rb`
-- `lib/kobako/pool.rb`
 - `lib/kobako/sandbox.rb`
 - `lib/kobako/sandbox_options.rb`
 - `lib/kobako/transport/error.rb`
@@ -517,44 +516,6 @@ module Kobako
 end
 ```
 
-## `Kobako::Pool`
-
-A fixed set of Sandbox slots handed out one invocation at a time.
-
-```ruby
-module Kobako
-  class Pool
-  end
-end
-```
-
-## `Kobako::Pool#initialize`
-
-A Pool of at most `size` Sandboxes, each built with the other keywords and
-prepared once by the block.
-
-```ruby
-module Kobako
-  class Pool
-    def initialize(size:, checkout_timeout: DEFAULT_CHECKOUT_TIMEOUT_SECONDS, **sandbox_options, &setup)
-    end
-  end
-end
-```
-
-## `Kobako::Pool#with`
-
-Check a Sandbox out for the block's duration and return it afterwards.
-
-```ruby
-module Kobako
-  class Pool
-    def with
-    end
-  end
-end
-```
-
 ## `Kobako::SandboxOptions`
 
 The options a Sandbox was built with, each read by its keyword's name.
@@ -976,17 +937,6 @@ A guest that does not serve a Service's yield, raised at that yield.
 ```ruby
 module Kobako
   class UnsupportedError
-  end
-end
-```
-
-## `Kobako::PoolTimeoutError`
-
-A Pool checkout that waited past its bound.
-
-```ruby
-module Kobako
-  class PoolTimeoutError
   end
 end
 ```

@@ -59,48 +59,10 @@ Ruby runs trap handlers and a Ractor's `require` on the main Thread alone. So a
 run on another Thread is outside the last two cases, and the first run releasing
 the GVL on the main Thread warns once.
 
-## Pooling
-
-`Kobako::Pool` keeps a bounded set of warm, identically set-up Sandboxes. It
-hands each one to a single holder at a time. Pool is deprecated, and the next
-release removes it: share one Sandbox across Threads instead.
-
-```ruby
-pool = Kobako::Pool.new(size: 4) do |sandbox|
-  sandbox.bind("KV::Lookup", ->(key) { redis.get(key) })
-end
-
-pool.with { |sandbox| sandbox.eval('KV::Lookup.call("user_42")').value }
-```
-
-| Option | Meaning | Default |
-|---|---|---|
-| `size:` | the most Sandboxes it builds | required |
-| `checkout_timeout:` | seconds `#with` waits; `nil` waits forever | 5.0 |
-| any `Sandbox.new` keyword | passed to each Sandbox | — |
-
-A Pool builds each Sandbox on first demand, and the block sets it up once.
-`#with` returns the block's value, and the Sandbox goes back to the pool
-whatever the block raised. A checkout that waits past `checkout_timeout`
-raises `Kobako::PoolTimeoutError`. There is no teardown verb, since a Pool
-releases everything with its own reachability.
-
-### Pool Trade-offs
-
-A Pool is experimental. It gives warm reuse, not isolation or throughput.
-
-| It gives you | It does not give you |
-|---|---|
-| Sandboxes set up once, checked out exclusively | isolation beyond what a Sandbox already has |
-| a bound on how many exist | a faster Invocation |
-
-A Pool saves only the host-side `Sandbox.new`, about 3 µs. Each script still
-compiles and runs per Invocation, an order of magnitude more.
-
 ## Rust SDK
 
 An `Arc<Sandbox>` serves concurrent `&self` invocations from many threads. The
-SDK has no Pool and no GVL; the borrow checker proves the shared setup is only
+SDK has no GVL; the borrow checker proves the shared setup is only
 read.
 
 ```rust

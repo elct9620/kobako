@@ -9,7 +9,6 @@ row below links a feature to its scenarios and to where its code starts.
 | ✅ [Sandbox](docs/spec/behavior/sandbox.md) | [lib/kobako/sandbox.rb](lib/kobako/sandbox.rb) |
 | ✅ [Service registration](docs/spec/behavior/services.md) | [lib/kobako/catalog/services.rb](lib/kobako/catalog/services.rb) |
 | ✅ [Runtime](docs/spec/behavior/runtime.md) | [lib/kobako/runtime.rb](lib/kobako/runtime.rb) |
-| ✅ [Pool](docs/spec/behavior/pool.md) | [lib/kobako/pool.rb](lib/kobako/pool.rb) |
 | ✅ [Extension](docs/spec/behavior/extension.md) | [lib/kobako/extension.rb](lib/kobako/extension.rb) |
 | ✅ [Outcome attribution](docs/spec/behavior/outcome.md) | [lib/kobako/outcome.rb](lib/kobako/outcome.rb) |
 | ✅ [Transport dispatch](docs/spec/behavior/transport-dispatch.md) | [lib/kobako/transport/dispatcher.rb](lib/kobako/transport/dispatcher.rb) |

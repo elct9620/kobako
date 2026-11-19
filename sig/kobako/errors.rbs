@@ -85,7 +85,4 @@ module Kobako
       ?backtrace_lines: Array[String]?
     ) -> void
   end
-
-  class PoolTimeoutError < Error
-  end
 end

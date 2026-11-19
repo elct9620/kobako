@@ -128,10 +128,6 @@ The final result of one Invocation. Every Invocation ends with exactly one, whet
 - `examples/**/*.rb`
 - `examples/**/*.md`
 
-### Pool
-
-A bounded set of identically set-up Sandboxes, each handed to one holder at a time.
-
 ### Catalog
 
 What a Sandbox has registered: the bindings, preloads, and Flags fixed at setup. It also holds the Handle table each Invocation adds its own Handles to.

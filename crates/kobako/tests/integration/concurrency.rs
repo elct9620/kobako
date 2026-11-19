@@ -1,9 +1,7 @@
 //! `Arc<Sandbox>` drives concurrent `&self` invocations, shared-nothing: each
 //! `eval` builds its own per-invocation state (Handle table, observables) and
 //! returns its own `Execution`, so results never cross between threads. The
-//! Ruby frontend reaches concurrency through `Kobako::Pool` instead — a
-//! deliberate per-language divergence; the SDK leans on the borrow checker to
-//! prove the shared config is only read.
+//! SDK leans on the borrow checker to prove the shared config is only read.
 
 // Driven through the bundled engine: these cases load a real Guest Binary,
 // so they stand only in a build that carries one.

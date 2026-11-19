@@ -171,8 +171,7 @@ Kobako::Sandbox.new(timeout: 5.0, memory_limit: 10 * 1024 * 1024)
 ### Concurrency
 
 A Sandbox keeps nothing between runs, so Threads may share one. `gvl:
-:release` runs guest code in parallel. `Kobako::Pool` is deprecated, and the
-next release removes it.
+:release` runs guest code in parallel.
 
 ```ruby
 sandbox = Kobako::Sandbox.new(gvl: :release).bind("KV::Lookup", lookup)

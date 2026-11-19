@@ -3,7 +3,7 @@
 module Kobako
   # Every Sandbox#eval or Sandbox#run that reaches the guest returns, or
   # raises exactly one of TrapError, SandboxError, or ServiceError. SetupError
-  # and PoolTimeoutError arise outside any invocation. A mistake in a call
+  # arises outside any invocation. A mistake in a call
   # raises the TypeError, ArgumentError, RangeError, or FrozenError a CRuby
   # core method raises for it.
 
@@ -118,8 +118,4 @@ module Kobako
       @available = available
     end
   end
-
-  # Pool#with waited past +checkout_timeout+ with every slot held. Retrying
-  # succeeds once a holder returns its Sandbox.
-  class PoolTimeoutError < Error; end
 end

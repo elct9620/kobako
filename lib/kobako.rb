@@ -3,7 +3,7 @@
 # Inside +lib/+, the code sits in tiers: a tier may use the tiers below it
 # and never one above.
 #
-#   Orchestration   Sandbox, Pool, Runtime (+ ext), Context
+#   Orchestration   Sandbox, Runtime (+ ext), Context
 #         |
 #   Catalog         setup-time registries + the per-invocation Handle table
 #         |
@@ -55,4 +55,3 @@ require_relative "kobako/transport"
 require_relative "kobako/catalog"
 require_relative "kobako/runtime"
 require_relative "kobako/sandbox"
-require_relative "kobako/pool"

@@ -16,9 +16,6 @@ rescue LoadError => e
   # list kept in sync with lib/kobako.rb.
   require "kobako/version"
   require "kobako/sandbox"
-  # Pool sits above the sandbox aggregator (the checkout layer), so it is
-  # not in sandbox.rb's require graph and loads explicitly.
-  require "kobako/pool"
 end
 
 # stringio is not part of the kobako load graph; tests that capture IO

@@ -2,10 +2,9 @@
 
 require "test_helper"
 
-# Distinct Sandboxes on distinct Threads execute independently. The pool
-# suite extends this contract to pooled checkout; this is the direct
-# witness: each thread owns its Sandbox, and guest global state set on one
-# never reaches the other.
+# Distinct Sandboxes on distinct Threads execute independently: each thread
+# owns its Sandbox, and guest global state set on one never reaches the
+# other.
 class TestE2EThreading < Minitest::Test
   include E2eGuestHelper
 

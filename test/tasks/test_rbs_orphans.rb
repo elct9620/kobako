@@ -145,11 +145,11 @@ class KobakoRbsOrphansTest < Minitest::Test
   def test_each_kind_is_spelled_the_way_a_reader_would_write_it
     spelled = [
       ["Kobako::Codec", :EXT_FAULT, :constant, "probe.rbs"],
-      ["Kobako::Pool", :checkout, :instance, "probe.rbs"],
+      ["Kobako::Sandbox", :preload, :instance, "probe.rbs"],
       ["Kobako::Handle", :restore, :singleton, "probe.rbs"]
     ].map { |candidate| Orphans.spell(candidate) }
 
-    assert_equal ["Kobako::Codec::EXT_FAULT", "Kobako::Pool#checkout", "Kobako::Handle.restore"], spelled,
+    assert_equal ["Kobako::Codec::EXT_FAULT", "Kobako::Sandbox#preload", "Kobako::Handle.restore"], spelled,
                  "each declaration kind through .spell must read as Ruby writes it, so a reported orphan is " \
                  "searchable in the sources it went missing from"
   end
