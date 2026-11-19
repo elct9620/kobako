@@ -128,10 +128,28 @@ One WASI call passes the Wasm Driver, the VFS, and a Filesystem in turn, and eac
 
 ## Divergence Kinds
 
-kobako differs from Linux in three kinds of way. As to which call succeeds, all three only refuse more; none lets a call succeed that Linux would refuse. What a successful stat reports, such as a link's size or an inode number, is the Profile's to mask.
+kobako differs from Linux in four kinds of way. As to which call succeeds, all four only refuse more; none lets a call succeed that Linux would refuse. What a successful stat reports, such as a link's size or an inode number, is the Profile's to mask.
 
 | Kind | Example | Owner |
 |---|---|---|
 | stricter, stacked on Linux | refusing a FIFO open or `readlink` | kobako's rules in `security` |
 | a subset, refusing a Linux feature | making a link | the shipped Filesystems ([`preview1.md`](preview1.md)) |
 | a Linux layer not adopted | the fd table, processes | the Wasm Driver |
+| mounts placed again each run | a move above a mount, a link on its path | the VFS's mount namespace |
+
+### Re-placement
+
+Each Invocation builds its mount namespace again and places every Mount by its path, as an Invocation keeps no state. Linux's namespace persists, so a mount follows its dentry wherever a directory moves.
+
+```
+Linux:  namespace persists ---> follows dentry (a)
+kobako: placed per run -------> path held (b) --+--> EBUSY (c)
+                                                +--> ELOOP (d)
+```
+
+- (a) A mount moves with the directory it stands on.
+- (b) The names a mount's path leads through must still lead there next run.
+- (c) A directory above a mount neither moves nor goes.
+- (d) A mount's path passes no link, which another writer could change.
+
+Each departure of this kind keeps a mount's path stable between runs. A new one traces back here, or it is a mistake.
