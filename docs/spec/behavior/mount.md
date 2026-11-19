@@ -14,7 +14,7 @@ A mount is a registration, so it is refused once the Sandbox is sealed. A path m
 
 A mount may sit inside another, and every spelling of a path reaches what stands there. It hides what its parent holds where it stands.
 
-A mount neither moves nor goes while mounted, as in Linux. Unlike Linux, no name its path leads through moves or goes, as each run places it again by that path.
+A mount neither moves nor goes while mounted, as in Linux. Unlike Linux, no directory above it moves or goes, and its path passes no link, as each run places it again by that path.
 
 A mount's block judges each access a call makes. An open that may create asks a change, then what it opens for. Its refusal reaches the guest as a denied call and leaves the run going. A block raising a StandardError refuses the same way, and anything else it raises belongs to the host.
 
@@ -27,9 +27,9 @@ block raises anything else  -> the run ends, and it raises in the Host App
 
 ### Where a nested mount stands
 
-Only the outermost mounts are preopens, so a mount inside another is reached by a walk alone. Mounts are placed shallowest first, each where Linux's `mount` places it, following a link at its last name. One a later mount covers is hidden.
+Only the outermost mounts are preopens, so a mount inside another is reached by a walk alone. Mounts are placed shallowest first, each where Linux's `mount` places it, and of two landing on one directory the later hides the earlier.
 
-A mount Linux would refuse fails the run, and so does one whose link leaves the outermost mount.
+A mount Linux would refuse fails the run, and so does one whose path passes a link.
 
 ## Includes
 
