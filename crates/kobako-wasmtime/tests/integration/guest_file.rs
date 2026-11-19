@@ -248,7 +248,7 @@ fn a_name_or_path_past_linuxs_limits_raises_enametoolong() {
 #[test]
 fn a_code_the_engine_answers_raises_its_own_errno() {
     let Some(answer) = run(
-        r#"File.rename("/data", "/data/moved")"#,
+        r#"File.rename("/data/.", "/data/moved")"#,
         &[mount(note_tmpfs(), Access::ReadWrite)],
         Vec::new(),
     ) else {
@@ -257,7 +257,7 @@ fn a_code_the_engine_answers_raises_its_own_errno() {
     assert_eq!(
         answer,
         Err("Errno::EBUSY".to_string()),
-        "File.rename of a Mount's root through the bundled guest must raise Errno::EBUSY"
+        "File.rename of `.` beneath a Mount through the bundled guest must raise Errno::EBUSY"
     );
 }
 

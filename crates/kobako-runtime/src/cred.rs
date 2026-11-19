@@ -83,6 +83,13 @@ impl Cred {
         })
     }
 
+    /// The mount every guest path starts from, as a task's `fs->root`: the
+    /// Mount at `/`, or the read-only root the runtime made beneath the others;
+    /// none where no Mount was made.
+    pub fn root(&self) -> Option<Arc<VfsMount>> {
+        self.mnt_ns.root().cloned()
+    }
+
     /// The mount a walk from the root of `mnt` stands on: the topmost of those
     /// stacked over that root, as Linux's `topmost_overmount` answers.
     pub fn topmost_overmount(&self, mnt: &Arc<VfsMount>) -> Arc<VfsMount> {

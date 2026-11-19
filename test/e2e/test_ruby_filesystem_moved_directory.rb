@@ -97,10 +97,10 @@ class TestE2ERubyFilesystemMovedDirectory < Minitest::Test
   def test_a_directory_a_ruby_filesystems_backend_moved_reaches_nothing_a_policy_refuses
     filesystem = MovingFilesystem.new
     judged = []
-    policy = ->(at, _) { (judged << at) && !at.start_with?("/data/refused") }
-    errno = Kobako::Sandbox.new(wasm_path: HELD).mount("/data", filesystem, access: :read, &policy).eval("").value
+    policy = ->(at, _) { (judged << at) && !at.start_with?("/refused") }
+    errno = Kobako::Sandbox.new(wasm_path: HELD).mount("/", filesystem, access: :read, &policy).eval("").value
 
-    assert_equal [ERRNO_NOENT, ["/data/dir"], ["dir"]],
+    assert_equal [ERRNO_NOENT, ["/dir"], ["dir"]],
                  [errno, judged, filesystem.asked.uniq],
                  "path_open through a directory descriptor a guest opened from a Ruby Filesystem mounted by " \
                  "Sandbox#mount with a block, after the backend moved the directory beneath a refused path, " \
@@ -112,7 +112,7 @@ class TestE2ERubyFilesystemMovedDirectory < Minitest::Test
   # @behavior RF-024
   def test_a_directory_opened_from_a_ruby_filesystem_follows_it_when_it_moves
     filesystem = TreeFilesystem.new
-    errno = Kobako::Sandbox.new(wasm_path: FIXTURE).mount("/data", filesystem, access: :read_write).eval("").value
+    errno = Kobako::Sandbox.new(wasm_path: FIXTURE).mount("/", filesystem, access: :read_write).eval("").value
 
     assert_equal [0, "moved/inner"], [errno, filesystem.asked.last],
                  "path_filestat_get through a directory descriptor a guest opened from a Ruby Filesystem " \

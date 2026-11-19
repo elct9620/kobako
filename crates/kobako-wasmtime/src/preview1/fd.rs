@@ -702,11 +702,11 @@ mod tests {
             false => Access::Read,
         };
         let mount = Mount::new(
-            "/data",
+            "/",
             Filesystem::new(holds).expect("the instance must stand"),
             access,
         )
-        .expect("/data is a guest path");
+        .expect("/ is a guest path");
         let start = Path::root(mount.mnt());
         vfs::do_file_open(&prepare_creds(&[], None), &start, "file", &flags_of(how))
             .unwrap_or_else(|_| panic!("the file must open"))
@@ -810,11 +810,11 @@ mod tests {
     #[test]
     fn a_directory_refuses_a_call_about_its_position() {
         let mount = Mount::new(
-            "/data",
+            "/",
             Filesystem::new(HOLDS_REFUSES_CLOSE).expect("the instance must stand"),
             Access::Read,
         )
-        .expect("/data is a guest path");
+        .expect("/ is a guest path");
         let mut wasi = wasi_of(vec![mount], None);
         assert_eq!(
             (
@@ -832,11 +832,11 @@ mod tests {
     fn a_descriptor_reports_how_far_it_was_opened_to_sync() {
         let tmpfs: kobako_runtime::filesystem::Tmpfs = [("f", "x")].into_iter().collect();
         let mount = Mount::new(
-            "/data",
+            "/",
             Filesystem::new(tmpfs).expect("the instance must stand"),
             Access::ReadWrite,
         )
-        .expect("/data is a guest path");
+        .expect("/ is a guest path");
         let mut wasi = wasi_of(vec![mount], None);
         let mut bytes = b"f".to_vec();
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);
@@ -888,11 +888,11 @@ mod tests {
         let policy = Arc::new(CountsAsks::default());
         let tmpfs: kobako_runtime::filesystem::Tmpfs = [("f", "x")].into_iter().collect();
         let mount = Mount::new(
-            "/data",
+            "/",
             Filesystem::new(tmpfs).expect("the instance must stand"),
             Access::ReadWrite,
         )
-        .expect("/data is a guest path")
+        .expect("/ is a guest path")
         .with_policy(policy.clone());
         let root = Path::root(mount.mnt());
         let mut wasi = wasi_of(vec![mount], None);
@@ -921,11 +921,11 @@ mod tests {
     #[test]
     fn setting_a_descriptors_times_answers_as_a_paths_do() {
         let mount = Mount::new(
-            "/data",
+            "/",
             Filesystem::new(HOLDS_REFUSES_CLOSE).expect("the instance must stand"),
             Access::Read,
         )
-        .expect("/data is a guest path");
+        .expect("/ is a guest path");
         let wasi = wasi_of(vec![mount], None);
         assert_eq!(
             (
@@ -1278,11 +1278,11 @@ mod tests {
     #[test]
     fn each_listed_entry_names_where_the_listing_goes_on() {
         let mount = Mount::new(
-            "/data",
+            "/",
             Filesystem::new(ListsNames("bb")).expect("the instance must stand"),
             Access::Read,
         )
-        .expect("/data is a guest path");
+        .expect("/ is a guest path");
         let mut wasi = wasi_of(vec![mount], None);
         let header = types::Dirent::guest_size();
         let dots = 2 * header + 3;
@@ -1320,11 +1320,11 @@ mod tests {
     fn a_listing_stops_at_a_name_no_directory_can_hold() {
         let listed = |bad: &'static str| {
             let mount = Mount::new(
-                "/data",
+                "/",
                 Filesystem::new(ListsNames(bad)).expect("the instance must stand"),
                 Access::Read,
             )
-            .expect("/data is a guest path");
+            .expect("/ is a guest path");
             let mut wasi = wasi_of(vec![mount], None);
             let mut bytes = vec![0u8; 256];
             let (first, next) = {
@@ -1383,11 +1383,11 @@ mod tests {
     #[test]
     fn a_link_to_an_absolute_path_is_not_made() {
         let mount = Mount::new(
-            "/data",
+            "/",
             Filesystem::new(MakesLinks).expect("the instance must stand"),
             Access::ReadWrite,
         )
-        .expect("/data is a guest path");
+        .expect("/ is a guest path");
         let wasi = wasi_of(vec![mount], None);
         let mut bytes = *b"/trelative";
         let mut memory = wiggle::GuestMemory::Unshared(&mut bytes);

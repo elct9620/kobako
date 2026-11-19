@@ -16,7 +16,6 @@ use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, MutexGuard};
 
 use kobako_runtime::cred::Cred;
-use kobako_runtime::mount::Mount;
 use kobako_runtime::vfs::File;
 use kobako_runtime::Errno;
 
@@ -52,7 +51,7 @@ impl Resource {
 /// What one descriptor stands for, as Linux's fd table holds a `struct file`.
 pub(crate) struct Descriptor {
     pub(crate) resource: Resource,
-    /// The guest path a preopen names; an outermost Mount's root has one.
+    /// The guest path a preopen names; the guest's root has one, `/`.
     pub(crate) preopen_path: Option<String>,
 }
 
@@ -81,16 +80,15 @@ pub(crate) struct Descriptors {
 
 impl Descriptors {
     /// The table every invocation starts from: stdin, then the two
-    /// Channels, then one preopen per Mount among `mounts`, from descriptor
-    /// 3. Each counts against the open files in `table`, as a process's
-    /// `RLIMIT_NOFILE` counts every one it holds. Each opens, as `opener`, the
-    /// Cred the Driver prepared, the topmost mount stacked on its root for
-    /// `guest`, as Linux's `topmost_overmount` answers.
+    /// Channels, then the guest's root as the one preopen `/`, at descriptor
+    /// 3, where `guest` holds one. Each counts against the open files in
+    /// `table`, as a process's `RLIMIT_NOFILE` counts every one it holds. The
+    /// root opens as `opener`, the Cred the Driver prepared, the topmost mount
+    /// stacked on it for `guest`, as Linux's `topmost_overmount` answers.
     pub(crate) fn new(
         stdin: File,
         stdout: File,
         stderr: File,
-        mounts: &[&Mount],
         table: &mut Table,
         (opener, guest): (&Arc<Cred>, &Arc<Cred>),
     ) -> Result<Self, Errno> {
@@ -102,13 +100,13 @@ impl Descriptors {
             let output = lend_inherited(table, OutputStream::new(Stream::from(file)))?;
             used.insert(fd, Descriptor::for_stream(Resource::Output(output)));
         }
-        for (fd, mount) in (3..).zip(mounts) {
-            let root = File::root(&guest.topmost_overmount(mount.mnt()), opener)?;
+        if let Some(root) = guest.root() {
+            let root = File::root(&guest.topmost_overmount(&root), opener)?;
             used.insert(
-                fd,
+                3,
                 Descriptor {
                     resource: Resource::File(install_inherited(table, root)?),
-                    preopen_path: Some(mount.at().to_string()),
+                    preopen_path: Some("/".to_string()),
                 },
             );
         }
@@ -273,7 +271,6 @@ mod tests {
             pipe_end(),
             pipe_end(),
             pipe_end(),
-            &[],
             &mut table,
             (&prepare_creds(&[], None), &prepare_creds(&[], None)),
         )

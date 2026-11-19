@@ -131,33 +131,3 @@ impl fmt::Display for UnplacedMountError {
 }
 
 impl std::error::Error for UnplacedMountError {}
-
-/// The Mounts among `mounts` no other one's path holds, the roots every guest
-/// path starts from. One beneath another is reached only by a walk into it, so
-/// each spelling of its path meets what Linux's mount namespace holds there.
-pub fn outermost_of<'a>(mounts: &[&'a Mount]) -> Vec<&'a Mount> {
-    mounts
-        .iter()
-        .copied()
-        .filter(|mount| {
-            outermost_holder_of(&mount.at, mounts.iter().map(|other| (other.at(), ()))).is_none()
-        })
-        .collect()
-}
-
-/// The outermost of `holders`, each a guest path with what stands there,
-/// holding the guest path `at` strictly beneath it; none where none holds it.
-pub(crate) fn outermost_holder_of<'a, T>(
-    at: &str,
-    holders: impl IntoIterator<Item = (&'a str, T)>,
-) -> Option<(&'a str, T)> {
-    holders
-        .into_iter()
-        .filter(|(above, _)| {
-            *above != at
-                && at
-                    .strip_prefix(above)
-                    .is_some_and(|rest| *above == "/" || rest.starts_with('/'))
-        })
-        .min_by_key(|(above, _)| above.len())
-}

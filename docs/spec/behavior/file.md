@@ -3,7 +3,7 @@
 What a script reaches through the default Guest Binary's `File`, beneath the paths a Mount places.
 
 ```
-script ─ File / IO ─> wasi-libc ─ preopen at the outermost Mount's path ─> runtime ─> Filesystem
+script ─ File / IO ─> wasi-libc ─ preopen at `/` ─> runtime ─> Filesystem
 ```
 
 ### Why these scenarios
@@ -197,8 +197,8 @@ disable_file flag -> no File constant
 | Step | Statement |
 | --- | --- |
 | Given | an invocation handed a read-write Mount at `/data` |
-| When | the script renames `/data` into itself |
-| Then | the rename raises `Errno::EBUSY` |
+| When | the script renames `/data/.` to `/data/moved` |
+| Then | the rename raises `Errno::EBUSY`, as Linux refuses to rename a `.` |
 
 ## `FL-015` A write lands whole when the Filesystem takes it in parts
 

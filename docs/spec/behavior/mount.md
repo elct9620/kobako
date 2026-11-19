@@ -25,9 +25,9 @@ block raises StandardError  -> Errno::EACCES in the guest, the script goes on
 block raises anything else  -> the run ends, and it raises in the Host App
 ```
 
-### Where a nested mount stands
+### Where a mount stands
 
-Only the outermost mounts are preopens, so a mount inside another is reached by a walk alone. Mounts are placed shallowest first, each where Linux's `mount` places it, and of two landing on one directory the later hides the earlier.
+The guest holds one preopen, `/`, so every mount is reached by a walk from it, as Linux walks from a process's root. Where the Host App mounts nothing at `/`, the root is read-only and holds only the directories leading to each outermost mount, as a container runtime makes its mount points. Mounts are placed shallowest first, each where Linux's `mount` places it, and of two landing on one directory the later hides the earlier.
 
 A mount Linux would refuse fails the run, and so does one whose path passes a link.
 
@@ -39,6 +39,7 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 - `test/e2e/test_mount_placement.rb`
 - `test/e2e/test_mount_held.rb`
 - `test/e2e/test_mount_unreached.rb`
+- `test/e2e/test_mount_root.rb`
 - `test/e2e/test_host_exception.rb`
 - `test/e2e/test_mount_limit.rb`
 - `test/e2e/test_mount_rename.rb`
@@ -602,3 +603,39 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 | When | one run renames `/data/repo` to `/data/r2`, and the next reads `/data/r2/secret/key` |
 | Then | the rename raises `Errno::EBUSY`, and the read raises `Errno::ENOENT` |
 
+## `MT-060` The root holds only the way to each mount
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-005` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with Tmpfs mounts at `/data` and `/opt/app`, and none at `/` |
+| When | the script lists `/` and `/opt`, and writes `/x` |
+| Then | it lists `data` and `opt`, then `app`, and the write raises `Errno::EROFS` |
+
+## `MT-061` A `..` out of a mount at the root climbs into the root
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-053` |
+| relates | `MT-060` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a Tmpfs at `/data`, and one holding `y` at `/tmp` |
+| When | the script reads `/data/../tmp/y`, and `../tmp/y` after changing into `/data` |
+| Then | each reads `/tmp`'s `y`, as Linux's `..` climbs from a mount's root to where it stands |
+
+## `MT-062` A mount at `/` is the root
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-060` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox with a writable Tmpfs holding `data/` and `etc/` at `/`, and a Tmpfs at `/data` |
+| When | the script lists `/` and writes `/x` |
+| Then | it lists `data` and `etc`, and the write lands in the Tmpfs at `/` |

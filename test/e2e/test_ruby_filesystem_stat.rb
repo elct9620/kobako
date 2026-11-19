@@ -57,7 +57,7 @@ class TestE2ERubyFilesystemStat < Minitest::Test
   end
 
   def fields(filesystem, profile:)
-    Fields.from(Kobako::Sandbox.new(wasm_path: FIXTURE, profile: profile).mount("/data", filesystem).eval("").value)
+    Fields.from(Kobako::Sandbox.new(wasm_path: FIXTURE, profile: profile).mount("/", filesystem).eval("").value)
   end
 
   def bare_file = StringIO.new(+"hello")

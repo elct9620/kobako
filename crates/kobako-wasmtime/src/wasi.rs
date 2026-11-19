@@ -19,7 +19,6 @@ use kobako_runtime::cred::Cred;
 use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
 use kobako_runtime::grant::Grant;
 use kobako_runtime::limits::Limits;
-use kobako_runtime::mount::outermost_of;
 use kobako_runtime::net::{Backends, Namespace, OpenConnections};
 use kobako_runtime::network::EntryError;
 use kobako_runtime::profile::Profile;
@@ -116,8 +115,8 @@ impl Wasi {
         )
     }
 
-    /// A hermetic context presenting the outermost of `mounts` as preopens
-    /// from descriptor 3, at most `open_file_limit` files open, so a test
+    /// A hermetic context presenting the root of `mounts` as the preopen at
+    /// descriptor 3, at most `open_file_limit` files open, so a test
     /// reaches preview1's calls as an invocation does.
     #[cfg(test)]
     pub(crate) fn with_mounts(
@@ -179,7 +178,6 @@ impl Wasi {
             create_pipe_files(&PipeInodeInfo::from_bytes(stdin), &opener).0,
             create_pipe_files(&stdout, &opener).1,
             create_pipe_files(&stderr, &opener).1,
-            &outermost_of(&mounts),
             &mut table,
             (&opener, &cred),
         )

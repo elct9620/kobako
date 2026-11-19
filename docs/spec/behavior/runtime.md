@@ -680,7 +680,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | it waits on a clock past that deadline |
 | Then | the invocation ends as a deadline reached, at the deadline |
 
-## `RT-075` A Mount appears to the guest as a directory at its path
+## `RT-075` A guest holding a Mount holds one preopen, the root
 
 | Attribute | Value |
 | --- | --- |
@@ -688,9 +688,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation handed a Mount at `/data` |
-| When | the guest asks its first preopened directory for its name |
-| Then | it reads `/data` |
+| Given | an invocation handed Mounts at `/data` and `/tmp` |
+| When | the guest asks its first preopened directory for its name, and the next for its own |
+| Then | it reads `/`, and the next answers `EBADF`, as Wasmer presents its one root |
 
 ## `RT-076` A guest reads a file beneath a Mount
 

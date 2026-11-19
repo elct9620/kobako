@@ -1,16 +1,17 @@
-//! Which mount stands on which dentry, as Linux's mount namespace holds the
-//! tree `__lookup_mnt` answers from, so a walk reaching a mount point by any
-//! spelling or through any link steps onto what is mounted there.
+//! Which mount stands on which dentry beneath one root, as Linux's mount
+//! namespace holds the tree `__lookup_mnt` answers from, so a walk reaching a
+//! mount point by any spelling or through any link steps onto what is mounted
+//! there.
 
 use std::sync::Arc;
 
 use super::dentry::Dentry;
 use super::mount::VfsMount;
-use super::namei::walk_mountpoint;
+use super::namei::{filename_mkdirat, walk_mountpoint};
 use super::path::Path;
 use crate::cred::Cred;
-use crate::filesystem::FileType;
-use crate::mount::{outermost_holder_of, UnplacedMountError};
+use crate::filesystem::{FileType, Filesystem, Tmpfs};
+use crate::mount::UnplacedMountError;
 use crate::Errno;
 
 /// One mount standing on a dentry of another, as Linux's `struct mount` keeps
@@ -35,36 +36,48 @@ struct PinnedMountpoint {
     mountpoint: Arc<Dentry>,
 }
 
-/// The mounts one Invocation reaches beneath the outermost ones, each standing
-/// on a dentry as Linux's `mnt_namespace` links each mount to its parent.
+/// The mounts one Invocation reaches, each standing on a dentry beneath one
+/// root, as Linux's `mnt_namespace` holds its `root` and links each mount to
+/// its parent.
 #[derive(Default, Clone)]
 pub(crate) struct MntNamespace {
+    root: Option<Arc<VfsMount>>,
     mounted: Vec<Arc<Mounted>>,
 }
 
 impl MntNamespace {
-    /// The tree the mounts at their absolute guest paths make, each placed as
-    /// Linux's `mount` places it: its path walked from the root of the
-    /// outermost mount holding it, through the mounts placed before it, never
-    /// through a link, as `LOOKUP_NO_SYMLINKS` refuses one. Shallower paths go
-    /// first, as a container runtime mounts a parent before its children, and
-    /// of two landing where one stands, the later stands over the earlier and
-    /// hides it. A mount Linux's `mount` refuses, its walk failing or landing
-    /// on no directory, refuses the whole tree, as a container fails to start.
+    /// The tree the mounts at their absolute guest paths make beneath one
+    /// root: the mount at `/`, or else a read-only root holding only the
+    /// directories leading to each mount, as a container runtime makes its
+    /// mount points; none where no mount is made. Each is placed as Linux's
+    /// `mount` places it: its path walked from the root, through the mounts
+    /// placed before it, never through a link, as `LOOKUP_NO_SYMLINKS` refuses
+    /// one. Shallower paths go first, as a container runtime mounts a parent
+    /// before its children, and of two landing where one stands, the later
+    /// stands over the earlier and hides it. A mount Linux's `mount` refuses,
+    /// its walk failing or landing on no directory, refuses the whole tree, as
+    /// a container fails to start.
     pub(crate) fn new<'a>(
         cred: &Arc<Cred>,
         mounts: impl IntoIterator<Item = (&'a str, &'a Arc<VfsMount>)>,
     ) -> Result<Self, UnplacedMountError> {
         let mut mounts: Vec<_> = mounts.into_iter().collect();
         mounts.sort_by_key(|(at, _)| at.split('/').filter(|name| !name.is_empty()).count());
-        let mut namespace = Self::default();
-        for &(at, mnt) in &mounts {
-            let Some((root_at, root)) = outermost_holder_of(at, mounts.iter().copied()) else {
-                continue;
-            };
-            let path = at[root_at.len()..].trim_start_matches('/');
+        let mut namespace = Self {
+            root: match mounts.first() {
+                None => None,
+                Some(&("/", root)) => Some(Arc::clone(root)),
+                Some(_) => Some(init_rootfs(cred, mounts.iter().map(|(at, _)| *at))),
+            },
+            mounted: Vec::new(),
+        };
+        let Some(root) = namespace.root.clone() else {
+            return Ok(namespace);
+        };
+        for &(at, mnt) in mounts.iter().filter(|(at, _)| *at != "/") {
+            let path = at.trim_start_matches('/');
             let walker = cred.with_mnt_ns(Arc::new(namespace.clone()));
-            let root = Path::root(&namespace.topmost_overmount(root));
+            let root = Path::root(&namespace.topmost_overmount(&root));
             let pinned = namespace
                 .where_to_mount(&walker, &root, path)
                 .map_err(|errno| UnplacedMountError {
@@ -109,6 +122,12 @@ impl MntNamespace {
         })
     }
 
+    /// The mount every guest path starts from, as `mnt_namespace` holds its
+    /// `root`; none where no mount is made.
+    pub(crate) fn root(&self) -> Option<&Arc<VfsMount>> {
+        self.root.as_ref()
+    }
+
     /// The mount standing over the root of `mnt`, and over that one's, to the
     /// last, as Linux's `topmost_overmount` follows each `overmount`; `mnt`
     /// itself when none does.
@@ -151,4 +170,25 @@ impl MntNamespace {
             .iter()
             .any(|child| Arc::ptr_eq(&child.parent, mnt))
     }
+}
+
+/// A read-only root holding the directory at each of `paths` and those above
+/// it, made as `cred`, as Linux's `init_mount_tree` mounts a rootfs and
+/// `init_mkdir` makes the directories a mount stands on. A directory two paths
+/// share is made once.
+fn init_rootfs<'a>(cred: &Arc<Cred>, paths: impl IntoIterator<Item = &'a str>) -> Arc<VfsMount> {
+    let sb = Filesystem::new(Tmpfs::new()).expect("an empty Tmpfs stands");
+    let made = Path::root(&VfsMount::kern_mount(Arc::clone(&sb)));
+    for path in paths {
+        let mut above = String::new();
+        for name in path.split('/').filter(|name| !name.is_empty()) {
+            above.push('/');
+            above.push_str(name);
+            match filename_mkdirat(cred, &made, above.trim_start_matches('/')) {
+                Ok(()) | Err(Errno::AlreadyExists) => {}
+                Err(errno) => unreachable!("an empty Tmpfs makes {above}: {errno:?}"),
+            }
+        }
+    }
+    VfsMount::new(sb, true)
 }

@@ -34,15 +34,17 @@ class TestE2EFileStatIno < Minitest::Test
     require_fixture(FIXTURE)
   end
 
+  # A Sandbox with +filesystem+ at the root, which the fixture guest reads
+  # through its one preopen.
   def sandbox(wasm_path, filesystem)
-    Kobako::Sandbox.new(wasm_path: wasm_path, profile: :permissive).mount("/d", filesystem)
+    Kobako::Sandbox.new(wasm_path: wasm_path, profile: :permissive).mount("/", filesystem)
   end
 
   # The inode number preview1 hands a fixture guest, and what a script reads.
   def both_readings(ino)
     filesystem = OneFileFilesystem.new(ino)
     [sandbox(FIXTURE, filesystem).eval("").value[4],
-     Integer(sandbox(REAL_WASM, filesystem).eval('File.stat("/d/f").ino.to_s').value)]
+     Integer(sandbox(REAL_WASM, filesystem).eval('File.stat("/f").ino.to_s').value)]
   end
 
   def readings_of_many_entries = (1..64).map { |ino| both_readings(ino) }.transpose
