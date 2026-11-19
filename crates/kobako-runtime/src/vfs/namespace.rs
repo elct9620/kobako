@@ -192,3 +192,54 @@ fn init_rootfs<'a>(cred: &Arc<Cred>, paths: impl IntoIterator<Item = &'a str>) -
     }
     VfsMount::new(sb, true)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::grant::Grant;
+    use crate::mount::{Access, Mount};
+    use crate::security::{prepare_creds, restrict_self};
+    use crate::vfs::OpenHow;
+
+    // A host folding case lands two paths on one directory; two Mounts at one
+    // path land alike on every host, so the rule is witnessed where names
+    // match exactly too.
+    // @behavior MT-042
+    #[test]
+    fn two_mounts_landing_on_one_directory_show_the_later() {
+        let tmpfs = |files: &[(&str, &str)]| {
+            Filesystem::new(files.iter().copied().collect::<Tmpfs>())
+                .expect("the instance must stand")
+        };
+        let mount = |at: &str, filesystem| {
+            Grant::Mount(Mount::new(at, filesystem, Access::Read).expect("a guest path"))
+        };
+        let grants = [
+            mount("/data", tmpfs(&[("real/.keep", "")])),
+            mount("/data/real", tmpfs(&[("note", "earlier")])),
+            mount("/data/real", tmpfs(&[("note", "later")])),
+        ];
+        let cred = restrict_self(&prepare_creds(&[], None), &grants).expect("every Mount stands");
+        let root = cred.root().expect("Mounts make a root");
+        let read = OpenHow {
+            read: true,
+            ..Default::default()
+        };
+        let mut note = crate::vfs::kern_path::filp_open(
+            &cred,
+            &Path::root(&cred.topmost_overmount(&root)),
+            "data/real/note",
+            &read,
+        )
+        .unwrap_or_else(|_| panic!("the note must open"));
+        let mut buf = [0; 16];
+        let len = note
+            .read(&mut buf)
+            .unwrap_or_else(|_| panic!("the note must read"));
+        assert_eq!(
+            &buf[..len],
+            b"later",
+            "of two Mounts landing on one directory, a walk must reach the later"
+        );
+    }
+}

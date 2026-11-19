@@ -47,6 +47,7 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 - `test/e2e/test_directory_lock_threads.rb`
 - `test/e2e/test_directory_lock_stops.rb`
 - `crates/kobako/tests/integration/mount.rs`
+- `crates/kobako-runtime/src/vfs/namespace.rs`
 - `test/parity/test_mount.rb`
 
 ## `MT-001` A mounted Filesystem is reachable from the guest
