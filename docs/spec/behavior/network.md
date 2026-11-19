@@ -20,6 +20,7 @@ endpoint "api.example.com", port: 443
 
 ## Includes
 
+- `test/e2e/test_context_replacements_at_once.rb`
 - `test/e2e/test_network.rb`
 - `test/e2e/test_network_builder.rb`
 - `test/e2e/test_network_entry_text.rb`
@@ -2934,3 +2935,16 @@ endpoint "api.example.com", port: 443
 | Given | a TCP socket or an HTTP request still connecting, or waiting on its peer |
 | When | the Invocation ends |
 | Then | each waiter wakes with `ECONNABORTED`, and the request answers `connection-terminated` wherever it stood. Linux's `tcp_abort` ends a socket from outside this way |
+
+## `NW-234` Invocations at once each reach only the entry their own Context gave
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-006` |
+| relates | `MT-063` |
+
+| Step | Statement |
+| --- | --- |
+| Given | several Threads sharing one Sandbox with a network entry named `api`, each Context replacing it with an entry of its own |
+| When | their invocations look a name up at once |
+| Then | each lookup is judged by its own invocation's entry alone, and the Sandbox's own entry is left as it was |

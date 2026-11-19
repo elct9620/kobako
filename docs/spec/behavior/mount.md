@@ -35,6 +35,7 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 
 ## Includes
 
+- `test/e2e/test_context_replacements_at_once.rb`
 - `test/e2e/test_mount.rb`
 - `test/e2e/test_mount_nested.rb`
 - `test/e2e/test_mount_point.rb`
@@ -642,3 +643,16 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 | Given | a Sandbox with a writable Tmpfs holding `data/` and `etc/` at `/`, and a Tmpfs at `/data` |
 | When | the script lists `/` and writes `/x` |
 | Then | it lists `data` and `etc`, and the write lands in the Tmpfs at `/` |
+
+## `MT-063` Invocations at once each reach only the mount their own Context gave
+
+| Attribute | Value |
+| --- | --- |
+| refines | `MT-009` |
+| relates | `RT-002` |
+
+| Step | Statement |
+| --- | --- |
+| Given | several Threads sharing one Sandbox with a Tmpfs at `/data`, each Context mounting a Tmpfs of its own there |
+| When | their invocations write and read beneath `/data` at once |
+| Then | each reaches only its own Tmpfs, and the Sandbox's own is left as it was |
