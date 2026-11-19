@@ -153,3 +153,65 @@ kobako: placed per run -------> path held (b) --+--> EBUSY (c)
 - (d) A mount's path passes no link, which another writer could change.
 
 Each departure of this kind keeps a mount's path stable between runs. A new one traces back here, or it is a mistake.
+
+## Lock Order
+
+The VFS takes its sleeping locks in Linux's order, ranked as `directory-locking.rst` ranks them. This sets the vfs, dcache, and fsi lock groups' own order; [`locking/`](../locking/README.md) holds the edges between groups.
+
+```
++------------------+
+| rename_mutex (a) |
++------------------+
+         | then
+         v
++------------------+
+| ancestor dir (b) |
++------------------+
+         | then
+         v
++------------------+
+| other dir        |
++------------------+
+         | then
+         v
++------------------+
+| non-dirs (c)     |
++------------------+
+```
+
+- (a) One for each Filesystem, taken only where a move spans two directories, as `lock_rename`.
+- (b) The directory above the other first, as `lock_two_directories`.
+- (c) A directory a move takes along first, then the rest by address, as `lock_two_nondirectories`.
+
+A call taking one directory and the entry in it takes a step of this chain.
+
+### Stacked Filesystems
+
+A Filesystem stacked on another ranks below it, so an Overlay's locks all come before its Layers'.
+
+| Rank | Locks |
+|---|---|
+| 1 | the Overlay's own chain |
+| 2 | an Overlay entry's copy-up lock |
+| 3 | each Layer's own chain |
+
+A Layer never takes an Overlay's lock. A run started inside a Ruby Filesystem's callback keeps this order only where its Mounts reach Filesystems ranked after that one. A stacked Filesystem likewise calls only into higher ranks.
+
+### Dentry Cache
+
+The dentry cache's locks are leaves beneath the chain, taken for a short step.
+
+```
+inode dentry -> dentry hashtable -> RENAME_LOCK -> dentry state -> dentry LRU
+```
+
+`RENAME_LOCK` is never taken again inside its own write, since its writer's lock is no re-entrant one. Two dentries' states are held at once only inside that write, as `d_exchange` holds them, so their order never matters. `__d_unalias` alone takes a sleeping lock beneath it, and only by trylock, answering ESTALE where another call holds it.
+
+### Filesystem State
+
+A Filesystem's own state is a leaf beneath the chain, except where one entry's state holds another's.
+
+| Filesystem | Order |
+|---|---|
+| Tmpfs | a directory before an entry it holds, so its locks follow its tree |
+| the rest | one lock at a time |

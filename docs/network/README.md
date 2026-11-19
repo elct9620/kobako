@@ -238,6 +238,19 @@ One reactor thread per process waits on every host socket, as a softirq fills a 
 
 A lookup, a response, and a request body are each a file on one anonymous inode, as an eventfd is. A Wasm Driver therefore waits on files alone, and the profile decides when a clock beside them is due. An exchange keeps no timer: its timeout ends a wait by its deadline, which the exchange answers when asked. The reactor's timers bound only the resolver's own retries. A timeout the request leaves unset lasts 600 seconds, as wasmtime-wasi-http's does, so a wait ends even in a run with no deadline. A wait the deadline ends traps the run, and the run's end aborts every socket it held.
 
+## Lock Order
+
+The network takes no sleeping lock and holds none across a wait through the `Blocking`. This sets the netg, rtask, and sock lock groups' own order; [`locking/`](../locking/README.md) holds the edges between groups.
+
+| Holding | Takes |
+|---|---|
+| the guest's open file | a socket's state, an exchange's task, a reactor task |
+| the connection budget | a socket's state, the reactor's queues |
+| a reactor task | an exchange's or lookup's state, a socket's state, the reactor's queues |
+| a socket's state | the reactor's queues, the Mock, a bound port |
+
+The guest waits on one lock while holding another only to cancel a reactor task, for the length of one poll. A reactor task holds another only where an exchange drops its lookup, so an exchange's task always comes before its lookup's. A wake made under a lock reaches only the reactor's run queue or a waiter, which take nothing further.
+
 ## Without a Grant
 
 Every Guest Binary imports the network interfaces, so every Wasm Driver links them. Without a network Grant, each answers at once and does no work first.

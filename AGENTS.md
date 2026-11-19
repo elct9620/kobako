@@ -26,6 +26,7 @@ Every change follows these rules. An earlier row wins on conflict.
 | Tooling | Reach for a stdlib RBS `library` first |
 | Docs | State what and why, never mechanism; source and crate READMEs cite nothing in `docs/` |
 | Docs | Project-wide in `architecture.md`; one module's detail in its doc comment; cross-crate in `docs/<context>/` |
+| Docs | A concern spanning Contexts, as locking does, in `docs/<concern>/` |
 | Docs | Ruby: RDoc prose, no YARD tags; Rust: backticks, no intra-doc links |
 | Docs | A concept in lower case, a type in code, as `convention.md` § Casing sets; prose lacking it gains it when next touched |
 | Tests | Drive the real `data/kobako.wasm`; build no fixture wasm crate |
@@ -50,6 +51,7 @@ Some changes move together.
 | A file that declares a public interface | The contract's `Includes` |
 | A crate, a layer, or a project-wide rule | `docs/architecture.md` |
 | A design spanning crates within one Context | `docs/<context>/` |
+| A lock, a wait, or what a call holds as it calls out | `docs/locking/` and its models; `rake locking:check` passes |
 | A dependency | Every workspace's lock file, in the same commit |
 | A release | `examples/` pins move to it; read `docs/process/releasing.md` before `Release-As` or `!` |
 
@@ -63,6 +65,7 @@ Start here to grasp the whole before reading code.
 | `docs/architecture.md` | The global map: parts, seams, Contexts, invariants, baselines |
 | `docs/spec/` | Behavior, contracts, and the glossary; the source of truth |
 | `docs/wire/`, `docs/isolation/`, `docs/filesystem/`, `docs/network/` | One Context's design across crates |
+| `docs/locking/` | Every lock's order, the edges between lock groups, and the models that check them |
 | `docs/process/convention.md` | How a behavior, a contract, and a name are judged while code is written |
 | `docs/guides/` | What a Host App or an implementer relies on |
 | `lib/kobako/sandbox.rb` | Where a run starts and settles into an `Execution` |
