@@ -39,8 +39,9 @@ use crate::invocation::Invocation;
 use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
 use crate::wasi::Wasi;
 
-/// The guest path both sides preopen the host directory at.
-const AT: &str = "/data";
+/// The guest path both sides preopen the host directory at: the root, so
+/// kobako's one preopen is the Bind itself, as wasmtime-wasi's is.
+const AT: &str = "/";
 
 /// Each export calls one path import on descriptor 3 with the path the
 /// host placed at 1024, and the second path at 8192 where a call takes
