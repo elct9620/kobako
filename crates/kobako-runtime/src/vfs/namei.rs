@@ -395,7 +395,10 @@ impl Nameidata {
     /// started from, or a mount's root it never stepped onto, no `..` holds a
     /// capability, as `RESOLVE_BENEATH` refuses a caller's and a link's alike.
     fn follow_dotdot(&mut self) -> Result<(), Errno> {
-        if Arc::ptr_eq(&self.dir, &self.root) {
+        // Only the mount the walk started on holds where it started, as
+        // `path_equal` compares the mount too: the same Filesystem mounted
+        // again beneath has the same root dentry.
+        if self.crossed.is_empty() && Arc::ptr_eq(&self.dir, &self.root) {
             return Err(Errno::Escape);
         }
         if self.dir.is_root() {
@@ -3474,6 +3477,35 @@ mod tests {
             (Err(Errno::WouldBlock), Ok(5)),
             "a stat through a `..` out of a nested mount's root, with a move landing during \
              the walk, must answer EAGAIN, and made again reach where the moved directory stands"
+        );
+    }
+
+    fn mounted(path: &str, filesystem: &Arc<Filesystem>) -> Mount {
+        Mount::new(path, filesystem.clone(), Access::ReadWrite).expect("a guest path")
+    }
+
+    // @behavior RT-410
+    #[test]
+    fn a_dotdot_out_of_the_walks_own_filesystem_mounted_again_climbs_back() {
+        let outer =
+            Filesystem::new(Tmpfs::from_iter([("m/keep", "k"), ("note", "the note")])).unwrap();
+        let mounts = [mounted("/data", &outer), mounted("/data/m", &outer)];
+        let outer_root = Path::root(mounts[0].mnt());
+        let grants: Vec<_> = mounts.into_iter().map(crate::grant::Grant::Mount).collect();
+        let cred = crate::security::restrict_self(&Arc::default(), grants.iter())
+            .expect("every Mount stands");
+        // Any move in the process answers a `..` so, as `rename_lock` is one for all,
+        // and tests beside this one make them.
+        let mut stat = Err(Errno::WouldBlock);
+        crate::sched::testing::wait_until("the call answering", || {
+            stat = vfs::vfs_fstatat(&cred, &outer_root, "m/../note", false);
+            stat != Err(Errno::WouldBlock)
+        });
+        assert_eq!(
+            stat.map(|stat| stat.size),
+            Ok(8),
+            "vfs_fstatat of `m/../note` from a Filesystem's root, with that Filesystem mounted \
+             again at `m`, must climb back out of `m` and reach `note`"
         );
     }
 

@@ -4535,3 +4535,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file whose Filesystem hands listings nothing, another thread changing it |
 | When | a listing of the file is asked |
 | Then | it answers not a directory at once, as Linux's `iterate_dir` refuses before it locks |
+
+## `RT-410` A `..` out of the walk's own Filesystem mounted again climbs back
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-053` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a walk starting at a Filesystem's root, with the same Filesystem mounted again beneath it |
+| When | the path climbs `..` out of the root of that second mount |
+| Then | it climbs back to where that mount stands, as Linux's `path_equal` compares the mount and the dentry |
