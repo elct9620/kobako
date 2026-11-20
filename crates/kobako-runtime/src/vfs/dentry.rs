@@ -1069,6 +1069,10 @@ mod tests {
     struct ByPathDir(KernPath);
 
     impl FileOperations for ByPathDir {
+        fn has_iterate_shared(&self) -> bool {
+            true
+        }
+
         fn iterate_shared(
             &mut self,
             dentry: &Dentry,

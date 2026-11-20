@@ -130,6 +130,14 @@ pub trait FileOperations: Any + Send + Sync {
         Err(Errno::NotADirectory)
     }
 
+    /// Whether this file has `iterate_shared`, as Linux's `iterate_dir` asks
+    /// whether `f_op->iterate_shared` is set before it locks the directory and
+    /// Rust-for-Linux's `#[vtable]` answers `HAS_` for each operation. A file
+    /// implementing `iterate_shared` answers true here too.
+    fn has_iterate_shared(&self) -> bool {
+        false
+    }
+
     /// Reserve `len` bytes from `offset`, as `f_op->fallocate` does. A file
     /// without it refuses as Linux's `vfs_fallocate` refuses one without it.
     fn fallocate(&mut self, _offset: u64, _len: u64) -> Result<(), Errno> {
@@ -726,11 +734,15 @@ impl File {
     }
 
     /// Hand `ctx` the entries of the directory from where it stands until the
-    /// actor stops, leaving it past each taken, as `iterate_dir` moves `f_pos`. It
+    /// actor stops, leaving it past each taken, as `iterate_dir` moves `f_pos`. A
+    /// file without `iterate_shared` answers not a directory before it locks. It
     /// holds the directory's lock shared, so a removal through the VFS lands
     /// before or after, and a removed directory answers not found, as it asks
     /// `IS_DEADDIR`.
     pub fn iterate_dir(&mut self, ctx: &mut DirContext<'_>) -> Result<(), Errno> {
+        if !self.ops.has_iterate_shared() {
+            return Err(Errno::NotADirectory);
+        }
         let dentry = self.path.dentry().clone();
         let _held = dentry.inode_lock_shared()?;
         if dentry.is_deaddir() {
@@ -852,6 +864,41 @@ mod tests {
             iocb.pos += buf.len() as u64;
             Ok(buf.len())
         }
+    }
+
+    /// A file its Filesystem opens with no operations of its own.
+    struct ListsNothing;
+
+    impl FileOperations for ListsNothing {}
+
+    // @behavior RT-408
+    #[test]
+    fn a_listing_of_a_file_that_lists_nothing_waits_on_no_lock() {
+        use std::sync::mpsc;
+        let mut file = open_one(|| Box::new(ListsNothing));
+        let dentry = file.path.dentry().clone();
+        let (held, holding) = mpsc::channel();
+        let (release, releasing) = mpsc::channel::<()>();
+        let holder = std::thread::spawn(move || {
+            let _held = dentry.inode_lock().expect("the lock is free");
+            held.send(()).ok();
+            releasing.recv_timeout(crate::sched::testing::MAX_WAIT).ok();
+        });
+        holding
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("the other thread must hold the lock");
+        let waits = crate::sched::testing::count_waits();
+        let listed = crate::sched::testing::within_max_wait(|| {
+            file.iterate_dir(&mut DirContext::new(0, &mut |_| true))
+        });
+        release.send(()).ok();
+        crate::sched::testing::join("the holder", holder);
+        assert_eq!(
+            (listed, waits.load(Ordering::SeqCst)),
+            (Err(Errno::NotADirectory), 0),
+            "File::iterate_dir of a file whose FileOperations lacks iterate_shared must answer \
+             NotADirectory without waiting on the inode lock another thread holds"
+        );
     }
 
     // The stream's own read moves the position handed to it, so only handing
@@ -1151,6 +1198,10 @@ mod tests {
             whence: Whence,
         ) -> Result<u64, Errno> {
             generic_file_llseek(dentry, pos, offset, whence)
+        }
+
+        fn has_iterate_shared(&self) -> bool {
+            true
         }
 
         fn iterate_shared(

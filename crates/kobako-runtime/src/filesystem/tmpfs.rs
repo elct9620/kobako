@@ -762,6 +762,10 @@ impl FileOperations for TmpfsDir {
         generic_read_dir()
     }
 
+    fn has_iterate_shared(&self) -> bool {
+        true
+    }
+
     /// Reads on from each name's stable position, as `offset_readdir` does, so
     /// nothing is held between two calls.
     fn iterate_shared(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>) -> Result<(), Errno> {

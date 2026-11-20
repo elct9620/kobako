@@ -387,6 +387,10 @@ impl FileOperations for OverlayDir {
         generic_read_dir()
     }
 
+    fn has_iterate_shared(&self) -> bool {
+        true
+    }
+
     fn iterate_shared(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>) -> Result<(), Errno> {
         let (fs, cache) = (&self.fs, &mut self.cache);
         cache.iterate_shared(dentry, ctx, || fs.dir_read_merged(&fs.dir(dentry)?.level()))
@@ -2323,6 +2327,10 @@ mod tests {
     struct FoldedDir(KernPath);
 
     impl FileOperations for FoldedDir {
+        fn has_iterate_shared(&self) -> bool {
+            true
+        }
+
         fn iterate_shared(
             &mut self,
             dentry: &Dentry,

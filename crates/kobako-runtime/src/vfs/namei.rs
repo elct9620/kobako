@@ -3707,6 +3707,10 @@ mod tests {
     struct FoldedDir(KernPath);
 
     impl FileOperations for FoldedDir {
+        fn has_iterate_shared(&self) -> bool {
+            true
+        }
+
         fn iterate_shared(
             &mut self,
             dentry: &Dentry,

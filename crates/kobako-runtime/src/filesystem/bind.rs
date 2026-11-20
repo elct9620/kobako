@@ -729,6 +729,10 @@ impl FileOperations for BindDir {
         generic_read_dir()
     }
 
+    fn has_iterate_shared(&self) -> bool {
+        true
+    }
+
     /// What a listing began with stays on the open directory until it ends, as
     /// 9p's `fid->rdir` holds what the server sent.
     fn iterate_shared(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>) -> Result<(), Errno> {

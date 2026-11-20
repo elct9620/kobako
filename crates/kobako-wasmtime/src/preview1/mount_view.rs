@@ -1063,6 +1063,10 @@ struct FailsPastTheDots;
 struct FailsPastTheDotsDir;
 
 impl FileOperations for FailsPastTheDotsDir {
+    fn has_iterate_shared(&self) -> bool {
+        true
+    }
+
     fn iterate_shared(
         &mut self,
         dentry: &Dentry,
