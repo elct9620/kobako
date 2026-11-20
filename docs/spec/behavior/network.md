@@ -2948,3 +2948,29 @@ endpoint "api.example.com", port: 443
 | Given | several Threads sharing one Sandbox with a network entry named `api`, each Context replacing it with its own entry |
 | When | their invocations look a name up at once |
 | Then | each lookup is judged by its own invocation's entry alone, and the Sandbox's own entry is left as it was |
+
+## `NW-235` A stopped reactor wakes everything that waits on it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-233` |
+| relates | `NW-232` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a socket or a lookup waiting on the one thread that watches every host socket of the process |
+| When | that thread stops, as a panic or a failed poll ends it |
+| Then | each socket's waiter wakes with `ECONNABORTED`, and a lookup stops waiting on it at once. The next socket starts another reactor, so no wait lasts until its deadline |
+
+## `NW-236` A request moves on the thread that waits for it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-058` |
+| relates | `NW-085` |
+
+| Step | Statement |
+| --- | --- |
+| Given | two Sandboxes on two threads, one with a lookup or an HTTP request whose work takes long |
+| When | the other waits on a socket that its peer is ready to answer |
+| Then | the second wait ends at once, since a request moves only as its own guest polls or reads it. A request no guest polls stays where it stood |

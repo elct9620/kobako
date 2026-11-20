@@ -160,7 +160,7 @@ pub trait Resolver: Send + Sync {}
 
 ## `Resolver::resolve`
 
-The addresses a fully qualified name resolves to, as a `Resolving` future the reactor polls. It is called on the asking thread, never the reactor. Dropping the future cancels the query, and polling it never blocks. A failure is a `LookupError` naming its kind, as an NSS module reports `h_errno` to `getaddrinfo`.
+The addresses a fully qualified name resolves to, as a `Resolving` future. The asking thread calls it and polls the future as it waits, never the reactor. Dropping the future cancels the query, and polling it never blocks. A failure is a `LookupError` naming its kind, as an NSS module reports `h_errno` to `getaddrinfo`.
 
 ```rust
 pub trait Resolver {
