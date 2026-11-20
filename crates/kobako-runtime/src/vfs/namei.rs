@@ -9,9 +9,7 @@
 //! started from, as `openat2`'s `RESOLVE_BENEATH` keeps a resolution: one
 //! leading out of it, or to an absolute path, escapes it.
 
-use std::cell::Cell;
 use std::collections::VecDeque;
-use std::rc::Rc;
 use std::sync::Arc;
 
 use super::attr::notify_change;
@@ -62,7 +60,7 @@ pub(crate) struct Nameidata {
     pending: VecDeque<String>,
     /// The links followed through every walk of one call, as Linux's
     /// `total_link_count` carries into a walk made again for ESTALE.
-    total_link_count: Rc<Cell<usize>>,
+    total_link_count: usize,
     /// Whether a link anywhere on the path answers ELOOP instead of being
     /// followed, as `LOOKUP_NO_SYMLINKS`.
     lookup_no_symlinks: bool,
@@ -104,6 +102,19 @@ impl Nameidata {
             true => Ok(()),
             false => Err(Errno::Escape),
         }
+    }
+
+    /// Begin the walk of `path` again from `start`, as Linux's `path_init`
+    /// readies the same `nameidata` for a walk made again: the links followed
+    /// so far and what the caller asked of the walk carry over.
+    fn path_init(&mut self, start: &impl Start, path: &str) -> Result<(), Errno> {
+        let again = set_nameidata(&self.cred, start, path)?;
+        *self = Nameidata {
+            total_link_count: self.total_link_count,
+            lookup_no_symlinks: self.lookup_no_symlinks,
+            ..again
+        };
+        Ok(())
     }
 
     /// The dentry the walk ended on, as Linux's `do_open` and `vfs_getattr`
@@ -368,8 +379,8 @@ impl Nameidata {
     /// Walk on through where the link `dentry` names points, before
     /// whatever is left of the path.
     fn pick_link(&mut self, dentry: &Arc<Dentry>) -> Result<(), Errno> {
-        self.total_link_count.set(self.total_link_count.get() + 1);
-        if self.lookup_no_symlinks || self.total_link_count.get() > MAXSYMLINKS {
+        self.total_link_count += 1;
+        if self.lookup_no_symlinks || self.total_link_count > MAXSYMLINKS {
             return Err(Errno::FilesystemLoop);
         }
         let target = dentry.get_link()?;
@@ -702,13 +713,7 @@ fn sb_permission(sb: &SuperBlock, dentry: &Dentry, mask: Mask) -> Result<(), Err
 /// `set_nameidata` and `path_init` make one. A path no call can take answers
 /// first, wherever it starts; an absolute one is not the caller's to reach, so
 /// no start is looked for; and a walk starts from nothing but a directory.
-/// Each walk of one call counts its links toward `total_link_count`.
-fn set_nameidata(
-    cred: &Arc<Cred>,
-    start: &impl Start,
-    path: &str,
-    total_link_count: &Rc<Cell<usize>>,
-) -> Result<Nameidata, Errno> {
+fn set_nameidata(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Result<Nameidata, Errno> {
     getname(path)?;
     if path.starts_with('/') {
         return Err(Errno::Escape);
@@ -725,7 +730,7 @@ fn set_nameidata(
         dir: start.dentry().clone(),
         crossed: Vec::new(),
         pending: parts(path),
-        total_link_count: total_link_count.clone(),
+        total_link_count: 0,
         lookup_no_symlinks: false,
         last: String::new(),
         last_type: LastType::Dot,
@@ -743,22 +748,29 @@ pub(crate) fn filename_parentat(
     start: &impl Start,
     path: &str,
 ) -> Result<Nameidata, Errno> {
-    let total_link_count = Rc::default();
-    walk_with_reval(|| {
-        let mut nd = set_nameidata(cred, start, path, &total_link_count)?;
+    let mut nd = set_nameidata(cred, start, path)?;
+    walk_with_reval(&mut nd, start, path, |nd| {
         nd.link_path_walk()?;
-        nd.complete_walk()?;
-        Ok(nd)
-    })
+        nd.complete_walk()
+    })?;
+    Ok(nd)
 }
 
-/// What `walk` answers, walked once more where it answers ESTALE, as Linux's
-/// `filename_lookup` walks again with `LOOKUP_REVAL`, so a directory found
-/// moving meanwhile is reached where it went. Every walk asks `revalidate` of
-/// what it holds already, so the second takes no flag.
-fn walk_with_reval<T>(mut walk: impl FnMut() -> Result<T, Errno>) -> Result<T, Errno> {
-    match walk() {
-        Err(Errno::StaleNetworkFileHandle) => walk(),
+/// What `walk` answers on `nd`, walked once more from `start` where it answers
+/// ESTALE, as Linux's `filename_lookup` walks again with `LOOKUP_REVAL`, so a
+/// directory found moving meanwhile is reached where it went. Every walk asks
+/// `revalidate` of what it holds already, so the second takes no flag.
+fn walk_with_reval<T>(
+    nd: &mut Nameidata,
+    start: &impl Start,
+    path: &str,
+    mut walk: impl FnMut(&mut Nameidata) -> Result<T, Errno>,
+) -> Result<T, Errno> {
+    match walk(nd) {
+        Err(Errno::StaleNetworkFileHandle) => {
+            nd.path_init(start, path)?;
+            walk(nd)
+        }
         answered => answered,
     }
 }
@@ -787,8 +799,9 @@ pub(crate) fn filename_lookup(
     path: &str,
     follow: bool,
 ) -> Result<Nameidata, Errno> {
-    let total_link_count = Rc::default();
-    walk_with_reval(|| path_lookupat(set_nameidata(cred, start, path, &total_link_count)?, follow))
+    let mut nd = set_nameidata(cred, start, path)?;
+    walk_with_reval(&mut nd, start, path, |nd| path_lookupat(nd, follow))?;
+    Ok(nd)
 }
 
 /// Walk `path` beneath `start` to where a mount is to stand, as `do_mount`
@@ -800,16 +813,14 @@ pub(crate) fn walk_mountpoint(
     start: &impl Start,
     path: &str,
 ) -> Result<Nameidata, Errno> {
-    let total_link_count = Rc::default();
-    walk_with_reval(|| {
-        let mut nd = set_nameidata(cred, start, path, &total_link_count)?;
-        nd.lookup_no_symlinks = true;
-        path_lookupat(nd, true)
-    })
+    let mut nd = set_nameidata(cred, start, path)?;
+    nd.lookup_no_symlinks = true;
+    walk_with_reval(&mut nd, start, path, |nd| path_lookupat(nd, true))?;
+    Ok(nd)
 }
 
 /// Walk `nd` to what its path names, as Linux's `path_lookupat`.
-fn path_lookupat(mut nd: Nameidata, follow: bool) -> Result<Nameidata, Errno> {
+fn path_lookupat(nd: &mut Nameidata, follow: bool) -> Result<(), Errno> {
     nd.link_path_walk()?;
     nd.lookup_last(follow)?;
     nd.complete_walk()?;
@@ -817,7 +828,7 @@ fn path_lookupat(mut nd: Nameidata, follow: bool) -> Result<Nameidata, Errno> {
     if nd.lookup_directory && kind != FileType::Dir {
         return Err(Errno::NotADirectory);
     }
-    Ok(nd)
+    Ok(())
 }
 
 /// Open `path` beneath `start` as `op` asks, as Linux's `do_file_open`
@@ -830,13 +841,13 @@ pub fn do_file_open(
     path: &str,
     op: &OpenFlags,
 ) -> Result<File, Errno> {
-    let total_link_count = Rc::default();
-    walk_with_reval(|| path_openat(set_nameidata(cred, start, path, &total_link_count)?, op))
+    let mut nd = set_nameidata(cred, start, path)?;
+    walk_with_reval(&mut nd, start, path, |nd| path_openat(nd, op))
 }
 
 /// Walk `nd` to its last name and open it as `op` asks, as Linux's
 /// `path_openat`.
-fn path_openat(mut nd: Nameidata, op: &OpenFlags) -> Result<File, Errno> {
+fn path_openat(nd: &mut Nameidata, op: &OpenFlags) -> Result<File, Errno> {
     let how = op.open_flag();
     nd.lookup_directory = op.lookup_directory();
     let mode = FMode::of(how);
@@ -846,15 +857,15 @@ fn path_openat(mut nd: Nameidata, op: &OpenFlags) -> Result<File, Errno> {
     nd.link_path_walk()?;
     let opened = nd.open_last_lookups(how, mode, op.lookup_follow())?;
     let child = nd.path()?;
-    do_open(&nd, child, opened, op)
+    do_open(nd, child, opened, op)
 }
 
 /// Stand for what `nd` names without opening it, as Linux's `do_o_path` walks
 /// with `path_lookupat` and opens nothing: no permission is asked and nothing
 /// is made or emptied.
-fn do_o_path(nd: Nameidata, op: &OpenFlags) -> Result<File, Errno> {
+fn do_o_path(nd: &mut Nameidata, op: &OpenFlags) -> Result<File, Errno> {
     let how = op.open_flag();
-    let nd = path_lookupat(nd, op.lookup_follow())?;
+    path_lookupat(nd, op.lookup_follow())?;
     let child = nd.path()?;
     let kind = child.file_type()?;
     let (f_op, security) = on_path(&nd.mnt, &child, |path| {
