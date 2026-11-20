@@ -1436,6 +1436,18 @@ pub trait FileOperations {
 }
 ```
 
+## `FileOperations::has_iterate_shared`
+
+Whether the file hands listings its entries. A listing of a file answering no
+is refused before it waits on anything. The default answers no, so a file
+implementing `iterate_shared` answers yes here too.
+
+```rust
+pub trait FileOperations {
+    fn has_iterate_shared(&self) -> bool;
+}
+```
+
 ## `DirContext::pos`
 
 Where the listing stands.

@@ -4523,3 +4523,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a move through the runtime that panicked while it was under way |
 | When | a walk begins |
 | Then | it begins at once, as Linux's `write_sequnlock` ends every write |
+
+## `RT-408` A listing of a file that lists nothing waits on no lock
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-166` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a file whose Filesystem hands listings nothing, another thread changing it |
+| When | a listing of the file is asked |
+| Then | it answers not a directory at once, as Linux's `iterate_dir` refuses before it locks |
