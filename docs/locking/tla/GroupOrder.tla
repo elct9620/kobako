@@ -5,12 +5,9 @@
 \* and only the edges between groups together.
 \*
 \* An edge the code never waits on is left out: a trylock (RENAME_LOCK ->
-\* rename_mutex, i_rwsem in __d_unalias), a wait that lets the GVL go first
-\* (GVL -> i_rwsem, in_lookup), and a stream's own inode lock, which only its
-\* run's thread reaches through the guest's descriptors (SharedFile ->
-\* i_rwsem, as iterate_dir locks before it finds no directory). A lock taken
-\* while another of its kind is held is its group's own obligation, kept by the
-\* order its Context document sets.
+\* rename_mutex, i_rwsem in __d_unalias), and a wait that lets the GVL go first
+\* (GVL -> i_rwsem, in_lookup). A lock taken while another of its kind is held
+\* is its group's own obligation, kept by the order its Context document sets.
 \*
 \* The layer_* locks belong to a Filesystem an Overlay stacks on, whose locks
 \* come after the Overlay's, as Linux's directory-locking ranks filesystems.
