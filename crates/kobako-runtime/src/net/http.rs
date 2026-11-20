@@ -21,7 +21,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::connections::{open, OpenConnections, Place};
 use super::credential::Swap;
-use super::reactor::{Reactor, Task};
+use super::task::Task;
 use super::transport::Connector;
 use super::{new_platform_tls, MAX_SOCKET_BUFFER};
 use crate::cred::Cred;
@@ -458,7 +458,8 @@ pub struct Response {
     pub body: ResponseBody,
 }
 
-/// What the outbound seam's send runs as on the reactor.
+/// What the outbound seam's send runs as, polled by the thread that waits
+/// for the response.
 pub type ResponseFuture = Pin<Box<dyn Future<Output = Result<Response, HttpError>> + Send>>;
 
 /// The HTTP sender, as wasmtime's `send_request`. It dials only through the
@@ -530,7 +531,7 @@ pub struct Exchange {
 }
 
 impl Exchange {
-    /// Send `request` through `seam` on the reactor, dialing through the
+    /// Send `request` through `seam` on the asking thread, dialing through the
     /// connector `connector_for` makes with the request's place; it counts
     /// against `open_connections` and the process until
     /// released and its connection closed, and a full count answers
@@ -550,7 +551,6 @@ impl Exchange {
         let place = Arc::new(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
         let mut connector = connector_for(place.clone());
         let place = Some(place);
-        let reactor = Reactor::current().map_err(|_| HttpError::Internal)?;
         let exchange = Arc::new(Self {
             state: Arc::new(Mutex::new(State {
                 phase: Phase::Sending,
@@ -576,7 +576,7 @@ impl Exchange {
         let cred = cred.clone();
         connector.wait = Some(wait.clone());
         let sending = seam.send_request(request, connector);
-        let task = reactor.spawn(async move {
+        let sent = async move {
             match sending.await {
                 Ok(response) => {
                     let room = total_room_of(&response.head.headers);
@@ -604,14 +604,18 @@ impl Exchange {
                     wait.wake_up();
                 }
             }
-        });
+        };
+        let task = Arc::new(Task::new(sent, exchange.wait.clone()));
         *exchange.task.lock().unwrap_or_else(PoisonError::into_inner) = Some(task);
+        exchange.poll_task();
         Ok(exchange)
     }
 
-    /// The exchange's state, once any timeout that passed has ended its wait,
-    /// as a timeout read on its next look rather than by a timer.
+    /// The exchange's state, its request moved as far as it goes and any
+    /// timeout that passed having ended its wait, as a timeout read on its
+    /// next look rather than by a timer.
     fn state(&self) -> MutexGuard<'_, State> {
+        self.poll_task();
         let mut state = lock(&self.state);
         if self.expire(&mut state) {
             drop(state);
@@ -619,6 +623,20 @@ impl Exchange {
             state = lock(&self.state);
         }
         state
+    }
+
+    /// Move the request on, on the thread that looks at the exchange, as its
+    /// guest waits on or reads it; the task is let go of before it is polled,
+    /// so a cancel never waits on this lock.
+    fn poll_task(&self) {
+        let task = self
+            .task
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .clone();
+        if let Some(task) = task {
+            task.poll();
+        }
     }
 
     /// Drop the task sending the request, with the connection it holds.
@@ -1370,7 +1388,10 @@ mod tests {
                 upstream.lock_host_send_buffer(4096);
             }
             let give_up = Instant::now() + Duration::from_secs(5);
-            while upstreams.iter().all(|upstream| upstream.is_drained()) {
+            // Each look moves the request on, as its guest's poll does.
+            while exchange.response().is_none()
+                && upstreams.iter().all(|upstream| upstream.is_drained())
+            {
                 assert!(
                     Instant::now() < give_up,
                     "the request's body never queued on its upstream in five seconds"
@@ -2525,6 +2546,8 @@ mod tests {
         let unset_head = timed(Arc::new(DialsThenWaits), Timeouts::default());
         let give_up = Instant::now() + Duration::from_secs(10);
         let connected = loop {
+            // Each look moves the request on, as its guest's poll does.
+            let _ = unset_head.response();
             match unset_head.connected.get() {
                 Some(at) => break *at,
                 None if Instant::now() < give_up => thread::sleep(Duration::from_millis(1)),
@@ -2687,13 +2710,13 @@ mod tests {
             }
         }
 
-        // The reactor fills a body while the guest lets the exchange go, so the
-        // last hold may fall in the middle of a fill. The reactor must answer a
-        // request sent after every one of them.
+        // Each look fills a body that never ends, and the guest lets the
+        // exchange go with its body still filling. A request sent after every
+        // one of them must still be answered.
         // @behavior NW-082
         #[test]
         #[ignore = "a stress witness; run by rake crates:stress"]
-        fn an_exchange_let_go_while_its_body_fills_leaves_the_reactor_running() {
+        fn an_exchange_let_go_while_its_body_fills_leaves_later_requests_answered() {
             let mut entry = Builder::default();
             entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
             let network = Network::new("api", Arc::new(entry)).unwrap();
@@ -2726,7 +2749,7 @@ mod tests {
             assert!(
                 last.response().is_some(),
                 "a request sent after 20,000 exchanges let go while their bodies fill must still \
-                 be answered, so no exchange's release ever stops the reactor"
+                 be answered, so no exchange's release leaves anything held"
             );
         }
     }

@@ -87,30 +87,55 @@ fn is_reachable(dest: &IpAddr, local: &[IpAddr]) -> bool {
 /// while no task waited, so a task that reads after it learns of it.
 #[cfg(unix)]
 #[derive(Default)]
-struct ReadyWaker(Mutex<(bool, Option<Waker>)>);
+struct ReadyWaker(Mutex<WakerState>);
+
+#[cfg(unix)]
+#[derive(Default)]
+struct WakerState {
+    changed: bool,
+    /// The reactor watching the socket stopped, so no change comes again.
+    aborted: bool,
+    waker: Option<Waker>,
+}
 
 #[cfg(unix)]
 impl ReadyWaker {
-    /// Ready once the socket changed since the last ready answer; otherwise
-    /// the task waits for the next change.
-    fn poll_changed(&self, cx: &mut Context<'_>) -> Poll<()> {
-        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        if std::mem::take(&mut state.0) {
-            return Poll::Ready(());
+    /// Ready once the socket changed since the last ready answer, and
+    /// `ECONNABORTED` for good once the reactor watching it stopped;
+    /// otherwise the task waits for the next change.
+    fn poll_changed(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let mut state = self.state();
+        if state.aborted {
+            return Poll::Ready(Err(io::ErrorKind::ConnectionAborted.into()));
         }
-        state.1 = Some(cx.waker().clone());
+        if std::mem::take(&mut state.changed) {
+            return Poll::Ready(Ok(()));
+        }
+        state.waker = Some(cx.waker().clone());
         Poll::Pending
+    }
+
+    fn state(&self) -> std::sync::MutexGuard<'_, WakerState> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    fn wake(&self, mark: impl FnOnce(&mut WakerState)) {
+        let mut state = self.state();
+        mark(&mut state);
+        if let Some(waker) = state.waker.take() {
+            waker.wake();
+        }
     }
 }
 
 #[cfg(unix)]
 impl Ready for ReadyWaker {
     fn on_event(&self) {
-        let mut state = self.0.lock().unwrap_or_else(PoisonError::into_inner);
-        state.0 = true;
-        if let Some(waker) = state.1.take() {
-            waker.wake();
-        }
+        self.wake(|state| state.changed = true);
+    }
+
+    fn abort(&self) {
+        self.wake(|state| state.aborted = true);
     }
 }
 

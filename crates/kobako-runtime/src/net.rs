@@ -14,6 +14,7 @@ mod namespace;
 mod reactor;
 mod resolv;
 mod socket;
+mod task;
 mod tcp;
 mod tls;
 mod transport;

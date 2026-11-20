@@ -245,6 +245,20 @@ impl Ready for UdpSock {
         state.writable = true;
         self.pump_and_wake(state);
     }
+
+    /// Fail with `ECONNABORTED` and forget the peer, as `udp_abort` sets
+    /// `sk_err` and disconnects; the host socket goes, so a later connect
+    /// dials afresh.
+    fn abort(&self) {
+        let mut state = self.state();
+        state.inet.err = Some(Errno::ConnectionAborted);
+        state.inet.peer = None;
+        if let Some((mut socket, registration)) = state.host.take() {
+            registration.deregister(&mut socket);
+        }
+        drop(state);
+        self.wait.wake_up();
+    }
 }
 
 /// UDP's answers for its socket file, as `inet_dgram_ops` hands each call to

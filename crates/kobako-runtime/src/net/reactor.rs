@@ -1,18 +1,16 @@
 //! The one thread that waits on every host socket of the process, as Linux's
 //! softirq hands each arriving segment to the socket it belongs to: an event
 //! calls its socket's `on_event`, which moves what it can without blocking and
-//! wakes the socket's wait queue. The same thread runs the tasks an HTTP
-//! exchange and a name lookup need, and wakes a task whose timer is due, so
-//! no socket holds a thread of its own. A forked child, which inherits no
-//! thread, starts a reactor of its own.
+//! wakes the socket's wait queue. The same thread wakes a waker whose timer is
+//! due, so no socket holds a thread of its own. It only wakes: an HTTP
+//! exchange or a name lookup moves on the thread that waits for it. A forked
+//! child, which inherits no thread, starts a reactor of its own.
 
-use std::collections::{HashMap, VecDeque};
-use std::future::Future;
+use std::collections::HashMap;
 use std::io;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
-use std::task::{Context, Wake, Waker};
+use std::task::Waker;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -26,9 +24,13 @@ use crate::fork::{Pid, ProcessLocal};
 /// then wake whoever waits on it.
 pub(crate) trait Ready: Send + Sync {
     fn on_event(&self);
+
+    /// Fail the socket from outside, as the reactor stopping does, and wake
+    /// whoever waits on it, as `tcp_abort` and `udp_abort` end one.
+    fn abort(&self);
 }
 
-/// The token that wakes the reactor to run the tasks queued for it.
+/// The token that wakes the reactor to read its timers and repolls again.
 const WAKE_TOKEN: Token = Token(0);
 
 pub(crate) struct Reactor {
@@ -38,14 +40,13 @@ pub(crate) struct Reactor {
     /// The socket each token belongs to, held weakly so the reactor keeps no
     /// socket alive past its release.
     sockets: Mutex<HashMap<Token, Weak<dyn Ready>>>,
-    /// The tasks woken and waiting their turn, as a scheduler's run queue.
-    run_queue: Mutex<VecDeque<Arc<Task>>>,
     /// The sockets whose last turn ended at its bound with more waiting, each
     /// once, run again after the next round of events, as NAPI puts a poll
     /// that spent its weight back at the tail of `poll_list`.
     repoll: Mutex<Vec<Weak<dyn Ready>>>,
-    /// Whether the thread stopped, its poll having failed, so the next socket
-    /// starts another reactor rather than register on one nobody waits on.
+    /// Whether the thread stopped, its poll having failed or a callback
+    /// panicked, so the next socket starts another reactor rather than
+    /// register on one nobody waits on.
     stopped: AtomicBool,
     /// The wakers due at an instant, as hrtimers wake a task whose timeout
     /// ends.
@@ -58,7 +59,7 @@ static CURRENT: ProcessLocal<Arc<Reactor>> = ProcessLocal::new();
 impl Reactor {
     /// The process's reactor, started at the first socket; a forked child
     /// starts its own, since its parent's thread never came along, and so does
-    /// the socket after a reactor whose poll failed.
+    /// the socket after a reactor that stopped.
     pub(crate) fn current() -> io::Result<Arc<Self>> {
         CURRENT.with(|current| {
             if let Some(reactor) = current.as_ref() {
@@ -79,7 +80,6 @@ impl Reactor {
             waker: mio::Waker::new(poll.registry(), WAKE_TOKEN)?,
             next: AtomicUsize::new(1),
             sockets: Mutex::default(),
-            run_queue: Mutex::default(),
             repoll: Mutex::default(),
             stopped: AtomicBool::new(false),
             timers: Mutex::default(),
@@ -92,6 +92,7 @@ impl Reactor {
     }
 
     fn run(&self, poll: &mut mio::Poll) {
+        let _stopping = Stopping(self);
         let mut events = Events::with_capacity(256);
         loop {
             // What asked for another turn before this round runs after its
@@ -108,21 +109,13 @@ impl Reactor {
                 if err.kind() == io::ErrorKind::Interrupted {
                     continue;
                 }
-                self.stopped.store(true, Ordering::Release);
                 return;
             }
-            let mut run_tasks = false;
             let ready: Vec<Arc<dyn Ready>> = {
                 let sockets = self.sockets.lock().unwrap_or_else(PoisonError::into_inner);
                 events
                     .iter()
-                    .filter_map(|event| {
-                        if event.token() == WAKE_TOKEN {
-                            run_tasks = true;
-                            return None;
-                        }
-                        sockets.get(&event.token()).and_then(Weak::upgrade)
-                    })
+                    .filter_map(|event| sockets.get(&event.token()).and_then(Weak::upgrade))
                     .collect()
             };
             ready.iter().for_each(|socket| socket.on_event());
@@ -131,9 +124,6 @@ impl Reactor {
                 .filter_map(Weak::upgrade)
                 .for_each(|socket| socket.on_event());
             self.wake_due_timers();
-            if run_tasks {
-                self.run_tasks();
-            }
         }
     }
 
@@ -149,6 +139,11 @@ impl Reactor {
             .unwrap_or_else(PoisonError::into_inner)
             .push((at, waker.clone()));
         let _ = self.waker.wake();
+        // A reactor that stopped never reads its timers again.
+        if self.stopped.load(Ordering::Acquire) {
+            self.disarm(&waker);
+            waker.wake_by_ref();
+        }
         Timer {
             reactor: self.clone(),
             waker,
@@ -185,7 +180,8 @@ impl Reactor {
     }
 
     /// Watch `source` for reading and writing, handing each change to `ready`'s
-    /// `on_event`.
+    /// `on_event`; a reactor that stopped refuses it with `ECONNABORTED`, as
+    /// nobody would wake its socket.
     pub(crate) fn register(
         self: &Arc<Self>,
         source: &mut impl Source,
@@ -203,6 +199,13 @@ impl Reactor {
             self.forget(token);
             return Err(err);
         }
+        // Read after the token is in place, so a reactor stopping meanwhile
+        // either aborts the socket or is seen here.
+        if self.stopped.load(Ordering::Acquire) {
+            let _ = self.registry.deregister(source);
+            self.forget(token);
+            return Err(io::ErrorKind::ConnectionAborted.into());
+        }
         Ok(Registration {
             token,
             reactor: self.clone(),
@@ -216,44 +219,33 @@ impl Reactor {
             .unwrap_or_else(PoisonError::into_inner)
             .remove(&token);
     }
+}
 
-    /// Run `future` on the reactor until it ends or the task is cancelled.
-    pub(crate) fn spawn(
-        self: &Arc<Self>,
-        future: impl Future<Output = ()> + Send + 'static,
-    ) -> Arc<Task> {
-        let task = Arc::new(Task {
-            future: Mutex::new(Some(Box::pin(future))),
-            reactor: Arc::downgrade(self),
-            queued: AtomicBool::new(false),
-        });
-        task.clone().wake();
-        task
-    }
+/// Stops the reactor as its thread leaves the loop, by a failed poll or a
+/// panic alike: no socket registers on it again, and each socket and timer
+/// it watched is aborted or woken, so no waiter waits on a thread that is
+/// gone.
+struct Stopping<'a>(&'a Reactor);
 
-    fn run_tasks(&self) {
-        loop {
-            let Some(task) = self
-                .run_queue
+impl Drop for Stopping<'_> {
+    fn drop(&mut self) {
+        let reactor = self.0;
+        reactor.stopped.store(true, Ordering::Release);
+        let watched: Vec<Arc<dyn Ready>> = reactor
+            .sockets
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .values()
+            .filter_map(Weak::upgrade)
+            .collect();
+        watched.iter().for_each(|socket| socket.abort());
+        let timers = std::mem::take(
+            &mut *reactor
+                .timers
                 .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .pop_front()
-            else {
-                return;
-            };
-            task.queued.store(false, Ordering::Release);
-            let waker = Waker::from(task.clone());
-            let mut future = task.future.lock().unwrap_or_else(PoisonError::into_inner);
-            let ended = future.as_mut().is_some_and(|running| {
-                running
-                    .as_mut()
-                    .poll(&mut Context::from_waker(&waker))
-                    .is_ready()
-            });
-            if ended {
-                *future = None;
-            }
-        }
+                .unwrap_or_else(PoisonError::into_inner),
+        );
+        timers.into_iter().for_each(|(_, waker)| waker.wake());
     }
 }
 
@@ -314,48 +306,13 @@ impl Drop for Timer {
     }
 }
 
-/// A future the reactor runs, as an executor's task.
-pub(crate) struct Task {
-    future: Mutex<Option<Pin<Box<dyn Future<Output = ()> + Send>>>>,
-    reactor: Weak<Reactor>,
-    queued: AtomicBool,
-}
-
-impl Task {
-    /// Drop the future where it stands, with every socket it holds.
-    pub(crate) fn cancel(&self) {
-        let future = self
-            .future
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .take();
-        drop(future);
-    }
-}
-
-impl Wake for Task {
-    fn wake(self: Arc<Self>) {
-        let Some(reactor) = self.reactor.upgrade() else {
-            return;
-        };
-        if self.queued.swap(true, Ordering::AcqRel) {
-            return;
-        }
-        reactor
-            .run_queue
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push_back(self);
-        let _ = reactor.waker.wake();
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc;
-    use std::task::Poll;
+    use std::task::{Poll, Wake};
     use std::time::Duration;
 
+    use super::super::task::Task;
     use super::*;
 
     // A reactor started in another process, as a forked child inherits its
@@ -379,6 +336,79 @@ mod tests {
         fn on_event(&self) {
             let _ = self.0.lock().unwrap().send(());
         }
+
+        fn abort(&self) {}
+    }
+
+    /// A socket that tells only of its abort.
+    struct TellsAbort(Mutex<mpsc::Sender<&'static str>>);
+
+    impl Ready for TellsAbort {
+        fn on_event(&self) {}
+
+        fn abort(&self) {
+            let _ = self.0.lock().unwrap().send("the socket");
+        }
+    }
+
+    /// A socket whose callback fails, as a panic in the code it runs would.
+    struct Panics;
+
+    impl Ready for Panics {
+        fn on_event(&self) {
+            panic!("a socket's callback failed on the reactor");
+        }
+
+        fn abort(&self) {}
+    }
+
+    /// A timer's task that tells as it wakes.
+    struct TellsWake(Mutex<mpsc::Sender<&'static str>>);
+
+    impl Wake for TellsWake {
+        fn wake(self: Arc<Self>) {
+            let _ = self.0.lock().unwrap().send("the timer");
+        }
+    }
+
+    // A reactor whose thread stops, here as a socket's callback panics,
+    // aborts each socket still registered and wakes each timer at once,
+    // rather than leave their waiters to their deadlines, and is handed out
+    // no more. A poll that fails leaves the loop through the same guard.
+    // @behavior NW-235
+    #[test]
+    fn a_reactor_that_stops_aborts_every_socket_and_timer_it_watches() {
+        let reactor = Reactor::start().expect("a reactor starts");
+        let (tx, rx) = mpsc::channel();
+        let waiting: Arc<dyn Ready> = Arc::new(TellsAbort(Mutex::new(tx.clone())));
+        let failing: Arc<dyn Ready> = Arc::new(Panics);
+        let addr = "127.0.0.1:0".parse().unwrap();
+        let mut watched = mio::net::UdpSocket::bind(addr).expect("a UDP socket binds");
+        let mut failed = mio::net::UdpSocket::bind(addr).expect("a UDP socket binds");
+        let _watching = reactor
+            .register(&mut watched, Arc::downgrade(&waiting))
+            .expect("the socket registers");
+        let _failing = reactor
+            .register(&mut failed, Arc::downgrade(&failing))
+            .expect("the socket registers");
+        let _timer = reactor.wake_at(
+            Instant::now() + Duration::from_secs(30),
+            Waker::from(Arc::new(TellsWake(Mutex::new(tx)))),
+        );
+        std::net::UdpSocket::bind(addr)
+            .expect("a UDP socket binds")
+            .send_to(b"x", failed.local_addr().unwrap())
+            .expect("the datagram goes");
+        let mut told: Vec<_> = (0..2)
+            .filter_map(|_| rx.recv_timeout(Duration::from_secs(5)).ok())
+            .collect();
+        told.sort_unstable();
+        assert_eq!(
+            (told, reactor.stopped.load(Ordering::Acquire)),
+            (vec!["the socket", "the timer"], true),
+            "a reactor whose thread stops must abort each socket registered on it, wake each \
+             timer at once, and mark itself stopped so no later socket registers on it"
+        );
     }
 
     // A forked child shares its parent's epoll instance, where an inherited
@@ -409,62 +439,19 @@ mod tests {
         );
     }
 
-    // A task woken from another thread runs on the reactor and ends.
+    // A waker asked to be woken at an instant is woken once it passes, with
+    // nothing else waking it.
     #[test]
-    fn a_spawned_task_runs_to_its_end_once_woken() {
+    fn a_timer_wakes_its_waker_once_due() {
         let reactor = Reactor::current().expect("a reactor starts");
         let (tx, rx) = mpsc::channel();
-        let gate = Arc::new(Mutex::new((false, None::<Waker>)));
-        let waiting = gate.clone();
-        reactor.spawn(async move {
-            std::future::poll_fn(|cx| {
-                let mut gate = waiting.lock().unwrap();
-                if gate.0 {
-                    Poll::Ready(())
-                } else {
-                    gate.1 = Some(cx.waker().clone());
-                    Poll::Pending
-                }
-            })
-            .await;
-            tx.send(()).unwrap();
-        });
-        thread::sleep(Duration::from_millis(20));
-        let waker = {
-            let mut gate = gate.lock().unwrap();
-            gate.0 = true;
-            gate.1.take()
-        };
-        waker.expect("the task waited").wake();
-        assert!(
-            rx.recv_timeout(Duration::from_secs(5)).is_ok(),
-            "a task woken from another thread must run on the reactor to its end"
+        let _timer = reactor.wake_at(
+            Instant::now() + Duration::from_millis(50),
+            Waker::from(Arc::new(TellsWake(Mutex::new(tx)))),
         );
-    }
-
-    // A task that asks to be woken at an instant runs again once it passes,
-    // with nothing else waking it.
-    #[test]
-    fn a_timer_wakes_its_task_once_due() {
-        let reactor = Reactor::current().expect("a reactor starts");
-        let (tx, rx) = mpsc::channel();
-        let due = Instant::now() + Duration::from_millis(50);
-        let timing = reactor.clone();
-        reactor.spawn(async move {
-            let mut timer = None;
-            std::future::poll_fn(|cx| {
-                if Instant::now() >= due {
-                    return Poll::Ready(());
-                }
-                timer.get_or_insert_with(|| timing.wake_at(due, cx.waker().clone()));
-                Poll::Pending
-            })
-            .await;
-            tx.send(()).unwrap();
-        });
         assert!(
             rx.recv_timeout(Duration::from_secs(5)).is_ok(),
-            "a task the reactor was asked to wake at an instant must run again once it passes"
+            "a waker the reactor was asked to wake at an instant must be woken once it passes"
         );
     }
 
@@ -499,31 +486,29 @@ mod tests {
             .count()
     }
 
-    // A task cancelled while its timer is armed leaves no timer behind, so a
-    // guest dropping lookups never fills the reactor's timers.
+    // A request cancelled while its timer is armed leaves no timer behind, so
+    // a guest dropping lookups never fills the reactor's timers.
     #[test]
-    fn a_cancelled_task_leaves_no_timer() {
-        let reactor = Reactor::current().expect("a reactor starts");
-        let (armed_tx, armed_rx) = mpsc::channel();
+    fn a_cancelled_request_leaves_no_timer() {
+        let reactor = Reactor::start().expect("a reactor starts");
         let timing = reactor.clone();
         let later = Instant::now() + Duration::from_secs(30);
-        let task = reactor.spawn(async move {
-            let mut timer = None;
-            std::future::poll_fn(|cx| {
-                timer.get_or_insert_with(|| timing.wake_at(later, cx.waker().clone()));
-                let _ = armed_tx.send(());
-                Poll::<()>::Pending
-            })
-            .await;
-        });
-        armed_rx
-            .recv_timeout(Duration::from_secs(5))
-            .expect("the task arms its timer");
-        let waker = Waker::from(task.clone());
-        let held = timers_of(&reactor, &waker);
+        let task = Task::new(
+            async move {
+                let mut timer = None;
+                std::future::poll_fn(|cx| {
+                    timer.get_or_insert_with(|| timing.wake_at(later, cx.waker().clone()));
+                    Poll::<()>::Pending
+                })
+                .await;
+            },
+            Arc::default(),
+        );
+        task.poll();
+        let held = reactor.timers.lock().unwrap().len();
         task.cancel();
         assert_eq!(
-            (held, timers_of(&reactor, &waker)),
+            (held, reactor.timers.lock().unwrap().len()),
             (1, 0),
             "a cancelled lookup's timer must leave the reactor with the lookup, not stay until due"
         );

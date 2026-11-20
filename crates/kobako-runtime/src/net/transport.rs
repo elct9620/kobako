@@ -68,8 +68,7 @@ impl Connector {
                     net.resolver().clone(),
                     name.clone(),
                     place.clone(),
-                )
-                .map_err(|_| HttpError::ConnectionLimitReached),
+                ),
                 name,
             },
         };
@@ -104,19 +103,16 @@ impl Connector {
     pub async fn dial(&self) -> Result<Transport, HttpError> {
         let dests = match &self.target {
             Target::Address(ip) => vec![Destination::Literal(SocketAddr::new(*ip, self.port))],
-            Target::Named { lookup, .. } => {
-                let lookup = lookup.as_ref().map_err(|err| *err)?;
-                poll_fn(|cx| lookup.poll_answer(cx))
-                    .await
-                    .map_err(|_| HttpError::DnsError)?
-                    .into_iter()
-                    .map(|real| Destination::Named {
-                        name: lookup.name().to_string(),
-                        real,
-                        port: self.port,
-                    })
-                    .collect()
-            }
+            Target::Named { lookup, .. } => poll_fn(|cx| lookup.poll_answer(cx))
+                .await
+                .map_err(|_| HttpError::DnsError)?
+                .into_iter()
+                .map(|real| Destination::Named {
+                    name: lookup.name().to_string(),
+                    real,
+                    port: self.port,
+                })
+                .collect(),
         };
         let mut last = HttpError::Denied;
         for dest in &dests {
@@ -153,12 +149,12 @@ impl Connector {
 
 /// Where a connector dials: a literal address, or a named authority and its
 /// lookup, started on the thread that sends the request, as a guest's own
-/// lookup is, so the reactor never makes the call a Resolver may block on.
+/// lookup is.
 enum Target {
     Address(IpAddr),
     Named {
         name: String,
-        lookup: Result<Arc<NameLookup>, HttpError>,
+        lookup: Arc<NameLookup>,
     },
 }
 

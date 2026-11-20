@@ -503,14 +503,15 @@ impl<S: Source> WatchedSocket<S> {
         })
     }
 
-    /// Wait until the socket changes, `false` once `deadline` passes first.
-    /// The timer goes with the wait it bounds, whether it ends or is
-    /// cancelled.
+    /// Wait until the socket changes, `false` once `deadline` passes first
+    /// or the reactor watching it stopped, so the next question opens a
+    /// socket of its own. The timer goes with the wait it bounds, whether it
+    /// ends or is cancelled.
     async fn wait_for_change(&self, deadline: Instant) -> bool {
         let mut timer = None;
         poll_fn(|cx| {
-            if self.waker.poll_changed(cx).is_ready() {
-                return Poll::Ready(true);
+            if let Poll::Ready(changed) = self.waker.poll_changed(cx) {
+                return Poll::Ready(changed.is_ok());
             }
             if Instant::now() >= deadline {
                 return Poll::Ready(false);

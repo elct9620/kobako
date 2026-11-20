@@ -1,5 +1,5 @@
 //! A name lookup the guest asked for, judged as a DNS proxy judges a query,
-//! then resolved as a task on the reactor, its waiter woken through the
+//! then resolved on the thread that waits for it, woken through the
 //! lookup's wait queue so the deadline ends the wait. Linux leaves resolution
 //! to userspace, where a process's own query ends with it, so the Resolver is
 //! a backend beside the Protocol Family, and dropping a lookup cancels its
@@ -13,7 +13,7 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
 
 use super::connections::{open, OpenConnections, Place};
-use super::reactor::{Reactor, Task};
+use super::task::Task;
 use super::Namespace;
 use crate::cred::Cred;
 use crate::filesystem::anon_inode_getfile;
@@ -21,8 +21,8 @@ use crate::network::{Host, Name};
 use crate::vfs::{FMode, File, FileOperations, OpenHow, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
-/// A name's addresses still coming, which the reactor polls, as reqwest's
-/// `Resolving` is.
+/// A name's addresses still coming, which the asking thread polls as it
+/// waits, as reqwest's `Resolving` is.
 pub type Resolving = Pin<Box<dyn Future<Output = Result<Vec<IpAddr>, LookupError>> + Send>>;
 
 /// What answers a name, as userspace's `getaddrinfo` does in Linux, apart
@@ -68,8 +68,9 @@ pub struct NameLookup {
     of_address: bool,
     answer: Answer,
     wait: Arc<WaitQueueHead>,
-    /// The query under way on the reactor, cancelled as the lookup drops.
-    query: Option<Arc<Task>>,
+    /// The query under way, moved by whoever asks for the answer and
+    /// cancelled as the lookup drops.
+    query: Option<Task>,
 }
 
 impl NameLookup {
@@ -82,46 +83,48 @@ impl NameLookup {
         open_connections: &Arc<OpenConnections>,
     ) -> Result<Arc<Self>, LookupError> {
         let place = open(open_connections).ok_or(LookupError::Again)?;
-        Self::start_holding(resolver, name, Arc::new(place))
+        Ok(Self::start_holding(resolver, name, Arc::new(place)))
     }
 
     /// A lookup of `name` through `resolver` holding `place`, which its
-    /// caller already counts. The query holds the place until it answers or
-    /// the lookup drops and cancels it, so a lookup nobody waits for gives its
-    /// place back at once. A reactor the process cannot start answers as a
-    /// resolver out of resources does.
+    /// caller already counts, its query sent on the asking thread. The query
+    /// holds the place until it answers or the lookup drops and cancels it,
+    /// so a lookup nobody waits for gives its place back at once.
     pub(crate) fn start_holding(
         resolver: Arc<dyn Resolver>,
         name: String,
         place: Arc<Place>,
-    ) -> Result<Arc<Self>, LookupError> {
-        let reactor = Reactor::current().map_err(|_| LookupError::Again)?;
+    ) -> Arc<Self> {
         let answer = Answer::default();
         let wait = Arc::<WaitQueueHead>::default();
         let resolving = resolver.resolve(&name);
         let (answering, waking) = (answer.clone(), wait.clone());
-        let query = reactor.spawn(async move {
-            let _place = place;
-            let found = match resolving.await {
-                Ok(addresses) if addresses.is_empty() => Err(LookupError::NoName),
-                Ok(mut addresses) => {
-                    // Each real address once, so each takes one virtual one.
-                    let mut seen = HashSet::new();
-                    addresses.retain(|ip| seen.insert(*ip));
-                    Ok(addresses)
-                }
-                failed => failed,
-            };
-            *answering.lock().unwrap_or_else(PoisonError::into_inner) = Some(found);
-            waking.wake_up();
-        });
-        Ok(Arc::new(Self {
+        let query = Task::new(
+            async move {
+                let _place = place;
+                let found = match resolving.await {
+                    Ok(addresses) if addresses.is_empty() => Err(LookupError::NoName),
+                    Ok(mut addresses) => {
+                        // Each real address once, so each takes one virtual one.
+                        let mut seen = HashSet::new();
+                        addresses.retain(|ip| seen.insert(*ip));
+                        Ok(addresses)
+                    }
+                    failed => failed,
+                };
+                *answering.lock().unwrap_or_else(PoisonError::into_inner) = Some(found);
+                waking.wake_up();
+            },
+            wait.clone(),
+        );
+        query.poll();
+        Arc::new(Self {
             name,
             of_address: false,
             answer,
             wait,
             query: Some(query),
-        }))
+        })
     }
 
     /// A lookup answered at once, with no query, as a refused name is.
@@ -152,9 +155,9 @@ impl NameLookup {
         self.of_address
     }
 
-    /// The answer for a task on the reactor, which the lookup's wait queue
-    /// wakes once it arrives; the answer is read again once the task is
-    /// added, so none arrives unseen.
+    /// The answer for a request waiting on the lookup, which the lookup's
+    /// wait queue wakes once it arrives; the answer is read again once the
+    /// request is added, so none arrives unseen.
     pub(crate) fn poll_answer(
         &self,
         cx: &mut Context<'_>,
@@ -163,7 +166,7 @@ impl NameLookup {
             return Poll::Ready(answer);
         }
         self.wait.add(cx.waker());
-        match self.answer() {
+        match self.answered() {
             Some(answer) => Poll::Ready(answer),
             None => Poll::Pending,
         }
@@ -175,8 +178,15 @@ impl NameLookup {
     }
 
     /// The real addresses the name resolved to, or why it has none; `None`
-    /// while the lookup is under way.
+    /// while the lookup is under way. Asking moves the query on.
     pub fn answer(&self) -> Option<Result<Vec<IpAddr>, LookupError>> {
+        if let Some(query) = &self.query {
+            query.poll();
+        }
+        self.answered()
+    }
+
+    fn answered(&self) -> Option<Result<Vec<IpAddr>, LookupError>> {
         self.answer
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
@@ -192,14 +202,6 @@ impl NameLookup {
             ..OpenHow::default()
         };
         anon_inode_getfile(Box::new(LookupFile(self.clone())), &how, cred)
-    }
-}
-
-impl Drop for NameLookup {
-    fn drop(&mut self) {
-        if let Some(query) = &self.query {
-            query.cancel();
-        }
     }
 }
 
@@ -255,9 +257,11 @@ pub(crate) fn allows_lookup(net: &Namespace, name: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use std::sync::mpsc;
+    use std::time::Duration;
 
     use super::super::connections::open_within;
     use super::super::family::testing::StallsLookups;
+    use super::super::reactor::{Reactor, Ready};
     use super::*;
 
     // @behavior NW-085
@@ -269,8 +273,7 @@ mod tests {
         let process = OpenConnections::new(Some(1));
         let place = open_within(&invocation, &process).expect("both counts have room");
         let lookup =
-            NameLookup::start_holding(resolver.clone(), "slow.test".into(), Arc::new(place))
-                .expect("the lookup starts");
+            NameLookup::start_holding(resolver.clone(), "slow.test".into(), Arc::new(place));
         drop(lookup);
         assert_eq!(
             (
@@ -280,6 +283,70 @@ mod tests {
             (true, 1),
             "a lookup dropped while its resolver has not answered must cancel the resolver's \
              query and give its place back to the invocation's count and the process's at once"
+        );
+    }
+
+    /// A resolver whose query takes long in each poll, as a slow certificate
+    /// check holds the thread polling it, telling as it starts.
+    struct TakesLong(Mutex<mpsc::Sender<()>>);
+
+    impl Resolver for TakesLong {
+        fn resolve(&self, _name: &str) -> Resolving {
+            let polling = self.0.lock().unwrap().clone();
+            Box::pin(std::future::poll_fn(move |_| {
+                let _ = polling.send(());
+                std::thread::sleep(Duration::from_secs(2));
+                Poll::Ready(Ok(Vec::new()))
+            }))
+        }
+    }
+
+    /// A socket that tells of each change.
+    struct Tells(Mutex<mpsc::Sender<()>>);
+
+    impl Ready for Tells {
+        fn on_event(&self) {
+            let _ = self.0.lock().unwrap().send(());
+        }
+
+        fn abort(&self) {}
+    }
+
+    // One Sandbox's lookup taking long holds only the thread that waits on
+    // it, so another Sandbox's socket hears its peer at once.
+    // @behavior NW-236
+    #[test]
+    fn a_slow_lookup_delays_no_other_socket() {
+        let (polling, polled) = mpsc::channel();
+        let invocation = OpenConnections::new(None);
+        let place = open(&invocation).expect("the count has room");
+        let resolver = Arc::new(TakesLong(Mutex::new(polling)));
+        let asking = std::thread::spawn(move || {
+            let lookup = NameLookup::start_holding(resolver, "slow.test".into(), Arc::new(place));
+            while lookup.answer().is_none() {}
+        });
+        polled
+            .recv_timeout(Duration::from_secs(5))
+            .expect("the lookup's query is polled");
+        let (tx, rx) = mpsc::channel();
+        let ready: Arc<dyn Ready> = Arc::new(Tells(Mutex::new(tx)));
+        let addr = "127.0.0.1:0".parse().unwrap();
+        let mut socket = mio::net::UdpSocket::bind(addr).expect("a UDP socket binds");
+        let _registration = Reactor::current()
+            .expect("a reactor starts")
+            .register(&mut socket, Arc::downgrade(&ready))
+            .expect("the socket registers");
+        while rx.try_recv().is_ok() {}
+        std::net::UdpSocket::bind(addr)
+            .expect("a UDP socket binds")
+            .send_to(b"x", socket.local_addr().unwrap())
+            .expect("the datagram goes");
+        let heard = rx.recv_timeout(Duration::from_millis(500)).is_ok();
+        asking.join().expect("the asking thread ends");
+        assert!(
+            heard,
+            "a socket whose peer sent must be woken at once while another Sandbox's lookup \
+             spends seconds in its resolver, since only the thread waiting on that lookup polls it"
         );
     }
 }

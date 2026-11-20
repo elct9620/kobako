@@ -69,7 +69,7 @@ A Host App replaces a part only where the rules above it still hold, whatever th
 | Resolver | above it: connect judges each answer again | hands its own |
 | L7 proxy's sender | inside it: they hold only while it dials through the socket layer | keeps kobako's |
 
-For a test, kobako's own Mock stands as both backends. It answers names from a table and dials only its routes, so a script naming a real host reaches a server the test runs. A lookup's answer and an HTTP dial come on the reactor, so the Mock never calls back into the Host App. A Ruby test writes it as data.
+For a test, kobako's own Mock stands as both backends. It answers names from a table and dials only its routes, so a script naming a real host reaches a server the test runs. It answers from data alone, so a request polling it never calls back into the Host App. A Ruby test writes it as data.
 
 ```
 guest names api.example.com
@@ -96,7 +96,7 @@ The state check comes before translation, as `__inet_stream_connect` checks `soc
 
 ### HTTP Path
 
-The L7 proxy judges a request on the guest thread, where Ruby policies and credential sources run. From `Outbound` on, it runs on the reactor.
+The L7 proxy judges a request on the guest thread, where Ruby policies and credential sources run. From `Outbound` on, it moves on that same thread, as the guest waits on or reads the response.
 
 ```
 +---------------+  name  +-------------+  admits  +--------+
@@ -231,25 +231,37 @@ One reactor thread per process waits on every host socket, as a softirq fills a 
 | Waits | On |
 |---|---|
 | TCP and UDP I/O | the reactor |
-| HTTP | hyper's HTTP/1 client, a task on the reactor |
-| a name lookup | the resolver's query, a task on the reactor that dropping the lookup cancels |
+| HTTP | hyper's HTTP/1 client, a future the guest polls as it waits |
+| a name lookup | the resolver's query, a future the guest polls, which dropping the lookup cancels |
 | a guest's timeout | a clock the guest polls beside the socket |
 | an HTTP request's timeout | the exchange's next deadline, read as the wait turns |
 
 A lookup, a response, and a request body are each a file on one anonymous inode, as an eventfd is. A Wasm Driver therefore waits on files alone, and the profile decides when a clock beside them is due. An exchange keeps no timer: its timeout ends a wait by its deadline, which the exchange answers when asked. The reactor's timers bound only the resolver's own retries. A timeout the request leaves unset lasts 600 seconds, as wasmtime-wasi-http's does, so a wait ends even in a run with no deadline. A wait the deadline ends traps the run, and the run's end aborts every socket it held.
 
+### Request Progress
+
+The reactor only wakes. A request moves on its guest's thread, as that guest polls or reads it.
+
+| Event | Reaches |
+|---|---|
+| one Sandbox's slow handshake | its own thread, never another Sandbox's wait |
+| a request no guest polls | nothing: it stays where it stood |
+| the reactor stopping, by a panic or a failed poll | every socket it watched, aborted, and every timer, woken |
+
+The next socket after a stopped reactor starts another.
+
 ## Lock Order
 
-The network takes no sleeping lock and holds none across a wait through the `Blocking`. This sets the netg, rtask, and sock lock groups' own order; [`locking/`](../locking/README.md) holds the edges between groups.
+The network takes no sleeping lock and holds none across a wait through the `Blocking`. This sets the netg, request, and sock lock groups' own order; [`locking/`](../locking/README.md) holds the edges between groups.
 
 | Holding | Takes |
 |---|---|
-| the guest's open file | a socket's state, an exchange's task, a reactor task |
+| the guest's open file | a socket's state, an exchange's task, a request's future |
 | the connection budget | a socket's state, the reactor's queues |
-| a reactor task | an exchange's or lookup's state, a socket's state, the reactor's queues |
+| a request's future | an exchange's or lookup's state, a socket's state, the reactor's queues |
 | a socket's state | the reactor's queues, the Mock, a bound port |
 
-The guest waits on one lock while holding another only to cancel a reactor task, for the length of one poll. A reactor task holds another only where an exchange drops its lookup, so an exchange's task always comes before its lookup's. A wake made under a lock reaches only the reactor's run queue or a waiter, which take nothing further.
+Only the guest waiting on a request polls or cancels its future, so no other thread waits on it. A future holds another only where an exchange polls its lookup, so an exchange's future always comes before its lookup's. A wake made under a lock reaches only a waiter or a request's wait queue, which take nothing further.
 
 ## Without a Grant
 

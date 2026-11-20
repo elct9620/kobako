@@ -14,7 +14,7 @@ static PLATFORM: OnceLock<Option<(Arc<CryptoProvider>, Arc<Verifier>)>> = OnceLo
 /// process, `None` where the platform offers no store. Its first build reads
 /// the environment, `SSL_CERT_FILE` on Linux among it, so it is built as the
 /// first network entry is made, on the Host App's thread building its
-/// Sandbox, rather than on the reactor beside another reading it; a later
+/// Sandbox, rather than within a handshake beside another reading it; a later
 /// change to that environment is not seen.
 pub(crate) fn load_platform_verifier() -> Option<&'static (Arc<CryptoProvider>, Arc<Verifier>)> {
     PLATFORM

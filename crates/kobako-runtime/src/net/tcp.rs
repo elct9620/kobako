@@ -269,8 +269,8 @@ impl TcpSock {
     }
 
     /// Start connecting the host socket to `addr`, or fail the connect. The
-    /// dial registers on the reactor running as it dials, so a reactor whose
-    /// poll failed meanwhile is replaced, not waited on.
+    /// dial registers on the reactor running as it dials, so a reactor that
+    /// stopped meanwhile is replaced, not waited on.
     fn dial_host(&self, state: &mut State, addr: SocketAddr) {
         let dialed = Reactor::current().and_then(|reactor| {
             let stream = self.family.connect(addr)?;
@@ -526,6 +526,10 @@ impl Ready for TcpSock {
     fn on_event(&self) {
         let state = self.state();
         self.pump_and_wake(state);
+    }
+
+    fn abort(&self) {
+        TcpSock::abort(self);
     }
 }
 

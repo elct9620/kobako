@@ -93,8 +93,8 @@ struct Query {
     replies: NonNull<Replies>,
 }
 
-// The handle is used only by the task that owns the query, one thread at a
-// time, as the reactor runs a task.
+// The handle is used only by the lookup that owns the query, one thread at a
+// time, as the lookup's future is polled under one lock.
 unsafe impl Send for Query {}
 
 impl Query {
@@ -254,6 +254,10 @@ impl Future for Queries {
         // read again at once.
         loop {
             let changed = self.waker.poll_changed(cx);
+            // A stopped reactor brings no reply again.
+            if let Poll::Ready(Err(_)) = changed {
+                return Poll::Ready(Err(LookupError::Again));
+            }
             self.queries.iter_mut().for_each(Query::take_replies);
             if self.queries.iter().all(|query| query.replies().answered) {
                 break;

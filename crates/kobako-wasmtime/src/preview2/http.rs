@@ -221,7 +221,7 @@ impl Invocation {
     }
 
     /// Hand `request` to the namespace, which judges it here on the guest
-    /// thread before the reactor sends it.
+    /// thread before it is sent.
     fn send(&mut self, request: Request) -> FutureState {
         let method = name_of(&request.method).to_string();
         let scheme = match request.scheme.as_ref() {
