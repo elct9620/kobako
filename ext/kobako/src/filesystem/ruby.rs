@@ -486,6 +486,10 @@ impl FileOperations for RubyDir {
         generic_read_dir()
     }
 
+    fn has_iterate_shared(&self) -> bool {
+        true
+    }
+
     /// What a listing began with stays on the open directory until it ends, so
     /// a caller reading in small steps asks the object once, as FUSE's readdir
     /// cache spares asking the server each time.
