@@ -107,6 +107,8 @@ A group edge is an edge that leaves a group. Each states what the group holds as
 | ruby to netg, rtask | the GVL, under `:hold` | the reactor never takes the GVL |
 | netg to rtask | the guest's open socket | a reactor future never re-locks its own `task_future` |
 | rtask to sock | the task's `task_future` | a socket takes only leaf locks |
+| ruby to sock | the GVL, under `:hold` | a socket takes only leaf locks |
+| netg to sock | the guest's open socket | a socket takes only leaf locks |
 
 ### Release Before Wait
 
@@ -223,6 +225,7 @@ An owner must wake its waiters on every exit that runs code, a panic unwinding p
 | a panic unwinding | yes | the owner must wake its waiters from a guard's drop |
 | a longjmp over Rust frames | no | the guide keeps a raising trap off the main Thread |
 | a fork | no thread but the caller | the guide keeps a fork outside any run |
+| a Fiber left suspended in a callback | no | none yet, so its locks stay held and other runs wait until their deadlines |
 
 No rule keeps a fork away from a background thread, the engine's own included. So a lock one takes after every run has ended is never one a forked child waits on.
 

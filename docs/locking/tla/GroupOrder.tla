@@ -5,9 +5,12 @@
 \* and only the edges between groups together.
 \*
 \* An edge the code never waits on is left out: a trylock (RENAME_LOCK ->
-\* rename_mutex, i_rwsem in __d_unalias), and a wait that lets the GVL go first
-\* (GVL -> i_rwsem, in_lookup). A lock taken while another of its kind is held
-\* is its group's own obligation, kept by the order its Context document sets.
+\* rename_mutex, i_rwsem in __d_unalias), a wait that lets the GVL go first
+\* (GVL -> i_rwsem, in_lookup), and a stream's own inode lock, which only its
+\* run's thread reaches through the guest's descriptors (SharedFile ->
+\* i_rwsem, as iterate_dir locks before it finds no directory). A lock taken
+\* while another of its kind is held is its group's own obligation, kept by the
+\* order its Context document sets.
 \*
 \* The layer_* locks belong to a Filesystem an Overlay stacks on, whose locks
 \* come after the Overlay's, as Linux's directory-locking ranks filesystems.
@@ -15,7 +18,7 @@ EXTENDS FiniteSets, TLC
 
 Groups == [
   vfs      |-> {"rename_mutex", "i_rwsem", "ovl_lock", "in_lookup",
-                "layer_rename_mutex", "layer_i_rwsem"},
+                "layer_rename_mutex", "layer_i_rwsem", "layer_in_lookup"},
   \* Ruby's own interrupt_lock, under which it calls a run's unblocking function.
   ruby     |-> {"GVL", "interrupt_lock"},
   dcache   |-> {"inode_dentry", "inode_hashtable", "dentry_hashtable",
@@ -58,17 +61,20 @@ Edges ==
                      "dentry_state", "lru", "tmpfs_state", "tmpfs_content",
                      "pipe_state", "OpenRubyFile", "fid_cache", "open_fids",
                      "open_dir_fid", "ovl_level", "ovl_real", "ovl_unfinished"})
-  \cup E("in_lookup", {"GVL", "inode_dentry", "inode_hashtable"})
+  \cup E("in_lookup", {"GVL", "inode_dentry", "inode_hashtable", "ovl_lock",
+                       "layer_rename_mutex", "layer_i_rwsem", "ovl_level",
+                       "fid_cache", "open_fids", "open_dir_fid"})
+  \cup E("layer_in_lookup", {"GVL", "inode_dentry", "inode_hashtable"})
   \* A Layer may be a Ruby Filesystem, which copy up reads under ovl_lock.
   \cup E("ovl_lock", {"layer_rename_mutex", "layer_i_rwsem", "ovl_level", "ovl_real",
                       "ovl_unfinished", "tmpfs_content", "memcg", "GVL"})
   \cup E("layer_rename_mutex", {"layer_i_rwsem"})
-  \cup E("layer_i_rwsem", {"layer_i_rwsem", "inode_dentry", "dentry_hashtable",
+  \cup E("layer_i_rwsem", {"layer_i_rwsem", "layer_in_lookup", "inode_dentry", "dentry_hashtable",
                            "tmpfs_state", "tmpfs_content", "GVL"})
   \* dcache: d_splice_alias records an inode under i_lock, then hashes it
   \cup E("inode_dentry", {"dentry_state", "dentry_hashtable"})
   \* fsi: a Tmpfs directory before an entry it holds, which is a tree
-  \cup E("tmpfs_state", {"tmpfs_state", "tmpfs_content", "whiteout_times", "memcg"})
+  \cup E("tmpfs_state", {"tmpfs_state", "tmpfs_content", "whiteout_times", "dentry_state"})
   \* init: a socket's or pipe's Filesystem built on first use
   \cup E("mnt_once", {"inode_dentry", "dentry_state"})
   \* ruby: what a thread holding the GVL takes without letting it go, as
@@ -76,31 +82,33 @@ Edges ==
   \cup E("GVL", {"rwsem_holders", "inode_dentry", "dentry_hashtable",
                  "in_lookup_hashtable", "RENAME_LOCK", "dentry_state", "lru",
                  "tmpfs_state", "tmpfs_content", "OpenRubyFile", "module_cache",
-                 "instance_pre_cache", "ticker", "task_sleeping", "platform_once"})
+                 "instance_pre_cache", "ticker", "task_sleeping", "platform_once",
+                 "mnt_once", "whiteout_times", "pipe_state", "fid_cache", "open_fids",
+                 "open_dir_fid", "ovl_level", "ovl_real", "ovl_unfinished"})
   \cup E("interrupt_lock", {"task_sleeping"})
   \* ruby: a guest under :hold makes every network call with the GVL held
   \cup E("GVL", {"SharedFile", "connection_budget", "translations", "fields_list",
                  "request_body", "exchange_task", "task_future", "exchange_state",
-                 "exchange_place", "exchange_memory"})
+                 "exchange_place", "exchange_memory", "mock_state"})
   \* dcache: d_move, __d_unalias, d_lookup_done, retain_dentry
   \cup E("dentry_hashtable", {"RENAME_LOCK", "in_lookup_hashtable", "dentry_state"})
   \cup E("RENAME_LOCK", {"dentry_state", "rwsem_holders"})
   \cup E("in_lookup_hashtable", {"dentry_state"})
   \cup E("dentry_state", {"lru"})
-  \cup E("tmpfs_content", {"memcg"})
   \* sched and wait: an interrupt or a wake_up reaching a sleeping waiter
   \cup E("task_sleeping", {"waiter_woken"})
   \cup E("wq_waiters", {"waiter_woken"})
   \* netg: the guest thread's side
   \cup E("SharedFile", {"tcp_state", "udp_state", "exchange_state", "lookup_answer",
-                        "wq_waiters", "exchange_task", "task_future", "run_queue",
-                        "exchange_place", "exchange_memory", "request_body"})
+                        "wq_waiters", "wq_tasks", "exchange_task", "task_future", "run_queue",
+                        "request_body", "pipe_state"})
   \cup E("exchange_place", {"open_conn"})
   \cup E("exchange_memory", {"memcg"})
   \cup E("fields_list", {"memcg"})
   \cup E("request_body", {"memcg"})
   \cup E("connection_budget", {"tcp_state", "udp_state", "CURRENT", "sockets", "run_queue",
-                               "exchange_task", "mock_state", "open_conn", "memcg", "repoll"})
+                               "exchange_task", "mock_state", "open_conn", "memcg", "repoll",
+                               "task_future", "query_ctx"})
   \cup E("translations", {"memcg"})
   \* rtask: what a reactor future takes while the reactor polls it
   \cup E("task_future", {"task_future", "tcp_state", "exchange_state", "lookup_answer",
@@ -109,12 +117,12 @@ Edges ==
                          "query_ctx"})
   \* sock: a socket registering on the reactor
   \cup E("tcp_state", {"CURRENT", "sockets", "mock_state", "bindhash", "open_conn", "memcg"})
-  \cup E("udp_state", {"mock_state", "repoll", "sockets", "bindhash"})
+  \cup E("udp_state", {"mock_state", "repoll", "sockets", "bindhash", "open_conn", "memcg"})
   \cup E("mock_state", {"run_queue"})
   \cup E("ready_waker", {"run_queue"})
   \cup E("query_ctx", {"run_queue"})
   \* sdk: sealing a Sandbox compiles its catalog
-  \cup E("registry", {"module_cache", "instance_pre_cache"})
+  \cup E("registry", {"ticker", "memcg"})
 
 \* Every node an edge of R leads to from X, X itself included.
 RECURSIVE Reach(_, _)

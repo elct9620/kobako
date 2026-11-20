@@ -78,6 +78,10 @@ A Ruby Filesystem's callback, or a mount's block, runs while the run holds
 that Filesystem's directory lock. Waiting there on another Thread that may
 reach the same Filesystem deadlocks both.
 
+The lock is shared only where the Filesystem is. One mounted directly is built
+afresh for each run, so no other Thread reaches its lock. One stacked as an
+Overlay's Layer is built once with the Overlay and shared by every run.
+
 | In a callback | Effect |
 |---|---|
 | a Mutex another Thread holds while it runs a Sandbox on the Filesystem | both Threads wait |
