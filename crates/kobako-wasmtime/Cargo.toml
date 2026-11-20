@@ -85,6 +85,13 @@ wit-bindgen-core = "0.63.0"
 # hands back to cargo.
 anyhow = "1.0.102"
 
+[features]
+# Off by default, as in wasmtime, so a host whose crash reporter takes
+# faults over a Mach port, as breakpad does, still sees the guest's apart
+# from its own. On, a guest's faults on macOS arrive as POSIX signals, which
+# a forked child keeps; one setting holds for the whole process.
+posix-signals-on-macos = []
+
 # rustix reaches the cache directory through one descriptor, checked by
 # owner, so the unsafe artifact deserialize reads only what that
 # directory holds (see cache.rs); std has no `*at` calls.

@@ -223,7 +223,7 @@ An owner must wake its waiters on every exit that runs code, a panic unwinding p
 | a longjmp over Rust frames | no | the guide keeps a raising trap off the main Thread |
 | a fork | no thread but the caller | the guide keeps a fork outside any run |
 
-No rule keeps a fork away from a background thread. So a lock one takes after every run has ended is never one a forked child waits on.
+No rule keeps a fork away from a background thread, the engine's own included. So a lock one takes after every run has ended is never one a forked child waits on.
 
 ## Models
 

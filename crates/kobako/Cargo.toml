@@ -70,3 +70,6 @@ msgpack = ["dep:kobako-codec"]
 # SDK keeps `Sandbox::with_runtime` and resolves to no engine, which is the
 # same standard the codec is held to.
 wasmtime = ["dep:kobako-wasmtime"]
+# A host that forks on macOS and runs Sandboxes in the child turns this on.
+# It reaches only the bundled engine, so it pulls no engine in by itself.
+posix-signals-on-macos = ["kobako-wasmtime?/posix-signals-on-macos"]

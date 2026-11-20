@@ -54,6 +54,8 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_service_throw.rb`
 - `test/e2e/sandbox/test_wakeup_during_wait.rb`
 - `test/e2e/sandbox/test_forked_deadline.rb`
+- `test/e2e/sandbox/test_forked_thread.rb`
+- `test/e2e/sandbox/test_host_fault.rb`
 - `test/e2e/sandbox/test_interrupt_outside_run.rb`
 - `test/e2e/sandbox/test_gvl_main_thread_warning.rb`
 - `test/e2e/test_execution.rb`
@@ -2014,3 +2016,27 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a guest waiting on a name lookup, or on a directory a mount's block holds |
 | When | its Thread takes `Thread#wakeup`, or a trap handler that only sets a flag |
 | Then | the wait goes on until it answers. A wakeup that raises still ends the run |
+
+## `S-223` A forked child runs a Sandbox on a Thread of its own
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-216` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process that ran a Sandbox, then forked outside any run |
+| When | the child runs that Sandbox on a Thread it starts |
+| Then | the run answers as in the parent. A forked child keeps the process's signal handlers, so the guest's faults stay its own |
+
+## `S-224` A fault outside the guest still reaches Ruby's crash report
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-223` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process that ran a Sandbox |
+| When | the Host App takes a `SIGSEGV` outside any guest |
+| Then | Ruby reports it as its own bug and the process ends. Only a fault in guest code is a Trap |

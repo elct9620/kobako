@@ -57,11 +57,20 @@ pub(crate) fn load_engine() -> Result<&'static WtEngine, SetupError> {
     let mut config = WtConfig::new();
     config.wasm_exceptions(true);
     config.epoch_interruption(true);
+    catch_traps(&mut config);
     let engine =
         WtEngine::new(&config).map_err(|e| SetupError::Dead(format!("engine init: {e}")))?;
     let engine = SHARED_ENGINE.get_or_init(|| engine);
     spawn_epoch_ticker(engine);
     Ok(engine)
+}
+
+/// macOS hands a guest's faults to wasmtime over a Mach port by default,
+/// which no forked child can use; POSIX signals carry across a fork. The
+/// choice belongs to the whole process, so every Engine in it must make the
+/// same one, or wasmtime panics creating the one that differs.
+fn catch_traps(config: &mut WtConfig) {
+    config.macos_use_mach_ports(!cfg!(feature = "posix-signals-on-macos"));
 }
 
 /// The ticker is the process's own: a forked child, which inherits the Engine
@@ -317,6 +326,7 @@ mod tests {
         config
             .module_version(ModuleVersionStrategy::Custom(version.into()))
             .expect("a short version string is accepted");
+        catch_traps(&mut config);
         WtEngine::new(&config).expect("engine")
     }
 

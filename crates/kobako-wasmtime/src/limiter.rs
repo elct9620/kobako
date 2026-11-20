@@ -63,7 +63,7 @@ impl ResourceLimiter for MemoryLimiter {
 #[cfg(test)]
 mod tests {
     use kobako_runtime::memcg::MemoryCharge;
-    use wasmtime::{Engine, Memory, MemoryType, Store};
+    use wasmtime::{Memory, MemoryType, Store};
 
     use super::*;
 
@@ -77,7 +77,8 @@ mod tests {
     fn a_growth_the_engine_fails_to_make_costs_the_budget_nothing() {
         let budget = MemoryBudget::new(Some(3 * PAGE));
         budget.arm(PAGE);
-        let mut store = Store::new(&Engine::default(), MemoryLimiter::new(budget.clone()));
+        let engine = crate::cache::load_engine().expect("the shared Engine must be built");
+        let mut store = Store::new(engine, MemoryLimiter::new(budget.clone()));
         store.limiter(|limiter| limiter);
         let memory = Memory::new(&mut store, MemoryType::new(1, Some(2)))
             .expect("a memory of one page within its maximum must be made");

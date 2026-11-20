@@ -116,3 +116,18 @@ let handles: Vec<_> = (0..4)
 
 A bound `Receiver` is `Send + Sync`, so the type system asks for the thread
 safety that Ruby leaves to you.
+
+### Forked Children
+
+On macOS the bundled engine takes a guest's faults over a Mach port by
+default, and a forked child cannot run a Sandbox. A host that forks and runs
+Sandboxes in the child turns on the `posix-signals-on-macos` feature. The Ruby
+gem always has it on.
+
+| Feature | Forked child | A Mach port crash reporter |
+|---|---|---|
+| off, the default | cannot run a Sandbox | sees the guest's faults apart |
+| on | runs Sandboxes as usual | takes the guest's faults as crashes |
+
+The choice holds for the whole process. A wasmtime Engine the host builds
+itself must make the same one, or building it panics.
