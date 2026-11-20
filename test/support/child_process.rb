@@ -25,19 +25,23 @@ module ChildProcess
     reader&.close
   end
 
-  # +script+ started as a child, its output going where +streams+ say.
+  # +script+ started as a child, its output going where +streams+ say. Off
+  # Windows the child leads a process group of its own, so what it forks dies
+  # with it.
   def spawn_ruby(script, *, env:, **streams)
+    streams[:pgroup] = true unless Gem.win_platform?
     Process.spawn(env, RbConfig.ruby, "-I", TestPaths.source("lib"), "-e", script, *, **streams)
   end
 
   # Whether +pid+ exited within +deadline+ seconds; one that did not is
-  # killed.
+  # killed, with every process it forked, or a child stuck in a guest outlives
+  # the test.
   def finished_within?(pid, deadline)
     ends = Process.clock_gettime(Process::CLOCK_MONOTONIC) + deadline
     until Process.wait(pid, Process::WNOHANG)
       next sleep(0.05) if Process.clock_gettime(Process::CLOCK_MONOTONIC) < ends
 
-      Process.kill(:KILL, pid)
+      Process.kill(:KILL, Gem.win_platform? ? pid : -pid)
       Process.wait(pid)
       return false
     end
