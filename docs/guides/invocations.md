@@ -122,6 +122,11 @@ credential is your code running inside the run. What it raises splits by class.
 | a `StandardError` | the guest sees a failure it may rescue |
 | `Interrupt`, `exit`, `throw`, `Timeout` | the run ends; the invocation raises it as is |
 
+Ruby cannot tell an exception your code raised from one another Thread sent
+while it ran. So a `Thread#raise` landing in a Service follows the same split:
+a `StandardError` reaches the guest. To stop a run from another Thread, raise
+one outside `StandardError`, as `Timeout.timeout(n, MyError)` does.
+
 ## Rust SDK
 
 `eval` and `run` return `Result<Execution, Error>`. The outer `Err` means the

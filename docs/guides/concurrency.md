@@ -68,6 +68,10 @@ Ruby runs trap handlers and a Ractor's `require` on the main Thread alone. So a
 run on another Thread is outside the last two cases, and the first run releasing
 the GVL on the main Thread warns once.
 
+In either mode, a run waiting on the host goes on through a `Thread#wakeup` or a
+trap that raises nothing. A wakeup that raises ends the run's waits, and the run
+raises it once it ends.
+
 ## Waits in Callbacks
 
 A Ruby Filesystem's callback, or a mount's block, runs while the run holds
