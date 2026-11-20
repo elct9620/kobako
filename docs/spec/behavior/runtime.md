@@ -2643,7 +2643,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the guest opens the file to write and asks to allocate room in it |
 | Then | the allocation answers ENOTSUP, and the file holds what it held |
 
-## `RT-240` A `..` a move landed before answers EAGAIN
+## `RT-240` A `..` a move on its Filesystem landed before answers EAGAIN
 
 | Attribute | Value |
 | --- | --- |
@@ -2652,7 +2652,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a walk standing in a directory beneath a Mount |
-| When | a move lands during the walk, and the path goes on with `..` |
+| When | a move on its Filesystem lands during the walk, through any Mount of it, and the path goes on with `..` |
 | Then | the call answers EAGAIN, and made again reaches where the directory stands now |
 
 ## `RT-241` A walk a move carried out from under its start answers ENOTCAPABLE
@@ -4535,6 +4535,18 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file whose Filesystem hands listings nothing, another thread changing it |
 | When | a listing of the file is asked |
 | Then | it answers not a directory at once, as Linux's `iterate_dir` refuses before it locks |
+
+## `RT-409` A `..` a move on another Filesystem landed before goes on
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-240` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a walk standing in a directory beneath a Mount |
+| When | a move on another Filesystem lands during the walk, and the path goes on with `..` |
+| Then | the `..` goes on, since a move never crosses Filesystems and so leaves the directories above unmoved |
 
 ## `RT-410` A `..` out of the walk's own Filesystem mounted again climbs back
 

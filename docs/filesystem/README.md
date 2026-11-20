@@ -202,10 +202,22 @@ A Layer never takes an Overlay's lock. A run started inside a Ruby Filesystem's 
 The dentry cache's locks are leaves beneath the chain, taken for a short step.
 
 ```
-inode dentry -> dentry hashtable -> RENAME_LOCK -> dentry state -> dentry LRU
+inode dentry -> dentry hashtable -> rename lock -> dentry state -> dentry LRU
 ```
 
-`RENAME_LOCK` is never taken again inside its own write, since its writer's lock is no re-entrant one. Two dentries' states are held at once only inside that write, as `d_exchange` holds them, so their order never matters. `__d_unalias` alone takes a sleeping lock beneath it, and only by trylock, answering ESTALE where another call holds it.
+No rename lock is taken inside a rename lock's write: its own writer's lock is no re-entrant one, and two instances' would need an order. Two dentries' states are held at once only inside that write, as `d_exchange` holds them, so their order never matters. `__d_unalias` alone takes a sleeping lock beneath it, and only by trylock, answering ESTALE where another call holds it.
+
+#### Rename Lock Scope
+
+Each Filesystem instance has its own rename lock, where Linux has one `rename_lock` for the kernel. A move never crosses instances, so only a move on the instance a walk stands on can carry a directory its `..` reads.
+
+| Scope | A `..` answers EAGAIN for |
+|---|---|
+| the process, as Linux | every Sandbox's move |
+| a Sandbox, as gVisor | its own moves, but none on an instance it shares |
+| a Filesystem instance | the moves of each Sandbox sharing it |
+
+The instance is what a Host App shares, so the lock follows it. A Sandbox neither stalls on another's moves nor learns of them. Linux's EAGAIN depends on moves elsewhere on the host, so each kobako answer is one a quieter Linux host gives.
 
 ### Filesystem State
 

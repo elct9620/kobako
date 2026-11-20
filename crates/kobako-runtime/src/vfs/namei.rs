@@ -13,7 +13,7 @@ use std::collections::VecDeque;
 use std::sync::Arc;
 
 use super::attr::notify_change;
-use super::dentry::{Dentry, RENAME_LOCK};
+use super::dentry::Dentry;
 use super::file::{do_dentry_open, FMode, File, FileOperations};
 use super::inode::{Finish, Inode, Mask, RenameFlag};
 use super::mount::VfsMount;
@@ -38,6 +38,13 @@ enum LastType {
     DotDot,
 }
 
+/// Where a walk stood when it stepped onto a mount.
+struct Crossed {
+    mnt: Arc<VfsMount>,
+    dir: Arc<Dentry>,
+    r_seq: usize,
+}
+
 /// A path walked beneath a directory, as Linux's `nameidata` carries
 /// one walk from where it starts to the call it ends in: the directories
 /// it stands in, the names still to walk, the last name left for the call to
@@ -48,15 +55,19 @@ pub(crate) struct Nameidata {
     /// The directory the walk started from, which no `..` climbs above, as
     /// `nd->root` holds it for `RESOLVE_BENEATH`.
     root: Arc<Dentry>,
-    /// Where `RENAME_LOCK` stood when the walk began, as `nd->r_seq`.
+    /// Where the rename lock of the Filesystem the walk stands on stood when
+    /// the walk stepped onto it, as `nd->r_seq`. It is that instance's alone,
+    /// since only a move on it carries the directories a `..` reads there.
     r_seq: usize,
     /// The directory the walk stands in, which holds the last name.
     dir: Arc<Dentry>,
     /// Where the walk stood each time it stepped onto a mount, innermost last,
-    /// so a `..` from that mount's root climbs back, as `choose_mountpoint`
-    /// follows `mnt_parent`. The walk keeps them itself: a mount may stand where
-    /// its parent holds no entry for it.
-    crossed: Vec<(Arc<VfsMount>, Arc<Dentry>)>,
+    /// with the `r_seq` it held there, so a `..` from that mount's root climbs
+    /// back, as `choose_mountpoint` follows `mnt_parent`. The walk keeps them
+    /// itself: a mount may stand where its parent holds no entry for it. Each
+    /// keeps its own `r_seq` even where one instance is mounted twice along the
+    /// walk, so a move landing between the two is still learned of below.
+    crossed: Vec<Crossed>,
     pending: VecDeque<String>,
     /// The links followed through every walk of one call, as Linux's
     /// `total_link_count` carries into a walk made again for ESTALE.
@@ -95,7 +106,7 @@ impl Nameidata {
     /// carried a directory out from under it.
     fn complete_walk(&self) -> Result<(), Errno> {
         let ended = match self.crossed.first() {
-            Some((_, below_start)) => below_start,
+            Some(below_start) => &below_start.dir,
             None => self.path.as_ref().unwrap_or(&self.dir),
         };
         match ended.is_subdir(&self.root) {
@@ -162,7 +173,7 @@ pub(crate) fn d_revalidate(
     if dentry.d_mountpoint() {
         return Ok(true);
     }
-    let asked = RENAME_LOCK.read_seqbegin();
+    let asked = dentry.rename_lock().read_seqbegin();
     let valid = match dentry.ops() {
         Some(ops) => ops.revalidate(dir.inode_ops()?.as_ref(), dentry)?,
         None => true,
@@ -352,9 +363,12 @@ impl Nameidata {
     /// point down to what is mounted there, however many stand on it.
     fn traverse_mounts(&mut self, mnt: Arc<VfsMount>) {
         let mnt = self.cred.mnt_ns().topmost_overmount(&mnt);
-        let dir = std::mem::replace(&mut self.dir, mnt.root().clone());
-        self.crossed
-            .push((std::mem::replace(&mut self.mnt, mnt), dir));
+        let r_seq = mnt.root().rename_lock().read_seqbegin();
+        self.crossed.push(Crossed {
+            dir: std::mem::replace(&mut self.dir, mnt.root().clone()),
+            mnt: std::mem::replace(&mut self.mnt, mnt),
+            r_seq: std::mem::replace(&mut self.r_seq, r_seq),
+        });
     }
 
     /// Step into the directory `name` names, or onto the mount standing there,
@@ -413,16 +427,17 @@ impl Nameidata {
             return Err(Errno::Escape);
         }
         if self.dir.is_root() {
-            let (mnt, dir) = self.crossed.pop().ok_or(Errno::Escape)?;
-            self.mnt = mnt;
-            self.dir = dir;
+            let crossed = self.crossed.pop().ok_or(Errno::Escape)?;
+            self.mnt = crossed.mnt;
+            self.dir = crossed.dir;
+            self.r_seq = crossed.r_seq;
         } else {
             self.dir = self.dir.parent();
         }
-        // A move along the way may have carried `..` above where the walk started,
-        // so the caller makes the call again, as `handle_dots` answers a scoped walk
-        // however the `..` was taken.
-        if RENAME_LOCK.read_seqretry(self.r_seq) {
+        // A move on the Filesystem it now stands on may have carried `..` above
+        // where the walk started, so the caller makes the call again, as
+        // `handle_dots` answers a scoped walk however the `..` was taken.
+        if self.dir.rename_lock().read_seqretry(self.r_seq) {
             return Err(Errno::WouldBlock);
         }
         Ok(())
@@ -726,7 +741,7 @@ fn set_nameidata(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Result<Nam
         mnt: start.mnt().clone(),
         cred: cred.clone(),
         root: start.dentry().clone(),
-        r_seq: RENAME_LOCK.read_seqbegin(),
+        r_seq: start.dentry().rename_lock().read_seqbegin(),
         dir: start.dentry().clone(),
         crossed: Vec::new(),
         pending: parts(path),
@@ -3417,13 +3432,7 @@ mod tests {
         let root = moves_as_walked(&[("a/b/keep", "k"), ("z/c", "moved")], "a/b", "z/b");
         let cred = Arc::default();
         let during = vfs::vfs_fstatat(&cred, &root, "a/b/l/../c", false);
-        // Any move in the process answers a `..` so, as `rename_lock` is one for all,
-        // and tests beside this one make them.
-        let mut after = Err(Errno::WouldBlock);
-        crate::sched::testing::wait_until("the call made again answering", || {
-            after = vfs::vfs_fstatat(&cred, &root, "z/b/../c", false);
-            after != Err(Errno::WouldBlock)
-        });
+        let after = vfs::vfs_fstatat(&cred, &root, "z/b/../c", false);
         assert_eq!(
             (during.map(|_| ()), after.map(|stat| stat.size)),
             (Err(Errno::WouldBlock), Ok(5)),
@@ -3476,13 +3485,7 @@ mod tests {
         )
         .expect("every Mount stands");
         let during = vfs::vfs_fstatat(&cred, &outer_root, "inner/l/../y/c", false);
-        // Any move in the process answers a `..` so, and tests beside this one
-        // make them.
-        let mut after = Err(Errno::WouldBlock);
-        crate::sched::testing::wait_until("the call made again answering", || {
-            after = vfs::vfs_fstatat(&cred, &outer_root, "inner/../y/c", false);
-            after != Err(Errno::WouldBlock)
-        });
+        let after = vfs::vfs_fstatat(&cred, &outer_root, "inner/../y/c", false);
         assert_eq!(
             (during.map(|_| ()), after.map(|stat| stat.size)),
             (Err(Errno::WouldBlock), Ok(5)),
@@ -3491,8 +3494,117 @@ mod tests {
         );
     }
 
+    /// A Filesystem of `files` whose link `l` moves `from` to `to` through
+    /// `moved`, which is set once that mount stands.
+    fn links_to_move(
+        files: &[(&'static str, &'static str)],
+        moved: &Arc<OnceLock<Path>>,
+        from: &'static str,
+        to: &'static str,
+    ) -> Arc<Filesystem> {
+        let link = MovesWhenFollowed {
+            cred: Arc::default(),
+            root: moved.clone(),
+            from,
+            to,
+        };
+        let tmpfs: Tmpfs = files.iter().copied().collect();
+        let wrapped = Wrap::new(Arc::new(tmpfs), Arc::new(LinkAtL(Arc::new(link))));
+        Filesystem::new(wrapped).expect("the instance must stand")
+    }
+
     fn mounted(path: &str, filesystem: &Arc<Filesystem>) -> Mount {
         Mount::new(path, filesystem.clone(), Access::ReadWrite).expect("a guest path")
+    }
+
+    // @behavior RT-409
+    #[test]
+    fn a_dotdot_a_move_on_another_filesystem_landed_before_goes_on() {
+        let elsewhere = mounted(
+            "/other",
+            &Filesystem::new(Tmpfs::from_iter([("x/k", "k")])).unwrap(),
+        );
+        let moved = Arc::new(OnceLock::new());
+        moved
+            .set(Path::root(elsewhere.mnt()))
+            .ok()
+            .expect("set only here");
+        let walked = mounted(
+            "/data",
+            &links_to_move(&[("a/keep", "k"), ("c", "stays")], &moved, "x", "y"),
+        );
+        let stat = vfs::vfs_fstatat(
+            &Arc::default(),
+            &Path::root(walked.mnt()),
+            "a/l/../c",
+            false,
+        );
+        assert_eq!(
+            stat.map(|stat| stat.size),
+            Ok(5),
+            "vfs_fstatat through `..` with a move landing on another Filesystem during the walk \
+             must reach the file, since that move cannot carry any directory the walk stands in"
+        );
+    }
+
+    // A Host App may mount one Filesystem into two Sandboxes; the move here goes
+    // through a Mount the walk never touches.
+    // @behavior RT-240
+    #[test]
+    fn a_dotdot_a_move_through_another_mount_of_its_filesystem_landed_before_asks_again() {
+        let moved = Arc::new(OnceLock::new());
+        let shared = links_to_move(
+            &[("a/keep", "k"), ("x/k", "k"), ("c", "stays")],
+            &moved,
+            "x",
+            "y",
+        );
+        let other_sandbox = mounted("/data", &shared);
+        moved
+            .set(Path::root(other_sandbox.mnt()))
+            .ok()
+            .expect("set only here");
+        let walked = mounted("/data", &shared);
+        let stat = vfs::vfs_fstatat(
+            &Arc::default(),
+            &Path::root(walked.mnt()),
+            "a/l/../c",
+            false,
+        );
+        assert_eq!(
+            stat.map(|_| ()),
+            Err(Errno::WouldBlock),
+            "vfs_fstatat through `..` with a move landing through another Mount of the same \
+             Filesystem during the walk must answer EAGAIN, as the move may carry its directories"
+        );
+    }
+
+    // `again` mounts the walk's own Filesystem a second time, after the link moved
+    // a directory of it, so only the `r_seq` kept for the first mount knows of the
+    // move once the walk climbs back there.
+    // @behavior RT-240
+    #[test]
+    fn a_dotdot_back_onto_a_filesystem_mounted_twice_learns_of_a_move_between() {
+        let outer = Filesystem::new(Tmpfs::from_iter([("inner/keep", "k"), ("x/k", "k")])).unwrap();
+        let moved = Arc::new(OnceLock::new());
+        let inner = links_to_move(&[("again/keep", "k")], &moved, "x", "y");
+        let mounts = [
+            mounted("/data", &outer),
+            mounted("/data/inner", &inner),
+            mounted("/data/inner/again", &outer),
+        ];
+        let outer_root = Path::root(mounts[0].mnt());
+        moved.set(outer_root.clone()).ok().expect("set only here");
+        let grants: Vec<_> = mounts.into_iter().map(crate::grant::Grant::Mount).collect();
+        let cred = crate::security::restrict_self(&Arc::default(), grants.iter())
+            .expect("every Mount stands");
+        let stat = vfs::vfs_fstatat(&cred, &outer_root, "inner/l/again/../../inner", false);
+        assert_eq!(
+            stat.map(|_| ()),
+            Err(Errno::WouldBlock),
+            "vfs_fstatat through `..` back onto a Filesystem mounted twice along the walk, with a \
+             move on it landing between the two mounts, must answer EAGAIN"
+        );
     }
 
     // @behavior RT-410
@@ -3505,13 +3617,7 @@ mod tests {
         let grants: Vec<_> = mounts.into_iter().map(crate::grant::Grant::Mount).collect();
         let cred = crate::security::restrict_self(&Arc::default(), grants.iter())
             .expect("every Mount stands");
-        // Any move in the process answers a `..` so, as `rename_lock` is one for all,
-        // and tests beside this one make them.
-        let mut stat = Err(Errno::WouldBlock);
-        crate::sched::testing::wait_until("the call answering", || {
-            stat = vfs::vfs_fstatat(&cred, &outer_root, "m/../note", false);
-            stat != Err(Errno::WouldBlock)
-        });
+        let stat = vfs::vfs_fstatat(&cred, &outer_root, "m/../note", false);
         assert_eq!(
             stat.map(|stat| stat.size),
             Ok(8),

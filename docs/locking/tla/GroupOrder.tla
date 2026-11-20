@@ -4,7 +4,7 @@
 \* the locks, and none through the groups, so each group can be checked alone
 \* and only the edges between groups together.
 \*
-\* An edge the code never waits on is left out: a trylock (RENAME_LOCK ->
+\* An edge the code never waits on is left out: a trylock (rename_lock ->
 \* rename_mutex, i_rwsem in __d_unalias), and a wait that lets the GVL go first
 \* (GVL -> i_rwsem, in_lookup). A lock taken while another of its kind is held
 \* is its group's own obligation, kept by the order its Context document sets.
@@ -19,7 +19,7 @@ Groups == [
   \* Ruby's own interrupt_lock, under which it calls a run's unblocking function.
   ruby     |-> {"GVL", "interrupt_lock"},
   dcache   |-> {"inode_dentry", "inode_hashtable", "dentry_hashtable",
-                "in_lookup_hashtable", "RENAME_LOCK", "dentry_state", "lru"},
+                "in_lookup_hashtable", "rename_lock", "dentry_state", "lru"},
   lockprim |-> {"rwsem_holders"},
   fsi      |-> {"tmpfs_state", "tmpfs_content", "whiteout_times", "pipe_state",
                 "OpenRubyFile", "fid_cache", "open_fids", "open_dir_fid",
@@ -51,9 +51,9 @@ E(from, tos) == {<<from, to>> : to \in tos}
 Edges ==
   \* vfs: lock_rename, lock_two_directories, lookup under the directory, copy up
      E("rename_mutex", {"i_rwsem", "GVL"})
-  \cup E("rename_mutex", {"RENAME_LOCK"})
+  \cup E("rename_mutex", {"rename_lock"})
   \cup E("i_rwsem", {"i_rwsem", "in_lookup", "ovl_lock", "GVL", "rwsem_holders",
-                     "RENAME_LOCK",
+                     "rename_lock",
                      "inode_dentry", "inode_hashtable", "dentry_hashtable",
                      "dentry_state", "lru", "tmpfs_state", "tmpfs_content",
                      "pipe_state", "OpenRubyFile", "fid_cache", "open_fids",
@@ -77,7 +77,7 @@ Edges ==
   \* ruby: what a thread holding the GVL takes without letting it go, as
   \* lookup_fast reads the dentry cache with no directory lock
   \cup E("GVL", {"rwsem_holders", "inode_dentry", "dentry_hashtable",
-                 "in_lookup_hashtable", "RENAME_LOCK", "dentry_state", "lru",
+                 "in_lookup_hashtable", "rename_lock", "dentry_state", "lru",
                  "tmpfs_state", "tmpfs_content", "OpenRubyFile", "module_cache",
                  "instance_pre_cache", "ticker", "task_sleeping", "platform_once",
                  "mnt_once", "whiteout_times", "pipe_state", "fid_cache", "open_fids",
@@ -88,8 +88,8 @@ Edges ==
                  "request_body", "exchange_task", "task_future", "exchange_state",
                  "exchange_place", "exchange_memory", "mock_state"})
   \* dcache: d_move, __d_unalias, d_lookup_done, retain_dentry
-  \cup E("dentry_hashtable", {"RENAME_LOCK", "in_lookup_hashtable", "dentry_state"})
-  \cup E("RENAME_LOCK", {"dentry_state", "rwsem_holders"})
+  \cup E("dentry_hashtable", {"rename_lock", "in_lookup_hashtable", "dentry_state"})
+  \cup E("rename_lock", {"dentry_state", "rwsem_holders"})
   \cup E("in_lookup_hashtable", {"dentry_state"})
   \cup E("dentry_state", {"lru"})
   \* sched and wait: an interrupt or a wake_up reaching a sleeping waiter

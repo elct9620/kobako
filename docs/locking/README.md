@@ -46,7 +46,7 @@ The GVL decides which runs contend for a lock, so every rule here holds in both 
 
 Under `:hold` the GVL runs the guests one at a time; under `:release` each run drops it while its guest runs.
 
-A contention that shows only under `:release`, such as a `..` meeting another Sandbox's rename, is a lock's scope showing, not the GVL's.
+A contention only `:release` shows, such as a `..` meeting a rename on a shared Filesystem, is a lock's scope showing, not the GVL's.
 
 ## Lock Groups
 
@@ -56,7 +56,7 @@ Each lock belongs to one lock group, and the groups form an order with no cycle.
 |---|---|---|
 | vfs | `i_rwsem`, `rename_mutex`, the copy-up lock, a dentry in lookup | sleeping |
 | ruby | the GVL | GVL |
-| dcache | an inode's dentry, the dentry tables, `RENAME_LOCK`, a dentry's state, the LRU | other |
+| dcache | an inode's dentry, the dentry tables, the rename lock, a dentry's state, the LRU | other |
 | fsi | a Filesystem's own state | other |
 | netg | the guest's open sockets, its connection budget | other |
 | request | an exchange's or a lookup's future | other |
@@ -157,7 +157,7 @@ A lock taken while another of the same kind is held is its group's obligation, s
 | Group | Obligation | Set in |
 |---|---|---|
 | vfs | ranks, ancestors first, addresses | [`filesystem/`](../filesystem/README.md#lock-order) |
-| dcache | `RENAME_LOCK` never taken again inside a write | [`filesystem/`](../filesystem/README.md#lock-order) |
+| dcache | no rename lock taken inside a rename lock's write | [`filesystem/`](../filesystem/README.md#lock-order) |
 | fsi | a Tmpfs directory before an entry it holds | [`filesystem/`](../filesystem/README.md#lock-order) |
 | request | an exchange's future before its lookup's | [`network/`](../network/README.md#lock-order) |
 | init | an initializer takes neither the GVL nor a sleeping lock | `GroupOrder.tla` |

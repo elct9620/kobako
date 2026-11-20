@@ -42,11 +42,6 @@ pub trait DentryOperations: Send + Sync {
 /// The most names a Filesystem keeps that nothing holds.
 const MAX_CACHED_DENTRIES: NonZeroUsize = NonZeroUsize::new(1024).expect("the bound is not zero");
 
-/// Every move of a dentry, as Linux's `rename_lock`, so a walk up its
-/// parents answers where the dentry stood at one instant, and a walk learns of a
-/// move landing meanwhile.
-pub(super) static RENAME_LOCK: SeqLock = SeqLock::new();
-
 /// One name of a Filesystem, and where it stands now. Only the VFS makes
 /// one, so a Filesystem reads the name a call is about from it.
 pub struct Dentry {
@@ -207,7 +202,7 @@ impl Dentry {
     /// Each name from the Filesystem's root down to this directory, as Linux's
     /// `__dentry_path` walks up until `IS_ROOT`.
     fn names(&self) -> Vec<String> {
-        RENAME_LOCK.read(|| {
+        self.rename_lock().read(|| {
             let mut names = Vec::new();
             let mut at = self.get();
             while !at.is_root() {
@@ -443,7 +438,7 @@ impl Dentry {
     fn unalias(self: &Arc<Self>, sb: &SuperBlock, alias: &Arc<Dentry>) -> Result<(), Errno> {
         let (parent, name) = self.parent_and_name();
         let mut table = self.hashtables.dentry_hashtable();
-        RENAME_LOCK.write(|| {
+        self.rename_lock().write(|| {
             if d_ancestor(alias, self) || alias.is_root() {
                 return Err(Errno::FilesystemLoop);
             }
@@ -590,12 +585,19 @@ impl Dentry {
     /// Whether this dentry is `ancestor` or stands beneath it, as Linux's
     /// `is_subdir` answers.
     pub(crate) fn is_subdir(self: &Arc<Self>, ancestor: &Arc<Dentry>) -> bool {
-        Arc::ptr_eq(self, ancestor) || RENAME_LOCK.read(|| d_ancestor(ancestor, self))
+        Arc::ptr_eq(self, ancestor) || self.rename_lock().read(|| d_ancestor(ancestor, self))
+    }
+
+    /// What every move of a dentry of this Filesystem writes, so a walk up
+    /// its parents answers where the dentry stood at one instant, and a walk
+    /// learns of a move landing meanwhile.
+    pub(super) fn rename_lock(&self) -> &SeqLock {
+        &self.hashtables.rename_lock
     }
 }
 
 /// Whether `ancestor` stands above `dentry`, as Linux's `d_ancestor` answers.
-/// The caller holds `RENAME_LOCK`, so no move lands during the walk up.
+/// The caller holds the rename lock, so no move lands during the walk up.
 fn d_ancestor(ancestor: &Arc<Dentry>, dentry: &Arc<Dentry>) -> bool {
     let mut at = dentry.clone();
     while !at.is_root() {
@@ -647,8 +649,13 @@ fn key(parent: &Arc<Dentry>, name: &str) -> Key {
 }
 
 /// The dentries of one Filesystem a walk finds by the directory above and the
-/// name there.
+/// name there, and the lock every move among them writes.
 struct Hashtables {
+    /// Written by every move of a dentry, as Linux's `rename_lock`. It is the
+    /// instance's rather than the process's, since a move never crosses
+    /// Filesystems: a walk learns only of the moves that could carry its
+    /// directories, and a Sandbox learns nothing of another's moves.
+    rename_lock: SeqLock,
     /// Those a lookup answered, as Linux's `dentry_hashtable`.
     dentry_hashtable: Mutex<Hashtable<Key, Dentry>>,
     /// Those a walk is still looking up, as Linux's `in_lookup_hashtable`, so
@@ -715,6 +722,7 @@ pub(crate) struct Dentries {
 impl Dentries {
     pub(crate) fn new(ops: Option<Arc<dyn DentryOperations>>) -> Self {
         let hashtables = Arc::new(Hashtables {
+            rename_lock: SeqLock::new(),
             dentry_hashtable: Mutex::default(),
             in_lookup_hashtable: Mutex::default(),
             inode_hashtable: Mutex::default(),
@@ -834,14 +842,14 @@ impl Dentries {
     }
 
     /// Let go of `dentry`, which no longer names what stood at its name when
-    /// `RENAME_LOCK` read `asked`, and of the names kept beneath it, as Linux's
+    /// its rename lock read `asked`, and of the names kept beneath it, as Linux's
     /// `d_invalidate` drops it and shrinks what is below a positive one. One a
     /// move carried elsewhere since stays where it went: every move takes this
     /// table before it writes, so none lands between the check and the drop.
     pub(crate) fn invalidate(&self, dentry: &Arc<Dentry>, asked: usize) {
         {
             let mut table = self.hashtables.dentry_hashtable();
-            if RENAME_LOCK.read_seqretry(asked) || !dentry.hashed() {
+            if self.hashtables.rename_lock.read_seqretry(asked) || !dentry.hashed() {
                 return;
             }
             drop_hashed(&mut table, dentry);
@@ -893,7 +901,7 @@ impl Dentries {
         let mut table = self.hashtables.dentry_hashtable();
         let (parent, name) = target.parent_and_name();
         let (from, from_name) = dentry.parent_and_name();
-        RENAME_LOCK.write(|| {
+        self.hashtables.rename_lock.write(|| {
             let mut state = dentry.state();
             if state.hashed {
                 table.remove(&key(&from, &from_name));
@@ -911,7 +919,7 @@ impl Dentries {
     pub(crate) fn exchange(&self, first: &Arc<Dentry>, second: &Arc<Dentry>) {
         let mut table = self.hashtables.dentry_hashtable();
         let (first_at, second_at) = (first.parent_and_name(), second.parent_and_name());
-        RENAME_LOCK.write(|| {
+        self.hashtables.rename_lock.write(|| {
             let (mut one, mut other) = (first.state(), second.state());
             for (state, (parent, name)) in [(&one, &first_at), (&other, &second_at)] {
                 if state.hashed {
@@ -1305,17 +1313,7 @@ mod tests {
             "leaf",
         ));
         let beside = kept(negative(&dentries, &root, "other"));
-        // The rename lock is the process's, so another test's rename can
-        // move it between the read and the invalidation, which then keeps
-        // the name as a raced revalidation does; ask again until one ran
-        // undisturbed.
-        loop {
-            let asked = super::RENAME_LOCK.read_seqbegin();
-            dentries.invalidate(&dir, asked);
-            if !super::RENAME_LOCK.read_seqretry(asked) {
-                break;
-            }
-        }
+        dentries.invalidate(&dir, dir.rename_lock().read_seqbegin());
         assert_eq!(
             (beneath.upgrade().is_some(), beside.upgrade().is_some()),
             (false, true),

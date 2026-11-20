@@ -17,8 +17,8 @@ use kobako_runtime::Errno;
 pub(crate) use kobako_runtime::vfs::File;
 
 /// How many times a call is made before a guest is answered EAGAIN, as cap-std
-/// makes `openat2` four times: any move in the process answers a `..` walking
-/// past it so, and nothing bounds how often one lands.
+/// makes `openat2` four times: any move on a Filesystem answers a `..` walking
+/// it so, and nothing bounds how often one lands.
 const MAX_ATTEMPTS: usize = 4;
 
 /// What `call` answers once no move landed during its walk, made again at most
