@@ -378,16 +378,12 @@ impl Dentry {
         &self,
         ask: impl FnOnce() -> Result<T, Errno>,
     ) -> Result<Option<T>, Errno> {
-        let ends = match self.begin_lookup()? {
+        let _ends = match self.begin_lookup()? {
             InLookup::Answered => return Ok(None),
-            InLookup::Begun => true,
-            InLookup::Within => false,
+            InLookup::Begun => Some(LookupDone(self)),
+            InLookup::Within => None,
         };
-        let asked = ask();
-        if ends {
-            self.lookup_done();
-        }
-        asked.map(Some)
+        ask().map(Some)
     }
 
     /// Record what a lookup found at this name of `sb`, as Linux's
@@ -609,6 +605,18 @@ fn d_ancestor(ancestor: &Arc<Dentry>, dentry: &Arc<Dentry>) -> bool {
         }
     }
     false
+}
+
+/// Ends the lookup its walk began on a dentry once it goes, as Linux's
+/// `d_lookup_done` follows every return from `->lookup`. A panic unwinding
+/// past it ends the lookup too, an exit the kernel has no counterpart for, so
+/// the walks waiting on the name go on.
+struct LookupDone<'a>(&'a Dentry);
+
+impl Drop for LookupDone<'_> {
+    fn drop(&mut self) {
+        self.0.lookup_done();
+    }
 }
 
 /// A dentry holds the one above it, and moves can stack them as deep as a
@@ -1139,6 +1147,32 @@ mod tests {
             (true, 2, false),
             "SeqLock::read_seqbegin during a write must wait for it to end and answer where the \
              writes stand after it, which no later read finds changed"
+        );
+    }
+
+    // @behavior RT-407
+    #[test]
+    fn a_walk_begun_after_a_move_panicked_begins_at_once() {
+        use crate::locking::seqlock::SeqLock;
+        use std::thread;
+
+        let lock = Arc::new(SeqLock::new());
+        let panicked = {
+            let lock = lock.clone();
+            thread::spawn(move || lock.write(|| panic!("the write panics")))
+                .join()
+                .is_err()
+        };
+        let reader = {
+            let lock = lock.clone();
+            thread::spawn(move || lock.read_seqbegin())
+        };
+        let begun = crate::sched::testing::join("the read", reader);
+        assert_eq!(
+            (panicked, begun),
+            (true, 2),
+            "SeqLock::read_seqbegin after a write that panicked must answer at once, the write \
+             counted as ended"
         );
     }
 

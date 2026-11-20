@@ -4499,3 +4499,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Blocking registered, and a call waiting on a directory another thread holds |
 | When | its thread is signalled, and the Blocking handles the signal without interrupting it |
 | Then | the call waits on until the other lets go, as Linux restarts a call a handled signal woke |
+
+## `RT-406` A walk waiting on a lookup that panics asks the Filesystem itself
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-264` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a walk waiting on another walk's lookup of a name |
+| When | that lookup panics |
+| Then | the waiting walk asks the Filesystem itself, as Linux's `d_lookup_done` ends every lookup |
+
+## `RT-407` A walk begun after a move panicked begins at once
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-265` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a move through the runtime that panicked while it was under way |
+| When | a walk begins |
+| Then | it begins at once, as Linux's `write_sequnlock` ends every write |

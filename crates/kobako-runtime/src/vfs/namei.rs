@@ -5364,6 +5364,77 @@ mod tests {
         );
     }
 
+    /// A directory whose first lookup holds until told to go on and then
+    /// panics, every later one finding nothing, counting each lookup.
+    struct PanicsOnce(HoldsLookup);
+
+    impl FileSystemType for PanicsOnce {
+        fn fill_super(self: Arc<Self>, sb: &mut Filesystem) -> Result<(), Errno> {
+            sb.d_make_root(vfs::Inode::new(&Kstat::new(FileType::Dir, 0), self));
+            Ok(())
+        }
+    }
+
+    impl InodeOperations for PanicsOnce {
+        fn getattr(&self, _dentry: &Dentry) -> Result<Kstat, Errno> {
+            Ok(Kstat::new(FileType::Dir, 0))
+        }
+
+        fn lookup(&self, dentry: &Dentry) -> Result<Lookup, Errno> {
+            if self.0.asked.load(Ordering::SeqCst) > 0 {
+                return Ok(Lookup::Absent);
+            }
+            self.0.lookup(dentry)?;
+            panic!("the first lookup panics");
+        }
+    }
+
+    // @behavior RT-406
+    #[test]
+    fn a_walk_waiting_on_a_lookup_that_panics_asks_the_filesystem_itself() {
+        let (reached, reaching) = mpsc::channel();
+        let (go_on, going) = mpsc::channel();
+        let filesystem = Arc::new(PanicsOnce(HoldsLookup {
+            asked: AtomicUsize::new(0),
+            reached: Mutex::new(reached),
+            go_on: Mutex::new(going),
+        }));
+        let root = root_of(Filesystem::new(filesystem.clone()).expect("the instance must stand"));
+        let stat = |root: &Path| vfs::vfs_fstatat(&Arc::default(), root, "x", false).err();
+        let first = {
+            let root = root.clone();
+            thread::spawn(move || stat(&root))
+        };
+        reaching
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("the first walk must ask");
+        let (counted, counting) = mpsc::channel();
+        let second = {
+            let root = root.clone();
+            thread::spawn(move || {
+                counted.send(count_waits()).ok();
+                crate::sched::testing::within_max_wait(|| stat(&root))
+            })
+        };
+        let waits = counting
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("the second walk must start");
+        crate::sched::testing::wait_until("the second walk waiting", || {
+            waits.load(Ordering::SeqCst) > 0
+        });
+        go_on.send(()).ok();
+        crate::sched::testing::wait_until("the first walk ending", || first.is_finished());
+        assert_eq!(
+            (
+                first.join().is_err(),
+                crate::sched::testing::join("the second walk", second),
+            ),
+            (true, Some(Errno::NotFound)),
+            "vfs::vfs_fstatat waiting on another walk's Filesystem lookup of the name must, once \
+             that lookup panics, ask the Filesystem itself and answer, rather than wait on"
+        );
+    }
+
     /// A directory finding nothing at any name, keeping which walk asked.
     #[derive(Default)]
     struct RecordsAsker(Mutex<Vec<thread::ThreadId>>);

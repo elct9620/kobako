@@ -25,9 +25,8 @@ impl SeqLock {
     pub(crate) fn write<T>(&self, write: impl FnOnce() -> T) -> T {
         let _held = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         self.sequence.fetch_add(1, Ordering::SeqCst);
-        let written = write();
-        self.sequence.fetch_add(1, Ordering::SeqCst);
-        written
+        let _ends = WriteEnd(&self.sequence);
+        write()
     }
 
     /// Where the writes stand once none is under way, to ask `read_seqretry`
@@ -62,5 +61,17 @@ impl SeqLock {
         }
         let _held = self.writer.lock().unwrap_or_else(PoisonError::into_inner);
         read()
+    }
+}
+
+/// Counts a write as ended once it goes, as Linux's `write_sequnlock` ends
+/// every write. A panic unwinding past it ends the write too, an exit the
+/// kernel has no counterpart for, so no reader spins on an odd count. Declared
+/// after the writer's lock is held, it goes before that lock is let go.
+struct WriteEnd<'a>(&'a AtomicUsize);
+
+impl Drop for WriteEnd<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
     }
 }
