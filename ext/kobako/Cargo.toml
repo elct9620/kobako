@@ -25,6 +25,8 @@ rb-sys = { version = "0.9", default-features = false }
 # reaches this crate.
 kobako-runtime = { path = "../../crates/kobako-runtime" }
 kobako-transport = { path = "../../crates/kobako-transport" }
-# A Ruby process keeps no Mach exception port of its own, and a preforking
-# server's children run Sandboxes, so the guest's faults ride signals.
+# A preforking server's children run the Sandbox their parent built on
+# Threads of their own, which a Mach port cannot serve after a fork, so the
+# guest's faults ride signals. A Ruby process keeps no Mach exception port
+# of its own to lose.
 kobako-wasmtime = { path = "../../crates/kobako-wasmtime", features = ["posix-signals-on-macos"] }
