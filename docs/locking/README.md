@@ -195,32 +195,21 @@ The order keeps threads from waiting on each other; a lifecycle keeps every wait
 
 ### Invocation Teardown
 
-An Invocation ends what it holds in the field order of its `Wasi`, then the Frontend lets the run's Ruby objects go. Both orders are load-bearing.
+An Invocation ends what it holds as its Store drops, then the Frontend lets the run's Ruby objects go. Only the second order is load-bearing.
 
 ```
 +------------------+
-| Store drop       |
-+------------------+
-         | first
-         v
-+------------------+
-| table (a)        |
+| Store drop (a)   |
 +------------------+
          | then
          v
 +------------------+
-| network (b)      |
-+------------------+
-         | then
-         v
-+------------------+
-| Ruby pins (c)    |
+| Ruby pins (b)    |
 +------------------+
 ```
 
-- (a) Every open file, socket, exchange, and lookup goes first, cancelling its future.
-- (b) The `Namespace` then aborts the TCP sockets left, so no task still dials into it.
-- (c) The Frontend holds the Ruby objects the run pinned until the Store is gone, so a Ruby Filesystem's `close` still reaches its Mount.
+- (a) Every open file, socket, exchange, and lookup goes, cancelling its future, and the `Namespace` aborts the TCP sockets left. Their order is free: only the guest polls a request, so nothing dials while the Store drops.
+- (b) The Frontend holds the Ruby objects the run pinned until the Store is gone, so a Ruby Filesystem's `close` still reaches its Mount.
 
 ### Abnormal Exits
 
