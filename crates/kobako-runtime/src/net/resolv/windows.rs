@@ -3,13 +3,13 @@
 //! `GetAddrInfoExCancel` cancels it. The routine runs on a system thread even
 //! after a cancel, so it holds its own reference to what it writes.
 
-use std::cell::{Cell, UnsafeCell};
+use std::cell::UnsafeCell;
 use std::future::Future;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::pin::Pin;
 use std::ptr::{null, null_mut};
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::task::{Context, Poll, Waker};
 
@@ -52,12 +52,12 @@ struct QueryContext {
     overlapped: UnsafeCell<OVERLAPPED>,
     result: UnsafeCell<*mut ADDRINFOEXW>,
     handle: UnsafeCell<HANDLE>,
-    /// Whether the query is pending, being cancelled, or done. A cancel and
-    /// the routine's end exclude each other, so no cancel follows a routine
-    /// that marked the query done; one racing Windows' own completion,
-    /// before the routine marks it, answers `WSA_INVALID_HANDLE` as
-    /// `GetAddrInfoExCancel` documents.
-    phase: AtomicU8,
+    /// Whether the routine ran, so a cancel after it is skipped. A cancel
+    /// racing the routine answers `WSA_INVALID_HANDLE` as
+    /// `GetAddrInfoExCancel` documents, and the routine never waits for it,
+    /// as .NET's `NameResolutionPal` leaves the two: a cancel may itself wait
+    /// for the routine to finish.
+    completed: AtomicBool,
     state: Mutex<State>,
 }
 
@@ -65,16 +65,6 @@ struct QueryContext {
 // reads them after; everything else is atomic or behind the mutex.
 unsafe impl Send for QueryContext {}
 unsafe impl Sync for QueryContext {}
-
-const PENDING: u8 = 0;
-const CANCELLING: u8 = 1;
-const DONE: u8 = 2;
-
-thread_local! {
-    /// Whether this thread is inside `GetAddrInfoExCancel`, which may run the
-    /// routine on it before returning.
-    static IN_CANCEL: Cell<bool> = const { Cell::new(false) };
-}
 
 #[derive(Default)]
 struct State {
@@ -88,37 +78,17 @@ impl QueryContext {
             overlapped: UnsafeCell::new(unsafe { std::mem::zeroed() }),
             result: UnsafeCell::new(null_mut()),
             handle: UnsafeCell::new(null_mut()),
-            phase: AtomicU8::new(PENDING),
+            completed: AtomicBool::new(false),
             state: Mutex::default(),
         }
     }
 
-    /// Mark the query done, waiting out a cancel another thread is making,
-    /// so the handle stays valid for as long as that cancel names it.
-    fn end(&self) {
-        loop {
-            match self
-                .phase
-                .compare_exchange(PENDING, DONE, Ordering::AcqRel, Ordering::Acquire)
-            {
-                Ok(_) | Err(DONE) => return,
-                Err(_) if IN_CANCEL.get() => return,
-                Err(_) => std::thread::yield_now(),
-            }
-        }
-    }
-
-    /// Cancel the query unless it already ended.
+    /// Cancel the query unless its routine already ran. The context outlives
+    /// the call, held by the canceller, so the handle it names is always
+    /// readable.
     fn cancel(&self) {
-        let claimed = self
-            .phase
-            .compare_exchange(PENDING, CANCELLING, Ordering::AcqRel, Ordering::Acquire)
-            .is_ok();
-        if claimed {
-            IN_CANCEL.set(true);
+        if !self.completed.load(Ordering::Acquire) {
             unsafe { GetAddrInfoExCancel(self.handle.get()) };
-            IN_CANCEL.set(false);
-            self.phase.store(DONE, Ordering::Release);
         }
     }
 
@@ -129,7 +99,7 @@ impl QueryContext {
     /// Take the query's outcome, `error` being its Winsock code, and wake
     /// whoever waits for it.
     fn finish(&self, error: u32) {
-        self.end();
+        self.completed.store(true, Ordering::Release);
         let result = unsafe { std::mem::replace(&mut *self.result.get(), null_mut()) };
         let answer = match error {
             0 => Ok(unsafe { addresses_of(result) }),
