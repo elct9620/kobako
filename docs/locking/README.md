@@ -59,7 +59,7 @@ Each lock belongs to one lock group, and the groups form an order with no cycle.
 | dcache | an inode's dentry, the dentry tables, `RENAME_LOCK`, a dentry's state, the LRU | other |
 | fsi | a Filesystem's own state | other |
 | netg | the guest's open sockets, its connection budget | other |
-| rtask | a reactor task's future | other |
+| request | an exchange's or a lookup's future | other |
 | sock | a socket's state, an exchange's state | other |
 
 The leaf groups take nothing beyond one another, except init, whose initializers build a Filesystem's dentry cache.
@@ -73,17 +73,17 @@ The leaf groups take nothing beyond one another, except init, whose initializers
 
 ### Group Order
 
-The Filesystem and network groups meet only at the GVL, since a guest under `:hold` makes its network calls holding it. The reactor never takes the GVL, so nothing leads back.
+The Filesystem and network groups meet only at the GVL, since a guest under `:hold` makes its network calls holding it. The reactor never takes the GVL or a request's future, so nothing leads back.
 
 ```
 +----------+  callback  +----------+  holds  +----------+
 | vfs      |----------->| ruby     |-------->| netg     |
 +----------+            +----------+         +----------+
       |                                            |
-      | holds                                      | cancels
+      | holds                                      | polls
       v                                            v
 +------------------+                         +----------+
-| dcache, fsi (a)  |                         | rtask    |
+| dcache, fsi (a)  |                         | request  |
 +------------------+                         +----------+
                                                    |
                                                    | drives
@@ -104,9 +104,9 @@ A group edge is an edge that leaves a group. Each states what the group holds as
 | Edge | Held while crossing | Rule kept |
 |---|---|---|
 | vfs to ruby | a sleeping lock | release before wait |
-| ruby to netg, rtask | the GVL, under `:hold` | the reactor never takes the GVL |
-| netg to rtask | the guest's open socket | a reactor future never re-locks its own `task_future` |
-| rtask to sock | the task's `task_future` | a socket takes only leaf locks |
+| ruby to netg, request | the GVL, under `:hold` | a request's future never calls Ruby |
+| netg to request | the guest's open socket | a future never re-locks its own `task_future` |
+| request to sock | the request's `task_future` | a socket takes only leaf locks |
 | ruby to sock | the GVL, under `:hold` | a socket takes only leaf locks |
 | netg to sock | the guest's open socket | a socket takes only leaf locks |
 
@@ -134,16 +134,21 @@ Thread A        i_rwsem       Thread B          GVL
 
 Without it, thread B keeps the GVL that thread A's callback needs, and each waits on the other. `VfsCallbackHoldingGvl.tla` reaches that deadlock.
 
-### Reactor Futures
+### Request Futures
 
-The reactor holds a task's `task_future` while it polls the future. The guest cancels a task by locking that `task_future`, without giving the GVL up.
+An exchange or a lookup is a future that only the guest waiting on it polls, under its `task_future`. The reactor never polls one; it only wakes the request's wait queue. So the guest cancels its own request, and no other thread holds the future meanwhile.
 
-| A reactor future never | Since |
+| When the guest polls | It holds |
 |---|---|
-| calls Ruby (takes the GVL) | the guest holds the GVL while it cancels |
+| on its first look, or a read that does not wait | the GVL, under `:hold` |
+| after its wait wakes | nothing of Ruby, inside the `Blocking` |
+
+| A request's future never | Since |
+|---|---|
+| calls Ruby (takes the GVL) | the GVL leads to it, so the group order would close a cycle |
 | re-locks its own `task_future` | it would wait on itself |
 
-`ReactorTakesGvl.tla` reaches the deadlock the first rule keeps away.
+`RequestPoll.tla` checks the guest's poll beside the reactor's wake.
 
 ## Group Obligations
 
@@ -154,7 +159,7 @@ A lock taken while another of the same kind is held is its group's obligation, s
 | vfs | ranks, ancestors first, addresses | [`filesystem/`](../filesystem/README.md#lock-order) |
 | dcache | `RENAME_LOCK` never taken again inside a write | [`filesystem/`](../filesystem/README.md#lock-order) |
 | fsi | a Tmpfs directory before an entry it holds | [`filesystem/`](../filesystem/README.md#lock-order) |
-| rtask | an exchange's task before its lookup's | [`network/`](../network/README.md#lock-order) |
+| request | an exchange's future before its lookup's | [`network/`](../network/README.md#lock-order) |
 | init | an initializer takes neither the GVL nor a sleeping lock | `GroupOrder.tla` |
 
 ## Host App Code
@@ -185,7 +190,8 @@ The order keeps threads from waiting on each other; a lifecycle keeps every wait
 | a walk holding a dentry in lookup | the lookup | `lookup_done` on drop, as Linux's `d_lookup_done` |
 | a `SeqLock` write | the write | ending its count on drop, as `write_sequnlock` |
 | the `Namespace` | every TCP socket left | aborting it, as `tcp_abort` |
-| an exchange | its reactor task | cancelling it |
+| an exchange or a lookup | its future | cancelling it |
+| the reactor | every socket and timer it watches | aborting each from a guard as its thread stops |
 
 ### Invocation Teardown
 
@@ -212,7 +218,7 @@ An Invocation ends what it holds in the field order of its `Wasi`, then the Fron
 +------------------+
 ```
 
-- (a) Every open file, socket, exchange, and lookup goes first, cancelling its reactor task.
+- (a) Every open file, socket, exchange, and lookup goes first, cancelling its future.
 - (b) The `Namespace` then aborts the TCP sockets left, so no task still dials into it.
 - (c) The Frontend holds the Ruby objects the run pinned until the Store is gone, so a Ruby Filesystem's `close` still reaches its Mount.
 
@@ -238,8 +244,7 @@ The models check the group order and each edge's rule with TLC. A model of a bro
 | `GroupOrder` | no cycle through the locks or the groups | ok |
 | `VfsCallback` | vfs to ruby under release before wait | ok |
 | `VfsCallbackHoldingGvl` | the same wait keeping the GVL | deadlock |
-| `ReactorCancel` | ruby to netg to rtask to sock | ok |
-| `ReactorTakesGvl` | a reactor future taking the GVL | deadlock |
+| `RequestPoll` | ruby to netg to request to sock, beside the reactor | ok |
 | `HostMutex` | a callback waiting on a Host App Mutex | deadlock |
 | `NestedRun` | a callback's run reaching back to another callback's Filesystem | deadlock |
 
