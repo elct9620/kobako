@@ -82,7 +82,7 @@ where
                 Ok(value) => return value,
                 // A run holds the interrupt and raises it once back in Ruby.
                 Err(declined) if escape::is_in_run() => {
-                    escape::hold_interrupts();
+                    keeping_held_jump(escape::hold_interrupts);
                     f = declined;
                 }
                 // Outside a run nothing would raise a held interrupt, so it
@@ -138,7 +138,7 @@ where
     F: FnOnce() -> R,
 {
     if holds() {
-        return f();
+        return keeping_held_jump(f);
     }
     let _guard = ReleasedGuard::set(false);
     // Ruby checks for interrupts as it gives the GVL back on the way out, and
@@ -146,7 +146,7 @@ where
     // them (`defer_interrupts`), so the callback alone takes them as they come.
     let run_callback = |f: F| {
         let ruby = Ruby::get().expect("a thread back in Ruby holds the GVL");
-        let (value, raised) = handle_interrupt(&ruby, "immediate", f);
+        let (value, raised) = keeping_held_jump(|| handle_interrupt(&ruby, "immediate", f));
         if let Err(error) = raised {
             escape::keep(error);
         }
@@ -161,6 +161,46 @@ where
     )
     .ok()
     .expect("rb_thread_call_with_gvl always runs its function")
+}
+
+/// Run `f`, which calls Ruby, so a `throw` the run holds keeps its target.
+/// CRuby keeps where a `throw` goes on the Fiber rather than in anything
+/// `escape` can hold, and a `catch` completing inside `f` clears it;
+/// `rb_ensure` puts it back after running its ensure function, which is `f`.
+fn keeping_held_jump<F, R>(f: F) -> R
+where
+    F: FnOnce() -> R,
+{
+    /// The body `rb_ensure` runs before `f`, which does nothing.
+    unsafe extern "C" fn nothing(_: rb_sys::VALUE) -> rb_sys::VALUE {
+        rb_sys::Qnil as rb_sys::VALUE
+    }
+
+    /// `trampoline`, taking its `GvlCtx` as the `VALUE` `rb_ensure` passes.
+    unsafe extern "C" fn ensure<F, R>(data: rb_sys::VALUE) -> rb_sys::VALUE
+    where
+        F: FnOnce() -> R,
+    {
+        // SAFETY: `data` is the `GvlCtx<F, R>` `call_via` handed over.
+        unsafe { trampoline::<F, R>(data as *mut c_void) as rb_sys::VALUE }
+    }
+
+    if !escape::pending() {
+        return f();
+    }
+    // SAFETY: `data` comes from `call_via`, which keeps the closure alive
+    // across the call; `ensure` runs it once, under `catch_unwind`.
+    call_via(f, |_, data| unsafe {
+        rb_sys::rb_ensure(
+            Some(nothing),
+            rb_sys::Qnil as rb_sys::VALUE,
+            Some(ensure::<F, R>),
+            data as rb_sys::VALUE,
+        );
+        ptr::null_mut()
+    })
+    .ok()
+    .expect("rb_ensure always runs its ensure function")
 }
 
 /// Run `f` as one run of a Sandbox: giving up the GVL when `release` says so,

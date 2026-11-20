@@ -51,6 +51,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_deadline_host_time.rb`
 - `test/e2e/sandbox/test_first_run_interrupt.rb`
 - `test/e2e/sandbox/test_interrupted_run.rb`
+- `test/e2e/sandbox/test_service_throw.rb`
 - `test/e2e/sandbox/test_forked_deadline.rb`
 - `test/e2e/sandbox/test_interrupt_outside_run.rb`
 - `test/e2e/sandbox/test_gvl_main_thread_warning.rb`
@@ -1988,3 +1989,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a process whose Sandbox releases the GVL |
 | When | it runs twice on the main Thread, and once on another Thread |
 | Then | the first run warns that a trap handler or a Ractor's `require` can stop the run. No other run warns. A run off the main Thread never warns. Ruby runs both on the main Thread alone |
+
+## `S-221` A Service's `throw` reaches its `catch` past a Ruby Filesystem's own
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-206` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding open a file whose Ruby Filesystem completes its own `catch` and `throw` in `close` |
+| When | a Service throws to a `catch` around the invocation |
+| Then | that `catch` answers the thrown value, and the file is closed |
