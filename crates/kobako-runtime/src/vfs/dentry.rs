@@ -499,6 +499,7 @@ impl Dentry {
     fn wait_lookup(&self) -> Result<bool, Errno> {
         let current = sched::current();
         loop {
+            sched::handle_signal();
             let state = self.state();
             match state.asked {
                 LookupState::Allocated(walk) | LookupState::Asking(walk) if walk == current => {

@@ -47,10 +47,11 @@ where
     if !release {
         return f();
     }
-    // An interrupt the thread receives meanwhile stops each wait the run meets,
-    // for a lock or a host-side event; the interrupt itself still waits for the
-    // run to end. One landing before or after the run itself, while the guest
-    // is set up or torn down, still belongs to this region and goes with it.
+    // What Ruby wakes the thread for meanwhile signals each wait the run meets,
+    // for a lock or a host-side event, which hands it to `GvlFreeWait`; what it
+    // raises waits for the run to end. One landing before or after the run
+    // itself, while the guest is set up or torn down, still belongs to this
+    // region and goes with it.
     let task = Task::current();
     let task_ptr = ptr::addr_of!(task).cast_mut().cast::<c_void>();
     run_interruptible(|| {
@@ -58,21 +59,23 @@ where
         loop {
             let released = ReleasedGuard::set(true);
             let ran = call_via(f, |func, data| {
-                // An interrupt that came before the region, which Ruby declines
-                // to start under or the run's mask defers, stops the waits as one
+                // What came before the region, which Ruby declines to start
+                // under or the run's mask defers, reaches the waits as one
                 // inside it does, as a signal pending when a Linux task sleeps
-                // ends the sleep.
-                if escape::pending() || interrupt_pending() {
+                // wakes the sleep.
+                if escape::pending() {
                     task.interrupt();
+                } else if interrupt_pending() {
+                    task.signal();
                 }
                 // SAFETY: `func` and `data` come from `call_via`, which keeps the
                 // closure alive across the call; `task` outlives it on this frame,
-                // and Ruby calls `interrupt_task` with it only while the region runs.
+                // and Ruby calls `signal_task` with it only while the region runs.
                 unsafe {
                     rb_sys::rb_thread_call_without_gvl2(
                         Some(func),
                         data,
-                        Some(interrupt_task),
+                        Some(signal_task),
                         task_ptr,
                     )
                 }
@@ -81,8 +84,11 @@ where
             match ran {
                 Ok(value) => return value,
                 // A run holds the interrupt and raises it once back in Ruby.
+                // One its mask defers stays queued, so the waits are signalled
+                // to take it as a callback would.
                 Err(declined) if escape::is_in_run() => {
                     keeping_held_jump(escape::hold_interrupts);
+                    task.signal();
                     f = declined;
                 }
                 // Outside a run nothing would raise a held interrupt, so it
@@ -105,13 +111,14 @@ fn interrupt_pending() -> bool {
     unsafe { rb_sys::rb_thread_interrupted(rb_sys::rb_thread_current()) != 0 }
 }
 
-/// Have the thread's run stop waiting for locks, called by Ruby without the GVL
-/// as the region's unblocking function.
-unsafe extern "C" fn interrupt_task(task: *mut c_void) {
+/// Signal the thread's run, called by Ruby without the GVL as the region's
+/// unblocking function, whenever it wakes the thread: for an exception, a
+/// trap, or `Thread#wakeup`, which only the GVL tells apart.
+unsafe extern "C" fn signal_task(task: *mut c_void) {
     // SAFETY: `region` passes its own `Task`, alive for the whole region
     // Ruby calls this from.
     let task = unsafe { &*task.cast::<Task>() };
-    task.interrupt();
+    task.signal();
 }
 
 /// Whether this thread holds the GVL: outside any released region, or
@@ -127,7 +134,30 @@ pub(crate) struct GvlFreeWait;
 
 impl Blocking for GvlFreeWait {
     fn wait(&self, wait: &mut dyn FnMut()) {
-        region(holds(), wait);
+        if !(holds() && escape::is_in_run()) {
+            return region(holds(), wait);
+        }
+        // A run keeping the GVL defers interrupts across its wait, as one
+        // releasing it does across the guest, so taking the GVL back to
+        // handle a signal never raises where it gives the GVL up again.
+        let ruby = Ruby::get().expect("a Thread keeping the GVL holds it");
+        let (_, raised) = handle_interrupt(&ruby, "never", || region(true, wait));
+        if let Err(error) = raised {
+            escape::keep(error);
+        }
+    }
+
+    /// Take what Ruby woke the thread for, as a callback takes it; one that
+    /// raises ends the run's waits, and the run raises it once it ends.
+    /// Outside a run nothing would raise it, so it stays with Ruby and ends the
+    /// wait at once.
+    fn handle_signal(&self) {
+        if escape::is_in_run() {
+            reenter(escape::hold_interrupts);
+        }
+        if !escape::is_in_run() || escape::pending() {
+            Task::current().interrupt();
+        }
     }
 }
 

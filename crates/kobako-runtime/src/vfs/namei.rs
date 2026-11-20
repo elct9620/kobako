@@ -5604,6 +5604,45 @@ mod tests {
         );
     }
 
+    // A signal the frontend handles without interrupting the task leaves a
+    // killable wait asleep, as Linux restarts a call a handled signal woke.
+    // @behavior RT-405
+    #[test]
+    fn a_wait_goes_on_past_a_signal_that_is_not_fatal() {
+        use crate::sched::testing::{count_signals, join, wait_until};
+        use crate::sched::{run_task, Task};
+
+        let root = root_of(Filesystem::new(Tmpfs::new()).expect("the instance must stand"));
+        let held = root.dentry().inode_lock().expect("the test holds the root");
+        let (task, tasked) = mpsc::channel();
+        let waiting = {
+            let root = root.clone();
+            thread::spawn(move || {
+                let handled = count_signals();
+                run_task(None, || {
+                    task.send((Task::current(), handled)).ok();
+                    vfs::filename_mkdirat(&Arc::default(), &root, "late")
+                })
+            })
+        };
+        let (task, handled) = tasked
+            .recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("the run must start");
+        task.signal();
+        wait_until("the signal being handled", || {
+            handled.load(Ordering::SeqCst) > 0
+        });
+        let woke_early = waiting.is_finished();
+        drop(held);
+        assert_eq!(
+            (woke_early, join("the signalled wait", waiting)),
+            (false, Ok(())),
+            "vfs::filename_mkdirat waiting on a directory another thread holds, its thread \
+             signalled and the signal handled without an interrupt, must go on waiting and \
+             make the directory once the other lets go"
+        );
+    }
+
     // @behavior RT-267
     #[test]
     fn a_wait_for_a_name_in_lookup_ends_once_its_run_is_to_stop() {

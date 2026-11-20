@@ -20,6 +20,12 @@ use crate::wait::Waiter;
 pub trait Blocking: Send + Sync {
     /// Run `wait`, which returns once the lock is taken or the event arrived.
     fn wait(&self, wait: &mut dyn FnMut());
+
+    /// Take the signal a waiting thread was woken for, interrupting its task
+    /// when the signal is to end the run, as Linux handles a pending signal on
+    /// the way back to user space. A wait the signal leaves alone goes on, as
+    /// Linux restarts a call a handled signal woke.
+    fn handle_signal(&self) {}
 }
 
 static BLOCKING: OnceLock<Box<dyn Blocking>> = OnceLock::new();
@@ -50,6 +56,7 @@ pub(crate) fn current() -> ThreadId {
 #[derive(Clone, Default)]
 pub struct Task {
     interrupted: Arc<AtomicBool>,
+    signalled: Arc<AtomicBool>,
     /// The waiter the thread sleeps on, woken by an interrupt as
     /// `signal_wake_up` wakes a sleeping task.
     sleeping: Arc<Mutex<Option<Arc<Waiter>>>>,
@@ -65,6 +72,18 @@ impl Task {
     /// signal ends a killable wait; it holds until that run ends.
     pub fn interrupt(&self) {
         self.interrupted.store(true, Ordering::SeqCst);
+        self.wake_up();
+    }
+
+    /// Have the wait the thread's run sleeps in hand a signal that may not be
+    /// fatal to the registered `Blocking`, as `signal_wake_up` wakes a task
+    /// for its pending signal; it holds until handled or that run ends.
+    pub fn signal(&self) {
+        self.signalled.store(true, Ordering::SeqCst);
+        self.wake_up();
+    }
+
+    fn wake_up(&self) {
         if let Some(waiter) = self.sleeping().as_ref() {
             waiter.wake();
         }
@@ -149,6 +168,7 @@ pub fn run_interruptible<T>(run: impl FnOnce() -> T) -> T {
                 running.depth -= 1;
                 if running.depth == 0 {
                     running.task.interrupted.store(false, Ordering::SeqCst);
+                    running.task.signalled.store(false, Ordering::SeqCst);
                 }
             });
         }
@@ -188,6 +208,23 @@ pub fn pending_fatal_signal() -> Option<FatalSignal> {
 /// `fatal_signal_pending(current)` answers.
 pub(crate) fn fatal_signal_pending() -> bool {
     pending_fatal_signal().is_some()
+}
+
+/// Whether a signal waits for the calling thread to handle it, as Linux's
+/// `signal_pending(current)` answers.
+pub(crate) fn signal_pending() -> bool {
+    TASK.with(|task| task.borrow().task.signalled.load(Ordering::SeqCst))
+}
+
+/// Hand the signal pending on the calling thread to the registered
+/// `Blocking`, as a woken wait returns to have it handled; the wait then looks
+/// at `fatal_signal_pending` again. It must hold no lock that never waits
+/// through the `Blocking`, as the frontend may take its own to handle it.
+pub(crate) fn handle_signal() {
+    let signalled = TASK.with(|task| task.borrow().task.signalled.swap(false, Ordering::SeqCst));
+    if let (true, Some(blocking)) = (signalled, BLOCKING.get()) {
+        blocking.handle_signal();
+    }
 }
 
 /// When the calling thread's run is to stop, once it has a deadline.
@@ -259,6 +296,7 @@ pub(crate) mod testing {
 
     thread_local! {
         static COUNTS: RefCell<Option<Arc<AtomicUsize>>> = const { RefCell::new(None) };
+        static SIGNALS: RefCell<Option<Arc<AtomicUsize>>> = const { RefCell::new(None) };
     }
 
     struct CountsWaits;
@@ -272,6 +310,14 @@ pub(crate) mod testing {
             });
             wait();
         }
+
+        fn handle_signal(&self) {
+            SIGNALS.with(|signals| {
+                if let Some(signals) = signals.borrow().as_ref() {
+                    signals.fetch_add(1, Ordering::SeqCst);
+                }
+            });
+        }
     }
 
     /// Counts each wait this thread makes through the registered Blocking.
@@ -280,6 +326,15 @@ pub(crate) mod testing {
         let counts = Arc::<AtomicUsize>::default();
         COUNTS.with(|held| *held.borrow_mut() = Some(counts.clone()));
         counts
+    }
+
+    /// Counts each signal the registered Blocking handles for this thread,
+    /// leaving every wait to go on.
+    pub(crate) fn count_signals() -> Arc<AtomicUsize> {
+        BLOCKING.get_or_init(|| Box::new(CountsWaits));
+        let signals = Arc::<AtomicUsize>::default();
+        SIGNALS.with(|held| *held.borrow_mut() = Some(signals.clone()));
+        signals
     }
 }
 

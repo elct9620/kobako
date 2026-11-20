@@ -139,6 +139,7 @@ pub fn do_poll<T>(
     let mut answer = Ok(None);
     sched::sleep_on(&table.waiter, || {
         sched::schedule(&mut || loop {
+            sched::handle_signal();
             if sched::fatal_signal_pending() {
                 answer = Err(Errno::Interrupted);
                 return;

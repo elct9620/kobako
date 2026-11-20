@@ -4487,3 +4487,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation on the weaker profile, with a Mount whose Filesystem reports a file modified in 2600 |
 | When | the guest reads what the path names |
 | Then | it answers `OVERFLOW`, as wasmtime-wasi answers a time its nanoseconds cannot count |
+
+## `RT-405` A wait goes on past a signal that is not fatal
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-267` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Blocking registered, and a call waiting on a directory another thread holds |
+| When | its thread is signalled, and the Blocking handles the signal without interrupting it |
+| Then | the call waits on until the other lets go, as Linux restarts a call a handled signal woke |

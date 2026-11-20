@@ -174,6 +174,11 @@ impl RwSemaphore {
                         taken = Err(DownError::Interrupted);
                         break;
                     }
+                    Ok(false) if sched::signal_pending() => {
+                        drop(holders);
+                        sched::handle_signal();
+                        holders = self.holders();
+                    }
                     Ok(false) => {
                         holders.waiting += 1;
                         holders = self

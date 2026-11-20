@@ -32,7 +32,7 @@ Every lock sits in one of three tiers. A thread holding one tier waits only for 
 ```
 
 - (a) `i_rwsem`, `rename_mutex`, an Overlay entry's copy-up lock, and a dentry in lookup. A callback is a Ruby Filesystem's method or a mount's block, which takes the GVL while the run holds one of these.
-- (b) Ruby's GVL. A thread holding it may take a sleeping lock that is free, but gives the GVL up before it waits, through the registered `Blocking`.
+- (b) Ruby's GVL. A thread holding it may take a sleeping lock that is free, but gives the GVL up before it waits, through the registered `Blocking`. A waiting thread takes it back only to handle a signal, holding no lock of tier (c).
 - (c) Every other lock. It never calls Ruby and never waits through the `Blocking`.
 
 ### GVL Modes
@@ -111,6 +111,8 @@ A group edge is an edge that leaves a group. Each states what the group holds as
 ### Release Before Wait
 
 A thread holding the GVL that must wait for a sleeping lock gives the GVL up first. The `Blocking` the Ruby gem registers does this for every wait, under [`:hold`](../guides/concurrency.md#gvl-modes) too.
+
+Ruby wakes a waiting thread alike for an exception, a trap, or `Thread#wakeup`. The `Blocking` takes the GVL to tell them apart, then gives it up and waits on, unless the wakeup raised. It takes the GVL as a callback does, so the crossing is the same vfs to ruby edge. `Locks.tla` lets each waiting thread do this once.
 
 ```
 Thread A        i_rwsem       Thread B          GVL

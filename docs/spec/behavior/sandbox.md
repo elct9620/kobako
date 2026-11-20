@@ -52,6 +52,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_first_run_interrupt.rb`
 - `test/e2e/sandbox/test_interrupted_run.rb`
 - `test/e2e/sandbox/test_service_throw.rb`
+- `test/e2e/sandbox/test_wakeup_during_wait.rb`
 - `test/e2e/sandbox/test_forked_deadline.rb`
 - `test/e2e/sandbox/test_interrupt_outside_run.rb`
 - `test/e2e/sandbox/test_gvl_main_thread_warning.rb`
@@ -2001,3 +2002,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a guest holding open a file whose Ruby Filesystem completes its own `catch` and `throw` in `close` |
 | When | a Service throws to a `catch` around the invocation |
 | Then | that `catch` answers the thrown value, and the file is closed |
+
+## `S-222` A wait goes on through a wakeup that raises nothing
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-208`, `RT-405` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest waiting on a name lookup, or on a directory a mount's block holds |
+| When | its Thread takes `Thread#wakeup`, or a trap handler that only sets a flag |
+| Then | the wait goes on until it answers. A wakeup that raises still ends the run |
