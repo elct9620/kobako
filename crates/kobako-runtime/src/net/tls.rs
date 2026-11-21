@@ -4,11 +4,73 @@
 
 use std::sync::{Arc, OnceLock};
 
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
 use rustls::crypto::CryptoProvider;
-use rustls::ClientConfig;
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{ClientConfig, DigitallySignedStruct, DistinguishedName, SignatureScheme};
 use rustls_platform_verifier::Verifier;
 
 static PLATFORM: OnceLock<Option<(Arc<CryptoProvider>, Arc<Verifier>)>> = OnceLock::new();
+
+/// The server whose certificate the system first verified in this process,
+/// which a forked child inherits as it inherits what verifying left behind.
+static FIRST_TRUSTED: OnceLock<String> = OnceLock::new();
+
+/// The server whose certificate macOS first verified in this process, `None`
+/// before then and on every other system. From then on a forked child that
+/// touches the system's certificate services crashes, as the threads serving
+/// them did not come along; Linux reads its certificates from files.
+pub fn first_trusted_host() -> Option<&'static str> {
+    FIRST_TRUSTED.get().map(String::as_str)
+}
+
+/// The platform's verifier, recording the first server it had the system
+/// verify.
+#[derive(Debug)]
+struct FirstTrustRecording(Arc<Verifier>);
+
+impl ServerCertVerifier for FirstTrustRecording {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
+    ) -> Result<ServerCertVerified, rustls::Error> {
+        if cfg!(target_os = "macos") {
+            FIRST_TRUSTED.get_or_init(|| server_name.to_str().into_owned());
+        }
+        self.0
+            .verify_server_cert(end_entity, intermediates, server_name, ocsp_response, now)
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        self.0.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> Result<HandshakeSignatureValid, rustls::Error> {
+        self.0.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.0.supported_verify_schemes()
+    }
+
+    fn root_hint_subjects(&self) -> Option<&[DistinguishedName]> {
+        self.0.root_hint_subjects()
+    }
+}
 
 /// The OS's store and the provider verifying against it, built once per
 /// process, `None` where the platform offers no store. Its first build reads
@@ -35,7 +97,7 @@ pub fn new_platform_tls() -> Option<Arc<ClientConfig>> {
         .with_safe_default_protocol_versions()
         .ok()?
         .dangerous()
-        .with_custom_certificate_verifier(verifier.clone())
+        .with_custom_certificate_verifier(Arc::new(FirstTrustRecording(verifier.clone())))
         .with_no_client_auth();
     Some(Arc::new(config))
 }

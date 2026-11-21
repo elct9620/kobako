@@ -1,0 +1,17 @@
+module Kobako
+  module Fork
+    module Hook
+      def _fork: () -> Integer
+
+      def daemon: (?boolish nochdir, ?boolish noclose) -> 0
+    end
+
+    def self.around: [T] () { () -> T } -> T
+
+    def self.install: () -> void
+
+    def self.prepare: () -> void
+
+    def self.release: () -> void
+  end
+end

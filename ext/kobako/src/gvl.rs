@@ -33,6 +33,7 @@ use magnus::TypedData;
 use magnus::{prelude::*, Error as MagnusError, RModule, Ruby, Value};
 
 use super::escape;
+use super::fork;
 use super::handoff::{self, Message};
 
 thread_local! {
@@ -287,9 +288,10 @@ where
     R: Send + 'static,
     F: FnOnce() -> R + Send + 'static,
 {
-    let run = escape::Run::enter(ruby);
+    let run = escape::Run::enter(ruby)?;
     let f = setup()?;
     let ran = serve(ruby, release, run.state(), f);
+    fork::tell_pitchfork_past_trust(ruby);
     run.finish()?;
     Ok(ran)
 }

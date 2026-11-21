@@ -7,6 +7,7 @@ use magnus::{prelude::*, Error, RModule, RString, Ruby, Symbol, TryConvert, Valu
 mod errors;
 mod escape;
 mod filesystem;
+mod fork;
 mod gvl;
 mod handoff;
 mod network;
@@ -22,6 +23,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     let _ = kobako_runtime::sched::register_blocking(Box::new(gvl::GvlFreeWait));
     gvl::register(kobako)?;
     escape::register(kobako)?;
+    fork::register(kobako)?;
     runtime::register(ruby, kobako)?;
     filesystem::register(ruby, kobako)?;
     network::register(kobako)?;

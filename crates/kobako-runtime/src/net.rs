@@ -38,6 +38,7 @@ pub use socket::{
     sock_alloc_file, sys_bind, sys_connect, AddressFamily, ProtoOps, SockOpt, MAX_SOCKET_BUFFER,
 };
 pub use tcp::{TcpSock, MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL};
+pub use tls::first_trusted_host;
 pub(crate) use tls::load_platform_verifier;
 pub(crate) use tls::new_platform_tls;
 pub use udp::{UdpSock, MAX_DATAGRAM};

@@ -45,6 +45,7 @@ module Kobako
       @grants = Catalog::Grants.new
       @sealed = false
       @runtime = build_runtime
+      Fork.install
     end
 
     # Make +object+ reachable from the guest as the constant at +path+, a
