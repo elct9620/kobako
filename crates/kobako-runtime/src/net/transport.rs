@@ -116,8 +116,7 @@ impl Connector {
         };
         let mut last = HttpError::Denied;
         for dest in &dests {
-            let sock = TcpSock::create_kern(&self.family, &self.tcp_sockets, &self.cred)
-                .map_err(|err| HttpError::from_errno(&err))?;
+            let sock = TcpSock::create_kern(&self.family, &self.tcp_sockets, &self.cred);
             // Set before the dial, so the host socket takes it as it is
             // made, as an HTTP client writes each request whole; a guest's
             // own socket keeps Linux's default.
@@ -269,7 +268,7 @@ mod tests {
             ),
             (failures, HttpError::Internal),
             "a failure the upstream socket answers must read back as the same errno once it \
-             crosses an io::Error, so memory the socket could not reserve answers internal-error"
+             crosses an io::Error, so a failure for want of memory answers internal-error"
         );
     }
 }

@@ -5,7 +5,6 @@
 //! through the wait queue, so a full buffer stops the task and the TCP window
 //! pushes back.
 
-use std::collections::VecDeque;
 use std::future::{poll_fn, Future};
 use std::io;
 use std::pin::Pin;
@@ -21,6 +20,7 @@ use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::connections::{open, OpenConnections, Place};
 use super::credential::Swap;
+use super::skbuff::{sk_mem_pages, truesize_of, SkBuffHead};
 use super::task::Task;
 use super::transport::Connector;
 use super::{new_platform_tls, MAX_SOCKET_BUFFER};
@@ -492,7 +492,14 @@ struct State {
     /// memory as it arrives and given back with the head, as Linux uncharges
     /// an object's memory only when the object is freed.
     head_memory: Option<MemoryCharge>,
-    body: VecDeque<u8>,
+    /// The body the guest reads, never past one socket buffer.
+    body: SkBuffHead,
+    /// The frame read from the seam that waits for room in the body, copied
+    /// out so the seam's own buffer goes free at once.
+    pending: Option<Vec<u8>>,
+    /// What the body and the waiting frame hold, charged against the
+    /// Invocation's memory in whole pages as they arrive.
+    body_memory: MemoryCharge,
     body_ended: bool,
     body_failed: bool,
     /// The body waited past its timeout for its next part.
@@ -509,6 +516,36 @@ impl State {
     fn is_awaiting_body(&self) -> bool {
         self.body.is_empty() && !self.body_ended && !self.body_failed && !self.body_timed_out
     }
+
+    /// What the body's buffers and the waiting frame cost.
+    fn body_truesize(&self) -> usize {
+        self.body.truesize()
+            + self
+                .pending
+                .as_ref()
+                .map_or(0, |frame| truesize_of(frame.len()))
+    }
+
+    /// Charge what the body and the waiting frame hold, past the limit if
+    /// need be, since a frame taken from the seam cannot go back; giving back
+    /// what they no longer hold.
+    fn charge_body(&mut self) {
+        let held = sk_mem_pages(self.body_truesize());
+        if self.body_memory.resize(held).is_err() {
+            self.body_memory.force_resize(held);
+        }
+    }
+
+    /// Whether the task may take the next frame from the seam: always into
+    /// an empty body, so the body moves on, as an empty receive queue takes
+    /// a segment past the limit; otherwise only while the limit holds more.
+    fn may_take_frame(&self) -> bool {
+        self.pending.is_none()
+            && (self.body.is_empty()
+                || self
+                    .body_memory
+                    .can_resize(sk_mem_pages(self.body_truesize() + truesize_of(1))))
+    }
 }
 
 /// One request in flight, then its response: the head once it arrives, and
@@ -519,9 +556,8 @@ pub struct Exchange {
     task: Mutex<Option<Arc<Task>>>,
     /// The request's place against its Sandbox's cap and the process's.
     place: Mutex<Option<Arc<Place>>>,
-    /// What the request, the seam's read buffer, and the response's buffer
-    /// hold, reserved against the Invocation's memory until the exchange is
-    /// released.
+    /// What the request and the seam's read buffer hold, reserved against
+    /// the Invocation's memory until the exchange is released.
     memory: Mutex<Option<MemoryCharge>>,
     timeouts: Timeouts,
     started: Instant,
@@ -536,8 +572,8 @@ impl Exchange {
     /// against `open_connections` and the process until
     /// released and its connection closed, and a full count answers
     /// `ConnectionLimitReached`. The
-    /// request, the seam's read buffer, and the response's buffer count
-    /// against `cred`'s memory until then.
+    /// request and the seam's read buffer count against `cred`'s memory
+    /// until then, and the body as it arrives.
     pub(crate) fn start(
         seam: Arc<dyn Outbound>,
         request: OutgoingRequest,
@@ -545,7 +581,7 @@ impl Exchange {
         open_connections: &Arc<OpenConnections>,
         cred: &Arc<Cred>,
     ) -> Result<Arc<Self>, HttpError> {
-        let room = request.room() + request.body.len() + MAX_READ_BUFFER + MAX_SOCKET_BUFFER;
+        let room = request.room() + request.body.len() + MAX_READ_BUFFER;
         let memory =
             MemoryCharge::new(cred.memory_budget(), room).map_err(|_| HttpError::Internal)?;
         let place = Arc::new(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
@@ -555,7 +591,9 @@ impl Exchange {
             state: Arc::new(Mutex::new(State {
                 phase: Phase::Sending,
                 head_memory: None,
-                body: VecDeque::new(),
+                body: SkBuffHead::default(),
+                pending: None,
+                body_memory: MemoryCharge::empty(cred.memory_budget()),
                 body_ended: false,
                 body_failed: false,
                 body_timed_out: false,
@@ -739,10 +777,8 @@ impl Exchange {
                 _ => Err(Errno::WouldBlock),
             };
         }
-        let n = buf.len().min(state.body.len());
-        for (slot, byte) in buf.iter_mut().zip(state.body.drain(..n)) {
-            *slot = byte;
-        }
+        let n = state.body.read_into(buf);
+        state.charge_body();
         let filler = state.filler.take();
         drop(state);
         if let Some(filler) = filler {
@@ -756,7 +792,11 @@ impl Exchange {
     /// Invocation's memory, while the guest keeps the exchange.
     pub fn release(&self) {
         self.cancel_task();
-        lock(&self.state).body = VecDeque::new();
+        let mut state = lock(&self.state);
+        state.body.purge();
+        state.pending = None;
+        state.charge_body();
+        drop(state);
         *self.place.lock().unwrap_or_else(PoisonError::into_inner) = None;
         *self.memory.lock().unwrap_or_else(PoisonError::into_inner) = None;
     }
@@ -814,40 +854,49 @@ fn lock(state: &Mutex<State>) -> MutexGuard<'_, State> {
     state.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Move `body` into the exchange's buffer as room frees, never past the
-/// buffer, until the body ends or fails, or the exchange lets the task go;
-/// what a frame holds past the room waits here.
+/// Move `body` into the exchange's buffer frame by frame, never past one
+/// socket buffer, until the body ends or fails, or the exchange lets the task
+/// go. A frame is copied out of the seam as it is read and charged against
+/// the Invocation's memory, then waits until the body has room for it whole;
+/// past the limit the task takes no frame until the guest reads, unless the
+/// body is empty.
 async fn fill_body(state: &Mutex<State>, wait: &WaitQueueHead, mut body: ResponseBody) {
-    let mut pending = Bytes::new();
     loop {
-        if pending.is_empty() {
-            match poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await {
-                Some(Ok(frame)) => {
-                    pending = frame.into_data().unwrap_or_default();
-                    continue;
-                }
-                Some(Err(_)) => lock(state).body_failed = true,
-                None => lock(state).body_ended = true,
-            }
-            wait.wake_up();
-            return;
-        }
-        let room = poll_fn(|cx| {
+        let moved = poll_fn(|cx| {
             let mut state = lock(state);
-            let room = MAX_SOCKET_BUFFER - state.body.len();
-            if room > 0 {
-                return Poll::Ready(room);
+            if let Some(frame) = state.pending.take() {
+                if state.body.len() + frame.len() <= MAX_SOCKET_BUFFER || state.body.is_empty() {
+                    state.body.push_buffer(frame);
+                    state.last_part = Some(Instant::now());
+                    return Poll::Ready(true);
+                }
+                state.pending = Some(frame);
+            } else if state.may_take_frame() {
+                return Poll::Ready(false);
             }
             state.filler = Some(cx.waker().clone());
             Poll::Pending
         })
         .await;
-        let moved = pending.split_to(room.min(pending.len()));
-        let mut filled = lock(state);
-        filled.body.extend(&moved[..]);
-        filled.last_part = Some(Instant::now());
-        drop(filled);
+        if moved {
+            wait.wake_up();
+            continue;
+        }
+        match poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await {
+            Some(Ok(frame)) => {
+                let Ok(data) = frame.into_data() else {
+                    continue;
+                };
+                let mut state = lock(state);
+                state.pending = Some(data.to_vec()).filter(|frame| !frame.is_empty());
+                state.charge_body();
+                continue;
+            }
+            Some(Err(_)) => lock(state).body_failed = true,
+            None => lock(state).body_ended = true,
+        }
         wait.wake_up();
+        return;
     }
 }
 
@@ -1041,8 +1090,8 @@ impl HttpError {
     /// The code a failed TLS handshake answers, as wasmtime-wasi-http's
     /// `p2_error_from_tls` names each: the rustls error it carries, a
     /// connection the server ended as `connection-terminated`, and any other
-    /// as `TLS-protocol-error`; memory the socket could not reserve is the
-    /// seam's own failure.
+    /// as `TLS-protocol-error`; a failure for want of memory is the seam's own
+    /// failure.
     pub(crate) fn from_tls(err: &io::Error) -> Self {
         match err
             .get_ref()
@@ -1062,8 +1111,8 @@ impl HttpError {
     }
 
     /// The code an open connection failing with `err` answers: one the peer or
-    /// the Invocation's end cut as `connection-terminated`, and memory the
-    /// socket could not reserve as the seam's own failure; `None` for a
+    /// the Invocation's end cut as `connection-terminated`, and a failure for
+    /// want of memory as the seam's own; `None` for a
     /// failure the protocol over it names.
     fn from_open_connection(err: &Errno) -> Option<Self> {
         match err {
@@ -1076,8 +1125,7 @@ impl HttpError {
     }
 
     /// The code a connection failing with `err` answers, as wasmtime-wasi-http
-    /// names each; memory the socket could not reserve is the seam's own
-    /// failure.
+    /// names each; a failure for want of memory is the seam's own failure.
     pub(crate) fn from_errno(err: &Errno) -> Self {
         match err {
             Errno::OutOfMemory => Self::Internal,
@@ -1576,32 +1624,23 @@ mod tests {
         let network = Network::new("web", Arc::new(entry)).unwrap();
         let namespace =
             Namespace::for_network(&network, Arc::new(HostInet), Arc::new(HyperOutbound::new()));
-        let cred_within = |limit| {
-            crate::security::restrict_self(
-                &prepare_creds(&[], limit),
-                [&crate::grant::Grant::Network(network.clone())],
-            )
-            .expect("every Mount stands")
-        };
-        let request = || greeting_request(&format!("localhost:{port}"));
-        let cramped = crate::net::send(
-            &namespace,
-            &cred_within(Some(MAX_READ_BUFFER + 2 * MAX_SOCKET_BUFFER)),
-            request(),
+        let cred = crate::security::restrict_self(
+            &prepare_creds(&[], None),
+            [&crate::grant::Grant::Network(network.clone())],
         )
-        .map(|exchange| read_response(&exchange).map(|(head, _)| head.status));
-        let roomy = crate::net::send(&namespace, &cred_within(None), request())
-            .map(|exchange| read_response(&exchange).map(|(head, _)| head.status));
+        .expect("every Mount stands");
+        let exchange = crate::net::send(
+            &namespace,
+            &cred,
+            greeting_request(&format!("localhost:{port}")),
+        )
+        .expect("an endpoint names the authority");
+        let status = read_response(&exchange).map(|(head, _)| head.status);
         assert_eq!(
-            (cramped, roomy, seen.lock().unwrap().clone()),
-            (
-                Ok(Err(HttpError::Internal)),
-                Ok(Ok(200)),
-                vec!["localhost".to_string(), "localhost".to_string()]
-            ),
-            "a guest's request must fail before it reaches the server when the Invocation's \
-             memory cannot hold its upstream socket's buffers, reach it with room, and show the \
-             connect policy only the host the guest named, never an address it resolved to"
+            (status, seen.lock().unwrap().clone()),
+            (Ok(200), vec!["localhost".to_string()]),
+            "a guest's request must reach the server, and show the connect policy only the host \
+             the guest named, never an address it resolved to"
         );
         server.join().unwrap();
     }
@@ -1715,7 +1754,7 @@ mod tests {
             greeting_request(&format!("127.0.0.1:{port}")),
         )
         .expect("the endpoint names the authority");
-        let tight = prepare_creds(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER));
+        let tight = prepare_creds(&[], Some(MAX_READ_BUFFER));
         let unheld = crate::net::send(
             &namespace,
             &tight,
@@ -2330,40 +2369,48 @@ mod tests {
 
     // @behavior NW-116
     #[test]
-    fn a_socket_and_an_exchange_hold_their_buffers_against_the_invocations_memory() {
-        let mut entry = Builder::default();
-        entry.endpoint(Endpoint::new("api.example.com", 80).unwrap());
-        let network = Network::new("api", Arc::new(entry)).unwrap();
-        let namespace = Namespace::for_network(
-            &network,
-            Arc::new(CountsDials::default()),
-            Arc::new(RecordsSwaps::default()),
-        );
-        let cred = prepare_creds(&[], Some(2 * MAX_SOCKET_BUFFER));
-        let tcp = crate::net::TcpSock::create(&namespace, &cred, crate::net::AddressFamily::Inet);
-        let udp =
-            crate::net::UdpSock::create(&namespace, &cred, crate::net::AddressFamily::Inet).err();
-        let sent = crate::net::send(
+    fn a_body_past_the_invocations_memory_waits_for_the_guest_to_read() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let size = 1 << 20;
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let mut head = [0; 1024];
+            let _ = stream.read(&mut head);
+            let header = format!("HTTP/1.1 200 OK\r\ncontent-length: {size}\r\n\r\n");
+            stream.write_all(header.as_bytes()).unwrap();
+            let body = (0..size).map(|i| (i % 251) as u8).collect::<Vec<_>>();
+            let _ = stream.write_all(&body);
+        });
+        let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
+        let limit = MAX_READ_BUFFER + 32 * 1024;
+        let cred = prepare_creds(&[], Some(limit));
+        let exchange = crate::net::send(
             &namespace,
             &cred,
-            OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80"),
+            greeting_request(&format!("127.0.0.1:{port}")),
         )
-        .err();
-        let made = tcp.is_ok();
-        drop(tcp);
-        let again =
-            crate::net::UdpSock::create(&namespace, &cred, crate::net::AddressFamily::Inet).is_ok();
-        assert_eq!(
-            (made, udp, sent, again),
-            (
-                true,
-                Some(Errno::OutOfMemory),
-                Some(HttpError::Internal),
-                true
-            ),
-            "with a memory_limit holding one TCP socket's buffers, a UDP socket must answer \
-             ENOMEM and a request fail before it is sent, and a UDP socket must be made once the \
-             TCP socket is gone"
+        .expect("the request and the read buffer fit the memory");
+        let mut body = Vec::new();
+        let mut buf = [0; 4096];
+        let started = std::time::Instant::now();
+        while body.len() < size && started.elapsed() < Duration::from_secs(10) {
+            match exchange.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => body.extend_from_slice(&buf[..n]),
+                Err(_) => thread::sleep(Duration::from_millis(1)),
+            }
+        }
+        server.join().unwrap();
+        let past = cred.memory_budget().peak().saturating_sub(limit);
+        let one_read = sk_mem_pages(truesize_of(16 * 1024));
+        let expected = (0..size).map(|i| (i % 251) as u8).collect::<Vec<_>>();
+        assert!(
+            body == expected && past <= 2 * one_read,
+            "a 1 MiB body under a memory_limit leaving 32 KiB past the request must reach the \
+             guest whole and in order, the socket and the body each taking past the limit only \
+             one read of {one_read} bytes; got {} bytes, {past} past the limit",
+            body.len()
         );
     }
 
@@ -2400,7 +2447,7 @@ mod tests {
                 Arc::new(CountsDials::default()),
                 Arc::new(AnswersHeader(size)),
             );
-            let cred = prepare_creds(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER + 16 * 1024));
+            let cred = prepare_creds(&[], Some(MAX_READ_BUFFER + 16 * 1024));
             let exchange = crate::net::send(
                 &namespace,
                 &cred,
@@ -2428,7 +2475,7 @@ mod tests {
             Arc::new(CountsDials::default()),
             Arc::new(AnswersHeader(24 * 1024)),
         );
-        let cred = prepare_creds(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER + 40 * 1024));
+        let cred = prepare_creds(&[], Some(MAX_READ_BUFFER + 40 * 1024));
         let exchange = crate::net::send(
             &namespace,
             &cred,
@@ -2438,7 +2485,7 @@ mod tests {
         read_response(&exchange).expect("a 24 KiB head fits the memory");
         exchange.release();
         // Everything but the head: what the exchange gave back on release.
-        let rest = MAX_READ_BUFFER + MAX_SOCKET_BUFFER + 30 * 1024;
+        let rest = MAX_READ_BUFFER + 30 * 1024;
         let while_held = MemoryCharge::new(cred.memory_budget(), rest).is_ok();
         drop(exchange);
         let after = MemoryCharge::new(cred.memory_budget(), rest).is_ok();
@@ -2447,7 +2494,7 @@ mod tests {
             (false, true),
             "a response whose 24 KiB head was read and its body finished must keep that head \
              against the Invocation's memory while the guest holds the response, so the \
-             buffers and 30 KiB more are refused, and give it back once the response is dropped"
+             read buffer and 30 KiB more are refused, and give it back once the response is dropped"
         );
     }
 
@@ -2654,7 +2701,7 @@ mod tests {
             Arc::new(CountsDials::default()),
             Arc::new(NeverAnswers),
         );
-        let cred = prepare_creds(&[], Some(MAX_READ_BUFFER + MAX_SOCKET_BUFFER + 40 * 1024));
+        let cred = prepare_creds(&[], Some(MAX_READ_BUFFER + 40 * 1024));
         let mut request = OutgoingRequest::new("GET", Scheme::Http, "api.example.com:80");
         request.path_with_query = format!("/{}", "p".repeat(30 * 1024));
         let exchange =

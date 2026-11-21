@@ -805,7 +805,7 @@ mod tests {
         let (namespace, cred, family, seen) = namespace(&[true]);
         let ipv6 = dial(&namespace, &cred, "[::1]:4567".parse().unwrap()).err();
         let unmapped = dial(&namespace, &cred, "198.18.5.5:4567".parse().unwrap()).err();
-        let sock = UdpSock::new(&cred).expect("an unbounded socket is made");
+        let sock = UdpSock::new(&cred);
         let bound = sys_bind(&namespace, &cred, sock.as_ref(), "[::]:0".parse().unwrap()).err();
         let judged = seen
             .lock()
