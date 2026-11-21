@@ -2987,3 +2987,15 @@ endpoint "api.example.com", port: 443
 | Given | a process whose guest exchanged data over a host socket, then forked outside any run |
 | When | the child's guest connects and exchanges data again |
 | Then | the exchange answers as in the parent. A forked child inherits no thread, so what watches its sockets is its own |
+
+## `NW-238` A script's Net::HTTP sends its request body within its read timeout
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-068` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a loopback server that never reads the request body |
+| When | the script posts a megabyte body, its `write_timeout` a hundredth of a second |
+| Then | it raises `Net::ReadTimeout` once `read_timeout` passes from the connect. `write_timeout` bounds no wait, since the host holds the whole body before the request leaves. CRuby's raises `Net::WriteTimeout` once the body fills the socket buffers, and starts `read_timeout` once it is written |
