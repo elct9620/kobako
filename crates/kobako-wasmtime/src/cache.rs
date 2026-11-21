@@ -20,9 +20,10 @@
 
 #[cfg(unix)]
 mod unix;
+#[cfg(windows)]
+mod windows;
 
 use std::collections::HashMap;
-#[cfg(unix)]
 use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::fs;
@@ -30,12 +31,12 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
-use std::time::Duration;
-#[cfg(unix)]
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 
 #[cfg(unix)]
 use unix::PrivateDir;
+#[cfg(windows)]
+use windows::PrivateDir;
 
 use sha2::{Digest, Sha256};
 use wasmtime::{Config as WtConfig, Engine as WtEngine, Module as WtModule};
@@ -152,7 +153,6 @@ pub(crate) fn load_module(path: &Path) -> Result<WtModule, SetupError> {
 /// Retention window for unused cache entries. A hit refreshes the
 /// artifact's mtime, so only entries no process has loaded for the
 /// whole window are removed by `prune_stale`.
-#[cfg(unix)]
 const ARTIFACT_TTL: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 
 /// Content addressing makes a rebuilt Guest Binary a new entry rather than
@@ -164,7 +164,7 @@ const ARTIFACT_TTL: Duration = Duration::from_secs(30 * 24 * 60 * 60);
 fn artifact_path(engine: &WtEngine, wasm_bytes: &[u8]) -> Option<PathBuf> {
     let base = std::env::var_os("XDG_CACHE_HOME")
         .map(PathBuf::from)
-        .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache")))?;
+        .or_else(cache_home)?;
     let digest = Sha256::digest(wasm_bytes);
     let mut name = String::with_capacity(96);
     for byte in digest {
@@ -172,6 +172,19 @@ fn artifact_path(engine: &WtEngine, wasm_bytes: &[u8]) -> Option<PathBuf> {
     }
     let _ = write!(name, "-{:016x}.cwasm", engine_key(engine));
     Some(base.join("kobako").join(name))
+}
+
+/// Where the platform keeps a user's caches when `XDG_CACHE_HOME` names
+/// none: `~/.cache` on Unix, as the XDG Base Directory spec sets, and the
+/// local application data folder on Windows.
+#[cfg(unix)]
+fn cache_home() -> Option<PathBuf> {
+    std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".cache"))
+}
+
+#[cfg(windows)]
+fn cache_home() -> Option<PathBuf> {
+    std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
 }
 
 /// wasmtime's hash of everything an artifact's compatibility depends on,
@@ -185,15 +198,14 @@ fn engine_key(engine: &WtEngine) -> u64 {
 
 /// A hit refreshes the file's mtime, so the retention window measures time
 /// since last use rather than since creation.
-#[cfg(unix)]
 fn load_artifact(engine: &WtEngine, artifact: &Path) -> Option<WtModule> {
     let dir = PrivateDir::open(artifact.parent()?)?;
     let file = dir.open_entry(artifact.file_name()?)?;
     let _ = file.set_modified(SystemTime::now());
     // SAFETY: `Module::deserialize_open_file` trusts the artifact bytes
     // and needs them unchanged while the Module lives. The file was
-    // opened through the directory `PrivateDir::open` checked, which only
-    // the current user can write, so it is an artifact this module
+    // opened through the directory `PrivateDir::open` checked, which no
+    // other user can write, so it is an artifact this module
     // stored, addressed by the content hash of the Guest Binary being
     // constructed — it carries exactly that binary's trust.
     unsafe { WtModule::deserialize_open_file(engine, file) }.ok()
@@ -205,7 +217,6 @@ fn load_artifact(engine: &WtEngine, artifact: &Path) -> Option<WtModule> {
 /// unsafe deserialize would trust. Failures are swallowed because the
 /// cache is only an optimisation, and pruning on write keeps the
 /// directory bounded across rebuilds.
-#[cfg(unix)]
 fn store_artifact(module: &WtModule, artifact: &Path) {
     use std::io::Write as _;
     let (Some(dir), Some(name)) = (artifact.parent(), artifact.file_name()) else {
@@ -235,19 +246,8 @@ fn store_artifact(module: &WtModule, artifact: &Path) {
     }
 }
 
-/// The disk cache trusts its directory's owner, which only Unix reports,
-/// so elsewhere every process compiles the Guest Binary itself.
-#[cfg(not(unix))]
-fn load_artifact(_engine: &WtEngine, _artifact: &Path) -> Option<WtModule> {
-    None
-}
-
-#[cfg(not(unix))]
-fn store_artifact(_module: &WtModule, _artifact: &Path) {}
-
 /// Live temp files are seconds old and never qualify; foreign file names
 /// are left untouched.
-#[cfg(unix)]
 fn prune_stale(dir: &PrivateDir, keep: &OsStr) {
     for (name, modified) in dir.entries() {
         if name == keep || !name.to_str().is_some_and(is_cache_entry_name) {
@@ -262,7 +262,6 @@ fn prune_stale(dir: &PrivateDir, keep: &OsStr) {
     }
 }
 
-#[cfg(unix)]
 fn is_cache_entry_name(name: &str) -> bool {
     name.ends_with(".cwasm") || name.contains(".tmp")
 }
@@ -301,7 +300,6 @@ mod tests {
     // Two writers in one process take temp files in turn; each must get a
     // file of its own rather than reopen the other's.
     // @behavior RT-113
-    #[cfg(unix)]
     #[test]
     fn two_writers_of_one_artifact_never_share_a_temp_file() {
         let root = std::env::temp_dir().join(format!("kobako-temp-{}", std::process::id()));

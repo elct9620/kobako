@@ -1072,6 +1072,7 @@ dependencies = [
  "wasmtime",
  "wasmtime-wasi",
  "wiggle",
+ "windows-sys 0.61.2",
  "wit-bindgen-core 0.63.0",
 ]
 
