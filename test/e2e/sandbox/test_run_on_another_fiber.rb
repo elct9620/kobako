@@ -9,6 +9,7 @@ require "weakref"
 # of what its guest held.
 class TestE2ERunOnAnotherFiber < Minitest::Test
   include E2eGuestHelper
+  include Collector
 
   # @behavior S-225
   def test_runs_on_two_fibers_of_one_thread_end_in_either_order
@@ -37,13 +38,12 @@ class TestE2ERunOnAnotherFiber < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", Kobako::Filesystem::Tmpfs.new,
                                                               access: :read_write)
     filesystem, fiber = Thread.new { abandon_with_context_mount(sandbox) }.value
-    3.times { GC.start }
     sandbox.eval("1")
-    3.times { GC.start }
 
-    assert_equal [false, false], [filesystem.weakref_alive? || false, fiber.weakref_alive? || false],
+    assert_empty still_reachable(filesystem, fiber),
                  "a Fiber left suspended in the block of a mount its Sandbox#eval Context made, the block " \
-                 "closing over the Fiber's scope, must be collected along with the mounted Tmpfs"
+                 "closing over the Fiber's scope, on a Thread that ended, must be collected along with the " \
+                 "mounted Tmpfs"
   end
 
   # @behavior S-233
@@ -120,14 +120,18 @@ class TestE2ERunOnAnotherFiber < Minitest::Test
     end
   end
 
-  # Leave the Fiber running +block+ suspended where it yields, then collect it.
-  # The Fiber lives on a Thread of its own, as the collector scans each
-  # Thread's stack conservatively and a stray word left on this one would keep
-  # the Fiber alive.
+  # Leave the Fiber running +block+ suspended where it yields, as a Host App
+  # does, on a Thread that then ends, and wait for the collector to free it.
+  # The collector scans each live Thread's stack conservatively, so a Fiber
+  # left on this one could stay reachable through a stray word.
   def abandon_suspended_run(&block)
-    parked = Thread.new { Fiber.new(&block).resume }.value
-    assert_equal :parked, parked, "the run must suspend its Fiber where the mount's block yields"
-    3.times { GC.start }
+    fiber = Thread.new do
+      parked = Fiber.new(&block)
+      assert_equal :parked, parked.resume, "the run must suspend its Fiber where the mount's block yields"
+      WeakRef.new(parked)
+    end.value
+    assert_empty still_reachable(fiber),
+                 "the collector must free a Fiber whose Thread ended; one it keeps is reached from elsewhere"
   end
 
   # What the block answers, beside whether it answered within +seconds+.

@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E — the threads guests run on, kept for the next run and ended once idle
-# past their limit. Linux names each thread in /proc, so the child counts the
+# past their limit, after which a run still answers. Linux names each thread in /proc, so the child counts the
 # guest threads there; the count belongs to the process, so it runs alone. A
 # thread that ends between the listing and its read counts as gone.
 class TestE2EIdleGuestThreads < Minitest::Test
@@ -19,16 +19,16 @@ class TestE2EIdleGuestThreads < Minitest::Test
     kept = guest_threads
     sleep 11
     ended = guest_threads
-    sandbox.eval("1")
-    print [kept, ended, guest_threads].inspect
+    answer = sandbox.eval("1 + 1").value
+    print [kept, ended, answer, guest_threads].inspect
   RUBY
 
   # @behavior S-232
-  def test_a_guests_thread_left_idle_ends
+  def test_a_run_after_the_guest_threads_were_left_idle_still_answers
     skip "only Linux names each thread in /proc" unless File.directory?("/proc/self/task")
 
-    assert_equal "[3, 0, 1]", run_ruby(CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 40),
+    assert_equal "[3, 0, 2, 1]", run_ruby(CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 40),
                  "three Sandbox#eval runs at once must leave three guest threads, which must end after ten " \
-                 "seconds idle, and a later run must start one again"
+                 "seconds idle, and a later Sandbox#eval(\"1 + 1\") must answer 2 on one guest thread it starts"
   end
 end
