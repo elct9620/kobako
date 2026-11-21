@@ -3843,10 +3843,21 @@ mod tests {
         }
         let preview2 = |module: &str| module.starts_with("wasi:") && module.contains("@0.2");
         let mut imported = std::collections::BTreeSet::new();
+        // Read without compiling, as the import section alone answers.
         for binary in &binaries {
-            let module = crate::cache::load_module(binary).expect("a Guest Binary must load");
-            for import in module.imports().filter(|import| preview2(import.module())) {
-                imported.insert((import.module().to_string(), import.name().to_string()));
+            let bytes = std::fs::read(binary).expect("a Guest Binary reads");
+            for payload in wasmparser::Parser::new(0).parse_all(&bytes) {
+                let wasmparser::Payload::ImportSection(section) =
+                    payload.expect("the Guest Binary parses")
+                else {
+                    continue;
+                };
+                for import in section.into_imports() {
+                    let import = import.expect("an import parses");
+                    if preview2(import.module) {
+                        imported.insert((import.module.to_string(), import.name.to_string()));
+                    }
+                }
             }
         }
         let (mut store, _) = guest(Profile::Hermetic, None);
