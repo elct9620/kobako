@@ -21,7 +21,8 @@ Every change follows these rules. An earlier row wins on conflict.
 | Code | `vfs` aligns behavior and logic to Linux VFS; `filesystem` follows the spec |
 | Code | Fix a gap in its own layer; wrapper changes go to `beni` upstream |
 | Tooling | `bundle exec rake` is the gate |
-| Tooling | `rake hooks:install` once per clone, so a push first runs the Linux-only tests |
+| Tooling | `rake hooks:install` once per clone, so a push first runs the Rust tests only Linux builds |
+| Tooling | Push a change a Linux-only Ruby test witnesses after it passes in a container |
 | Tooling | Fit the code to a lint; widen only for an RBS conflict or wiggle output |
 | Tooling | Reach for a stdlib RBS `library` first |
 | Docs | State what and why, never mechanism; source and crate READMEs cite nothing in `docs/` |
