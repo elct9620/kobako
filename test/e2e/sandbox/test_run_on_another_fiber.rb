@@ -46,7 +46,37 @@ class TestE2ERunOnAnotherFiber < Minitest::Test
                  "closing over the Fiber's scope, must be collected along with the mounted Tmpfs"
   end
 
+  # @behavior S-233
+  def test_a_run_on_a_fiber_a_callback_starts_holds_locks_as_the_callbacks_run
+    %i[hold release].each do |gvl|
+      assert_equal [Kobako::SandboxError, true], write_from_enumerator_in_mount_block(gvl),
+                   "a Sandbox#eval (gvl: #{gvl}) an Enumerator runs inside a mount's block, writing to the Tmpfs " \
+                   "the block's run holds, must fail at once as a deadlock"
+    end
+  end
+
   private
+
+  # What a run on an Enumerator raises, writing to the Tmpfs whose directory
+  # the outer run holds while its mount's block runs it, beside whether it
+  # answered within a second.
+  def write_from_enumerator_in_mount_block(gvl)
+    tmpfs = Kobako::Filesystem::Tmpfs.new
+    inner = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl, timeout: 5).mount("/data", tmpfs, access: :read_write)
+    seen = nil
+    outer = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl).mount("/data", tmpfs, access: :read_write) do
+      seen ||= Enumerator.new { |y| y << within(1) { refused { inner.eval('File.write("/data/b", "2")') } } }.next
+    end
+    outer.eval('File.write("/data/a", "1")')
+    seen
+  end
+
+  def refused
+    yield
+    nil
+  rescue Kobako::SandboxError, Kobako::TimeoutError => e
+    e.class
+  end
 
   # Weak references to the Tmpfs a Context mounted and the Fiber left suspended
   # in that mount's block, which closes over the Fiber's own scope.

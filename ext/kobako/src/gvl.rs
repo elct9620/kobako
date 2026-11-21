@@ -287,7 +287,7 @@ where
     R: Send + 'static,
     F: FnOnce() -> R + Send + 'static,
 {
-    let run = escape::Run::enter();
+    let run = escape::Run::enter(ruby);
     let f = setup()?;
     let ran = serve(ruby, release, run.state(), f);
     run.finish()?;

@@ -83,7 +83,12 @@ Overlay's Layer is built once with the Overlay and shared by every run.
 | a Mutex another Thread holds while it runs a Sandbox on the Filesystem | both Threads wait |
 | `Thread#join` or `Queue#pop` on such a Thread | the same |
 | a run whose Mounts lead back to this Filesystem's callbacks | two such runs may wait on each other |
+| a run on a Fiber it starts, as an `Enumerator` does, reaching this Filesystem | refused at once as a deadlock |
+| the same Fiber made with `storage: nil` | waits as another Thread's run does |
 | work on the calling Thread alone | safe |
+
+A run marks each Fiber it starts through Fiber storage, under `:kobako_run`. A
+Fiber inheriting the mark holds locks as that run.
 
 Only the run waiting for the directory lock can end it, at its `timeout` or an
 interrupt of its Thread. The callback's own wait never ends alone.

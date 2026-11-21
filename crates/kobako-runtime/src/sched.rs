@@ -103,6 +103,19 @@ impl Current {
         })))
     }
 
+    /// A task nobody carries out yet that every lock knows as this one, as a
+    /// run its frontend starts inside this one's work: it holds what this one
+    /// holds and is refused what this one would wait on itself, while its
+    /// deadline and interrupts stay its own.
+    pub fn fresh_as(&self) -> Self {
+        Self(Arc::new(Mutex::new(State {
+            id: self.state().id,
+            task: Task::default(),
+            deadline: None,
+            depth: 0,
+        })))
+    }
+
     /// What the calling thread carries out: the task it carries in another's
     /// place, the one its frontend tracks, or its own.
     pub fn get() -> Self {
