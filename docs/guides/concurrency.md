@@ -117,13 +117,31 @@ interrupt of its Thread. The callback's own wait never ends alone.
 
 ## Forking
 
-A forked child keeps only the Thread that forked. A lock a run held stays held
-in the child, so fork while no run is in progress.
+A forked child keeps only the Thread that forked, so a lock a run held would
+stay held in the child. Once a Sandbox is built, every fork through Ruby
+first waits for the runs in progress. `Kernel#fork`, `IO.popen("-")`, and
+`Process.daemon` all wait.
 
-| Fork | Child |
+| Fork | Outcome |
 |---|---|
-| outside any run, as a preloading server does | runs Sandboxes as usual |
-| while a run is in progress, a Service's included | may wait forever on a lock that run held |
+| outside any run, as a preloading server does | forks at once |
+| while another Thread's run is in progress | warns, then waits for that run to end |
+| from a Service, or beside a Fiber suspended in a run on the same Thread | raises `RuntimeError` |
+| on macOS, after a guest's HTTPS | raises `RuntimeError` naming that server |
+
+The refusals raise `RuntimeError`, not a `Kobako::Error`. A `rescue` for a
+failed run never catches one by mistake.
+
+macOS verifies a certificate through system services whose threads a child
+does not inherit. A child that touches them crashes. So a preloading server
+forks before any guest makes an HTTPS request. Under Pitchfork, kobako calls
+`Pitchfork::Info.no_longer_fork_safe!` once the first such run ends, and
+Pitchfork forks from another worker.
+
+| Watch for | Because |
+|---|---|
+| a `fork(2)` another C extension makes | it skips the wait; make it while no run is in progress |
+| a `_fork` hook prepended after the first Sandbox that stops a service | it stops it before the wait; a run needing it never ends, nor the wait |
 
 ## Rust SDK
 
@@ -158,3 +176,7 @@ gem always has it on.
 
 The choice holds for the whole process. A wasmtime Engine the host builds
 itself must make the same one, or building it panics.
+
+The SDK does not check a fork, as the Ruby gem does. A Rust host forks only
+while no run is in progress. On macOS it forks before any guest makes an
+HTTPS request.

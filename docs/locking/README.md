@@ -292,7 +292,7 @@ The models check the group order and each edge's rule with TLC. A model of a bro
 | `ForkGate` | a fork's prepare beside a callback waiting for another Thread's run | ok |
 | `ForkGateCloseEarly` | the same with the gate closing as the wait starts | deadlock |
 
-`Locks.tla` is the thread model each edge's model builds on; `Handoff.tla` stands apart, as it models one run's two threads, and so does `ForkGate.tla`, as it models runs rather than locks.
+`Locks.tla` is the thread model each edge's model builds on; `Handoff.tla` stands apart, as it models one run's two threads. `ForkGate.tla` stands apart too, as it models runs rather than locks.
 
 ### Model Checks
 
