@@ -1,5 +1,27 @@
 # Changelog
 
+## [0.22.0](https://github.com/elct9620/kobako/compare/kobako-wasmtime-v0.21.0...kobako-wasmtime-v0.22.0) (2026-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **vfs:** a FileOperations implementing iterate_shared must also return true from has_iterate_shared, or its listings answer NotADirectory.
+* **vfs:** a guest now holds one preopen, `/`, at descriptor 3, instead of one per outermost Mount named by its path. A Guest Binary built on wasi-libc is unaffected; one that reads a Mount through descriptor 3 directly walks from `/` now, or the Host App mounts its Filesystem at `/`. `kobako_runtime::mount::outermost_of` is removed; a Wasm Driver opens `Cred::root` instead.
+
+### Features
+
+* **vfs:** preopen the guest's root alone, beneath which every Mount stands ([2a6d18d](https://github.com/elct9620/kobako/commit/2a6d18d78814f0529b15e109bbcd50f8b372e51b))
+* **wasmtime:** let a forked child on macOS run Sandboxes on any Thread ([a78375a](https://github.com/elct9620/kobako/commit/a78375a440614eb14dee722365702bb3bab5a23c))
+
+
+### Bug Fixes
+
+* **net:** move each request on the thread that waits for it ([425f82a](https://github.com/elct9620/kobako/commit/425f82abc5fc0b78774d0ae4e448a13a547bac29))
+* **vfs:** keep each Filesystem's moves to the walks on it ([42062b9](https://github.com/elct9620/kobako/commit/42062b9c2f22e00f6317fa92ebd6abe2b3fd76b0))
+* **vfs:** refuse a listing of a file without iterate_shared before locking it ([34eb327](https://github.com/elct9620/kobako/commit/34eb3273cd537ccbd2b7a3592ece38da79d60d2f))
+* **wasmtime:** ask the OS for a permissive guest's entropy on each draw ([fcfaca4](https://github.com/elct9620/kobako/commit/fcfaca49d0067d1d372e24e680004d04cd0f41ee))
+* **wasmtime:** stop a guest that only computes once its run takes a fatal signal ([32990b6](https://github.com/elct9620/kobako/commit/32990b63cd6ae16c5d8a0e473a218d46d29c8919))
+
 ## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-wasmtime-v0.20.0...kobako-wasmtime-v0.21.0) (2026-11-18)
 
 

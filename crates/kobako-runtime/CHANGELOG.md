@@ -1,5 +1,37 @@
 # Changelog
 
+## [0.22.0](https://github.com/elct9620/kobako/compare/kobako-runtime-v0.21.0...kobako-runtime-v0.22.0) (2026-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **gvl:** a Service of a Sandbox releasing the GVL no longer takes interrupts the Host App's own Thread.handle_interrupt mask defers; it takes them as that mask allows, as under gvl: :hold. The warning a run releasing the GVL gave on the main Thread is gone.
+* **vfs:** a FileOperations implementing iterate_shared must also return true from has_iterate_shared, or its listings answer NotADirectory.
+* **vfs:** a guest now holds one preopen, `/`, at descriptor 3, instead of one per outermost Mount named by its path. A Guest Binary built on wasi-libc is unaffected; one that reads a Mount through descriptor 3 directly walks from `/` now, or the Host App mounts its Filesystem at `/`. `kobako_runtime::mount::outermost_of` is removed; a Wasm Driver opens `Cred::root` instead.
+* **security:** a Sandbox whose nested mount path passes a host link, at its last name or above it, now fails each run with "stands nowhere: ELOOP" instead of standing where the link leads. Mount the directory the link leads to by its own path instead.
+
+### Features
+
+* **sandbox:** have a fork wait for the runs in progress, or raise where it cannot ([3c33928](https://github.com/elct9620/kobako/commit/3c3392818a0454cfd72fc720560afc32b0a04aa5))
+* **vfs:** preopen the guest's root alone, beneath which every Mount stands ([2a6d18d](https://github.com/elct9620/kobako/commit/2a6d18d78814f0529b15e109bbcd50f8b372e51b))
+
+
+### Bug Fixes
+
+* **fork:** tell a descendant apart from the ancestor whose pid it reuses ([15f6540](https://github.com/elct9620/kobako/commit/15f6540488a1a44a817a7f0349ca767a01fd0829))
+* **gvl:** have a run on a Fiber a callback starts hold locks as that run ([723db42](https://github.com/elct9620/kobako/commit/723db4236131c95f140bef07e583e014e2ac8168))
+* **gvl:** run each guest on a thread of its own, served by its caller ([7710c21](https://github.com/elct9620/kobako/commit/7710c212552415eaa4dd683d54e20d5aad89de26))
+* **net:** draw each DNS query ID from the kernel ([99548ed](https://github.com/elct9620/kobako/commit/99548ed51cb73123a529072f49926b887a6a30e4))
+* **net:** move each request on the thread that waits for it ([425f82a](https://github.com/elct9620/kobako/commit/425f82abc5fc0b78774d0ae4e448a13a547bac29))
+* **net:** never let a Windows lookup's completion wait on its cancel ([020673b](https://github.com/elct9620/kobako/commit/020673baaaf438e3bf62655101d43a87c0ee4760))
+* **sched:** let a wait go on through a wakeup that raises nothing ([cf7f484](https://github.com/elct9620/kobako/commit/cf7f484ca645be1a0c64b0f9530b6e39034d3db3))
+* **security:** refuse a nested mount whose path passes a link ([71abead](https://github.com/elct9620/kobako/commit/71abead05818696ef9a2e2b9082bb871087cfa34))
+* **vfs:** climb out of the walk's own Filesystem mounted again ([1cf46c2](https://github.com/elct9620/kobako/commit/1cf46c2ba61af87631208ae2aed0471b419bb531))
+* **vfs:** keep each Filesystem's moves to the walks on it ([42062b9](https://github.com/elct9620/kobako/commit/42062b9c2f22e00f6317fa92ebd6abe2b3fd76b0))
+* **vfs:** refuse a listing of a file without iterate_shared before locking it ([34eb327](https://github.com/elct9620/kobako/commit/34eb3273cd537ccbd2b7a3592ece38da79d60d2f))
+* **vfs:** wake a name's waiters and a move's readers when a panic unwinds ([515343c](https://github.com/elct9620/kobako/commit/515343c71075517c7c4b9a05624df2ef733b62bc))
+* **wasmtime:** stop a guest that only computes once its run takes a fatal signal ([32990b6](https://github.com/elct9620/kobako/commit/32990b63cd6ae16c5d8a0e473a218d46d29c8919))
+
 ## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-runtime-v0.20.0...kobako-runtime-v0.21.0) (2026-11-18)
 
 

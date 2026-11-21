@@ -1,5 +1,48 @@
 # Changelog
 
+## [0.32.0](https://github.com/elct9620/kobako/compare/v0.31.0...v0.32.0) (2026-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **gvl:** a Service of a Sandbox releasing the GVL no longer takes interrupts the Host App's own Thread.handle_interrupt mask defers; it takes them as that mask allows, as under gvl: :hold. The warning a run releasing the GVL gave on the main Thread is gone.
+* **sandbox:** `Kobako::Pool` and `Kobako::PoolTimeoutError` are removed. Share one `Kobako::Sandbox` across Threads instead; a Host App that needs a bound on concurrent runs or a checkout timeout keeps one of its own, such as a `Thread::SizedQueue` or the `connection_pool` gem.
+* **vfs:** a guest now holds one preopen, `/`, at descriptor 3, instead of one per outermost Mount named by its path. A Guest Binary built on wasi-libc is unaffected; one that reads a Mount through descriptor 3 directly walks from `/` now, or the Host App mounts its Filesystem at `/`. `kobako_runtime::mount::outermost_of` is removed; a Wasm Driver opens `Cred::root` instead.
+* **security:** a Sandbox whose nested mount path passes a host link, at its last name or above it, now fails each run with "stands nowhere: ELOOP" instead of standing where the link leads. Mount the directory the link leads to by its own path instead.
+
+### Features
+
+* **gvl:** hand a run's wait on its guest to the Fiber scheduler ([cace4d4](https://github.com/elct9620/kobako/commit/cace4d4cfb2fb168b2e69ab26b0374e48975e6c2))
+* **sandbox:** have a fork wait for the runs in progress, or raise where it cannot ([3c33928](https://github.com/elct9620/kobako/commit/3c3392818a0454cfd72fc720560afc32b0a04aa5))
+* **sandbox:** remove Kobako::Pool, as Threads share one Sandbox ([f06ee29](https://github.com/elct9620/kobako/commit/f06ee2968231d1fb69334e46a878c42f161520ac))
+* **vfs:** preopen the guest's root alone, beneath which every Mount stands ([2a6d18d](https://github.com/elct9620/kobako/commit/2a6d18d78814f0529b15e109bbcd50f8b372e51b))
+* **wasmtime:** let a forked child on macOS run Sandboxes on any Thread ([a78375a](https://github.com/elct9620/kobako/commit/a78375a440614eb14dee722365702bb3bab5a23c))
+
+
+### Bug Fixes
+
+* **filesystem:** keep a Ruby Filesystem's directory listing as the VFS asks first ([5118802](https://github.com/elct9620/kobako/commit/5118802b71bbbe04f68d6f21dde91af13e877d0b))
+* **gvl:** end a guest's thread left idle for ten seconds ([be70303](https://github.com/elct9620/kobako/commit/be70303952e19e994e00e9ab92c66e4a6b524a57))
+* **gvl:** have a run on a Fiber a callback starts hold locks as that run ([723db42](https://github.com/elct9620/kobako/commit/723db4236131c95f140bef07e583e014e2ac8168))
+* **gvl:** have the run's caller mark what the run pinned, rather than root it ([001c09f](https://github.com/elct9620/kobako/commit/001c09fc6c4272b92b843d138e4c39c9250fc614))
+* **gvl:** hold what Ruby delivers while the guest runs, in either mode ([12b3067](https://github.com/elct9620/kobako/commit/12b306780be7bcbcce013d05d635c10b5cd47888))
+* **gvl:** keep a Service's throw on its target past Ruby the run calls ([a4cffb7](https://github.com/elct9620/kobako/commit/a4cffb72a1b118a69abf461946d0675864961300))
+* **gvl:** run each guest on a thread of its own, served by its caller ([7710c21](https://github.com/elct9620/kobako/commit/7710c212552415eaa4dd683d54e20d5aad89de26))
+* **net:** move each request on the thread that waits for it ([425f82a](https://github.com/elct9620/kobako/commit/425f82abc5fc0b78774d0ae4e448a13a547bac29))
+* **sandbox:** refuse a run another Fiber starts while one on its Thread waits ([582795b](https://github.com/elct9620/kobako/commit/582795b80995fe94839e23462a5806ba6fd4f1f9))
+* **sched:** let a wait go on through a wakeup that raises nothing ([cf7f484](https://github.com/elct9620/kobako/commit/cf7f484ca645be1a0c64b0f9530b6e39034d3db3))
+* **security:** refuse a nested mount whose path passes a link ([71abead](https://github.com/elct9620/kobako/commit/71abead05818696ef9a2e2b9082bb871087cfa34))
+* **vfs:** climb out of the walk's own Filesystem mounted again ([1cf46c2](https://github.com/elct9620/kobako/commit/1cf46c2ba61af87631208ae2aed0471b419bb531))
+* **vfs:** keep each Filesystem's moves to the walks on it ([42062b9](https://github.com/elct9620/kobako/commit/42062b9c2f22e00f6317fa92ebd6abe2b3fd76b0))
+* **vfs:** wake a name's waiters and a move's readers when a panic unwinds ([515343c](https://github.com/elct9620/kobako/commit/515343c71075517c7c4b9a05624df2ef733b62bc))
+* **wasmtime:** ask the OS for a permissive guest's entropy on each draw ([fcfaca4](https://github.com/elct9620/kobako/commit/fcfaca49d0067d1d372e24e680004d04cd0f41ee))
+* **wasmtime:** stop a guest that only computes once its run takes a fatal signal ([32990b6](https://github.com/elct9620/kobako/commit/32990b63cd6ae16c5d8a0e473a218d46d29c8919))
+
+
+### Performance Improvements
+
+* **gvl:** spin before a guest's thread sleeps waiting for the next run ([5719de5](https://github.com/elct9620/kobako/commit/5719de5110e03563dbca6df4e7bf487b58de8c20))
+
 ## [0.31.0](https://github.com/elct9620/kobako/compare/v0.30.0...v0.31.0) (2026-11-18)
 
 
