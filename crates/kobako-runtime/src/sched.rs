@@ -292,6 +292,17 @@ pub(crate) fn handle_signal() {
     }
 }
 
+/// Handle the signal pending on the calling thread's run, then answer the
+/// fatal signal pending on it, as Linux's `exit_to_user_mode` does each time a
+/// task goes back to running its own code: a guest that only computes meets no
+/// wait to take a signal, so its engine asks here as it ticks.
+pub fn exit_to_user_mode() -> Option<FatalSignal> {
+    if signal_pending() {
+        handle_signal();
+    }
+    pending_fatal_signal()
+}
+
 /// When the calling thread's run is to stop, once it has a deadline.
 pub(crate) fn deadline() -> Option<Instant> {
     Current::get().state().deadline

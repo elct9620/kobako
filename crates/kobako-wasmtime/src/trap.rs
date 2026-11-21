@@ -15,6 +15,7 @@ use wasmtime::{Store, StoreHookState, UpdateDeadline};
 use crate::invocation::Invocation;
 use kobako_runtime::error::{SetupError, Trap};
 use kobako_runtime::memcg::MemoryLimitExceeded;
+use kobako_runtime::sched::{self, FatalSignal};
 
 /// Marker error returned from the epoch-deadline callback when the
 /// wall-clock deadline is exceeded. Downcast from the wasmtime trap
@@ -30,38 +31,47 @@ impl std::fmt::Display for TimeoutTrap {
 
 impl std::error::Error for TimeoutTrap {}
 
-/// Marker error a host-side wait ends with when the frontend interrupts its
-/// thread before the deadline: preview1 answers it EINTR, as a signal ends
-/// Linux's `poll`, and preview2, which has no EINTR, traps with it.
+/// Marker error a run ends with when its frontend interrupts it before the
+/// deadline: a preview1 wait answers it EINTR, as a signal ends Linux's
+/// `poll`; preview2, which has no EINTR, traps with it, and so does a guest
+/// that only computes, at the next tick.
 #[derive(Debug)]
 pub(crate) struct Interrupted;
 
 impl std::fmt::Display for Interrupted {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "the guest's wait was interrupted")
+        write!(f, "the guest was interrupted")
     }
 }
 
 impl std::error::Error for Interrupted {}
 
-/// Epoch delta that keeps the deadline effectively unreachable when no
-/// wall-clock cap is configured. Half the epoch range rather than
-/// `u64::MAX`: wasmtime adds the delta to the engine's current epoch,
-/// which the process-wide ticker advances for the engine's whole
+/// Epoch delta that keeps a test's Store, which installs no deadline
+/// callback, from ever reaching its epoch deadline. Half the epoch range
+/// rather than `u64::MAX`: wasmtime adds the delta to the engine's current
+/// epoch, which the process-wide ticker advances for the engine's whole
 /// lifetime, so the full range overflows the sum (a panic under debug
 /// overflow checks).
+#[cfg(test)]
 pub(crate) const NO_TIMEOUT_EPOCH_DELTA: u64 = u64::MAX / 2;
 
-/// With no deadline the primed `NO_TIMEOUT_EPOCH_DELTA` keeps this from
-/// firing; returning the same long extension keeps it inert as a defence
-/// in depth.
+/// Each tick, the guest's run takes its pending signal and stops on a fatal
+/// one, as a Linux task does on its way back to user space: past the
+/// deadline it traps as a timeout, interrupted it traps as `Interrupted`.
 pub(crate) fn epoch_deadline_callback(
     ctx: StoreHookState<'_, Invocation>,
 ) -> wasmtime::Result<UpdateDeadline> {
-    match ctx.data().deadline() {
-        Some(deadline) if Instant::now() >= deadline => Err(wasmtime::Error::new(TimeoutTrap)),
-        Some(_) => Ok(UpdateDeadline::Continue(1)),
-        None => Ok(UpdateDeadline::Continue(NO_TIMEOUT_EPOCH_DELTA)),
+    if ctx
+        .data()
+        .deadline()
+        .is_some_and(|deadline| Instant::now() >= deadline)
+    {
+        return Err(wasmtime::Error::new(TimeoutTrap));
+    }
+    match sched::exit_to_user_mode() {
+        Some(FatalSignal::Deadline) => Err(wasmtime::Error::new(TimeoutTrap)),
+        Some(FatalSignal::Interrupt) => Err(wasmtime::Error::new(Interrupted)),
+        None => Ok(UpdateDeadline::Continue(1)),
     }
 }
 
@@ -72,19 +82,15 @@ pub(crate) fn to_trap(err: wasmtime::Error) -> Trap {
     cap_trap_of(&err).unwrap_or_else(|| Trap::Other(other_trap_message(&err)))
 }
 
-/// Arm a Store's wall-clock deadline `limit` from now, or none. Epoch
-/// interruption is on engine-wide and a fresh Store's deadline has already
-/// elapsed, so an unbounded Store names one it cannot reach.
+/// Arm a Store's wall-clock deadline `limit` from now, or none. The callback
+/// runs every tick either way, as an unbounded run still stops on a fatal
+/// signal.
 pub(crate) fn arm_deadline(store: &mut Store<Invocation>, limit: Option<Duration>) {
     store.epoch_deadline_callback(epoch_deadline_callback);
     store
         .data_mut()
         .set_deadline(limit.map(|limit| Instant::now() + limit));
-    store.set_epoch_deadline(if limit.is_some() {
-        1
-    } else {
-        NO_TIMEOUT_EPOCH_DELTA
-    });
+    store.set_epoch_deadline(1);
 }
 
 /// The cap trap `err` carries, if a cap fired: a setup step that fails
