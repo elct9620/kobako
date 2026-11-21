@@ -152,8 +152,12 @@ impl<T> Mailbox<T> {
         }
     }
 
-    /// The next value, or `None` once `limit` passes without one.
+    /// The next value, or `None` once `limit` passes without one. It spins
+    /// first, as a run often follows the last at once.
     fn take_within(&self, limit: Duration) -> Option<T> {
+        if let Some(value) = self.take_spinning() {
+            return Some(value);
+        }
         let ends = Instant::now() + limit;
         let mut values = self.values.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
