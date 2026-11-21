@@ -64,6 +64,28 @@ A lock knows its holder by the run, which a run nested in a callback shares. So 
 
 A contention only `:release` shows, such as a `..` meeting a rename on a shared Filesystem, is a lock's scope showing, not the GVL's.
 
+#### Idle Threads
+
+A guest's thread waits idle for the next run, and ends once ten seconds pass, as tokio's blocking pool keeps one. A run that takes it at that moment must still get its job run, or the run waits forever.
+
+```
+guest thread           idle list            run
+     |  limit passes (a)   |                  |
+     |                     |  take (b)        |
+     |                     |<-----------------|
+     |  still listed? (c)  |                  |
+     |-------------------->|                  |
+     |<--------------------|  hand job        |
+     |  wait for job (d)   |<-----------------|
+```
+
+- (a) The thread stops waiting for a job.
+- (b) The run takes a thread off the list under the list's lock.
+- (c) The thread asks under the same lock, so leaving and being taken never both happen. A thread still listed leaves and ends.
+- (d) A thread already taken waits for the job it was handed.
+
+`HandoffIdle.tla` checks the one-lock decision, and `HandoffIdleUnlocked.tla` reaches the wait on a job nobody runs.
+
 ## Lock Groups
 
 Each lock belongs to one lock group, and the groups form an order with no cycle. So a group is checked alone, and only the edges between groups are checked together. `GroupOrder.tla` lists every lock a thread can wait on and every edge.
@@ -289,6 +311,8 @@ The models check the group order and each edge's rule with TLC. A model of a bro
 | `Handoff` | a guest's thread served by its caller, with a nested run and an interrupt | ok |
 | `HandoffThreadIdentity` | the same with each lock knowing its holder by thread | deadlock |
 | `HandoffNoJoin` | the caller returning before its guest ends | deadlock |
+| `HandoffIdle` | an idle thread ending beside a run taking it | ok |
+| `HandoffIdleUnlocked` | the same with the thread deciding apart from leaving the list | deadlock |
 | `ForkGate` | a fork's prepare beside a callback waiting for another Thread's run | ok |
 | `ForkGateCloseEarly` | the same with the gate closing as the wait starts | deadlock |
 
