@@ -39,9 +39,31 @@ pub(super) struct RunState {
     depth: Mutex<usize>,
     /// The line to each guest of the run and its nested runs, innermost last.
     lines: Mutex<Vec<Arc<Line>>>,
+    /// The Ruby objects the run's guests reach, one entry for each pin. The
+    /// run's caller marks them, so the collector keeps them where they stand
+    /// while the caller does, and frees them with a caller that never came back.
+    pins: Mutex<Vec<rb_sys::VALUE>>,
 }
 
 impl RunState {
+    /// Keep `value` for the run.
+    pub(super) fn pin(&self, value: rb_sys::VALUE) {
+        lock(&self.pins).push(value);
+    }
+
+    /// Let go of one pin of `value`.
+    pub(super) fn unpin(&self, value: rb_sys::VALUE) {
+        let mut pins = lock(&self.pins);
+        if let Some(at) = pins.iter().position(|&pinned| pinned == value) {
+            pins.swap_remove(at);
+        }
+    }
+
+    /// The Ruby objects the run keeps, for its caller to mark.
+    pub(super) fn pinned(&self) -> Vec<rb_sys::VALUE> {
+        lock(&self.pins).clone()
+    }
+
     pub(super) fn task(&self) -> &Current {
         &self.task
     }
@@ -97,6 +119,7 @@ impl Run {
                         pending: Arc::default(),
                         depth: Mutex::new(0),
                         lines: Mutex::new(Vec::new()),
+                        pins: Mutex::new(Vec::new()),
                     })
                 })
                 .clone()

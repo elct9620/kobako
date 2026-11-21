@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "weakref"
 
 # E2E — runs on Fibers of one Thread, one suspended inside its own run's
 # callback. Each run's guest stands on a thread of its own, so the runs end in
@@ -31,7 +32,34 @@ class TestE2ERunOnAnotherFiber < Minitest::Test
     end
   end
 
+  # @behavior S-231
+  def test_a_run_whose_fiber_is_collected_while_suspended_lets_the_objects_it_reached_go
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", Kobako::Filesystem::Tmpfs.new,
+                                                              access: :read_write)
+    filesystem, fiber = Thread.new { abandon_with_context_mount(sandbox) }.value
+    3.times { GC.start }
+    sandbox.eval("1")
+    3.times { GC.start }
+
+    assert_equal [false, false], [filesystem.weakref_alive? || false, fiber.weakref_alive? || false],
+                 "a Fiber left suspended in the block of a mount its Sandbox#eval Context made, the block " \
+                 "closing over the Fiber's scope, must be collected along with the mounted Tmpfs"
+  end
+
   private
+
+  # Weak references to the Tmpfs a Context mounted and the Fiber left suspended
+  # in that mount's block, which closes over the Fiber's own scope.
+  def abandon_with_context_mount(sandbox)
+    tmpfs = Kobako::Filesystem::Tmpfs.new
+    fiber = Fiber.new do
+      sandbox.eval('File.write("/data/a", "1")') do |ctx|
+        ctx.mount("/data", tmpfs, access: :read_write) { |_path, access| Fiber.yield(:parked) if access == :read_write }
+      end
+    end
+    assert_equal :parked, fiber.resume, "the run must suspend its Fiber where the mount's block yields"
+    [WeakRef.new(tmpfs), WeakRef.new(fiber)]
+  end
 
   # The answers of two runs on Fibers of this Thread, each suspended in its
   # Service, in the order they were started.

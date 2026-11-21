@@ -1,39 +1,44 @@
-//! A Ruby object Rust holds across calls into the guest, registered with
-//! Ruby's collector so it is neither freed nor moved by compaction while
-//! the holder lives.
+//! A Ruby object Rust holds across calls into the guest, kept for the run it
+//! is made in: the run's caller marks it, so the collector neither frees nor
+//! moves it while the caller stands, and frees it with a caller that never
+//! came back. A root of its own would keep that caller's Fiber alive through a
+//! block that closes over it.
 
-use std::mem::ManuallyDrop;
+use std::sync::Arc;
 
+use magnus::rb_sys::AsRawValue;
 use magnus::value::Opaque;
-use magnus::{Ruby, Value};
+use magnus::Value;
 
-use super::gvl;
+use super::escape::{self, RunState};
 
-pub(crate) struct PinnedValue(ManuallyDrop<Box<Opaque<Value>>>);
+pub(crate) struct PinnedValue {
+    value: Opaque<Value>,
+    /// The value's identity in the run's pins, as letting it go needs no GVL.
+    identity: rb_sys::VALUE,
+    run: Arc<RunState>,
+}
 
 impl PinnedValue {
-    pub(crate) fn new(ruby: &Ruby, value: Value) -> Self {
-        let value = Box::new(Opaque::from(value));
-        ruby.gc_register_address(&*value);
-        Self(ManuallyDrop::new(value))
+    /// Keep `value` for the run the calling Fiber is in.
+    pub(crate) fn new(value: Value) -> Self {
+        let run = escape::current_run().expect("a Ruby object is pinned inside a run");
+        let identity = value.as_raw();
+        run.pin(identity);
+        Self {
+            value: Opaque::from(value),
+            identity,
+            run,
+        }
     }
 
     pub(crate) fn get(&self) -> Opaque<Value> {
-        **self.0
+        self.value
     }
 }
 
 impl Drop for PinnedValue {
     fn drop(&mut self) {
-        let released = gvl::reenter(|| {
-            let ruby = Ruby::get().expect("Ruby handle unavailable releasing a pinned object");
-            ruby.gc_unregister_address(&**self.0);
-        });
-        // With the run's caller gone, the collector still reads the address,
-        // so it stays, keeping the object.
-        if released.is_some() {
-            // SAFETY: the address is unregistered, and nothing reads it again.
-            unsafe { ManuallyDrop::drop(&mut self.0) };
-        }
+        self.run.unpin(self.identity);
     }
 }

@@ -335,7 +335,7 @@ fn to_credential(
 ) -> Result<Credential, MagnusError> {
     let placement = to_placement(ruby, credential.funcall("placement", ())?)?;
     let placeholder = to_placeholder(ruby, credential.funcall("placeholder", ())?)?;
-    pins.push(PinnedValue::new(ruby, credential));
+    pins.push(PinnedValue::new(credential));
     let source = Arc::new(RubyCredential {
         credential: Opaque::from(credential),
     });
@@ -448,7 +448,7 @@ fn to_entry(
         ("request", blocks_of("request")?),
     ] {
         for block in each_of(blocks, Ok)? {
-            pins.push(PinnedValue::new(ruby, block));
+            pins.push(PinnedValue::new(block));
             let policy = RubyPolicy::new(block, "call");
             match hook {
                 "resolve" => builder.resolve_policy(policy),
@@ -490,7 +490,7 @@ fn to_ruby_entry(
         policy_for("request?")?,
     );
     if resolve.is_some() || connect.is_some() || request.is_some() {
-        pins.push(PinnedValue::new(ruby, entry));
+        pins.push(PinnedValue::new(entry));
     }
     Ok(RubyEntry {
         endpoints,

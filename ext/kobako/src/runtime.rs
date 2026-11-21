@@ -394,16 +394,23 @@ impl Runtime {
         let name = verb.name();
         let handler = build_handler(dispatch);
         let preamble = to_preamble(&ruby, setup)?;
-        let (mut grants, mut pins) = filesystem::to_grants(&ruby, setup.entry(3)?)?;
-        let (networks, network_pins) = network::to_grants(&ruby, setup.entry(4)?)?;
-        grants.extend(networks);
-        pins.extend(network_pins);
-        // The closure touches no Ruby VALUE (the runtime is magnus-free, and a
-        // guest→host dispatch, or a mount's block, comes back to this Fiber),
-        // and owns all it reads, as the guest's thread runs it.
         let runtime = self.runtime.clone();
-        gvl::run(&ruby, self.release_gvl, move || {
-            verb.invoke(|entry| runtime.invoke(entry, &preamble, handler, &grants))
+        gvl::run(&ruby, self.release_gvl, || {
+            let (mut grants, mut pins) = filesystem::to_grants(setup.entry(3)?)?;
+            let (networks, network_pins) = network::to_grants(&ruby, setup.entry(4)?)?;
+            grants.extend(networks);
+            pins.extend(network_pins);
+            // The closure touches no Ruby VALUE (the runtime is magnus-free, and
+            // a guest→host dispatch, or a mount's block, comes back to this
+            // Fiber), and owns all it reads, as the guest's thread runs it. It
+            // lets the pins go once the Store, which reaches them, is gone.
+            Ok(move || {
+                let snapshot =
+                    verb.invoke(|entry| runtime.invoke(entry, &preamble, handler, &grants));
+                drop(grants);
+                drop(pins);
+                snapshot
+            })
         })?
         .map(|snapshot| Snapshot::new(snapshot, name))
         .map_err(|e| errors::from_invoke(&ruby, e))
@@ -419,7 +426,9 @@ impl Runtime {
         let ruby = Ruby::get().expect("Ruby thread");
         let preamble = to_preamble(&ruby, preamble)?;
         let runtime = self.runtime.clone();
-        let bytecodes = gvl::run(&ruby, self.release_gvl, move || runtime.compile(&preamble))?;
+        let bytecodes = gvl::run(&ruby, self.release_gvl, || Ok(move || {
+            runtime.compile(&preamble)
+        }))?;
         Ok(bytecodes.map(|bytecodes| {
             ruby.ary_from_iter(
                 bytecodes

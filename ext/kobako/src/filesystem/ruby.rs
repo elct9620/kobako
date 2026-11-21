@@ -248,7 +248,7 @@ impl RubyFilesystem {
         let path = path_of(dentry);
         let file = ask(self.object, "open", Errno::Unsupported, |ruby, fs| {
             let file: Value = fs.funcall("open", (path, to_flags(ruby, how, create)?))?;
-            Ok(RubyFile::pin(ruby, file))
+            Ok(RubyFile::pin(file))
         })?;
         match dentry.inode().map(|inode| inode.identity()) {
             None => {
@@ -568,9 +568,9 @@ impl DentryOperations for RubyFilesystem {
 }
 
 impl RubyFile {
-    fn pin(ruby: &Ruby, file: Value) -> Self {
+    fn pin(file: Value) -> Self {
         Self {
-            file: Arc::new(PinnedValue::new(ruby, file)),
+            file: Arc::new(PinnedValue::new(file)),
             closed: false,
         }
     }

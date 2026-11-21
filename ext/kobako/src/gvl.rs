@@ -26,6 +26,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 use kobako_runtime::sched::{run_interruptible, Blocking, Current, Task};
 
 use magnus::block::Proc;
+use magnus::gc::Marker;
+use magnus::rb_sys::FromRawValue;
+use magnus::typed_data::DataTypeFunctions;
 use magnus::TypedData;
 use magnus::{prelude::*, Error as MagnusError, RModule, Ruby, Value};
 
@@ -174,14 +177,19 @@ impl Blocking for GvlFreeWait {
     /// The run of the calling Fiber, asked only while the GVL is held, as a
     /// Fiber may resume on another native thread once it gave the GVL up.
     fn current(&self) -> Option<Current> {
-        // A Ruby thread gives the GVL up only inside a region of this module,
-        // which `holds` knows. SAFETY: `ruby_native_thread_p` only asks
-        // whether the calling thread is Ruby's, on any thread.
-        if handoff::on_guest() || unsafe { rb_sys::ruby_native_thread_p() } == 0 || !holds() {
+        if !holds_gvl() {
             return None;
         }
         escape::current_run().map(|run| run.task().clone())
     }
+}
+
+/// Whether the calling thread holds the GVL: a Ruby thread outside any region
+/// of this module, where alone a Ruby thread gives it up.
+pub(crate) fn holds_gvl() -> bool {
+    // SAFETY: `ruby_native_thread_p` only asks whether the calling thread is
+    // Ruby's, on any thread.
+    !handoff::on_guest() && unsafe { rb_sys::ruby_native_thread_p() } != 0 && holds()
 }
 
 /// Run `f`, which calls Ruby, holding the GVL: on the run's caller when a
@@ -267,12 +275,20 @@ where
 /// Run `f` as one run of a Sandbox on a guest's thread, serving what it asks of
 /// Ruby here, giving up the GVL while it runs when `release` says so, and
 /// raising what the run kept once it ends.
-pub(crate) fn run<R: Send + 'static>(
+///
+/// `setup` builds what the guest runs inside the run, so each Ruby object it
+/// pins is kept for the run.
+pub(crate) fn run<R, F>(
     ruby: &Ruby,
     release: bool,
-    f: impl FnOnce() -> R + Send + 'static,
-) -> Result<R, MagnusError> {
+    setup: impl FnOnce() -> Result<F, MagnusError>,
+) -> Result<R, MagnusError>
+where
+    R: Send + 'static,
+    F: FnOnce() -> R + Send + 'static,
+{
     let run = escape::Run::enter();
+    let f = setup()?;
     let ran = serve(ruby, release, run.state(), f);
     run.finish()?;
     Ok(ran)
@@ -301,6 +317,7 @@ fn serve<R: Send + 'static>(
     let caller = ruby.obj_wrap(RunCaller {
         line: line.clone(),
         fiber: escape::fiber_id(),
+        run: state.clone(),
         served: AtomicBool::new(false),
     });
     let ended = state.lending(&line, || run_interruptible(|| serve_line(&line)));
@@ -316,12 +333,25 @@ fn serve<R: Send + 'static>(
 /// A run's caller as Ruby's collector sees it. It stands on the caller's stack
 /// while the caller serves the run, so the collector frees it with a Fiber left
 /// suspended in a callback and never resumed, and the guest then goes on
-/// without its caller, every wait of it interrupted.
-#[magnus::wrap(class = "Kobako::RunCaller", free_immediately, size)]
+/// without its caller, every wait of it interrupted. It marks the Ruby objects
+/// the run pinned, so they go with it.
+#[derive(TypedData)]
+#[magnus(class = "Kobako::RunCaller", free_immediately, mark, size)]
 struct RunCaller {
     line: Arc<handoff::Line>,
     fiber: escape::FiberId,
+    run: Arc<escape::RunState>,
     served: AtomicBool,
+}
+
+impl DataTypeFunctions for RunCaller {
+    fn mark(&self, marker: &Marker) {
+        for pinned in self.run.pinned() {
+            // SAFETY: each is a live object the run pinned, unpinned only once
+            // its holder lets it go.
+            marker.mark(unsafe { Value::from_raw(pinned) });
+        }
+    }
 }
 
 impl Drop for RunCaller {

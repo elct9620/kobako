@@ -86,9 +86,8 @@ impl Policy<MountRequest<'_>> for RubyPolicy {
 /// The Grants one invocation carries, from the Sandbox's Mounts as
 /// `[at, access, filesystem, block]` entries, beside the pins keeping
 /// each Mount's filesystem and block in place while the guest may reach
-/// them; the caller holds both until the invocation returns.
+/// them, kept for the run building them.
 pub(crate) fn to_grants(
-    ruby: &Ruby,
     mounts: RArray,
 ) -> Result<(Vec<Grant>, Vec<PinnedValue>), MagnusError> {
     let mut grants = Vec::with_capacity(mounts.len());
@@ -96,13 +95,13 @@ pub(crate) fn to_grants(
     for index in 0..mounts.len() as isize {
         let entry: RArray = mounts.entry(index)?;
         let filesystem: Value = entry.entry(2)?;
-        pins.push(PinnedValue::new(ruby, filesystem));
+        pins.push(PinnedValue::new(filesystem));
         let mount = to_mount(entry.entry(0)?, entry.entry(1)?, filesystem)?;
         let block: Value = entry.entry(3)?;
         grants.push(Grant::Mount(if block.is_nil() {
             mount
         } else {
-            pins.push(PinnedValue::new(ruby, block));
+            pins.push(PinnedValue::new(block));
             mount.with_policy(Arc::new(RubyPolicy {
                 block: Opaque::from(block),
             }))
