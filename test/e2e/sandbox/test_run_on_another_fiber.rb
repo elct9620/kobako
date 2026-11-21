@@ -121,11 +121,13 @@ class TestE2ERunOnAnotherFiber < Minitest::Test
   end
 
   # Leave the Fiber running +block+ suspended where it yields, then collect it.
+  # The Fiber lives on a Thread of its own, as the collector scans each
+  # Thread's stack conservatively and a stray word left on this one would keep
+  # the Fiber alive.
   def abandon_suspended_run(&block)
-    fiber = Fiber.new(&block)
-    assert_equal :parked, fiber.resume, "the run must suspend its Fiber where the mount's block yields"
-    fiber = nil # rubocop:disable Lint/UselessAssignment
-    GC.start
+    parked = Thread.new { Fiber.new(&block).resume }.value
+    assert_equal :parked, parked, "the run must suspend its Fiber where the mount's block yields"
+    3.times { GC.start }
   end
 
   # What the block answers, beside whether it answered within +seconds+.
