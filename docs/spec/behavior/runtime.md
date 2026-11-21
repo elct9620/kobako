@@ -357,15 +357,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a cache entry in a directory writable beyond its owner |
+| Given | a cache entry in a directory another local user may write |
 | When | a runtime is built over the artifact that entry names |
-| Then | it is built by compiling |
+| Then | it is built by compiling. Only an administrator, who may write anything, shares the directory unrefused |
 
 ## `RT-038` A cache directory others may write is not written back into
 
 | Step | Statement |
 | --- | --- |
-| Given | a cache entry in a directory writable beyond its owner |
+| Given | a cache entry in a directory another local user may write |
 | When | a runtime is built over the artifact that entry names |
 | Then | the entry still holds what it held |
 
@@ -1824,18 +1824,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest holding a directory it opened beneath a Mount with a Policy |
 | When | the directory moves beneath another Mount of the same Filesystem instance |
 | Then | a lookup through the descriptor reaches it, as the Policy allows the path it moved to |
-
-## `RT-171` A host reporting no directory owner caches no artifact on disk
-
-| Attribute | Value |
-| --- | --- |
-| relates | `RT-037`, `RT-038` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a host that reports no directory's owner, as Windows |
-| When | a runtime is built over a Guest Binary |
-| Then | it is built by compiling, and no compiled artifact is written to disk |
 
 ## `RT-172` A path asked while directories above it move names one that stood
 

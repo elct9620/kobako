@@ -168,8 +168,10 @@ holds open holds one for each Bind it spans, so an Overlay's directory holds one
 per Layer that is a Bind. A Bind also keeps up to 64
 directories open for walks, besides its root.
 
-The compile cache is `$XDG_CACHE_HOME/kobako`, else `~/.cache/kobako`. A Bind of
-`$HOME` covers it, and so does a Ruby Filesystem or Service that writes there.
+The compile cache is `$XDG_CACHE_HOME/kobako` when it is set, else
+`~/.cache/kobako` on Unix and `%LOCALAPPDATA%\kobako` on Windows. A Bind of the
+home directory covers it, and so does a Ruby Filesystem or Service that writes
+there.
 
 ## Mount Policies
 
