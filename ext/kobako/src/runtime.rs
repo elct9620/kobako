@@ -241,6 +241,32 @@ fn to_count(ruby: &Ruby, name: &str, value: Value) -> Result<Option<usize>, Magn
     }
 }
 
+/// What an invocation runs, owned so the guest's thread holds it.
+enum Verb {
+    Eval(Vec<u8>),
+    Run(String, Vec<u8>),
+}
+
+impl Verb {
+    fn name(&self) -> &'static str {
+        match self {
+            Self::Eval(_) => "eval",
+            Self::Run(..) => "run",
+        }
+    }
+
+    /// Hand `invoke` the Entry this verb names.
+    fn invoke<T>(self, invoke: impl FnOnce(Entry<'_>) -> T) -> T {
+        match self {
+            Self::Eval(source) => invoke(Entry::Eval { source: &source }),
+            Self::Run(entrypoint, payload) => invoke(Entry::Run {
+                entrypoint: &entrypoint,
+                payload,
+            }),
+        }
+    }
+}
+
 #[derive(TypedData)]
 #[magnus(class = "Kobako::Runtime", free_immediately, size)]
 struct Runtime {
@@ -249,8 +275,9 @@ struct Runtime {
     // per-invocation state — each `#eval` / `#run` takes its dispatch
     // handler as an argument and returns its whole result as a `Snapshot`
     // — so the contract's `Send + Sync` carries the type with no interior
-    // mutability to guard.
-    runtime: Box<dyn ContractRuntime + Send + Sync>,
+    // mutability to guard. A run's guest holds it too, as a guest outlives a
+    // caller that never came back for it.
+    runtime: Arc<dyn ContractRuntime + Send + Sync>,
     // Whether each invocation releases Ruby's GVL for its guest span
     // (`gvl: :release`) or holds it throughout (`gvl: :hold`). Fixed at
     // construction; a `bool` carries no interior mutability, so the type
@@ -323,7 +350,7 @@ impl Runtime {
         let driver = Driver::from_file(Path::new(&path), config)
             .map_err(|e| errors::from_setup(&ruby, e))?;
         Ok(Self {
-            runtime: Box::new(driver),
+            runtime: Arc::new(driver),
             release_gvl,
         })
     }
@@ -347,8 +374,7 @@ impl Runtime {
         setup: RArray,
         source: RString,
     ) -> Result<Snapshot, MagnusError> {
-        let source = to_bytes(source);
-        self.invoke(dispatch, setup, Entry::Eval { source: &source })
+        self.invoke(dispatch, setup, Verb::Eval(to_bytes(source)))
     }
 
     fn run(
@@ -358,42 +384,28 @@ impl Runtime {
         entrypoint: String,
         payload: RString,
     ) -> Result<Snapshot, MagnusError> {
-        self.invoke(
-            dispatch,
-            setup,
-            Entry::Run {
-                entrypoint: &entrypoint,
-                payload: to_bytes(payload),
-            },
-        )
+        self.invoke(dispatch, setup, Verb::Run(entrypoint, to_bytes(payload)))
     }
 
     /// One owner for the wiring both verbs share, so a Preamble, a Grant,
     /// or a handler change cannot drift between them.
-    fn invoke(
-        &self,
-        dispatch: Value,
-        setup: RArray,
-        entry: Entry<'_>,
-    ) -> Result<Snapshot, MagnusError> {
+    fn invoke(&self, dispatch: Value, setup: RArray, verb: Verb) -> Result<Snapshot, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
-        let verb = match entry {
-            Entry::Eval { .. } => "eval",
-            Entry::Run { .. } => "run",
-        };
+        let name = verb.name();
         let handler = build_handler(dispatch);
         let preamble = to_preamble(&ruby, setup)?;
         let (mut grants, mut pins) = filesystem::to_grants(&ruby, setup.entry(3)?)?;
         let (networks, network_pins) = network::to_grants(&ruby, setup.entry(4)?)?;
         grants.extend(networks);
         pins.extend(network_pins);
-        // Release the GVL around the guest span iff this Sandbox asks for it;
-        // the closure touches no Ruby VALUE (the runtime is magnus-free, and a
-        // guest→host dispatch, or a mount's block, re-acquires the GVL).
-        gvl::run(&ruby, self.release_gvl, || {
-            self.runtime.invoke(entry, &preamble, handler, &grants)
+        // The closure touches no Ruby VALUE (the runtime is magnus-free, and a
+        // guest→host dispatch, or a mount's block, comes back to this Fiber),
+        // and owns all it reads, as the guest's thread runs it.
+        let runtime = self.runtime.clone();
+        gvl::run(&ruby, self.release_gvl, move || {
+            verb.invoke(|entry| runtime.invoke(entry, &preamble, handler, &grants))
         })?
-        .map(|snapshot| Snapshot::new(snapshot, verb))
+        .map(|snapshot| Snapshot::new(snapshot, name))
         .map_err(|e| errors::from_invoke(&ruby, e))
     }
 
@@ -406,7 +418,8 @@ impl Runtime {
     fn compile(&self, preamble: RArray) -> Result<Option<RArray>, MagnusError> {
         let ruby = Ruby::get().expect("Ruby thread");
         let preamble = to_preamble(&ruby, preamble)?;
-        let bytecodes = gvl::run(&ruby, self.release_gvl, || self.runtime.compile(&preamble))?;
+        let runtime = self.runtime.clone();
+        let bytecodes = gvl::run(&ruby, self.release_gvl, move || runtime.compile(&preamble))?;
         Ok(bytecodes.map(|bytecodes| {
             ruby.ary_from_iter(
                 bytecodes

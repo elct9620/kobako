@@ -91,20 +91,26 @@ class TestE2EInterruptedRun < Minitest::Test
     require "kobako"
     sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release)
     sandbox.bind("Host::Wait", lambda do
-      sleep 5
+      sleep 0.3
       :slept
     rescue RuntimeError
       :raised_inside
     end)
     main = Thread.current
     Thread.new { sleep 0.1; main.raise "poke" }
-    print Thread.handle_interrupt(Object => :never) { sandbox.eval("Host::Wait.call").value }
+    answered = nil
+    begin
+      Thread.handle_interrupt(Object => :never) { answered = sandbox.eval("Host::Wait.call").value }
+    rescue RuntimeError => e
+      print [answered, e.message].inspect
+    end
   RUBY
 
   # @behavior S-218
-  def test_a_service_takes_an_interrupt_under_the_host_apps_own_mask
-    assert_equal "raised_inside", run_ruby(HOST_MASK_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 20),
-                 "a Thread#raise during a Service of a Sandbox with gvl: :release must reach the Service even " \
-                 "inside the Host App's Thread.handle_interrupt(Object => :never)"
+  def test_a_service_takes_an_interrupt_as_the_host_apps_own_mask_allows
+    assert_equal '[:slept, "poke"]', run_ruby(HOST_MASK_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 20),
+                 "a Thread#raise during a Service of a Sandbox with gvl: :release, inside the Host App's " \
+                 "Thread.handle_interrupt(Object => :never), must wait for the Service to finish and reach the " \
+                 "Host App once its mask lifts"
   end
 end

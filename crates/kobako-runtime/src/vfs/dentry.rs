@@ -6,11 +6,11 @@
 //! bound; the walk asks `revalidate` before trusting it, so what changed behind
 //! the runtime's back is found again.
 
+use crate::sched::TaskId;
 use std::any::Any;
 use std::num::NonZeroUsize;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
-use std::thread::ThreadId;
 
 use lru::LruCache;
 
@@ -101,9 +101,9 @@ enum LookupState {
     Unasked,
     /// In lookup for the walk that made the dentry, which has yet to ask, as
     /// `d_alloc_parallel` marks the dentry it makes.
-    Allocated(ThreadId),
+    Allocated(TaskId),
     /// The walk asking the Filesystem what stands here, while it asks.
-    Asking(ThreadId),
+    Asking(TaskId),
     /// A lookup answered for the name, or a call made what stands there.
     Answered,
 }

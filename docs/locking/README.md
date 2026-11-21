@@ -46,6 +46,17 @@ The GVL decides which runs contend for a lock, so every rule here holds in both 
 
 Under `:hold` the GVL runs the guests one at a time; under `:release` each run drops it while its guest runs.
 
+### Run Threads
+
+A run's guest stands on a thread of its own, and its caller serves what the guest needs of Ruby. The two take turns, so the models treat one run as one thread.
+
+| Thread | Holds | Waits for |
+|---|---|---|
+| the guest's | the Wasm frames, and the sleeping locks the run takes | its caller's answer to a callback |
+| the caller's | the GVL while it runs a callback | the guest's next callback or its end |
+
+A lock knows its holder by the run, which a run nested in a callback shares. So a nested run asking for its own run's lock is answered, never left waiting. The caller returns only once its guest ends. `Handoff.tla` checks both.
+
 A contention only `:release` shows, such as a `..` meeting a rename on a shared Filesystem, is a lock's scope showing, not the GVL's.
 
 ## Lock Groups
@@ -112,7 +123,7 @@ A group edge is an edge that leaves a group. Each states what the group holds as
 
 ### Release Before Wait
 
-A thread holding the GVL that must wait for a sleeping lock gives the GVL up first. The `Blocking` the Ruby gem registers does this for every wait, under [`:hold`](../guides/concurrency.md#gvl-modes) too.
+A thread holding the GVL that must wait for a sleeping lock gives the GVL up first. The `Blocking` the Ruby gem registers does this for every wait, under [`:hold`](../guides/concurrency.md#gvl-modes) too. There a guest's thread has its caller give the GVL up for the wait.
 
 Ruby wakes a waiting thread alike for an exception, a trap, or `Thread#wakeup`. The `Blocking` takes the GVL to tell them apart, then gives it up and waits on, unless the wakeup raised. It takes the GVL as a callback does, so the crossing is the same vfs to ruby edge. `Locks.tla` lets each waiting thread do this once.
 
@@ -218,9 +229,11 @@ An owner must wake its waiters on every exit that runs code, a panic unwinding p
 | Exit | Runs drops | Rule |
 |---|---|---|
 | a panic unwinding | yes | the owner must wake its waiters from a guard's drop |
-| a longjmp over Rust frames | no | the guide keeps a raising trap off the main Thread |
+| a longjmp over Rust frames | no | Ruby runs only where no guest frame stands |
 | a fork | no thread but the caller | the guide keeps a fork outside any run |
-| a Fiber left suspended in a callback | no | its Thread refuses other Fibers' runs; other Threads wait out their deadlines |
+| a run's caller that never returns | no | collecting the caller ends its guest's waits |
+
+A run's caller never returns when its Fiber is left suspended in a callback, or a longjmp passes over its frame. The collector then frees an object the caller kept on its stack. That interrupts the guest, which goes on without its caller and lets its locks go.
 
 No rule keeps a fork away from a background thread, the engine's own included. So a lock one takes after every run has ended is never one a forked child waits on. A process-local value, such as the reactor or the connection count, holds this. The child puts a lock of its own in place and never takes the parent's.
 
@@ -236,8 +249,11 @@ The models check the group order and each edge's rule with TLC. A model of a bro
 | `RequestPoll` | ruby to netg to request to sock, beside the reactor | ok |
 | `HostMutex` | a callback waiting on a Host App Mutex | deadlock |
 | `NestedRun` | a callback's run reaching back to another callback's Filesystem | deadlock |
+| `Handoff` | a guest's thread served by its caller, with a nested run and an interrupt | ok |
+| `HandoffThreadIdentity` | the same with each lock knowing its holder by thread | deadlock |
+| `HandoffNoJoin` | the caller returning before its guest ends | deadlock |
 
-`Locks.tla` is the thread model each edge's model builds on.
+`Locks.tla` is the thread model each edge's model builds on; `Handoff.tla` stands apart, as it models one run's two threads.
 
 ### Model Checks
 

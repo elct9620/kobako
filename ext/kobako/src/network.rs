@@ -96,6 +96,7 @@ impl RubyPolicy {
                     false
                 })
         })
+        .unwrap_or(false)
     }
 }
 
@@ -140,6 +141,7 @@ impl CredentialSource for RubyCredential {
                     CredentialUnavailable
                 })
         })
+        .unwrap_or(Err(CredentialUnavailable))
     }
 }
 

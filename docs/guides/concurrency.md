@@ -9,9 +9,9 @@ Thread A --eval--> +---------+ --> Execution A
 Thread B --eval--> +---------+ --> Execution B
 ```
 
-One Thread still runs one Invocation at a time. A Fiber suspended inside a
-Service keeps its Invocation running, so a run another Fiber on that Thread
-starts raises `ThreadError`. A Service may still run a Sandbox on its own Fiber.
+A Fiber runs one Invocation at a time. Each guest runs on a thread kobako keeps.
+So a Fiber suspended inside a Service leaves its Thread free for another
+Fiber's run, and the two end in either order.
 
 ## Shared Setup
 
@@ -56,19 +56,14 @@ the same. Dispatch-heavy scripts match or trail `:hold` under `:release`;
 
 ### Interrupts Under Release
 
-`:release` defers Ruby's interrupts while the guest runs, and each Service call
-takes them as they come. Three things differ from `:hold`.
+`:release` holds what Ruby delivers while the guest runs, and the run raises it
+once it ends. A Service call takes interrupts as the Host App's own mask allows,
+as under `:hold`.
 
-| Case | Under `:release` |
+| Arrives | Under `:release` |
 |---|---|
-| A `Thread.handle_interrupt` mask around the run | a Service call does not inherit it |
-| A main-Thread `trap` block that raises or exits | may stop the run where it cannot unwind |
-| On Ruby 3.4+, another Ractor's `require` whose Thread fails to start | may stop the run the same way |
-
-`:hold` keeps all three away. A trap that only sets a flag keeps the second away.
-Ruby runs trap handlers and a Ractor's `require` on the main Thread alone. So a
-run on another Thread is outside the last two cases, and the first run releasing
-the GVL on the main Thread warns once.
+| while the guest runs, as a raising `trap` block does | the run raises it once it ends |
+| while a Service runs | the Service takes it, as its mask allows |
 
 In either mode, a run waiting on the host goes on through a `Thread#wakeup` or a
 trap that raises nothing. A wakeup that raises ends the run's waits, and the run

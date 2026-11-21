@@ -146,6 +146,8 @@ fn ask_or<T>(
             Ok(()) => Errno::Other(String::new()),
         })
     })
+    // Nothing of the run's caller is left to ask.
+    .unwrap_or_else(|| Err(Errno::Other(String::new())))
 }
 
 /// Ask `object` a change, answering nothing more than whether it was made.

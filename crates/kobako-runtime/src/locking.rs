@@ -5,8 +5,8 @@
 
 pub(crate) mod seqlock;
 
+use crate::sched::TaskId;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
-use std::thread::ThreadId;
 
 use crate::sched;
 use crate::Errno;
@@ -46,10 +46,10 @@ pub(crate) struct RwSemaphore {
 
 #[derive(Default)]
 struct Holders {
-    writer: Option<ThreadId>,
+    writer: Option<TaskId>,
     /// One entry for each shared hold, a thread holding it shared twice
     /// standing twice.
-    readers: Vec<ThreadId>,
+    readers: Vec<TaskId>,
     /// How many threads wait for a release, so one nobody waits for wakes
     /// no one.
     waiting: usize,
@@ -64,7 +64,7 @@ struct Holders {
 /// first.
 pub(crate) struct RwSemaphoreGuard {
     semaphore: Arc<RwSemaphore>,
-    holder: ThreadId,
+    holder: TaskId,
     exclusive: bool,
 }
 
@@ -126,7 +126,7 @@ impl RwSemaphore {
         Some(self.guard(current, true))
     }
 
-    fn guard(self: &Arc<Self>, holder: ThreadId, exclusive: bool) -> RwSemaphoreGuard {
+    fn guard(self: &Arc<Self>, holder: TaskId, exclusive: bool) -> RwSemaphoreGuard {
         RwSemaphoreGuard {
             semaphore: self.clone(),
             holder,
@@ -143,7 +143,7 @@ impl RwSemaphore {
     /// Take the hold `take` grants, or wait for it.
     fn down(
         self: &Arc<Self>,
-        holder: ThreadId,
+        holder: TaskId,
         exclusive: bool,
         mut take: impl FnMut(&mut Holders) -> Result<bool, DownError>,
     ) -> Result<RwSemaphoreGuard, DownError> {

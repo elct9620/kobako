@@ -79,6 +79,7 @@ impl Policy<MountRequest<'_>> for RubyPolicy {
                     false
                 })
         })
+        .unwrap_or(false)
     }
 }
 

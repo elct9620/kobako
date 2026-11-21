@@ -6,9 +6,8 @@
 //! thread past that one's own end.
 
 use std::cell::RefCell;
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, OnceLock, PoisonError};
-use std::thread::{self, ThreadId};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::wait::Waiter;
@@ -26,6 +25,13 @@ pub trait Blocking: Send + Sync {
     /// the way back to user space. A wait the signal leaves alone goes on, as
     /// Linux restarts a call a handled signal woke.
     fn handle_signal(&self) {}
+
+    /// The task the calling thread carries out, where the frontend tracks it
+    /// apart from the thread, as a Ruby Fiber's run is its own whatever
+    /// thread the Fiber runs on. `None` leaves the thread its own task.
+    fn current(&self) -> Option<Current> {
+        None
+    }
 }
 
 static BLOCKING: OnceLock<Box<dyn Blocking>> = OnceLock::new();
@@ -47,8 +53,89 @@ pub(crate) fn schedule(wait: &mut dyn FnMut()) {
 }
 
 /// Who is running, as a lock records Linux's `current` as its owner.
-pub(crate) fn current() -> ThreadId {
-    TASK.with(|task| task.borrow().id)
+pub(crate) fn current() -> TaskId {
+    Current::get().state().id
+}
+
+/// A task as a lock knows its holder, the same on every thread carrying the
+/// task out, as Linux records a task and never the CPU it ran on.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TaskId(u64);
+
+impl TaskId {
+    fn fresh() -> Self {
+        static NEXT: AtomicU64 = AtomicU64::new(0);
+        Self(NEXT.fetch_add(1, Ordering::Relaxed))
+    }
+}
+
+/// The task a thread carries out, as Linux's `current`, and when its run is
+/// to stop. Every thread carrying it shares one, so a run handed from thread to
+/// thread stays one task.
+#[derive(Clone)]
+pub struct Current(Arc<Mutex<State>>);
+
+struct State {
+    id: TaskId,
+    task: Task,
+    deadline: Option<Instant>,
+    /// How many interruptible stretches the task is inside: a frontend's
+    /// around its run, and a run within another where a Filesystem's own call
+    /// starts another.
+    depth: usize,
+}
+
+thread_local! {
+    // What the thread carries out in another's place, while it does.
+    static CARRIED: RefCell<Option<Current>> = const { RefCell::new(None) };
+    // The thread's own task, carried whenever it carries out no other.
+    static OWN: Current = Current::fresh();
+}
+
+impl Current {
+    /// A task nobody carries out yet.
+    pub fn fresh() -> Self {
+        Self(Arc::new(Mutex::new(State {
+            id: TaskId::fresh(),
+            task: Task::default(),
+            deadline: None,
+            depth: 0,
+        })))
+    }
+
+    /// What the calling thread carries out: the task it carries in another's
+    /// place, the one its frontend tracks, or its own.
+    pub fn get() -> Self {
+        CARRIED
+            .with(|carried| carried.borrow().clone())
+            .or_else(|| BLOCKING.get().and_then(|blocking| blocking.current()))
+            .unwrap_or_else(|| OWN.with(Clone::clone))
+    }
+
+    /// Carry this task out on the calling thread while `f` runs, as a thread
+    /// taking a run over from another, putting back what it carried before.
+    pub fn carry<T>(&self, f: impl FnOnce() -> T) -> T {
+        /// Puts back what the thread carried, however `f` ends.
+        struct Before(Option<Current>);
+
+        impl Drop for Before {
+            fn drop(&mut self) {
+                CARRIED.with(|carried| *carried.borrow_mut() = self.0.take());
+            }
+        }
+
+        let _before = Before(CARRIED.with(|carried| carried.replace(Some(self.clone()))));
+        f()
+    }
+
+    /// What a frontend interrupts or signals this task through.
+    pub fn task(&self) -> Task {
+        self.state().task.clone()
+    }
+
+    fn state(&self) -> MutexGuard<'_, State> {
+        self.0.lock().unwrap_or_else(PoisonError::into_inner)
+    }
 }
 
 /// A thread as its frontend may interrupt it from another thread, as a signal
@@ -63,9 +150,9 @@ pub struct Task {
 }
 
 impl Task {
-    /// The calling thread.
+    /// The calling thread's.
     pub fn current() -> Self {
-        TASK.with(|task| task.borrow().task.clone())
+        Current::get().state().task.clone()
     }
 
     /// Have every wait of the run this thread carries out stop, as a fatal
@@ -112,43 +199,23 @@ pub(crate) fn sleep_on<T>(waiter: &Arc<Waiter>, sleep: impl FnOnce() -> T) -> T 
     sleep()
 }
 
-/// The task this thread carries out, as Linux's `current`, and when its run is
-/// to stop.
-struct Current {
-    id: ThreadId,
-    task: Task,
-    deadline: Option<Instant>,
-    /// How many interruptible stretches the thread is inside: a frontend's
-    /// around its run, and a run within another where a Filesystem's own call
-    /// starts another.
-    depth: usize,
-}
-
-thread_local! {
-    static TASK: RefCell<Current> = RefCell::new(Current {
-        id: thread::current().id(),
-        task: Task::default(),
-        deadline: None,
-        depth: 0,
-    });
-}
-
 /// Run `run` as a run that stops waiting once `deadline` passes or its thread
 /// is interrupted, as a Linux task stops a killable wait on a fatal signal. A
 /// run within another keeps the outer one's interrupt.
 pub fn run_task<T>(deadline: Option<Instant>, run: impl FnOnce() -> T) -> T {
     /// Puts back the deadline of the run around this one, however `run` ends.
-    struct Outer(Option<Instant>);
+    struct Outer(Current, Option<Instant>);
 
     impl Drop for Outer {
         fn drop(&mut self) {
-            TASK.with(|task| task.borrow_mut().deadline = self.0);
+            self.0.state().deadline = self.1;
         }
     }
 
     run_interruptible(|| {
-        let _outer =
-            Outer(TASK.with(|task| std::mem::replace(&mut task.borrow_mut().deadline, deadline)));
+        let current = Current::get();
+        let outer = std::mem::replace(&mut current.state().deadline, deadline);
+        let _outer = Outer(current, outer);
         run()
     })
 }
@@ -159,23 +226,22 @@ pub fn run_task<T>(deadline: Option<Instant>, run: impl FnOnce() -> T) -> T {
 /// waits of the run it was meant for and never those of the thread's next.
 pub fn run_interruptible<T>(run: impl FnOnce() -> T) -> T {
     /// Lets an interrupt go once no stretch is left, however `run` ends.
-    struct Stretch;
+    struct Stretch(Current);
 
     impl Drop for Stretch {
         fn drop(&mut self) {
-            TASK.with(|task| {
-                let mut running = task.borrow_mut();
-                running.depth -= 1;
-                if running.depth == 0 {
-                    running.task.interrupted.store(false, Ordering::SeqCst);
-                    running.task.signalled.store(false, Ordering::SeqCst);
-                }
-            });
+            let mut running = self.0.state();
+            running.depth -= 1;
+            if running.depth == 0 {
+                running.task.interrupted.store(false, Ordering::SeqCst);
+                running.task.signalled.store(false, Ordering::SeqCst);
+            }
         }
     }
 
-    TASK.with(|task| task.borrow_mut().depth += 1);
-    let _stretch = Stretch;
+    let current = Current::get();
+    current.state().depth += 1;
+    let _stretch = Stretch(current);
     run()
 }
 
@@ -192,16 +258,15 @@ pub enum FatalSignal {
 /// The fatal signal pending on the calling thread's run, its deadline read
 /// first; `None` while the run may go on waiting.
 pub fn pending_fatal_signal() -> Option<FatalSignal> {
-    TASK.with(|task| {
-        let running = task.borrow();
-        if running.deadline.is_some_and(|at| Instant::now() >= at) {
-            Some(FatalSignal::Deadline)
-        } else if running.task.interrupted.load(Ordering::SeqCst) {
-            Some(FatalSignal::Interrupt)
-        } else {
-            None
-        }
-    })
+    let current = Current::get();
+    let running = current.state();
+    if running.deadline.is_some_and(|at| Instant::now() >= at) {
+        Some(FatalSignal::Deadline)
+    } else if running.task.interrupted.load(Ordering::SeqCst) {
+        Some(FatalSignal::Interrupt)
+    } else {
+        None
+    }
 }
 
 /// Whether the calling thread's run is to stop waiting, as Linux's
@@ -213,7 +278,7 @@ pub(crate) fn fatal_signal_pending() -> bool {
 /// Whether a signal waits for the calling thread to handle it, as Linux's
 /// `signal_pending(current)` answers.
 pub(crate) fn signal_pending() -> bool {
-    TASK.with(|task| task.borrow().task.signalled.load(Ordering::SeqCst))
+    Task::current().signalled.load(Ordering::SeqCst)
 }
 
 /// Hand the signal pending on the calling thread to the registered
@@ -221,7 +286,7 @@ pub(crate) fn signal_pending() -> bool {
 /// at `fatal_signal_pending` again. It must hold no lock that never waits
 /// through the `Blocking`, as the frontend may take its own to handle it.
 pub(crate) fn handle_signal() {
-    let signalled = TASK.with(|task| task.borrow().task.signalled.swap(false, Ordering::SeqCst));
+    let signalled = Task::current().signalled.swap(false, Ordering::SeqCst);
     if let (true, Some(blocking)) = (signalled, BLOCKING.get()) {
         blocking.handle_signal();
     }
@@ -229,7 +294,7 @@ pub(crate) fn handle_signal() {
 
 /// When the calling thread's run is to stop, once it has a deadline.
 pub(crate) fn deadline() -> Option<Instant> {
-    TASK.with(|task| task.borrow().deadline)
+    Current::get().state().deadline
 }
 
 /// The most a wait sleeps before it looks again whether its run is to stop.
@@ -238,10 +303,10 @@ const MAX_SLEEP: Duration = Duration::from_millis(10);
 /// How long a wait sleeps before it looks again whether its run is to stop:
 /// never past its deadline.
 pub(crate) fn sleep_slice() -> Duration {
-    TASK.with(|task| match task.borrow().deadline {
+    match deadline() {
         Some(at) => at.saturating_duration_since(Instant::now()).min(MAX_SLEEP),
         None => MAX_SLEEP,
-    })
+    }
 }
 
 /// A process has one Blocking, so a test counts only the waits of the thread

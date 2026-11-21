@@ -9,7 +9,6 @@ use core::cell::{Cell, RefCell};
 use core::ptr::NonNull;
 use std::sync::Arc;
 
-use magnus::rb_sys::AsRawValue;
 use magnus::value::{Opaque, ReprValue};
 use magnus::{
     method, prelude::*, Error as MagnusError, RModule, RString, Ruby, Symbol, TypedData, Value,
@@ -93,9 +92,9 @@ impl OpenFrames {
 /// belongs to does, before `call` reaches a frame pointer no longer on the
 /// stack.
 ///
-/// The guest's Store is entered from the fiber that drives the
-/// invocation, and only from it: another fiber runs on its own native
-/// stack, which the Engine's stack limit and the value budget never saw. A
+/// The guest's Store is re-entered for the fiber that drives the
+/// invocation, and only for it, on the guest's own thread where its frames
+/// stand: the value budget and the open dispatch frames are that fiber's. A
 /// block run from any other fiber, including one on another thread, is
 /// refused before it reaches the guest.
 ///
@@ -107,7 +106,10 @@ struct GuestYielder {
     frame: u32,
     open: Arc<OpenFrames>,
     live: Cell<bool>,
-    fiber: rb_sys::VALUE,
+    fiber: crate::escape::FiberId,
+    /// The line to the guest whose frames the block re-enters, whose own
+    /// thread it runs on.
+    guest: Option<Arc<crate::handoff::Line>>,
 }
 
 // SAFETY: magnus requires `Send + Sync` on wrapped types. `call` runs only
@@ -118,12 +120,13 @@ unsafe impl Send for GuestYielder {}
 unsafe impl Sync for GuestYielder {}
 
 impl GuestYielder {
-    fn new(ruby: &Ruby, frame: u32, open: Arc<OpenFrames>) -> Self {
+    fn new(frame: u32, open: Arc<OpenFrames>) -> Self {
         Self {
             frame,
             open,
             live: Cell::new(true),
-            fiber: ruby.fiber_current().as_raw(),
+            fiber: crate::escape::fiber_id(),
+            guest: crate::escape::current_run().and_then(|run| run.innermost_line()),
         }
     }
 
@@ -144,7 +147,7 @@ impl GuestYielder {
                 "guest block invoked after host dispatch frame returned",
             ));
         };
-        if ruby.fiber_current().as_raw() != self.fiber {
+        if crate::escape::fiber_id() != self.fiber {
             return Err(MagnusError::new(
                 ruby.exception_thread_error(),
                 "guest block called from a thread or fiber other than its invocation's",
@@ -156,9 +159,13 @@ impl GuestYielder {
         // Only the innermost frame's Ruby code runs, so no other borrow of
         // that Yielder is live; the borrow ends with this method.
         let yielder: &mut dyn Yielder = unsafe { ptr.as_mut() };
-        let reply = yielder
-            .yield_to_block(self.frame, &bytes)
-            .map_err(|t| crate::errors::from_trap(&ruby, t))?;
+        let guest = self
+            .guest
+            .as_ref()
+            .expect("a guest block is made inside a run");
+        let reply =
+            crate::gvl::on_guest_stack(guest, || yielder.yield_to_block(self.frame, &bytes))
+                .map_err(|t| crate::errors::from_trap(&ruby, t))?;
         Ok(match reply {
             YieldReply::Ok(body) => (ruby.to_symbol(ARM_OK), ruby.str_from_slice(&body), None),
             YieldReply::Break => (ruby.to_symbol(ARM_BREAK), ruby.str_from_slice(&[]), None),
@@ -205,13 +212,11 @@ impl DispatchHandler for RubyDispatchHandler {
     /// fault arm, so one escaping is a contract violation surfaced as
     /// `None`.
     fn dispatch(&self, call: Call<'_>, yielder: &mut dyn Yielder) -> Option<CallReply> {
-        // The guest may be running GVL-free (`gvl: :release`); re-acquire the
-        // GVL for the whole callback before touching any Ruby VALUE. In hold
-        // mode `reenter` runs the body inline — the GVL is already held.
+        // The guest's thread hands the whole callback to the Fiber that called
+        // the invocation (#eval or #run), which holds the GVL, before any Ruby
+        // VALUE is touched; `None` once that caller is gone.
         crate::gvl::reenter(|| {
-            // The Driver's callback runs on the same Ruby thread that called
-            // the active Sandbox invocation (#eval or #run), so `Ruby::get()`
-            // is available here once the GVL is held.
+            // `Ruby::get()` is available here, on the run's caller.
             // Panicking with `expect` localises the violation rather than
             // letting a nonsense error propagate.
             let ruby = Ruby::get().expect("Ruby handle unavailable in the upcall");
@@ -228,7 +233,7 @@ impl DispatchHandler for RubyDispatchHandler {
             // invalidate it the instant the Proc returns, so a guest block that
             // escapes the dispatch frame never re-enters the guest.
             let guest_yielder =
-                ruby.obj_wrap(GuestYielder::new(&ruby, yielder.frame(), self.open.clone()));
+                ruby.obj_wrap(GuestYielder::new(yielder.frame(), self.open.clone()));
             let answer: Result<(Symbol, RString, Option<RString>), magnus::Error> =
                 self.open.lend(yielder, || {
                     proc_value.funcall(
@@ -270,6 +275,7 @@ impl DispatchHandler for RubyDispatchHandler {
                 _ => None,
             }
         })
+        .flatten()
     }
 
     fn abandoned(&self) -> bool {

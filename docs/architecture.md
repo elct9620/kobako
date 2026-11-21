@@ -208,7 +208,7 @@ A seam carries typed Envelopes and payload bytes, never encoded Envelope bytes. 
 | a lookup, a connection, or a request the guest makes | a socket layer or L7 proxy call, past the entries' policies |
 | how a connection or a request leaves the host | a `ProtocolFamily` |
 | how a name the guest or a request names is answered | a `Resolver` |
-| how a Frontend's thread waits on a lock or event, and handles a signal | a `Blocking`, registered once |
+| how a Frontend's thread waits, handles a signal, and which run it carries | a `Blocking`, registered once |
 | a Frontend giving up on an Invocation its callback cannot answer | `DispatchHandler::abandoned` |
 | an Engine's memory and exports | a `GuestInstance` |
 
@@ -293,6 +293,7 @@ These rules are written as what never exists, so a single counterexample breaks 
 | a guest crate on `beni` that skips libmruby on a build | no linked-only `cfg` |
 | a Codec namespace under the Ruby gem's `Kobako::Codec` | Ruby has MessagePack only |
 | a cycle through the locks or their lock groups | [`locking/`](locking/README.md), `locking:check` |
+| a Ruby frame on a stack that holds a guest's Wasm frames | the Ruby gem's guest threads |
 
 What a successful stat reports, such as an inode number, follows the Profile. `kobako-wasmtime` links no magnus, so a span with the GVL released cannot reach a Ruby value.
 

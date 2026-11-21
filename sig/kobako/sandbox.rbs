@@ -51,15 +51,5 @@ module Kobako
     def refuse_once_invoked: (String verb) -> void
 
     def begin_invocation: () -> Kobako::Context
-
-    def warn_release_on_main_thread: () -> void
-
-    module MainThreadRelease
-      MESSAGE: String
-
-      self.@warned: bool
-
-      def self.warn_once: () -> void
-    end
   end
 end

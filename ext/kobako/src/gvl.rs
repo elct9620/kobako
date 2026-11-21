@@ -1,38 +1,36 @@
-//! Releasing Ruby's GVL for an invocation's guest span so distinct Sandboxes on
-//! distinct Threads run their guest code in parallel.
+//! A run of a Sandbox, its guest on a thread of its own while the calling Fiber
+//! serves it, giving up the GVL while the guest runs when the Sandbox asks.
 //!
-//! `region` brackets one invocation's guest span, releasing the GVL when the
-//! Sandbox asks for it; `reenter` re-acquires the GVL for a guest→host dispatch
-//! callback, which is ordinary Ruby and must hold the lock. A thread-local flag
-//! stops a nested dispatch from re-acquiring a second time, and both directions
-//! run their closure through a `catch_unwind` trampoline because a panic must
-//! never cross the C frame of `rb_thread_call_without_gvl2` /
-//! `rb_thread_call_with_gvl` (undefined behaviour). The flag is per-thread,
-//! matching the one-thread-one-Sandbox contract, and is restored through a drop
-//! guard so an unwinding panic cannot leave it corrupt for the next invocation.
+//! `run` hands the guest to its thread and serves what it asks of Ruby in this
+//! frame, holding the GVL; `reenter` is how the guest's thread asks, and runs
+//! inline where the GVL is already held. Ruby runs only where no guest frame
+//! stands, so a raise, a trap handler, or a Fiber switch in a callback crosses
+//! none, and a callback takes interrupts as the Host App's own mask allows.
+//! What Ruby delivers while the guest runs without the GVL is held by the run
+//! before the next callback starts, and the run raises it once it ends.
 //!
-//! A raise where either direction returns jumps over every Rust frame of the
-//! run and what they hold: a lock's guard, this flag. A release uses
-//! `rb_thread_call_without_gvl2`, which declines rather than raises, and a run
-//! releasing the GVL defers Ruby's interrupts (`defer_interrupts`) outside its
-//! callbacks, as `rb_thread_call_with_gvl` checks for one as it gives the GVL
-//! back. An interrupt waits for the run to end instead. Two kinds of work on the
-//! main thread run whatever the mask says, so one that raises there still
-//! jumps: a trap handler, and on Ruby 3.4+ the Thread another Ractor's
-//! `require` starts there, which raises when it cannot start. No public Ruby
-//! API defers either.
+//! A wait without the GVL uses `rb_thread_call_without_gvl2`, which declines
+//! rather than raises. A thread-local flag says a thread is inside such a wait,
+//! so a signal handled there takes the GVL back once; a Ruby thread may go on
+//! on another native thread once it takes the GVL back, so the flag is set only
+//! inside the wait. Each direction runs its closure through a `catch_unwind`
+//! trampoline, as a panic must never cross a C frame.
 
 use std::cell::Cell;
 use std::os::raw::c_void;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::ptr;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, PoisonError};
 
-use kobako_runtime::sched::{run_interruptible, Blocking, Task};
+use kobako_runtime::sched::{run_interruptible, Blocking, Current, Task};
 
 use magnus::block::Proc;
-use magnus::{prelude::*, Error as MagnusError, Ruby, Value};
+use magnus::TypedData;
+use magnus::{prelude::*, Error as MagnusError, RModule, Ruby, Value};
 
 use super::escape;
+use super::handoff::{self, Message};
 
 thread_local! {
     // True while this thread sits inside a region whose GVL we released and
@@ -54,11 +52,19 @@ where
     // region and goes with it.
     let task = Task::current();
     let task_ptr = ptr::addr_of!(task).cast_mut().cast::<c_void>();
+    // A Ruby thread may go on on another native thread once it takes the GVL
+    // back, so what this thread-local state says holds only while `f` runs,
+    // on the thread running it.
+    let current = Current::get();
+    let f = Cell::new(Some(f));
+    let take = || f.take().expect("a region runs its closure once");
+    let mut released = || {
+        let _released = ReleasedGuard::set(true);
+        current.carry(take())
+    };
     run_interruptible(|| {
-        let mut f = f;
         loop {
-            let released = ReleasedGuard::set(true);
-            let ran = call_via(f, |func, data| {
+            let ran = call_via(&mut released, |func, data| {
                 // What came before the region, which Ruby declines to start
                 // under or the run's mask defers, reaches the waits as one
                 // inside it does, as a signal pending when a Linux task sleeps
@@ -80,23 +86,21 @@ where
                     )
                 }
             });
-            drop(released);
             match ran {
                 Ok(value) => return value,
                 // A run holds the interrupt and raises it once back in Ruby.
                 // One its mask defers stays queued, so the waits are signalled
                 // to take it as a callback would.
-                Err(declined) if escape::is_in_run() => {
+                Err(_) if escape::is_in_run() => {
                     keeping_held_jump(escape::hold_interrupts);
                     task.signal();
-                    f = declined;
                 }
                 // Outside a run nothing would raise a held interrupt, so it
                 // stays with Ruby, which raises it as this call returns; the
                 // wait runs with the GVL kept and ends at once, interrupted.
-                Err(declined) => {
+                Err(_) => {
                     task.interrupt();
-                    return declined();
+                    return current.carry(take());
                 }
             }
         }
@@ -134,12 +138,15 @@ pub(crate) struct GvlFreeWait;
 
 impl Blocking for GvlFreeWait {
     fn wait(&self, wait: &mut dyn FnMut()) {
+        if handoff::on_guest() {
+            return handoff::wait_releasing(wait);
+        }
         if !(holds() && escape::is_in_run()) {
             return region(holds(), wait);
         }
-        // A run keeping the GVL defers interrupts across its wait, as one
-        // releasing it does across the guest, so taking the GVL back to
-        // handle a signal never raises where it gives the GVL up again.
+        // A run keeping the GVL defers interrupts across its wait, so taking
+        // the GVL back to handle a signal never raises where it gives the GVL
+        // up again.
         let ruby = Ruby::get().expect("a Thread keeping the GVL holds it");
         let (_, raised) = handle_interrupt(&ruby, "never", || region(true, wait));
         if let Err(error) = raised {
@@ -152,6 +159,10 @@ impl Blocking for GvlFreeWait {
     /// Outside a run nothing would raise it, so it stays with Ruby and ends the
     /// wait at once.
     fn handle_signal(&self) {
+        if handoff::on_guest() {
+            handoff::on_caller(|| self.handle_signal());
+            return;
+        }
         if escape::is_in_run() {
             reenter(escape::hold_interrupts);
         }
@@ -159,21 +170,39 @@ impl Blocking for GvlFreeWait {
             Task::current().interrupt();
         }
     }
+
+    /// The run of the calling Fiber, asked only while the GVL is held, as a
+    /// Fiber may resume on another native thread once it gave the GVL up.
+    fn current(&self) -> Option<Current> {
+        // A Ruby thread gives the GVL up only inside a region of this module,
+        // which `holds` knows. SAFETY: `ruby_native_thread_p` only asks
+        // whether the calling thread is Ruby's, on any thread.
+        if handoff::on_guest() || unsafe { rb_sys::ruby_native_thread_p() } == 0 || !holds() {
+            return None;
+        }
+        escape::current_run().map(|run| run.task().clone())
+    }
 }
 
-/// Runs inline when the GVL is already held — hold mode, or a nested
-/// dispatch whose outer frame re-acquired it.
-pub(crate) fn reenter<F, R>(f: F) -> R
+/// Run `f`, which calls Ruby, holding the GVL: on the run's caller when a
+/// guest's thread asks, inline when the GVL is already held. `None` when the
+/// run's caller is gone, as a Fiber left suspended in a callback and collected
+/// is, so nothing of Ruby is reached.
+pub(crate) fn reenter<F, R>(f: F) -> Option<R>
 where
     F: FnOnce() -> R,
 {
+    if handoff::on_guest() {
+        return handoff::on_caller(|| reenter(f)).flatten();
+    }
     if holds() {
-        return keeping_held_jump(f);
+        return Some(keeping_held_jump(f));
     }
     let _guard = ReleasedGuard::set(false);
     // Ruby checks for interrupts as it gives the GVL back on the way out, and
-    // raising there would jump over every Rust frame of the run. The run masks
-    // them (`defer_interrupts`), so the callback alone takes them as they come.
+    // raising there would jump over every Rust frame of the run. A wait inside
+    // a run masks them (`GvlFreeWait`), so the callback alone takes them as
+    // they come.
     let run_callback = |f: F| {
         let ruby = Ruby::get().expect("a thread back in Ruby holds the GVL");
         let (value, raised) = keeping_held_jump(|| handle_interrupt(&ruby, "immediate", f));
@@ -185,12 +214,14 @@ where
     // SAFETY: `func` and `data` come from `call_via`, which keeps the
     // closure alive across the call, and this thread is a Ruby thread
     // inside a region that released the GVL, as the call requires.
-    call_via(
+    let ran = call_via(
         || run_callback(f),
         |func, data| unsafe { rb_sys::rb_thread_call_with_gvl(Some(func), data) },
+    );
+    Some(
+        ran.ok()
+            .expect("rb_thread_call_with_gvl always runs its function"),
     )
-    .ok()
-    .expect("rb_thread_call_with_gvl always runs its function")
 }
 
 /// Run `f`, which calls Ruby, so a `throw` the run holds keeps its target.
@@ -233,30 +264,160 @@ where
     .expect("rb_ensure always runs its ensure function")
 }
 
-/// Run `f` as one run of a Sandbox: giving up the GVL when `release` says so,
-/// with Ruby's interrupts deferred until it is back in Ruby, and one the run
-/// kept raised once it ends.
-pub(crate) fn run<R>(ruby: &Ruby, release: bool, f: impl FnOnce() -> R) -> Result<R, MagnusError> {
-    let run = escape::Run::enter(ruby)?;
-    let ran = defer_interrupts(ruby, release, || region(release, f));
-    run.finish()?;
-    ran
-}
-
-/// Run `f` with Ruby's interrupts deferred, when `release` says the run gives
-/// up the GVL, until it is back in Ruby, where one comes as the error. A run
-/// keeping the GVL meets no interrupt check outside its callbacks.
-fn defer_interrupts<R>(
+/// Run `f` as one run of a Sandbox on a guest's thread, serving what it asks of
+/// Ruby here, giving up the GVL while it runs when `release` says so, and
+/// raising what the run kept once it ends.
+pub(crate) fn run<R: Send + 'static>(
     ruby: &Ruby,
     release: bool,
-    f: impl FnOnce() -> R,
+    f: impl FnOnce() -> R + Send + 'static,
 ) -> Result<R, MagnusError> {
-    if !release {
-        return Ok(f());
+    let run = escape::Run::enter();
+    let ran = serve(ruby, release, run.state(), f);
+    run.finish()?;
+    Ok(ran)
+}
+
+/// Run `f` on a guest's thread carrying the run's task and serve it until it
+/// ends. Each job it hands over runs here holding the GVL, in this frame, so
+/// what a callback raises or switches to never crosses the guest's frames.
+fn serve<R: Send + 'static>(
+    ruby: &Ruby,
+    release: bool,
+    state: &Arc<escape::RunState>,
+    f: impl FnOnce() -> R + Send + 'static,
+) -> R {
+    let ran = Arc::new(Mutex::new(None));
+    let answered = ran.clone();
+    let line = handoff::start(
+        state.task().clone(),
+        !release,
+        state.pending_flag(),
+        move || {
+            let value = f();
+            *answered.lock().unwrap_or_else(PoisonError::into_inner) = Some(value);
+        },
+    );
+    let caller = ruby.obj_wrap(RunCaller {
+        line: line.clone(),
+        fiber: escape::fiber_id(),
+        served: AtomicBool::new(false),
+    });
+    let ended = state.lending(&line, || run_interruptible(|| serve_line(&line)));
+    caller.served.store(true, Ordering::SeqCst);
+    std::hint::black_box(caller);
+    if let Some(panic) = ended {
+        resume_unwind(panic);
     }
-    let (value, raised) = handle_interrupt(ruby, "never", f);
-    raised?;
-    Ok(value.expect("a run under handle_interrupt returns"))
+    let value = ran.lock().unwrap_or_else(PoisonError::into_inner).take();
+    value.expect("a run that ended without a panic answered")
+}
+
+/// A run's caller as Ruby's collector sees it. It stands on the caller's stack
+/// while the caller serves the run, so the collector frees it with a Fiber left
+/// suspended in a callback and never resumed, and the guest then goes on
+/// without its caller, every wait of it interrupted.
+#[magnus::wrap(class = "Kobako::RunCaller", free_immediately, size)]
+struct RunCaller {
+    line: Arc<handoff::Line>,
+    fiber: escape::FiberId,
+    served: AtomicBool,
+}
+
+impl Drop for RunCaller {
+    fn drop(&mut self) {
+        if !self.served.load(Ordering::SeqCst) {
+            self.line.abandon();
+            escape::forget(self.fiber);
+        }
+    }
+}
+
+/// Defines the class the `#[magnus::wrap]` name resolves to, and looks it up
+/// once, before any object is wrapped.
+pub(crate) fn register(kobako: RModule) -> Result<(), MagnusError> {
+    let ruby = Ruby::get().expect("Ruby thread");
+    kobako.define_class("RunCaller", ruby.class_object())?;
+    RunCaller::class(&ruby);
+    Ok(())
+}
+
+/// Run `f` on the guest's own stack, as a guest block a callback calls
+/// re-enters the guest where its frames stand, serving the run meanwhile.
+pub(crate) fn on_guest_stack<R>(line: &handoff::Line, f: impl FnOnce() -> R) -> R {
+    line.hand_guest(f, || serve_line(line))
+}
+
+/// Serve what the guest hands over until the run ends or what was handed to it
+/// is answered, with the panic it ended by.
+fn serve_line(line: &handoff::Line) -> Option<handoff::Panic> {
+    let task = Task::current();
+    let release = !line.keeps_gvl();
+    let mut gives_up = release;
+    loop {
+        let message = if gives_up {
+            take_released(line, &task)
+        } else {
+            line.take()
+        };
+        match message {
+            Message::Job(job) => {
+                // What Ruby delivered while the guest ran without the GVL is
+                // the run's, held before the callback starts, so it never lands
+                // in the callback as if the callback raised it.
+                if gives_up {
+                    keeping_held_jump(escape::hold_interrupts);
+                }
+                line.answer(job);
+            }
+            Message::Wait(true) => gives_up = true,
+            Message::Wait(false) => {
+                gives_up = release;
+                line.resume();
+            }
+            Message::Answer(panic) | Message::Done(panic) => return panic,
+        }
+    }
+}
+
+/// What the guest hands over next, waited for without the GVL. What Ruby wakes
+/// the thread for meanwhile signals each wait the run meets, for a lock or a
+/// host-side event; what it raises waits for the run to end.
+fn take_released(line: &handoff::Line, task: &Task) -> Message {
+    let task_ptr = ptr::addr_of!(*task).cast_mut().cast::<c_void>();
+    // A Ruby thread may go on on another native thread once it takes the GVL
+    // back, so the thread-local flag holds only while the wait runs.
+    let mut take = || {
+        let _released = ReleasedGuard::set(true);
+        line.take()
+    };
+    loop {
+        let taken = call_via(&mut take, |func, data| {
+            // What came before, which Ruby declines to wait under, reaches the
+            // waits as one landing during the wait does, as a signal pending
+            // when a Linux task sleeps wakes the sleep.
+            if escape::pending() {
+                task.interrupt();
+            } else if interrupt_pending() {
+                task.signal();
+            }
+            // SAFETY: `func` and `data` come from `call_via`, which keeps the
+            // closure alive across the call; `task` outlives it, and Ruby calls
+            // `signal_task` with it only while the wait runs.
+            unsafe {
+                rb_sys::rb_thread_call_without_gvl2(Some(func), data, Some(signal_task), task_ptr)
+            }
+        });
+        match taken {
+            Ok(message) => return message,
+            // The run holds the interrupt and raises it once it ends, and the
+            // waits are signalled to take it as a callback would.
+            Err(_) => {
+                keeping_held_jump(escape::hold_interrupts);
+                task.signal();
+            }
+        }
+    }
 }
 
 thread_local! {

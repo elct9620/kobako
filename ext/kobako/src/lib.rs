@@ -8,6 +8,7 @@ mod errors;
 mod escape;
 mod filesystem;
 mod gvl;
+mod handoff;
 mod network;
 mod pinned_value;
 mod runtime;
@@ -19,6 +20,7 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // This extension is the only frontend in its process, so the first
     // registration is the one that stands.
     let _ = kobako_runtime::sched::register_blocking(Box::new(gvl::GvlFreeWait));
+    gvl::register(kobako)?;
     runtime::register(ruby, kobako)?;
     filesystem::register(ruby, kobako)?;
     network::register(kobako)?;
