@@ -78,6 +78,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_udp_flags.rb`
 - `test/e2e/test_network_udp_peerless.rb`
 - `test/e2e/test_network_udp_named.rb`
+- `test/e2e/test_network_forked.rb`
 - `test/e2e/test_network_udp_nonblock.rb`
 - `test/e2e/test_network_udp_wait.rb`
 - `test/parity/test_network.rb`
@@ -2974,3 +2975,15 @@ endpoint "api.example.com", port: 443
 | Given | two Sandboxes on two threads, one with a lookup or an HTTP request whose work takes long |
 | When | the other waits on a socket that its peer is ready to answer |
 | Then | the second wait ends at once, since a request moves only as its own guest polls or reads it. A request no guest polls stays where it stood |
+
+## `NW-237` A forked child's guest connects as its parent's did
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-216`, `NW-232` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process whose guest exchanged data over a host socket, then forked outside any run |
+| When | the child's guest connects and exchanges data again |
+| Then | the exchange answers as in the parent. A forked child inherits no thread, so what watches its sockets is its own |
