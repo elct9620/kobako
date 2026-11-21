@@ -1968,7 +1968,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | --- | --- |
 | Given | a Sandbox releasing the GVL whose Service wraps a long sleep in a short Timeout |
 | When | guest code calls the Service |
-| Then | the Timeout fires inside the Service. The run defers interrupts only outside its callbacks. A Service takes them even under the Host App's own mask |
+| Then | the Timeout fires inside the Service. The run defers interrupts only outside its callbacks. A Service takes them as the Host App's own mask allows |
 
 ## `S-219` A map whose keys the host cannot tell apart pays for comparing them
 
@@ -1981,18 +1981,6 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox whose memory cap allows more values than the script answers |
 | When | the script answers a Hash whose keys are thousands of NaNs |
 | Then | it fails as a Sandbox failure. A NaN key costs one value per NaN key before it, as a hash table compares them |
-
-## `S-220` A run releasing the GVL on the main Thread warns once
-
-| Attribute | Value |
-| --- | --- |
-| relates | `S-218` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a process whose Sandbox releases the GVL |
-| When | it runs twice on the main Thread, and once on another Thread |
-| Then | the first run warns that a trap handler or a Ractor's `require` can stop the run. No other run warns. A run off the main Thread never warns. Ruby runs both on the main Thread alone |
 
 ## `S-221` A Service's `throw` reaches its `catch` past a Ruby Filesystem's own
 
@@ -2042,7 +2030,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | the Host App takes a `SIGSEGV` outside any guest |
 | Then | Ruby reports it as its own bug and the process ends. Only a fault in guest code is a Trap |
 
-## `S-225` A run refuses to start while another Fiber's run on its Thread is unfinished
+## `S-225` Runs on two Fibers of one Thread end in either order
 
 | Attribute | Value |
 | --- | --- |
@@ -2051,5 +2039,41 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Step | Statement |
 | --- | --- |
 | Given | a Fiber suspended inside a Service its run called |
-| When | another Fiber on the same Thread starts a run |
-| Then | that run raises a thread error before the guest starts, and the suspended run still finishes. A run nested on the suspended run's own Fiber starts as usual |
+| When | another Fiber on the same Thread runs a Sandbox, before or after the first resumes |
+| Then | both runs answer. Each run's guest stands on a thread of its own, so neither waits for the other to end |
+
+## `S-226` A run whose Fiber is collected while suspended lets its locks go
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-225` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Fiber suspended inside a mount's block, which its run calls while holding the directory |
+| When | the Fiber is left and collected, and another run writes to the same Filesystem |
+| Then | the other run answers without waiting for its deadline. The collected run's waits end, as its caller is gone |
+
+## `S-227` A trap that raises during a run releasing the GVL ends that run
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-218` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox releasing the GVL on the main Thread, whose trap handler raises |
+| When | the signal arrives as the guest computes, before it calls a Service |
+| Then | the run raises the handler's exception once it ends, and the next run answers. Ruby runs a trap handler on the main Thread alone |
+
+## `S-228` Runs on Threads of Ruby's M:N scheduler answer
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-225` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process running Threads on Ruby's M:N scheduler, each running a Sandbox whose script calls Services |
+| When | the Threads run many times at once |
+| Then | every run answers. A Thread may go on on another native thread, while each guest stays on its own |
