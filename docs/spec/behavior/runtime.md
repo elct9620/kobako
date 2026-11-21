@@ -4559,3 +4559,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a process whose guest at the weaker profile read entropy, then forked outside any run |
 | When | the parent's guest and the child's each read entropy again |
 | Then | they read different bytes. A forked child inherits the parent's memory, so each read asks the host anew |
+
+## `RT-412` A cached artifact is read back by the next process
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-035`, `RT-108` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Guest Binary one process compiled and cached in a directory no other local user may write |
+| When | another process builds a runtime over the same Guest Binary |
+| Then | it reads the cached artifact rather than compiling the Guest Binary again |
