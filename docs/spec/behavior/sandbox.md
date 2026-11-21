@@ -2040,3 +2040,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a process that ran a Sandbox |
 | When | the Host App takes a `SIGSEGV` outside any guest |
 | Then | Ruby reports it as its own bug and the process ends. Only a fault in guest code is a Trap |
+
+## `S-225` A run refuses to start while another Fiber's run on its Thread is unfinished
+
+| Attribute | Value |
+| --- | --- |
+| relates | `T-291` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Fiber suspended inside a Service its run called |
+| When | another Fiber on the same Thread starts a run |
+| Then | that run raises a thread error before the guest starts, and the suspended run still finishes. A run nested on the suspended run's own Fiber starts as usual |
