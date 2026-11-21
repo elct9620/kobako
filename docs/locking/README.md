@@ -55,7 +55,12 @@ A run's guest stands on a thread of its own, and its caller serves what the gues
 | the guest's | the Wasm frames, and the sleeping locks the run takes | its caller's answer to a callback |
 | the caller's | the GVL while it runs a callback | the guest's next callback or its end |
 
-A lock knows its holder by the run, which a run nested in a callback shares. So a nested run asking for its own run's lock is answered, never left waiting. The caller returns only once its guest ends. `Handoff.tla` checks both.
+A lock knows its holder by the run, which a run nested in a callback shares. So a nested run asking for its own run's lock is answered, never left waiting. A run on a Fiber a callback starts on the same Thread holds as that run too, through the mark Fiber storage carries. The caller returns only once its guest ends. `Handoff.tla` checks both.
+
+| Stop | Reaches the guest |
+|---|---|
+| a deadline, or the run's interrupt | at its next wait, or within an epoch tick as it computes |
+| a signal Ruby sends the run | handled at its next wait or tick, as Linux's `exit_to_user_mode` does |
 
 A contention only `:release` shows, such as a `..` meeting a rename on a shared Filesystem, is a lock's scope showing, not the GVL's.
 
@@ -233,9 +238,19 @@ An owner must wake its waiters on every exit that runs code, a panic unwinding p
 | a fork | no thread but the caller | the guide keeps a fork outside any run |
 | a run's caller that never returns | no | collecting the caller ends its guest's waits |
 
-A run's caller never returns when its Fiber is left suspended in a callback, or a longjmp passes over its frame. The collector then frees an object the caller kept on its stack. That interrupts the guest, which goes on without its caller and lets its locks go.
-
 No rule keeps a fork away from a background thread, the engine's own included. So a lock one takes after every run has ended is never one a forked child waits on. A process-local value, such as the reactor or the connection count, holds this. The child puts a lock of its own in place and never takes the parent's.
+
+#### Collected Callers
+
+A run's caller never returns when its Fiber is left suspended in a callback, or a longjmp passes over its frame.
+
+| Step | What happens |
+|---|---|
+| nothing reaches the caller any more | the object it kept on its stack, `RunCaller`, goes too |
+| the collector frees `RunCaller` | the guest is interrupted, and its calls into Ruby answer nothing |
+| the guest ends | its locks go |
+
+`RunCaller` marks the Ruby objects the run pinned rather than rooting them, so none of them keeps the Fiber alive.
 
 ## Models
 
