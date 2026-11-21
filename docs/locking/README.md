@@ -235,10 +235,32 @@ An owner must wake its waiters on every exit that runs code, a panic unwinding p
 |---|---|---|
 | a panic unwinding | yes | the owner must wake its waiters from a guard's drop |
 | a longjmp over Rust frames | no | Ruby runs only where no guest frame stands |
-| a fork | no thread but the caller | the guide keeps a fork outside any run |
+| a fork | no thread but the caller | the fork waits for every run to end, as [Fork Gate](#fork-gate) sets |
 | a run's caller that never returns | no | collecting the caller ends its guest's waits |
 
 No rule keeps a fork away from a background thread, the engine's own included. So a lock one takes after every run has ended is never one a forked child waits on. A process-local value, such as the reactor or the connection count, holds this. The child puts a lock of its own in place and never takes the parent's.
+
+#### Fork Gate
+
+A fork through Ruby waits for every run in progress to end, so the child inherits no lock a run held. A run on the forking Thread, another Fiber's included, would wait on itself, so the fork raises instead. The gate closes to new runs only once none is in progress, and opens again as the fork returns in the parent.
+
+```
+fork        prepare           runs
+  |  (a)       |                |
+  |----------->|  wait (b)      |
+  |            |--------------->|
+  |            |<---------------|
+  |            |  close (c)     |
+  |<-----------|                |
+  |  open (d)  |                |
+```
+
+- (a) `Process._fork` and `Process.daemon` reach the prepare; a fork(2) another C extension makes does not.
+- (b) The wait gives the GVL up, as any other wait does, and an interrupt ends it.
+- (c) Closing while it waited would leave a run whose callback waits for another Thread's run that can no longer enter.
+- (d) The child needs no opening: its gate is its own, as the run registry is process-local.
+
+`ForkGate.tla` checks the close at zero, and `ForkGateCloseEarly.tla` reaches the deadlock of closing as the wait starts.
 
 #### Collected Callers
 
@@ -267,8 +289,10 @@ The models check the group order and each edge's rule with TLC. A model of a bro
 | `Handoff` | a guest's thread served by its caller, with a nested run and an interrupt | ok |
 | `HandoffThreadIdentity` | the same with each lock knowing its holder by thread | deadlock |
 | `HandoffNoJoin` | the caller returning before its guest ends | deadlock |
+| `ForkGate` | a fork's prepare beside a callback waiting for another Thread's run | ok |
+| `ForkGateCloseEarly` | the same with the gate closing as the wait starts | deadlock |
 
-`Locks.tla` is the thread model each edge's model builds on; `Handoff.tla` stands apart, as it models one run's two threads.
+`Locks.tla` is the thread model each edge's model builds on; `Handoff.tla` stands apart, as it models one run's two threads, and so does `ForkGate.tla`, as it models runs rather than locks.
 
 ### Model Checks
 
