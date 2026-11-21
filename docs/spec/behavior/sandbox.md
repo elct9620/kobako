@@ -2128,3 +2128,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a process whose runs at once left three guest threads waiting for the next run |
 | When | no run starts for ten seconds |
 | Then | those threads end, and a later run starts one again. An idle thread is kept as long as a blocking pool keeps one |
+
+## `S-233` A run on a Fiber a callback starts holds locks as the callback's run
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-225` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a mount's block, run while its run holds the Tmpfs's directory, that runs another Sandbox on an Enumerator |
+| When | that run writes to the same Tmpfs |
+| Then | the write fails at once as a deadlock, never waiting on its own run. The Fiber inherits the run's mark through its storage; one made without storage, or another Thread, is a run of its own |
