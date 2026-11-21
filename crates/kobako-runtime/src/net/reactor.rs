@@ -351,12 +351,16 @@ mod tests {
         }
     }
 
-    /// A socket whose callback fails, as a panic in the code it runs would.
-    struct Panics;
+    /// A socket whose callback fails once armed, as a panic in the code it
+    /// runs would. Unarmed, it lets pass the event its registration brings,
+    /// as a socket is writable the moment it registers.
+    struct Panics(AtomicBool);
 
     impl Ready for Panics {
         fn on_event(&self) {
-            panic!("a socket's callback failed on the reactor");
+            if self.0.load(Ordering::Acquire) {
+                panic!("a socket's callback failed on the reactor");
+            }
         }
 
         fn abort(&self) {}
@@ -381,7 +385,8 @@ mod tests {
         let reactor = Reactor::start().expect("a reactor starts");
         let (tx, rx) = mpsc::channel();
         let waiting: Arc<dyn Ready> = Arc::new(TellsAbort(Mutex::new(tx.clone())));
-        let failing: Arc<dyn Ready> = Arc::new(Panics);
+        let panics = Arc::new(Panics(AtomicBool::new(false)));
+        let failing: Arc<dyn Ready> = panics.clone();
         let addr = "127.0.0.1:0".parse().unwrap();
         let mut watched = mio::net::UdpSocket::bind(addr).expect("a UDP socket binds");
         let mut failed = mio::net::UdpSocket::bind(addr).expect("a UDP socket binds");
@@ -395,6 +400,7 @@ mod tests {
             Instant::now() + Duration::from_secs(30),
             Waker::from(Arc::new(TellsWake(Mutex::new(tx)))),
         );
+        panics.0.store(true, Ordering::Release);
         std::net::UdpSocket::bind(addr)
             .expect("a UDP socket binds")
             .send_to(b"x", failed.local_addr().unwrap())
