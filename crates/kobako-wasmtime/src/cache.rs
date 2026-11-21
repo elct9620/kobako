@@ -321,6 +321,27 @@ mod tests {
         );
     }
 
+    // The in-process cache is keyed by path, so a store and a load through
+    // the disk tier alone stand for two processes.
+    // @behavior RT-412
+    #[test]
+    fn an_artifact_one_build_stores_is_the_one_the_next_build_reads() {
+        let root = std::env::temp_dir().join(format!("kobako-reread-{}", std::process::id()));
+        let artifact = root.join("kobako").join("entry.cwasm");
+        let engine = load_engine().expect("an engine");
+        let module = WtModule::new(engine, b"\0asm\x01\0\0\0").expect("an empty module compiles");
+        store_artifact(&module, &artifact);
+        let stored = artifact.exists();
+        let read = load_artifact(engine, &artifact).is_some();
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(
+            (stored, read),
+            (true, true),
+            "a Guest Binary one build compiled and cached in a private directory must be read \
+             back from that cache by the next build"
+        );
+    }
+
     // @behavior RT-108
     #[test]
     fn engines_of_one_release_and_config_share_the_entry() {
