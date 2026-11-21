@@ -146,11 +146,15 @@ class TestRuntimeArtifactCache < Minitest::Test
            "mklink must leave a junction in the cache directory's place"
   end
 
-  # Plant an empty cache entry whose mtime sits past the 30-day
+  # Let a first build of a Guest Binary unlike the fixture make the cache
+  # directory, as a directory made otherwise takes what its parent grants,
+  # then plant an empty cache entry whose mtime sits past the 30-day
   # retention window, so the next artifact write must remove it.
   def plant_stale_artifact(dir)
+    seed = File.join(dir, "seed_probe.wat")
+    File.write(seed, "#{File.read(FIXTURE_PATH)}\n;; a Guest Binary unlike the fixture\n")
+    Kobako::Runtime.from_path(seed, **runtime_options)
     stale = File.join(dir, "kobako", "stale.cwasm")
-    FileUtils.mkdir_p(File.dirname(stale))
     FileUtils.touch(stale, mtime: Time.now - (40 * 86_400))
     stale
   end
