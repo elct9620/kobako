@@ -3,9 +3,10 @@
 require "test_helper"
 
 # E2E — the threads guests run on, kept for the next run and ended once idle
-# past their limit, after which a run still answers. Linux names each thread in /proc, so the child counts the
-# guest threads there; the count belongs to the process, so it runs alone. A
-# thread that ends between the listing and its read counts as gone.
+# past their limit, after which a run still answers. Linux names each thread
+# in /proc, so the child counts the guest threads there; the count belongs to
+# the process, so it runs alone. A thread that ends between the listing and
+# its read counts as gone.
 class TestE2EIdleGuestThreads < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
