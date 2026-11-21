@@ -115,6 +115,8 @@ Edges ==
   \* sock: a socket registering on the reactor
   \cup E("tcp_state", {"CURRENT", "sockets", "mock_state", "bindhash", "open_conn", "memcg"})
   \cup E("udp_state", {"mock_state", "repoll", "sockets", "bindhash", "open_conn", "memcg"})
+  \* sock: an exchange charging its body as a frame arrives or the guest reads
+  \cup E("exchange_state", {"memcg"})
   \* mock, resolv: a wake made under the lock reaches the request's wait queue
   \cup E("mock_state", {"wq_waiters", "wq_tasks"})
   \cup E("ready_waker", {"wq_waiters", "wq_tasks"})
