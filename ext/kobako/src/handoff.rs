@@ -10,7 +10,8 @@
 //! without it.
 //!
 //! The guest's threads are kept for the next run once one ends, as starting a
-//! thread costs more than a run handing one over.
+//! thread costs more than a run handing one over; one idle past `IDLE_LIMIT`
+//! ends.
 
 use std::any::Any;
 use std::cell::RefCell;
@@ -19,6 +20,7 @@ use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use kobako_runtime::fork::ProcessLocal;
 use kobako_runtime::sched::{Current, Task};
@@ -30,6 +32,10 @@ const GUEST_STACK: usize = 8 << 20;
 /// How often a side looks for what the other hands over before it sleeps, as a
 /// callback is often back sooner than a sleep and a wakeup take.
 const SPINS: u32 = 20_000;
+
+/// How long a guest's thread waits idle for the next run before it ends, as
+/// tokio's blocking pool keeps an idle thread.
+const IDLE_LIMIT: Duration = Duration::from_secs(10);
 
 pub(crate) type Panic = Box<dyn Any + Send>;
 
@@ -100,6 +106,24 @@ impl<T> Mailbox<T> {
                 .arrived
                 .wait(values)
                 .unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    /// The next value, or `None` once `limit` passes without one.
+    fn take_within(&self, limit: Duration) -> Option<T> {
+        let ends = Instant::now() + limit;
+        let mut values = self.values.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if let Some(value) = values.pop_front() {
+                self.filled.store(!values.is_empty(), Ordering::Release);
+                return Some(value);
+            }
+            let left = ends.checked_duration_since(Instant::now())?;
+            values = self
+                .arrived
+                .wait_timeout(values, left)
+                .unwrap_or_else(PoisonError::into_inner)
+                .0;
         }
     }
 }
@@ -309,7 +333,12 @@ fn spawn(first: Job) {
         .name("kobako-guest".into())
         .stack_size(GUEST_STACK)
         .spawn(move || loop {
-            let run = runs.take();
+            let run = match runs.take_within(IDLE_LIMIT) {
+                Some(run) => run,
+                None if leave_idle(&runs) => return,
+                // A caller took this thread as the limit passed; its run comes.
+                None => runs.take(),
+            };
             run();
             IDLE.with(|idle| {
                 idle.get_or_insert_with(Vec::new)
@@ -317,4 +346,22 @@ fn spawn(first: Job) {
             });
         })
         .expect("a guest's thread starts");
+}
+
+/// Take the thread waiting on `runs` off the idle list, unless a caller took
+/// it first; both happen under the list's lock, so never both.
+fn leave_idle(runs: &Arc<Mailbox<Job>>) -> bool {
+    IDLE.with(|idle| {
+        let idle = idle.get_or_insert_with(Vec::new);
+        match idle
+            .iter()
+            .position(|worker| Arc::ptr_eq(&worker.runs, runs))
+        {
+            Some(at) => {
+                idle.swap_remove(at);
+                true
+            }
+            None => false,
+        }
+    })
 }
