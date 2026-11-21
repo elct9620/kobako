@@ -457,19 +457,21 @@ mod tests {
     fn a_forked_childs_permissive_guest_reads_entropy_apart_from_its_parents() {
         const ALONE: &str = "KOBAKO_TEST_ALONE";
         if std::env::var_os(ALONE).is_none() {
-            let status = std::process::Command::new(std::env::current_exe().unwrap())
+            let rerun = std::process::Command::new(std::env::current_exe().unwrap())
                 .args([
                     "--exact",
                     "wasi::tests::a_forked_childs_permissive_guest_reads_entropy_apart_from_its_parents",
                     "--test-threads=1",
                 ])
                 .env(ALONE, "1")
-                .status()
+                .output()
                 .expect("the test binary must run again");
+            let printed = String::from_utf8_lossy(&rerun.stdout);
             assert!(
-                status.success(),
-                "a forked child's permissive guest must read entropy apart from its parent's; \
-                 the run printed above says how it failed"
+                rerun.status.success() && printed.contains("test result: ok. 1 passed"),
+                "a forked child's permissive guest must read entropy apart from its parent's, \
+                 the rerun alone passing this one test; it printed:\n{printed}{}",
+                String::from_utf8_lossy(&rerun.stderr)
             );
             return;
         }

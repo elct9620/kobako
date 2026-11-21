@@ -474,25 +474,43 @@ fn a_child_forked_on_the_drawing_thread_draws_query_ids_of_its_own() {
     let mut ends = [0; 2];
     // SAFETY: a pipe into two descriptors this test owns.
     assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0, "a pipe opens");
-    // SAFETY: the child only draws, writes, and exits.
+    // SAFETY: the child only draws, writes, and exits, never returning to
+    // the harness.
     let child = unsafe { libc::fork() };
     if child == 0 {
-        let ids: [u16; 4] = std::array::from_fn(|_| draw_id());
-        // SAFETY: the child writes its IDs and exits at once.
-        unsafe {
-            libc::write(ends[1], ids.as_ptr().cast(), size_of_val(&ids));
-            libc::_exit(0);
-        }
+        let code =
+            match std::panic::catch_unwind(|| -> [u16; 4] { std::array::from_fn(|_| draw_id()) }) {
+                // SAFETY: writing IDs this child owns to its pipe.
+                Ok(ids) => unsafe {
+                    i32::from(
+                        libc::write(ends[1], ids.as_ptr().cast(), size_of_val(&ids))
+                            != size_of_val(&ids) as isize,
+                    )
+                },
+                Err(_) => 1,
+            };
+        // SAFETY: the child ends here.
+        unsafe { libc::_exit(code) };
     }
     let parent: [u16; 4] = std::array::from_fn(|_| draw_id());
     let mut drawn = [0u16; 4];
+    let mut status = 0;
     // SAFETY: reading into a buffer this test owns, then reaping the child.
-    unsafe {
+    let read = unsafe {
         libc::close(ends[1]);
-        libc::read(ends[0], drawn.as_mut_ptr().cast(), size_of_val(&drawn));
+        let read = libc::read(ends[0], drawn.as_mut_ptr().cast(), size_of_val(&drawn));
         libc::close(ends[0]);
-        libc::waitpid(child, std::ptr::null_mut(), 0);
-    }
+        libc::waitpid(child, &mut status, 0);
+        read
+    };
+    assert_eq!(
+        (
+            read,
+            libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0
+        ),
+        (size_of_val(&drawn) as isize, true),
+        "a forked child must draw and send its query IDs"
+    );
     assert_ne!(
         drawn, parent,
         "a child forked on the thread that drew query IDs must draw IDs of its own, so workers \
