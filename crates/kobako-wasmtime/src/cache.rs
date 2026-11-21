@@ -308,6 +308,8 @@ mod tests {
         let name = std::ffi::OsStr::new("entry.cwasm");
         let first = dir.create_temp(name).map(|(path, _)| path);
         let second = dir.create_temp(name).map(|(path, _)| path);
+        // Let go first: Windows keeps a held directory from being removed.
+        drop(dir);
         fs::remove_dir_all(&root).expect("the scratch directory removed");
         let (first, second) = (
             first.expect("a temp file"),
