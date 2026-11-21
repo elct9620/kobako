@@ -31,9 +31,9 @@ use windows_sys::Win32::Security::{
 use windows_sys::Win32::Storage::FileSystem::{
     CreateDirectoryW, GetFinalPathNameByHandleW, DELETE, FILE_APPEND_DATA,
     FILE_ATTRIBUTE_REPARSE_POINT, FILE_DELETE_CHILD, FILE_FLAG_BACKUP_SEMANTICS,
-    FILE_FLAG_OPEN_REPARSE_POINT, FILE_GENERIC_READ, FILE_LIST_DIRECTORY, FILE_NAME_NORMALIZED,
-    FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES,
-    FILE_WRITE_DATA, FILE_WRITE_EA, READ_CONTROL, WRITE_DAC, WRITE_OWNER,
+    FILE_FLAG_OPEN_REPARSE_POINT, FILE_GENERIC_EXECUTE, FILE_GENERIC_READ, FILE_LIST_DIRECTORY,
+    FILE_NAME_NORMALIZED, FILE_READ_ATTRIBUTES, FILE_SHARE_READ, FILE_SHARE_WRITE,
+    FILE_WRITE_ATTRIBUTES, FILE_WRITE_DATA, FILE_WRITE_EA, READ_CONTROL, WRITE_DAC, WRITE_OWNER,
 };
 use windows_sys::Win32::System::SystemServices::ACCESS_ALLOWED_ACE_TYPE;
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
@@ -113,11 +113,14 @@ impl PrivateDir {
         })
     }
 
-    /// The entry `name`, opened to read without following a link, and able
-    /// to refresh its own time.
+    /// The entry `name`, opened without following a link as wasmtime opens a
+    /// file to map: readable and executable, its code mapped as such, and
+    /// shared only with readers, so its bytes stay as read while mapped. It
+    /// may also refresh its own time.
     pub(super) fn open_entry(&self, name: &OsStr) -> Option<fs::File> {
         let file = fs::OpenOptions::new()
-            .access_mode(FILE_GENERIC_READ | FILE_WRITE_ATTRIBUTES)
+            .access_mode(FILE_GENERIC_READ | FILE_GENERIC_EXECUTE | FILE_WRITE_ATTRIBUTES)
+            .share_mode(FILE_SHARE_READ)
             .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
             .open(self.path.join(name))
             .ok()?;
