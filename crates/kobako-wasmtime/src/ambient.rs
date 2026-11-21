@@ -1,7 +1,7 @@
 //! The guest's time and entropy at the WASI layer — the one ambient
 //! authority that separates the hermetic profile from permissive. `Wasi::new`
-//! wires the frozen sources on `Hermetic` and the live clock on
-//! `Permissive`; `Clocks` is what the guest reads its time from under either.
+//! wires the frozen sources on `Hermetic`, and the live clock and the OS's
+//! entropy on `Permissive`; `Clocks` is what the guest reads its time from under either.
 //!
 //! `wasmtime-wasi`'s `WasiCtxBuilder` defaults the guest's `wasi:clocks` to
 //! the host wall / monotonic clock and `wasi:random` to a fresh per-context
@@ -18,6 +18,8 @@
 
 use std::time::{Duration, Instant};
 
+use rand::rand_core::UnwrapErr;
+use rand::rngs::SysRng;
 use wasmtime_wasi::clocks::WallClock;
 use wasmtime_wasi::random::Deterministic;
 use wasmtime_wasi::{HostMonotonicClock, HostWallClock};
@@ -54,6 +56,13 @@ impl HostMonotonicClock for FrozenMonotonicClock {
 /// reaches `random_get` receives no host entropy.
 pub(crate) fn deterministic_rng() -> Deterministic {
     Deterministic::new(vec![0])
+}
+
+/// The host's entropy, asked of the OS on each draw: a generator seeded once
+/// from a thread's `ThreadRng`, as wasmtime-wasi's default is, draws the
+/// same bytes in a forked child as in its parent.
+pub(crate) fn host_rng() -> UnwrapErr<SysRng> {
+    UnwrapErr(SysRng)
 }
 
 /// The host's monotonic clock read from a fixed origin. The guest's

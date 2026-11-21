@@ -4559,3 +4559,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a walk starting at a Filesystem's root, with the same Filesystem mounted again beneath it |
 | When | the path climbs `..` out of the root of that second mount |
 | Then | it climbs back to where that mount stands, as Linux's `path_equal` compares the mount and the dentry |
+
+## `RT-411` A forked child's guest reads entropy apart from its parent's
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-050` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process whose guest at the weaker profile read entropy, then forked outside any run |
+| When | the parent's guest and the child's each read entropy again |
+| Then | they read different bytes. A forked child inherits the parent's memory, so each read asks the host anew |

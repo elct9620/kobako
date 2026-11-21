@@ -61,6 +61,10 @@ wasmtime = { version = "50.0.1", default-features = false, features = [
 # its own descriptor table. `p1` is the only feature kobako asks for; it
 # enables `p2` itself, while `p0` and `p3` stay off.
 wasmtime-wasi = { version = "50.0.1", default-features = false, features = ["p1"] }
+# rand names the generator wasmtime-wasi takes for a guest's entropy;
+# `sys_rng` asks the OS on each draw, so a forked child holds no state that
+# repeats its parent's draws, as a thread's ThreadRng does.
+rand = { version = "0.10.1", default-features = false, features = ["sys_rng"] }
 # wiggle generates the preview1 calls kobako answers from `witx/`, as it
 # generates wasmtime-wasi's, so each takes its arguments and writes its answer
 # as wasmtime-wasi does. It rides wasmtime's release train.
@@ -74,6 +78,10 @@ sha2 = "0.11"
 # wasmparser walks the bundled Guest Binary's code to witness what each ABI
 # export can call; the version is the one wasmtime-environ already links.
 wasmparser = "0.262.0"
+
+# libc forks a test's process, to witness what a child keeps of its parent.
+[target.'cfg(unix)'.dev-dependencies]
+libc = "0.2.191"
 
 [build-dependencies]
 # build.rs generates the WASI 0.2 imports a Guest Binary links as a core

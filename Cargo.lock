@@ -1066,6 +1066,7 @@ dependencies = [
  "anyhow",
  "kobako-runtime",
  "kobako-transport",
+ "rand",
  "rustix",
  "sha2 0.11.1",
  "wasmtime",

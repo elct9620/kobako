@@ -188,7 +188,7 @@ impl Wasi {
         // The profile decides the ambient authority granted: the hermetic
         // profile denies the preview1 time and entropy imports (see
         // `ambient`), the permissive one wires the live clocks that the
-        // guest's waits read too, and leaves the live entropy. Ambient
+        // guest's waits read too, and the OS's entropy on each draw. Ambient
         // filesystem, environment, and network stay absent on both; the
         // builder grants none unless asked. The exhaustive match makes a
         // future profile a compile error here, not authority granted
@@ -205,6 +205,7 @@ impl Wasi {
                 let wall = ambient::LiveWallClock;
                 builder.monotonic_clock(monotonic);
                 builder.wall_clock(wall);
+                builder.secure_random(ambient::host_rng());
                 Clocks::Live { monotonic, wall }
             }
         };
@@ -443,6 +444,89 @@ mod tests {
             read("random_word"),
             0,
             "a permissive guest's wasi:random must yield host entropy"
+        );
+    }
+
+    // A fork copies a thread's generator along with the memory, so a child
+    // building its context from one would draw what its parent draws. The
+    // test reruns alone first: a fork while other tests hold the VFS's locks
+    // could leave the child waiting on one of them.
+    // @behavior RT-411
+    #[cfg(unix)]
+    #[test]
+    fn a_forked_childs_permissive_guest_reads_entropy_apart_from_its_parents() {
+        const ALONE: &str = "KOBAKO_TEST_ALONE";
+        if std::env::var_os(ALONE).is_none() {
+            let status = std::process::Command::new(std::env::current_exe().unwrap())
+                .args([
+                    "--exact",
+                    "wasi::tests::a_forked_childs_permissive_guest_reads_entropy_apart_from_its_parents",
+                    "--test-threads=1",
+                ])
+                .env(ALONE, "1")
+                .status()
+                .expect("the test binary must run again");
+            assert!(
+                status.success(),
+                "a forked child's permissive guest must read entropy apart from its parent's; \
+                 the run printed above says how it failed"
+            );
+            return;
+        }
+        let draw = || {
+            let config = Config::for_profile(Profile::Permissive);
+            let mut wasi = Wasi::for_invocation(&config, &[]).expect("WASI context must build");
+            wasmtime_wasi::p2::bindings::random::random::Host::get_random_bytes(
+                wasmtime_wasi::WasiView::ctx(wasi.ctx_mut()).ctx.random(),
+                16,
+            )
+            .expect("entropy must be drawn")
+        };
+        draw();
+        let mut ends = [0; 2];
+        // SAFETY: a pipe into two descriptors this test owns.
+        assert_eq!(
+            unsafe { libc::pipe(ends.as_mut_ptr()) },
+            0,
+            "a pipe must open"
+        );
+        // SAFETY: the child is the only test in its process; it draws,
+        // writes, and exits without returning to the harness.
+        let child = unsafe { libc::fork() };
+        if child == 0 {
+            let code = match std::panic::catch_unwind(draw) {
+                // SAFETY: writing bytes this child owns to its pipe.
+                Ok(bytes) => unsafe {
+                    i32::from(libc::write(ends[1], bytes.as_ptr().cast(), bytes.len()) != 16)
+                },
+                Err(_) => 1,
+            };
+            // SAFETY: the child ends here.
+            unsafe { libc::_exit(code) };
+        }
+        let parent = draw();
+        let mut drawn = [0u8; 16];
+        let mut status = 0;
+        // SAFETY: reading into a buffer this test owns, then reaping the child.
+        let read = unsafe {
+            libc::close(ends[1]);
+            let read = libc::read(ends[0], drawn.as_mut_ptr().cast(), drawn.len());
+            libc::close(ends[0]);
+            libc::waitpid(child, &mut status, 0);
+            read
+        };
+        assert_eq!(
+            (
+                read,
+                libc::WIFEXITED(status) && libc::WEXITSTATUS(status) == 0
+            ),
+            (16, true),
+            "a forked child must build a permissive context and draw its entropy"
+        );
+        assert_ne!(
+            drawn.as_slice(),
+            parent.as_slice(),
+            "a forked child's permissive guest must read entropy apart from its parent's"
         );
     }
 

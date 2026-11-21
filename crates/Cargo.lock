@@ -1009,6 +1009,8 @@ dependencies = [
  "anyhow",
  "kobako-runtime",
  "kobako-transport",
+ "libc",
+ "rand",
  "rustix",
  "sha2 0.11.1",
  "wasmparser 0.262.0",
