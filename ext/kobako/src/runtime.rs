@@ -426,9 +426,9 @@ impl Runtime {
         let ruby = Ruby::get().expect("Ruby thread");
         let preamble = to_preamble(&ruby, preamble)?;
         let runtime = self.runtime.clone();
-        let bytecodes = gvl::run(&ruby, self.release_gvl, || Ok(move || {
-            runtime.compile(&preamble)
-        }))?;
+        let bytecodes = gvl::run(&ruby, self.release_gvl, || {
+            Ok(move || runtime.compile(&preamble))
+        })?;
         Ok(bytecodes.map(|bytecodes| {
             ruby.ary_from_iter(
                 bytecodes

@@ -87,9 +87,7 @@ impl Policy<MountRequest<'_>> for RubyPolicy {
 /// `[at, access, filesystem, block]` entries, beside the pins keeping
 /// each Mount's filesystem and block in place while the guest may reach
 /// them, kept for the run building them.
-pub(crate) fn to_grants(
-    mounts: RArray,
-) -> Result<(Vec<Grant>, Vec<PinnedValue>), MagnusError> {
+pub(crate) fn to_grants(mounts: RArray) -> Result<(Vec<Grant>, Vec<PinnedValue>), MagnusError> {
     let mut grants = Vec::with_capacity(mounts.len());
     let mut pins = Vec::with_capacity(mounts.len() * 2);
     for index in 0..mounts.len() as isize {
