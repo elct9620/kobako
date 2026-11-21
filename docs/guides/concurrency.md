@@ -68,6 +68,28 @@ A run waiting on the host goes on through a `Thread#wakeup` or a
 trap that raises nothing. A wakeup that raises ends the run's waits, and the run
 raises it once it ends.
 
+## Fiber Schedulers
+
+Each guest runs on a thread kobako keeps, so Fibers of one Thread overlap their
+runs where a Fiber scheduler can switch them.
+
+| While a run | Other Fibers of the Thread |
+|---|---|
+| is in a Service doing scheduler-aware I/O | run |
+| waits on a guest releasing the GVL, under a scheduler with `blocking_operation_wait` | run |
+| waits on a guest keeping the GVL | wait |
+
+A run hands its wait over only once its guest is not back within a short spin.
+A script calling Services often pays nothing extra. Async offers the
+hook with its worker pool, on Ruby 4.0 and later:
+
+```bash
+ASYNC_SCHEDULER_WORKER_POOL=true ruby app.rb
+```
+
+A scheduler stopping the waiting Fiber ends the run, which raises what the
+scheduler raised.
+
 ## Waits in Callbacks
 
 A Ruby Filesystem's callback, or a mount's block, runs while the run holds

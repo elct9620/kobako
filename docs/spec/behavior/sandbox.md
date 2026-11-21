@@ -61,6 +61,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_mn_threads.rb`
 - `test/e2e/sandbox/test_raise_during_compute.rb`
 - `test/e2e/sandbox/test_idle_guest_threads.rb`
+- `test/e2e/sandbox/test_fiber_scheduler_wait.rb`
 - `test/e2e/sandbox/test_run_on_another_fiber.rb`
 - `test/e2e/test_execution.rb`
 - `test/e2e/test_outcome_values.rb`

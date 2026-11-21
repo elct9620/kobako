@@ -17,7 +17,7 @@
 //! trampoline, as a panic must never cross a C frame.
 
 use std::cell::Cell;
-use std::os::raw::c_void;
+use std::os::raw::{c_int, c_void};
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -408,42 +408,98 @@ fn serve_line(line: &handoff::Line) -> Option<handoff::Panic> {
     }
 }
 
-/// What the guest hands over next, waited for without the GVL. What Ruby wakes
-/// the thread for meanwhile signals each wait the run meets, for a lock or a
-/// host-side event; what it raises waits for the run to end.
+/// `rb_nogvl` declines to run its function while an interrupt is pending,
+/// rather than raising.
+const RB_NOGVL_INTR_FAIL: c_int = 0x1;
+
+/// `rb_nogvl` may hand its function to the Fiber scheduler's
+/// `blocking_operation_wait`, which runs it on another thread while the Fiber
+/// waits; a Ruby without the hook ignores it.
+const RB_NOGVL_OFFLOAD_SAFE: c_int = 0x4;
+
+/// What a wait without the GVL hands Ruby's unblocking function.
+struct Unblock<'a> {
+    task: &'a Task,
+    line: &'a handoff::Line,
+}
+
+/// Signal the run and wake the caller's wait, called by Ruby without the GVL
+/// whenever it wakes the thread, or as a Fiber scheduler cancels the wait.
+unsafe extern "C" fn unblock_wait(data: *mut c_void) {
+    // SAFETY: `released_wait` passes its own `Unblock`, alive for the whole
+    // wait Ruby calls this from.
+    let unblock = unsafe { &*data.cast::<Unblock<'_>>() };
+    unblock.task.signal();
+    unblock.line.wake_caller();
+}
+
+/// What the guest hands over next, waited for without the GVL: within a spin
+/// first, as a callback mostly comes back that soon, then in a wait a Fiber
+/// scheduler may hand to another thread, so the Thread's other Fibers run while
+/// the guest does.
 fn take_released(line: &handoff::Line, task: &Task) -> Message {
-    let task_ptr = ptr::addr_of!(*task).cast_mut().cast::<c_void>();
+    let unblock = Unblock { task, line };
+    loop {
+        if let Some(message) = released_wait(&unblock, 0, || line.take_spinning()) {
+            return message;
+        }
+        let waited = released_wait(&unblock, RB_NOGVL_OFFLOAD_SAFE, || line.take_until_woken());
+        if let Some(message) = waited {
+            return message;
+        }
+    }
+}
+
+/// Run `take` once without the GVL. What Ruby woke the thread for, or declined
+/// to wait under, signals each wait the run meets, as a signal pending when a
+/// Linux task sleeps wakes the sleep; what a Fiber scheduler raises where it
+/// takes the wait over is the run's, held and ending its waits.
+fn released_wait(
+    unblock: &Unblock<'_>,
+    flags: c_int,
+    mut take: impl FnMut() -> Option<Message>,
+) -> Option<Message> {
+    let data = ptr::addr_of!(*unblock).cast_mut().cast::<c_void>();
     // A Ruby thread may go on on another native thread once it takes the GVL
     // back, so the thread-local flag holds only while the wait runs.
-    let mut take = || {
+    let mut released = || {
         let _released = ReleasedGuard::set(true);
-        line.take()
+        take()
     };
-    loop {
-        let taken = call_via(&mut take, |func, data| {
-            // What came before, which Ruby declines to wait under, reaches the
-            // waits as one landing during the wait does, as a signal pending
-            // when a Linux task sleeps wakes the sleep.
-            if escape::pending() {
-                task.interrupt();
-            } else if interrupt_pending() {
-                task.signal();
-            }
-            // SAFETY: `func` and `data` come from `call_via`, which keeps the
-            // closure alive across the call; `task` outlives it, and Ruby calls
-            // `signal_task` with it only while the wait runs.
-            unsafe {
-                rb_sys::rb_thread_call_without_gvl2(Some(func), data, Some(signal_task), task_ptr)
-            }
-        });
-        match taken {
-            Ok(message) => return message,
-            // The run holds the interrupt and raises it once it ends, and the
-            // waits are signalled to take it as a callback would.
-            Err(_) => {
-                keeping_held_jump(escape::hold_interrupts);
-                task.signal();
-            }
+    let mut taken = None;
+    let protected = magnus::rb_sys::protect(|| {
+        if escape::pending() {
+            unblock.task.interrupt();
+        } else if interrupt_pending() {
+            unblock.task.signal();
+        }
+        // SAFETY: `func` and `data` come from `call_via`, which keeps the
+        // closure alive across the call; `unblock` outlives it, and Ruby calls
+        // `unblock_wait` with it only while the wait runs.
+        taken = Some(call_via(&mut released, |func, closure| unsafe {
+            rb_sys::rb_nogvl(
+                Some(func),
+                closure,
+                Some(unblock_wait),
+                data,
+                RB_NOGVL_INTR_FAIL | flags,
+            )
+        }));
+        rb_sys::Qnil as rb_sys::VALUE
+    });
+    match (protected, taken) {
+        (Ok(_), Some(Ok(message))) => message,
+        // The run holds the interrupt and raises it once it ends, and the
+        // waits are signalled to take it as a callback would.
+        (Ok(_), _) => {
+            keeping_held_jump(escape::hold_interrupts);
+            unblock.task.signal();
+            None
+        }
+        (Err(raised), _) => {
+            escape::keep(raised);
+            unblock.task.interrupt();
+            None
         }
     }
 }

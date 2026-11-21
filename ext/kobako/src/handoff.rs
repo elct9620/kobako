@@ -71,6 +71,9 @@ struct Mailbox<T> {
     values: Mutex<VecDeque<T>>,
     filled: AtomicBool,
     arrived: Condvar,
+    /// Whether a wait is to return empty-handed, leaving what comes next for
+    /// the wait after it.
+    woken: AtomicBool,
 }
 
 impl<T> Mailbox<T> {
@@ -79,7 +82,47 @@ impl<T> Mailbox<T> {
             values: Mutex::new(VecDeque::new()),
             filled: AtomicBool::new(false),
             arrived: Condvar::new(),
+            woken: AtomicBool::new(false),
         }
+    }
+
+    /// What arrives within the spin, or `None` without sleeping.
+    fn take_spinning(&self) -> Option<T> {
+        for _ in 0..SPINS {
+            if self.filled.load(Ordering::Acquire) {
+                break;
+            }
+            std::hint::spin_loop();
+        }
+        let mut values = self.values.lock().unwrap_or_else(PoisonError::into_inner);
+        let value = values.pop_front();
+        self.filled.store(!values.is_empty(), Ordering::Release);
+        value
+    }
+
+    /// The next value, or `None` once `wake` asks this wait to return.
+    fn take_until_woken(&self) -> Option<T> {
+        let mut values = self.values.lock().unwrap_or_else(PoisonError::into_inner);
+        loop {
+            if self.woken.swap(false, Ordering::AcqRel) {
+                return None;
+            }
+            if let Some(value) = values.pop_front() {
+                self.filled.store(!values.is_empty(), Ordering::Release);
+                return Some(value);
+            }
+            values = self
+                .arrived
+                .wait(values)
+                .unwrap_or_else(PoisonError::into_inner);
+        }
+    }
+
+    /// Have the wait in `take_until_woken`, or the next one, return empty.
+    fn wake(&self) {
+        let _values = self.values.lock().unwrap_or_else(PoisonError::into_inner);
+        self.woken.store(true, Ordering::Release);
+        self.arrived.notify_all();
     }
 
     fn put(&self, value: T) {
@@ -159,6 +202,21 @@ impl Line {
     /// What the guest's thread hands over next, waited for.
     pub(crate) fn take(&self) -> Message {
         self.to_caller.take()
+    }
+
+    /// What the guest hands over within a spin, as a callback mostly is.
+    pub(crate) fn take_spinning(&self) -> Option<Message> {
+        self.to_caller.take_spinning()
+    }
+
+    /// What the guest hands over next, or `None` once `wake_caller` asks.
+    pub(crate) fn take_until_woken(&self) -> Option<Message> {
+        self.to_caller.take_until_woken()
+    }
+
+    /// Have the caller's wait return, as Ruby or a Fiber scheduler cancels it.
+    pub(crate) fn wake_caller(&self) {
+        self.to_caller.wake();
     }
 
     /// Whether the run keeps the GVL while its guest runs.

@@ -33,4 +33,8 @@ group :development do
   # benchmark-ips drives the regression benchmarks in benchmark/.
   # Dev-only — the gem itself does not depend on it.
   gem "benchmark-ips", "~> 2.15", require: false
+
+  # The Fiber scheduler the tests hand a run's wait to. A Host App brings
+  # its own; the gem itself does not depend on it.
+  gem "async", "~> 2.46", require: false
 end
