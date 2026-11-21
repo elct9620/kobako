@@ -16,6 +16,9 @@ class TestRuntimeArtifactCache < Minitest::Test
 
   FIXTURE_PATH = TestPaths.fixture("minimal_abi_ok.wat")
 
+  # The SID Windows names everyone by, whatever the system's language.
+  EVERYONE = "*S-1-1-0"
+
   def setup
     require_fixture(FIXTURE_PATH)
   end
@@ -24,7 +27,6 @@ class TestRuntimeArtifactCache < Minitest::Test
   # failing construction.
   # @behavior RT-035 RT-036
   def test_from_path_falls_back_to_compile_when_cached_artifact_is_corrupt
-    require_disk_cache
     with_private_cache_root do |dir|
       wasm_path, entry = plant_corrupt_artifact(dir)
 
@@ -36,22 +38,20 @@ class TestRuntimeArtifactCache < Minitest::Test
     end
   end
 
-  # The unsafe artifact deserialize trusts only a cache directory the
-  # current user exclusively owns; a directory writable by group or
-  # other could carry another local user's planted artifact, so both
-  # disk-cache tiers must skip it.
+  # The unsafe artifact deserialize trusts only a cache directory no other
+  # local user may write; one they could write could carry their planted
+  # artifact, so both disk-cache tiers must skip it.
   # @behavior RT-037 RT-038
-  def test_group_writable_cache_directory_is_not_trusted
-    require_disk_cache
+  def test_a_cache_directory_others_may_write_is_not_trusted
     with_private_cache_root do |dir|
       wasm_path, entry = plant_corrupt_artifact(dir)
-      File.chmod(0o777, File.dirname(entry))
+      share_with_everyone(File.dirname(entry))
 
       assert_instance_of Kobako::Runtime,
                          Kobako::Runtime.from_path(wasm_path, **runtime_options),
-                         "construction over a group-writable cache directory must fall back to compilation"
+                         "construction over a cache directory others may write must fall back to compilation"
       assert_equal "not a serialized wasmtime artifact", File.binread(entry),
-                   "an artifact in a group-writable cache directory must be neither loaded nor overwritten"
+                   "an artifact in a cache directory others may write must be neither loaded nor overwritten"
     end
   end
 
@@ -60,7 +60,6 @@ class TestRuntimeArtifactCache < Minitest::Test
   # choosing, so a link is trusted no more than a shared directory.
   # @behavior RT-110
   def test_a_linked_cache_directory_is_not_trusted
-    require_disk_cache
     with_private_cache_root do |dir|
       wasm_path, entry = plant_corrupt_artifact(dir)
       link_cache_directory(dir, entry)
@@ -78,7 +77,6 @@ class TestRuntimeArtifactCache < Minitest::Test
   # bound across Guest Binary rebuilds.
   # @behavior RT-039
   def test_storing_an_artifact_prunes_entries_unused_past_the_retention_window
-    require_disk_cache
     with_private_cache_root do |dir|
       stale = plant_stale_artifact(dir)
       wasm_path = File.join(dir, "prune_probe.wat")
@@ -88,23 +86,6 @@ class TestRuntimeArtifactCache < Minitest::Test
 
       refute_path_exists stale,
                          "writing a new artifact must prune cache entries unused past the retention window"
-    end
-  end
-
-  # A host that reports no directory owner cannot tell a private cache
-  # directory from a shared one, so it trusts none and writes nothing there.
-  # Only such a host runs this, as only it compiles without the disk cache.
-  # @behavior RT-171
-  def test_a_host_reporting_no_directory_owner_caches_no_artifact
-    skip "this host reports a directory's owner, so it caches artifacts on disk" if disk_cache?
-    with_private_cache_root do |dir|
-      wasm_path = File.join(dir, "probe.wat")
-      FileUtils.cp(FIXTURE_PATH, wasm_path)
-
-      assert_instance_of Kobako::Runtime, Kobako::Runtime.from_path(wasm_path, **runtime_options),
-                         "Runtime.from_path on a host reporting no directory owner must build by compiling"
-      assert_empty Dir.glob(File.join(dir, "**", "*.cwasm")),
-                   "Runtime.from_path on a host reporting no directory owner must write no compiled artifact"
     end
   end
 
@@ -143,12 +124,26 @@ class TestRuntimeArtifactCache < Minitest::Test
     [wasm_path, entries.first]
   end
 
+  # Let every local user write +path+: its mode on Unix, an inheritable
+  # grant to Everyone on Windows, where the mode bits decide nothing.
+  def share_with_everyone(path)
+    return File.chmod(0o777, path) unless Gem.win_platform?
+
+    assert system("icacls", path, "/grant", "#{EVERYONE}:(OI)(CI)F", out: File::NULL),
+           "icacls must grant Everyone the cache directory"
+  end
+
   # Move the cache directory holding +entry+ aside and leave a link in its
-  # place, so the entry is still reached at the same path.
+  # place, so the entry is still reached at the same path. Windows links a
+  # directory through a junction, which needs no privilege.
   def link_cache_directory(dir, entry)
     linked = File.join(dir, "linked")
     File.rename(File.dirname(entry), linked)
-    File.symlink(linked, File.dirname(entry))
+    return File.symlink(linked, File.dirname(entry)) unless Gem.win_platform?
+
+    assert system("cmd", "/c", "mklink", "/J", File.dirname(entry).tr("/", "\\"), linked.tr("/", "\\"),
+                  out: File::NULL),
+           "mklink must leave a junction in the cache directory's place"
   end
 
   # Plant an empty cache entry whose mtime sits past the 30-day

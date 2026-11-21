@@ -67,15 +67,6 @@ module GuestGuard
   # to switch one handle to for a single write, so a Bind there refuses one.
   def bind_appends? = !Gem.win_platform?
 
-  # Whether the artifact cache stores to disk here. It trusts only a cache
-  # directory its user owns, which only Unix reports, so Windows compiles
-  # every Guest Binary itself.
-  def disk_cache? = !Gem.win_platform?
-
-  def require_disk_cache
-    skip "this host reports no directory owner, so it caches no artifact on disk" unless disk_cache?
-  end
-
   # A host whose Ruby defines +File::NOFOLLOW+, which a Ruby Filesystem's
   # open is handed so it follows no link. Windows defines none, so a test
   # needing the flag skips there.
