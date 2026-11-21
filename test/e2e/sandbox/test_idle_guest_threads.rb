@@ -4,14 +4,15 @@ require "test_helper"
 
 # E2E — the threads guests run on, kept for the next run and ended once idle
 # past their limit. Linux names each thread in /proc, so the child counts the
-# guest threads there; the count belongs to the process, so it runs alone.
+# guest threads there; the count belongs to the process, so it runs alone. A
+# thread that ends between the listing and its read counts as gone.
 class TestE2EIdleGuestThreads < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
 
   CHILD = <<~RUBY
     require "kobako"
-    def guest_threads = Dir.glob("/proc/self/task/*/comm").count { |comm| File.read(comm).strip == "kobako-guest" }
+    def guest_threads = Dir.glob("/proc/self/task/*/comm").count { |comm| (File.read(comm) rescue "").strip == "kobako-guest" }
     sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release)
     sandbox.bind("Host::Wait", ->(seconds) { sleep(seconds) })
     Array.new(3) { Thread.new { sandbox.eval("Host::Wait.call(0.3)") } }.each(&:join)
