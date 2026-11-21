@@ -89,6 +89,7 @@ endpoint "api.example.com", port: 443
 - `crates/kobako-runtime/src/network/ruleset.rs`
 - `crates/kobako-runtime/src/errno.rs`
 - `crates/kobako-runtime/src/net/socket.rs`
+- `crates/kobako-runtime/src/net/tcp.rs`
 - `crates/kobako-runtime/src/net/http.rs`
 - `crates/kobako-runtime/src/net/namespace.rs`
 - `crates/kobako-runtime/src/net/connections.rs`
@@ -1462,7 +1463,7 @@ endpoint "api.example.com", port: 443
 | When | the guest receives with a `max-results` past twenty |
 | Then | the call answers sixteen datagrams, and the next answers the rest, as wasmtime-wasi bounds one receive |
 
-## `NW-116` A socket and an exchange hold their buffers against the Invocation's memory
+## `NW-116` A socket and an exchange charge what they hold against the Invocation's memory
 
 | Attribute | Value |
 | --- | --- |
@@ -1471,9 +1472,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | an Invocation whose `memory_limit` holds one TCP socket's buffers |
-| When | it makes that socket, then a UDP socket and an HTTP request. It then lets the TCP socket go and makes the UDP socket again |
-| Then | the TCP socket is made. The UDP socket answers `ENOMEM` and the request fails before it is sent. Once the TCP socket is gone, the UDP socket is made. Linux counts a socket's buffers against its creator's memory cgroup |
+| Given | an Invocation whose `memory_limit` leaves little room, and peers sending a TCP stream, an HTTP body, and datagrams past it |
+| When | the guest opens each, then reads them slowly |
+| Then | each opens, holding only what its queue holds, as Linux charges each `sk_buff` to its memory cgroup. A stream with bytes queued takes no more until the guest reads. An empty queue takes one read past the limit, as `sk_forced_mem_schedule` does. A datagram past the limit is dropped |
 
 ## `NW-117` A script's socket binds the local end the host allows
 
@@ -2155,7 +2156,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a connected socket's output stream, whose `check-write` permitted some bytes |
 | When | the guest shrinks the socket's send buffer, then writes every permitted byte |
-| Then | the write fails before any byte leaves, so the peer never reads a stream with a gap. Holding the bytes would pass the memory the socket reserved. Every later call on the stream answers `closed`, as `io.wit` closes a stream past `last-operation-failed`. Its pollable is then ready at once |
+| Then | the write fails before any byte leaves, so the peer never reads a stream with a gap. Holding the bytes would pass the send buffer. Every later call on the stream answers `closed`, as `io.wit` closes a stream past `last-operation-failed`. Its pollable is then ready at once |
 
 ## `NW-172` A datagram reads with the peer that sent it
 
@@ -2465,9 +2466,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | an `http` endpoint naming a host, and an entry whose connect policy records what it sees. The Invocation's `memory_limit` holds a request, not one TCP socket's buffers |
-| When | the guest sends a request to the host, then sends it again with room for the socket |
-| Then | the first fails before it reaches the server, as the upstream's socket cannot hold its buffers. The second reaches it. The policy sees only the host the guest named, never an address it resolved to. The upstream passes only the socket layer's filter, as an egress proxy's does |
+| Given | an `http` endpoint naming a host, and an entry whose connect policy records what it sees |
+| When | the guest sends a request to the host |
+| Then | it reaches the server. The policy sees only the host the guest named, never an address it resolved to. The upstream passes only the socket layer's filter, as an egress proxy's does |
 
 ## `NW-197` A name no URL host spells is refused as an invalid argument
 
@@ -2999,3 +3000,15 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint naming a loopback server that never reads the request body |
 | When | the script posts a megabyte body, its `write_timeout` a hundredth of a second |
 | Then | it raises `Net::ReadTimeout` once `read_timeout` passes from the connect. `write_timeout` bounds no wait, since the host holds the whole body before the request leaves. CRuby's raises `Net::WriteTimeout` once the body fills the socket buffers, and starts `read_timeout` once it is written |
+
+## `NW-239` A write past the Invocation's memory waits for the queue to drain
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-116` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected TCP socket under a `memory_limit` that leaves little room |
+| When | the guest writes more than the room holds |
+| Then | the socket takes up to 4 KiB past the limit while little is queued, as `tcp_wmem_schedule` forces. Past that a write answers `EAGAIN` and the socket polls unwritable. It polls writable again once the host takes the queue |

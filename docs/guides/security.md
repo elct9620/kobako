@@ -129,7 +129,7 @@ A guest tunes its own sockets through the options WASI defines, and each stays w
 | Option | What the guest can still do |
 |---|---|
 | keepalive probes | keep an admitted connection open while idle, within the run's deadline |
-| `SO_RCVBUF`, `SO_SNDBUF` | shrink a socket's queues, never past the memory each socket reserved |
+| `SO_RCVBUF`, `SO_SNDBUF` | shrink a socket's queues, never past the 64 KiB cap |
 | `IP_TTL` | count the hops to a destination an endpoint admits, by sending with a short limit |
 
 A read answers the socket's own setting, so the host's defaults never reach the guest.

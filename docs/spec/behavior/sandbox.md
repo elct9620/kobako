@@ -578,13 +578,13 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | the usage is read off the raised error's Execution |
 | Then | the wall time is above zero |
 
-## `S-062` The reported peak never exceeds the budget that refused it
+## `S-062` A refused growth never raises the reported peak past the budget
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox whose invocation exceeded its memory budget |
 | When | the usage is read off the raised error's Execution |
-| Then | the memory peak is at or below the configured budget |
+| Then | the memory peak is at or below the configured budget. Only a network queue's forced charge passes it, as `NW-116` states |
 
 ## `S-063` Both frontends report usage after a run that succeeded
 

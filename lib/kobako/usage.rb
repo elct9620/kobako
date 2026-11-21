@@ -8,8 +8,9 @@ module Kobako
   #     +timeout+ deadline governs; Service callbacks count, reading the
   #     result and the captures afterwards does not.
   #   * +memory_peak+ — Integer bytes of memory the invocation grew,
-  #     against the same baseline as +memory_limit+; it never exceeds the
-  #     cap, even when the cap was hit.
+  #     against the same baseline as +memory_limit+. It can pass the cap by
+  #     what a network queue had to take to move on, at most one read per
+  #     open connection, as Linux's +memory.peak+ records a forced charge.
   #
   # Filled on every outcome, traps included, so a Host App that rescues a
   # trap reads from the error's +execution+ how much of the budget the
