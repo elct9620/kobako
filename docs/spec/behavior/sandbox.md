@@ -2115,3 +2115,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Fiber suspended inside the block of a mount its Context made, the block closing over the Fiber's own scope |
 | When | the Fiber is left, the collector runs, and another run follows |
 | Then | the collector frees the Fiber and the mounted Filesystem too. The run marks what it reached, so nothing it holds keeps the Fiber alive |
+
+## `S-232` A guest's thread left idle ends
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-225` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process whose runs at once left three guest threads waiting for the next run |
+| When | no run starts for ten seconds |
+| Then | those threads end, and a later run starts one again. An idle thread is kept as long as a blocking pool keeps one |
