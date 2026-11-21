@@ -208,9 +208,9 @@ impl RubyDispatchHandler {
 impl DispatchHandler for RubyDispatchHandler {
     /// Ruby decodes only the payload, through the codec it already owns,
     /// which keeps a large payload's strings shared with the buffer rather
-    /// than copied. The Proc folds every `StandardError` into the Reply's
-    /// fault arm, so one escaping is a contract violation surfaced as
-    /// `None`.
+    /// than copied. The Proc folds every `StandardError` a Service raises into
+    /// the Reply's fault arm, so whatever escapes it is held for the host and
+    /// answered as `None`, ending the invocation.
     fn dispatch(&self, call: Call<'_>, yielder: &mut dyn Yielder) -> Option<CallReply> {
         // The guest's thread hands the whole callback to the Fiber that called
         // the invocation (#eval or #run), which holds the GVL, before any Ruby
@@ -248,13 +248,14 @@ impl DispatchHandler for RubyDispatchHandler {
                     )
                 });
             guest_yielder.invalidate();
-            // The Proc rescues only StandardError, so what else escapes it
-            // is the host's own and is held for the host; a StandardError
-            // escaping breaks the Proc's contract.
+            // The Proc folds every StandardError a Service raises into a
+            // fault, so what escapes it was never the Service's: an interrupt
+            // landing before the Proc's own rescue, or the host's own
+            // exception. Either is held for the host.
             let (arm, body, kind) = match answer {
                 Ok(answer) => answer,
                 Err(error) => {
-                    let _ = crate::escape::hold(&ruby, error);
+                    crate::escape::keep(error);
                     return None;
                 }
             };

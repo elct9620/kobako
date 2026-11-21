@@ -54,18 +54,17 @@ The mode is fixed per Sandbox. Isolation, Handles, captures, and outcomes stay
 the same. Dispatch-heavy scripts match or trail `:hold` under `:release`;
 `rake bench:gvl_scheduling` measures both on your hardware.
 
-### Interrupts Under Release
+### Interrupts
 
-`:release` holds what Ruby delivers while the guest runs, and the run raises it
-once it ends. A Service call takes interrupts as the Host App's own mask allows,
-as under `:hold`.
+A run holds what Ruby delivers while the guest runs, and raises it once it
+ends. A callback takes interrupts as the Host App's own mask allows.
 
-| Arrives | Under `:release` |
+| Arrives | In either mode |
 |---|---|
-| while the guest runs, as a raising `trap` block does | the run raises it once it ends |
-| while a Service runs | the Service takes it, as its mask allows |
+| while the guest runs, as a raising `trap` block does | the run raises it once it ends; no callback sees it |
+| while a Service or a mount's block runs | that callback takes it, as its mask allows |
 
-In either mode, a run waiting on the host goes on through a `Thread#wakeup` or a
+A run waiting on the host goes on through a `Thread#wakeup` or a
 trap that raises nothing. A wakeup that raises ends the run's waits, and the run
 raises it once it ends.
 

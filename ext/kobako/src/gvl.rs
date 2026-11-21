@@ -362,12 +362,10 @@ fn serve_line(line: &handoff::Line) -> Option<handoff::Panic> {
         };
         match message {
             Message::Job(job) => {
-                // What Ruby delivered while the guest ran without the GVL is
-                // the run's, held before the callback starts, so it never lands
-                // in the callback as if the callback raised it.
-                if gives_up {
-                    keeping_held_jump(escape::hold_interrupts);
-                }
+                // What Ruby delivered while the guest ran is the run's, held
+                // before the callback starts, so it never lands in the
+                // callback as if the callback raised it.
+                keeping_held_jump(escape::hold_interrupts);
                 line.answer(job);
             }
             Message::Wait(true) => gives_up = true,
