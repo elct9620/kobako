@@ -2090,3 +2090,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox on the main Thread whose mount's block rescues every error, and whose trap handler raises |
 | When | the signal arrives as the guest computes, before it opens a file there |
 | Then | the run raises the handler's exception once it ends, and the block never sees it |
+
+## `S-230` A raise into a Thread whose run releases the GVL stops the guest as it computes
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-227` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox releasing the GVL whose guest computes for seconds without calling the host |
+| When | another Thread raises into the Thread running it |
+| Then | the run raises that exception within moments, not once the guest would end. A Linux task dies of a fatal signal on its way back to its own code |
