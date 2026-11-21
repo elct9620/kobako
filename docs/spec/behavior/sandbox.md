@@ -2140,3 +2140,27 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a mount's block, run while its run holds the Tmpfs's directory, that runs another Sandbox on an Enumerator |
 | When | that run writes to the same Tmpfs |
 | Then | the write fails at once as a deadlock, never waiting on its own run. The Fiber inherits the run's mark through its storage; one made without storage, or another Thread, is a run of its own |
+
+## `S-234` A run waiting on its guest lets a Fiber scheduler run the Thread's other Fibers
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-225` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Fiber scheduler that runs a blocking operation on another thread, and Sandboxes releasing the GVL |
+| When | two Fibers on one Thread each run a guest that only computes, beside a Fiber that ticks |
+| Then | the runs overlap and the ticking Fiber goes on meanwhile. A run hands its wait to the scheduler only once a callback did not come back within a spin |
+
+## `S-235` A Fiber scheduler stopping a Fiber whose run waits on its guest ends that run
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-234` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Fiber scheduler that runs a blocking operation on another thread |
+| When | it stops a Fiber whose run waits on a guest that only computes |
+| Then | the run ends within moments raising what the scheduler raised, and the next run answers |
