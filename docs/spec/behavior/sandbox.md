@@ -2055,7 +2055,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | the Fiber is left and collected, and another run writes to the same Filesystem |
 | Then | the other run answers without waiting for its deadline. The collected run's waits end, as its caller is gone |
 
-## `S-227` A trap that raises during a run releasing the GVL ends that run
+## `S-227` A trap that raises as the guest computes ends that run
 
 | Attribute | Value |
 | --- | --- |
@@ -2063,9 +2063,9 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox releasing the GVL on the main Thread, whose trap handler raises |
+| Given | a Sandbox on the main Thread, keeping or releasing the GVL, whose trap handler raises |
 | When | the signal arrives as the guest computes, before it calls a Service |
-| Then | the run raises the handler's exception once it ends, and the next run answers. Ruby runs a trap handler on the main Thread alone |
+| Then | the run raises the handler's exception once it ends, and the next run answers. The Service never sees it. Ruby runs a trap handler on the main Thread alone |
 
 ## `S-228` Runs on Threads of Ruby's M:N scheduler answer
 
@@ -2078,3 +2078,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a process running Threads on Ruby's M:N scheduler, each running a Sandbox whose script calls Services |
 | When | the Threads run many times at once |
 | Then | every run answers. A Thread may go on on another native thread, while each guest stays on its own |
+
+## `S-229` A trap that raises as the guest computes never reaches a mount's block
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-227` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox on the main Thread whose mount's block rescues every error, and whose trap handler raises |
+| When | the signal arrives as the guest computes, before it opens a file there |
+| Then | the run raises the handler's exception once it ends, and the block never sees it |
