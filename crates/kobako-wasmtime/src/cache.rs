@@ -18,7 +18,12 @@
 //! wait on each other. Two concurrent misses on one path both compile,
 //! and the later insert wins with an equivalent Module.
 
+#[cfg(unix)]
+mod unix;
+
 use std::collections::HashMap;
+#[cfg(unix)]
+use std::ffi::OsStr;
 use std::fmt::Write as _;
 use std::fs;
 use std::hash::{DefaultHasher, Hash, Hasher};
@@ -26,6 +31,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
+#[cfg(unix)]
+use std::time::SystemTime;
+
+#[cfg(unix)]
+use unix::PrivateDir;
 
 use sha2::{Digest, Sha256};
 use wasmtime::{Config as WtConfig, Engine as WtEngine, Module as WtModule};
@@ -177,14 +187,12 @@ fn engine_key(engine: &WtEngine) -> u64 {
 /// since last use rather than since creation.
 #[cfg(unix)]
 fn load_artifact(engine: &WtEngine, artifact: &Path) -> Option<WtModule> {
-    use rustix::fs::{openat, Mode, OFlags};
-    let dir = open_private_dir(artifact.parent()?)?;
-    let flags = OFlags::RDONLY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    let file = fs::File::from(openat(&dir, artifact.file_name()?, flags, Mode::empty()).ok()?);
-    let _ = file.set_modified(std::time::SystemTime::now());
+    let dir = PrivateDir::open(artifact.parent()?)?;
+    let file = dir.open_entry(artifact.file_name()?)?;
+    let _ = file.set_modified(SystemTime::now());
     // SAFETY: `Module::deserialize_open_file` trusts the artifact bytes
     // and needs them unchanged while the Module lives. The file was
-    // opened through the directory `open_private_dir` checked, which only
+    // opened through the directory `PrivateDir::open` checked, which only
     // the current user can write, so it is an artifact this module
     // stored, addressed by the content hash of the Guest Binary being
     // constructed — it carries exactly that binary's trust.
@@ -199,7 +207,6 @@ fn load_artifact(engine: &WtEngine, artifact: &Path) -> Option<WtModule> {
 /// directory bounded across rebuilds.
 #[cfg(unix)]
 fn store_artifact(module: &WtModule, artifact: &Path) {
-    use rustix::fs::{fsync, renameat};
     use std::io::Write as _;
     let (Some(dir), Some(name)) = (artifact.parent(), artifact.file_name()) else {
         return;
@@ -207,13 +214,13 @@ fn store_artifact(module: &WtModule, artifact: &Path) {
     let Ok(bytes) = module.serialize() else {
         return;
     };
-    if create_cache_dir(dir).is_err() {
+    if PrivateDir::create(dir).is_err() {
         return;
     }
-    let Some(dir) = open_private_dir(dir) else {
+    let Some(dir) = PrivateDir::open(dir) else {
         return;
     };
-    let Some((tmp, mut file)) = create_temp(&dir, name) else {
+    let Some((tmp, mut file)) = dir.create_temp(name) else {
         return;
     };
     if file
@@ -223,25 +230,9 @@ fn store_artifact(module: &WtModule, artifact: &Path) {
     {
         return;
     }
-    if renameat(&dir, &tmp, &dir, name).is_ok() {
-        let _ = fsync(&dir);
+    if dir.rename(&tmp, name) {
         prune_stale(&dir, name);
     }
-}
-
-/// A temp file no other writer shares: two threads of one process storing
-/// the same artifact at once would otherwise write into one file, and a
-/// reader could load the interleaved bytes the unsafe deserialize trusts.
-#[cfg(unix)]
-fn create_temp(dir: &rustix::fd::OwnedFd, name: &std::ffi::OsStr) -> Option<(PathBuf, fs::File)> {
-    use rustix::fs::{openat, Mode, OFlags};
-    use std::sync::atomic::{AtomicU64, Ordering};
-    static NEXT_TEMP: AtomicU64 = AtomicU64::new(0);
-    let serial = NEXT_TEMP.fetch_add(1, Ordering::Relaxed);
-    let tmp = Path::new(name).with_extension(format!("tmp{}.{serial}", std::process::id()));
-    let flags = OFlags::WRONLY | OFlags::CREATE | OFlags::EXCL | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    let fd = openat(dir, &tmp, flags, Mode::RUSR | Mode::WUSR).ok()?;
-    Some((tmp, fs::File::from(fd)))
 }
 
 /// The disk cache trusts its directory's owner, which only Unix reports,
@@ -254,59 +245,19 @@ fn load_artifact(_engine: &WtEngine, _artifact: &Path) -> Option<WtModule> {
 #[cfg(not(unix))]
 fn store_artifact(_module: &WtModule, _artifact: &Path) {}
 
-/// Create the cache directory owner-only (`0700`) so no other local user
-/// can plant an artifact the unsafe deserialize would trust.
-#[cfg(unix)]
-fn create_cache_dir(dir: &Path) -> std::io::Result<()> {
-    use std::os::unix::fs::DirBuilderExt;
-    fs::DirBuilder::new()
-        .recursive(true)
-        .mode(0o700)
-        .create(dir)
-}
-
-/// The cache directory as one descriptor, once it upholds the trust the
-/// unsafe deserialize relies on: a directory rather than a link in its
-/// place, owned by the current effective user and writable by no one
-/// else. Every later step goes through the descriptor, so a path swapped
-/// after the check reaches nothing. One that fails — another user's,
-/// under a shared `XDG_CACHE_HOME`, say — skips both disk-cache tiers.
-#[cfg(unix)]
-fn open_private_dir(dir: &Path) -> Option<rustix::fd::OwnedFd> {
-    use rustix::fs::{fstat, open, Mode, OFlags};
-    let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC;
-    let fd = open(dir, flags, Mode::empty()).ok()?;
-    let stat = fstat(&fd).ok()?;
-    let owned = stat.st_uid == rustix::process::geteuid().as_raw();
-    (owned && stat.st_mode & 0o022 == 0).then_some(fd)
-}
-
 /// Live temp files are seconds old and never qualify; foreign file names
 /// are left untouched.
 #[cfg(unix)]
-fn prune_stale(dir: &rustix::fd::OwnedFd, keep: &std::ffi::OsStr) {
-    use rustix::fs::{statat, unlinkat, AtFlags, Dir};
-    use std::os::unix::ffi::OsStrExt;
-    use std::time::{SystemTime, UNIX_EPOCH};
-    let Ok(mut entries) = Dir::read_from(dir) else {
-        return;
-    };
-    while let Some(Ok(entry)) = entries.read() {
-        let name = entry.file_name();
-        if name.to_bytes() == keep.as_bytes() || !name.to_str().is_ok_and(is_cache_entry_name) {
+fn prune_stale(dir: &PrivateDir, keep: &OsStr) {
+    for (name, modified) in dir.entries() {
+        if name == keep || !name.to_str().is_some_and(is_cache_entry_name) {
             continue;
         }
-        let stale = statat(dir, name, AtFlags::SYMLINK_NOFOLLOW)
-            .ok()
-            .and_then(|stat| u64::try_from(stat.st_mtime).ok())
-            .and_then(|secs| {
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH + Duration::from_secs(secs))
-                    .ok()
-            })
-            .is_some_and(|age| age > ARTIFACT_TTL);
+        let stale = SystemTime::now()
+            .duration_since(modified)
+            .is_ok_and(|age| age > ARTIFACT_TTL);
         if stale {
-            let _ = unlinkat(dir, name, AtFlags::empty());
+            dir.remove(&name);
         }
     }
 }
@@ -354,11 +305,11 @@ mod tests {
     #[test]
     fn two_writers_of_one_artifact_never_share_a_temp_file() {
         let root = std::env::temp_dir().join(format!("kobako-temp-{}", std::process::id()));
-        create_cache_dir(&root).expect("a scratch directory");
-        let dir = open_private_dir(&root).expect("a private directory");
+        PrivateDir::create(&root).expect("a scratch directory");
+        let dir = PrivateDir::open(&root).expect("a private directory");
         let name = std::ffi::OsStr::new("entry.cwasm");
-        let first = create_temp(&dir, name).map(|(path, _)| path);
-        let second = create_temp(&dir, name).map(|(path, _)| path);
+        let first = dir.create_temp(name).map(|(path, _)| path);
+        let second = dir.create_temp(name).map(|(path, _)| path);
         fs::remove_dir_all(&root).expect("the scratch directory removed");
         let (first, second) = (
             first.expect("a temp file"),
