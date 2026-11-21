@@ -2103,3 +2103,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox releasing the GVL whose guest computes for seconds without calling the host |
 | When | another Thread raises into the Thread running it |
 | Then | the run raises that exception within moments, not once the guest would end. A Linux task dies of a fatal signal on its way back to its own code |
+
+## `S-231` A run whose Fiber is collected while suspended lets the Ruby objects it reached go
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-226` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Fiber suspended inside the block of a mount its Context made, the block closing over the Fiber's own scope |
+| When | the Fiber is left, the collector runs, and another run follows |
+| Then | the collector frees the Fiber and the mounted Filesystem too. The run marks what it reached, so nothing it holds keeps the Fiber alive |
