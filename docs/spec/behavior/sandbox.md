@@ -2056,8 +2056,8 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Step | Statement |
 | --- | --- |
 | Given | a Fiber suspended inside a mount's block, which its run calls while holding the directory |
-| When | the Fiber is left and collected, and another run writes to the same Filesystem |
-| Then | the other run answers without waiting for its deadline. The collected run's waits end, as its caller is gone |
+| When | the Host App leaves it on a Thread that ends, the collector frees it, and another run writes there |
+| Then | the other run answers without waiting for its deadline. Ruby frees what a Fiber held once its Thread ends, and kobako ends the collected run's waits |
 
 ## `S-227` A trap that raises as the guest computes ends that run
 
@@ -2116,10 +2116,10 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Step | Statement |
 | --- | --- |
 | Given | a Fiber suspended inside the block of a mount its Context made, the block closing over the Fiber's own scope |
-| When | the Fiber is left, the collector runs, and another run follows |
+| When | the Host App leaves it on a Thread that ends, and the collector runs |
 | Then | the collector frees the Fiber and the mounted Filesystem too. The run marks what it reached, so nothing it holds keeps the Fiber alive |
 
-## `S-232` A guest's thread left idle ends
+## `S-232` A run after the guest threads were left idle still answers
 
 | Attribute | Value |
 | --- | --- |
@@ -2128,8 +2128,8 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Step | Statement |
 | --- | --- |
 | Given | a process whose runs at once left three guest threads waiting for the next run |
-| When | no run starts for ten seconds |
-| Then | those threads end, and a later run starts one again. An idle thread is kept as long as a blocking pool keeps one |
+| When | no run starts for ten seconds, and then one does |
+| Then | the run answers on a thread it starts, and the idle threads have ended. A run taking a thread as it ends still gets its own job run. An idle thread is kept as long as a blocking pool keeps one |
 
 ## `S-233` A run on a Fiber a callback starts holds locks as the callback's run
 
