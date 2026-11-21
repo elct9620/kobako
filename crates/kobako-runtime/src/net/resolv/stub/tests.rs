@@ -467,3 +467,35 @@ fn a_config_holding_a_byte_no_encoding_spells_still_reads() {
          glibc reads it as bytes"
     );
 }
+
+#[test]
+fn a_child_forked_on_the_drawing_thread_draws_query_ids_of_its_own() {
+    draw_id();
+    let mut ends = [0; 2];
+    // SAFETY: a pipe into two descriptors this test owns.
+    assert_eq!(unsafe { libc::pipe(ends.as_mut_ptr()) }, 0, "a pipe opens");
+    // SAFETY: the child only draws, writes, and exits.
+    let child = unsafe { libc::fork() };
+    if child == 0 {
+        let ids: [u16; 4] = std::array::from_fn(|_| draw_id());
+        // SAFETY: the child writes its IDs and exits at once.
+        unsafe {
+            libc::write(ends[1], ids.as_ptr().cast(), size_of_val(&ids));
+            libc::_exit(0);
+        }
+    }
+    let parent: [u16; 4] = std::array::from_fn(|_| draw_id());
+    let mut drawn = [0u16; 4];
+    // SAFETY: reading into a buffer this test owns, then reaping the child.
+    unsafe {
+        libc::close(ends[1]);
+        libc::read(ends[0], drawn.as_mut_ptr().cast(), size_of_val(&drawn));
+        libc::close(ends[0]);
+        libc::waitpid(child, std::ptr::null_mut(), 0);
+    }
+    assert_ne!(
+        drawn, parent,
+        "a child forked on the thread that drew query IDs must draw IDs of its own, so workers \
+         forked from one server never send the same sequence"
+    );
+}

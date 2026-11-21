@@ -4,14 +4,11 @@
 //! comes truncated. Its sockets wait on the reactor, so dropping the query
 //! closes them, which glibc's blocking `getaddrinfo` cannot offer.
 
-use std::collections::hash_map::RandomState;
 use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::future::poll_fn;
-use std::hash::{BuildHasher, Hasher};
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Weak};
 use std::task::Poll;
 use std::time::{Duration, Instant};
@@ -369,12 +366,14 @@ fn is_on_chain(chain: &HashSet<String>, name: &Name<'_>) -> bool {
     chain.contains(&name.to_string().to_ascii_lowercase())
 }
 
-/// Draw a query ID no off-path sender can guess, as `res_mkquery` does.
+/// Draw a query ID no off-path sender can guess, as `res_mkquery` does,
+/// from the kernel each time: no state is kept for a forked child to draw
+/// the same IDs from.
 fn draw_id() -> u16 {
-    static COUNT: AtomicU64 = AtomicU64::new(0);
-    let mut hasher = RandomState::new().build_hasher();
-    hasher.write_u64(COUNT.fetch_add(1, Ordering::Relaxed));
-    hasher.finish() as u16
+    let mut id = [0; 2];
+    rustix::rand::getrandom(&mut id, rustix::rand::GetRandomFlags::empty())
+        .expect("getrandom must answer two bytes once the kernel's pool is ready");
+    u16::from_ne_bytes(id)
 }
 
 /// A socket the reactor watches, waited on until a deadline.

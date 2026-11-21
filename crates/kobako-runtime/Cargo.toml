@@ -100,5 +100,8 @@ windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Netwo
 
 # simple-dns reads and writes the DNS messages the Linux stub resolver sends
 # to a name server, its compression loops refused; it pulls in only bitflags.
+# rustix draws each query ID from getrandom, so no state a fork copies
+# repeats it.
 [target.'cfg(all(unix, not(target_os = "macos")))'.dependencies]
+rustix = { version = "1.1.4", features = ["rand"] }
 simple-dns = "0.13.1"
