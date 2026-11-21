@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.22.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.21.0...kobako-sdk-v0.22.0) (2026-11-21)
+
+
+### ⚠ BREAKING CHANGES
+
+* **vfs:** a FileOperations implementing iterate_shared must also return true from has_iterate_shared, or its listings answer NotADirectory.
+* **sandbox:** `Kobako::Pool` and `Kobako::PoolTimeoutError` are removed. Share one `Kobako::Sandbox` across Threads instead; a Host App that needs a bound on concurrent runs or a checkout timeout keeps one of its own, such as a `Thread::SizedQueue` or the `connection_pool` gem.
+
+### Features
+
+* **sandbox:** remove Kobako::Pool, as Threads share one Sandbox ([f06ee29](https://github.com/elct9620/kobako/commit/f06ee2968231d1fb69334e46a878c42f161520ac))
+* **wasmtime:** let a forked child on macOS run Sandboxes on any Thread ([a78375a](https://github.com/elct9620/kobako/commit/a78375a440614eb14dee722365702bb3bab5a23c))
+
+
+### Bug Fixes
+
+* **vfs:** refuse a listing of a file without iterate_shared before locking it ([34eb327](https://github.com/elct9620/kobako/commit/34eb3273cd537ccbd2b7a3592ece38da79d60d2f))
+
 ## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.20.0...kobako-sdk-v0.21.0) (2026-11-18)
 
 
