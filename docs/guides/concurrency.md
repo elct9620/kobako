@@ -9,7 +9,9 @@ Thread A --eval--> +---------+ --> Execution A
 Thread B --eval--> +---------+ --> Execution B
 ```
 
-One Thread still runs one Invocation at a time.
+One Thread still runs one Invocation at a time. A Fiber suspended inside a
+Service keeps its Invocation running, so a run another Fiber on that Thread
+starts raises `ThreadError`. A Service may still run a Sandbox on its own Fiber.
 
 ## Shared Setup
 

@@ -220,7 +220,7 @@ An owner must wake its waiters on every exit that runs code, a panic unwinding p
 | a panic unwinding | yes | the owner must wake its waiters from a guard's drop |
 | a longjmp over Rust frames | no | the guide keeps a raising trap off the main Thread |
 | a fork | no thread but the caller | the guide keeps a fork outside any run |
-| a Fiber left suspended in a callback | no | none yet, so its locks stay held and other runs wait until their deadlines |
+| a Fiber left suspended in a callback | no | its Thread refuses other Fibers' runs; other Threads wait out their deadlines |
 
 No rule keeps a fork away from a background thread, the engine's own included. So a lock one takes after every run has ended is never one a forked child waits on. A process-local value, such as the reactor or the connection count, holds this. The child puts a lock of its own in place and never takes the parent's.
 

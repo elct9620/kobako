@@ -9,15 +9,23 @@
 //! outer callback sees it, so the outer one holds it next. What a run held
 //! belongs to it alone: one ending by a panic drops it, and a thread outside
 //! any run holds nothing, since no run would raise it again.
+//!
+//! The runs on a thread all start on one fiber. Each run's guest frames stand
+//! on the thread's one stack of guest calls, which unwinds only last in, first
+//! out, so a run started on another fiber while one is unfinished is refused.
 
 use std::cell::{Cell, RefCell};
 
+use magnus::rb_sys::AsRawValue;
 use magnus::value::BoxValue;
 use magnus::{Error as MagnusError, Ruby, Value};
 
 thread_local! {
     static ESCAPE: RefCell<Option<Escape>> = const { RefCell::new(None) };
     static RUNS: Cell<usize> = const { Cell::new(0) };
+    // The fiber the outermost run on this thread started on, compared only
+    // while a run is unfinished.
+    static FIBER: Cell<rb_sys::VALUE> = const { Cell::new(0) };
 }
 
 /// One invocation or compile on this thread, which raises what it held once
@@ -27,9 +35,19 @@ pub(super) struct Run {
 }
 
 impl Run {
-    pub(super) fn enter() -> Self {
+    pub(super) fn enter(ruby: &Ruby) -> Result<Self, MagnusError> {
+        let fiber = ruby.fiber_current().as_raw();
+        if is_in_run() && FIBER.with(Cell::get) != fiber {
+            return Err(MagnusError::new(
+                ruby.exception_thread_error(),
+                "run started on a fiber other than the one whose run on this thread is unfinished",
+            ));
+        }
+        if !is_in_run() {
+            FIBER.with(|outermost| outermost.set(fiber));
+        }
         RUNS.with(|runs| runs.set(runs.get() + 1));
-        Self { finished: false }
+        Ok(Self { finished: false })
     }
 
     /// Raise what this run held.

@@ -237,7 +237,7 @@ where
 /// with Ruby's interrupts deferred until it is back in Ruby, and one the run
 /// kept raised once it ends.
 pub(crate) fn run<R>(ruby: &Ruby, release: bool, f: impl FnOnce() -> R) -> Result<R, MagnusError> {
-    let run = escape::Run::enter();
+    let run = escape::Run::enter(ruby)?;
     let ran = defer_interrupts(ruby, release, || region(release, f));
     run.finish()?;
     ran
