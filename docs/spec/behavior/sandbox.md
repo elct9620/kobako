@@ -2165,3 +2165,75 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Fiber scheduler that runs a blocking operation on another thread |
 | When | it stops a Fiber whose run waits on a guest that only computes |
 | Then | the run ends within moments raising what the scheduler raised, and the next run answers |
+
+## `S-236` A fork waits for another Thread's run to end
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-223` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Thread whose run waits in a callback |
+| When | another Thread forks |
+| Then | the fork warns once, then returns only after that run ends, and the child runs a Sandbox. A forked child inherits no lock a run held |
+
+## `S-237` A run that starts while a fork waits still runs
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-236` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a fork waiting for a run whose callback waits for another Thread's run |
+| When | that Thread starts its run |
+| Then | both runs end and the fork returns. New runs are held back only once no run is in progress |
+
+## `S-238` A fork from a Thread inside a run raises
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-236` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a run's callback, or a Fiber beside one suspended inside a run on the same Thread |
+| When | it forks through `Kernel#fork`, `IO.popen("-")`, or `Process.daemon` |
+| Then | the fork raises `RuntimeError` and no child starts. Waiting would wait on the Thread's own run. The class is not a `Kobako::Error`, so no rescue for a run's failure takes it |
+
+## `S-239` An interrupt ends a fork's wait
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-236` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a fork waiting for another Thread's run |
+| When | the forking Thread is raised into |
+| Then | the fork raises that exception, no child starts, and a later fork goes on as usual |
+
+## `S-240` A fork on macOS after a guest's HTTPS raises
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-236` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a macOS process whose guest's HTTPS had the system verify a server's certificate |
+| When | the process forks |
+| Then | the fork raises `RuntimeError` naming that server. A child touching the system's certificate services after this crashes. Linux reads certificates from files, so it forks as usual |
+
+## `S-241` A guest's HTTPS on macOS tells Pitchfork the process forks no more
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-240` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a macOS process with `Pitchfork::Info` defined |
+| When | a run's guest has the system verify a server's certificate |
+| Then | `Pitchfork::Info.no_longer_fork_safe!` is called once, as that run ends. Pitchfork then picks another worker to fork from |
