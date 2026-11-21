@@ -11,7 +11,7 @@ contract surface.
 | Mechanic | What the driver holds |
 |---|---|
 | Compilation | process-wide Engine and compiled-Module caches |
-| Disk cache | AOT `.cwasm` artifacts on Unix, keyed by Guest Binary content and engine |
+| Disk cache | AOT `.cwasm` artifacts in a user-private directory, keyed by content and engine |
 | Instantiation | a pre-linked `InstancePre` per guest path, a fresh instance per invocation |
 | Bounds | epoch-based wall-clock deadlines on setup and on each invocation, and the per-invocation linear-memory cap |
 | Ambient denial | under the default hermetic profile, frozen clocks and a constant RNG |
