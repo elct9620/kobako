@@ -24,14 +24,18 @@ use crate::policy::Policy;
 /// passes the ruleset as itself, so a virtual one is refused, and an IPv6 one
 /// reaches nothing. A header the guest may not set is refused too, so the
 /// seam frames every request itself, and each name goes on in lower case,
-/// as a request policy reads it. So is a method that is not a token,
-/// which HTTP cannot carry, and a target not in origin form, which a proxy
-/// would forward past the judged authority, and CONNECT, which takes no
-/// origin form and opens a tunnel no rule judges, and a TRACE with content,
-/// which RFC 9110 § 9.3.8 bars, and a bound credential's header carrying its
-/// placeholder more than once. A TRACE takes no credential, as a request in
-/// clear takes none, since the server echoes what it reads. Any refusal
-/// answers `Denied`, and nothing is sent.
+/// as a request policy reads it. So is each request below:
+///
+/// - a method that is not a token, which HTTP cannot carry;
+/// - a target not in origin form, which a proxy would forward past the
+///   judged authority;
+/// - CONNECT, which takes no origin form and opens a tunnel no rule judges;
+/// - a TRACE with content, which RFC 9110 § 9.3.8 bars;
+/// - a bound credential's header carrying its placeholder more than once.
+///
+/// A TRACE takes no credential, as a request in clear takes none, since the
+/// server echoes what it reads. Any refusal answers `Denied`, and nothing is
+/// sent.
 pub fn send(
     net: &Namespace,
     cred: &Arc<Cred>,
@@ -110,7 +114,7 @@ pub fn send(
 }
 
 /// Whether a lenient server reads `method` as `name`, ignoring case as a deny
-/// rule is matched, so no spelling passes what the method itself is refused.
+/// rule is matched, so no spelling escapes what holds for that method.
 fn reads_as(method: &str, name: &str) -> bool {
     method.eq_ignore_ascii_case(name)
 }
