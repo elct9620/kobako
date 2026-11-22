@@ -119,7 +119,7 @@ The final result of one Invocation. Every Invocation ends with exactly one, whet
 
 ### Pinned Share
 
-The most that invocations without a cap may hold between them. Those holdings never end by themselves, so the share always leaves another invocation room to run.
+The most that invocations without a cap may hold between them. Those holdings never end by themselves, so the share always leaves room for one invocation at the default caps.
 
 ## Host
 

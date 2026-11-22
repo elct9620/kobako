@@ -16,6 +16,7 @@
 \*   writerTwice       the share leaves no room for what one run may leave
 \*   idleTakesReserve  what is pinned need not leave one reservation
 \*   shareBlocks       who cannot fit for what is pinned holds up the line
+\*   handlerBlocks     who runs host app code as it waits holds up the line
 \*   barging           any waiter that fits goes first
 \*   wakeOnly          an opening gate only wakes
 \*   forkWaits         a fork closes the gate and waits for the runs
@@ -62,7 +63,8 @@ FitsBeside(r, timed) ==
 Fits(r) == IF Breaks = "piecemeal" /\ ~NoEnd(r)
              THEN 1 + Timed + used + kept <= Total
              ELSE FitsBeside(r, Timed)
-Passed(r) == Breaks # "shareBlocks" /\ ~FitsBeside(r, 0)
+Passed(r) == \/ Breaks # "handlerBlocks" /\ st[r] = "away"
+             \/ Breaks # "shareBlocks" /\ ~FitsBeside(r, 0)
 InLine == SelectSeq(line, LAMBDA r : ~Passed(r))
 Next1(r) == IF Breaks = "barging" THEN st[r] = "wait"
             ELSE IF InLine = <<>> THEN FALSE ELSE Head(InLine) = r
@@ -96,6 +98,11 @@ Closed(r) ==
   /\ \/ kept' = kept
      \/ Adds(r) > 0 /\ r = "h" /\ kept < Total /\ kept' = kept + Adds(r)
   /\ UNCHANGED <<line, used, gate>>
+\* A waiter's host app code, such as a trap handler, waits for the one behind.
+Away == /\ st["h"] = "wait" /\ st["v"] = "wait"
+        /\ st' = [st EXCEPT !["h"] = "away"] /\ UNCHANGED <<line, used, kept, gate>>
+Back == /\ st["h"] = "away" /\ st["v"] # "wait"
+        /\ st' = [st EXCEPT !["h"] = "wait"] /\ UNCHANGED <<line, used, kept, gate>>
 Drop == kept > 0 /\ kept' = kept - 1 /\ UNCHANGED <<st, line, used, gate>>
 \* A fork beside a run raises at once, so it has no state.
 Fork == /\ ~gate /\ (Breaks = "forkWaits" \/ ~Running)
@@ -103,12 +110,12 @@ Fork == /\ ~gate /\ (Breaks = "forkWaits" \/ ~Running)
 Open ==
   /\ gate /\ ~Running
   /\ gate' = FALSE /\ kept' = kept
-  /\ IF Breaks # "wakeOnly" /\ InLine # <<>> /\ Fits(Head(InLine))
+  /\ IF Breaks # "wakeOnly" /\ InLine # <<>> /\ st[Head(InLine)] = "wait" /\ Fits(Head(InLine))
        THEN Granted(Head(InLine))
        ELSE UNCHANGED <<st, line, used>>
 
 Next == \/ \E r \in Runs : Arrive(r) \/ Admit(r) \/ Rest(r) \/ Grow(r) \/ Ends(r) \/ Closed(r)
-        \/ Drop \/ Fork \/ Open
+        \/ Away \/ Back \/ Drop \/ Fork \/ Open
 Spec == /\ Init /\ [][Next]_vars /\ WF_vars(Open) /\ WF_vars(Arrive("v"))
         /\ \A r \in Runs : WF_vars(Admit(r)) /\ WF_vars(Rest(r))
         /\ \A r \in {"v", "h"} : WF_vars(Ends(r)) /\ WF_vars(Closed(r))

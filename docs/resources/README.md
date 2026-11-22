@@ -60,6 +60,8 @@ Everything one invocation can occupy sits in one tier. An invocation holding one
 - (d) Ruby's GVL.
 - (e) Every other lock, with the accounts of memory, descriptors, and counts.
 
+What the host refuses to give, such as a thread or address space, is answered at once as (e) is. Cores are the host's to schedule, so a neighbour's use of them only slows.
+
 ### Holding Spans
 
 Each tier is held for a span of its own, and that span ends without help from above.
@@ -168,11 +170,11 @@ A reservation is the worst case: what the host app's caps allow, and kobako's fi
 | what is still closing | counted until it has closed |
 | a seed | counted as the instance is first mounted |
 
-An undeclared nested invocation is refused at once, whatever the load.
+An undeclared nested invocation is refused at once, whatever the load. So is a reservation larger than a total.
 
 ### Pinned Share
 
-A pinned holding never ends by itself: what an uncapped invocation holds, and what a tmpfs instance keeps. Together they always leave room for others.
+A pinned holding never ends by itself: what an uncapped invocation holds, and what a tmpfs instance keeps. Together they always leave room for one invocation at the default caps. A larger one waits as the second row of Passed Waiters does.
 
 ```
 reserved = cores * one reservation
@@ -264,6 +266,7 @@ The host app's code is outside the order, as `HostMutex.tla` shows for locking. 
 | a callback that never returns | the host app's |
 | a lock a callback needs, held around a run | the host app's |
 | host I/O that never returns | the host's |
+| time in the host that a timeout does not count | the host app's |
 | content the host app keeps | storing invocations are refused at their deadline |
 | forks overlapping for ever | the host app's |
 | how a guest binary is built | the host app's |
@@ -305,6 +308,7 @@ The models prove the rules, and each abstracts what another witness decides.
 | the cores' reserve as one reservation | the same test |
 | shared holds of a sleeping lock | Linux's baseline |
 | that code follows a rule | the scenario's test |
+| that a run with a timeout ends | the timeout's scenarios, up to the host app's boundary |
 | the step from a promise to the assembly's fairness | this argument: waits leads to has implies it |
 
 ### Model Checks

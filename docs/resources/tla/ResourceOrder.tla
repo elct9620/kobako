@@ -8,7 +8,7 @@
 EXTENDS GroupOrder, Naturals
 
 Forbidden == {"waitKeepsGvl", "admissionKeepsGvl", "otherCallsRuby", "registryHeld",
-              "waitsAgain", "reactorToSleeping"}
+              "waitsAgain", "reactorToSleeping", "gvlWaitsReactor"}
 
 NewGroup == [fork_gate |-> "gate", runs |-> "runs", ledger |-> "account", fid_cache |-> "cache"]
 Group(l) == IF l \in DOMAIN NewGroup THEN NewGroup[l] ELSE GroupOf(l)
@@ -48,6 +48,7 @@ BrokenLock(adds) ==
 BrokenTier(adds) ==
   CASE adds = "waitsAgain"        -> E("sleeping", {"admission"})
     [] adds = "reactorToSleeping" -> E("reactor", {"sleeping"})
+    [] adds = "gvlWaitsReactor"   -> E("gvl", {"reactor"})
     [] OTHER -> {}
 
 All(adds) == (Edges \ Gone) \cup Resources \cup BrokenLock(adds)
