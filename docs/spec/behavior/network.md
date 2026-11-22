@@ -3025,3 +3025,16 @@ endpoint "api.example.com", port: 443
 | Given | an HTTP exchange on an open connection, its response unanswered, partly read, or read to its end |
 | When | the exchange lets the connection go |
 | Then | the connection shuts down before it closes, waiting for no answer. Over TLS that sends the closure alert RFC 8446 asks, as CRuby's `sysclose` does |
+
+## `NW-241` A request declares that its connection carries no other
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+| relates | `NW-082`, `NW-105`, `NW-240` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint naming a server that reads no request body and honours the `close` option |
+| When | the guest sends a request whose body spells another, or one far past the socket's buffers |
+| Then | each carries `connection: close`, as RFC 9112 § 9.3 asks of a client reusing no connection. The server runs nothing behind it, and the guest reads the response whole. CRuby's started session sends none, since it reuses its connection |

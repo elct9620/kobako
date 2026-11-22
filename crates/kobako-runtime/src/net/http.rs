@@ -951,13 +951,16 @@ impl Outbound for HyperOutbound {
 }
 
 /// `request` as hyper sends it: the path with its query as the target, a
-/// `host` header naming the authority, and each header with its credentials
-/// swapped in.
+/// `host` header naming the authority, the `close` option, and each header
+/// with its credentials swapped in. The seam reuses no connection, and says
+/// so as RFC 9112 § 9.3 asks, so a server runs nothing a body hid behind the
+/// request the rules judged.
 fn to_hyper_request(request: OutgoingRequest) -> Result<hyper::Request<Full<Bytes>>, HttpError> {
     let mut builder = hyper::Request::builder()
         .method(request.method.as_str())
         .uri(request.path_with_query.as_str())
-        .header("host", request.authority.as_str());
+        .header("host", request.authority.as_str())
+        .header("connection", "close");
     for (name, value) in &request.headers {
         let value = request
             .swaps
@@ -1681,6 +1684,82 @@ mod tests {
                 && seen[0] == "GET /greeting?lang=en HTTP/1.1",
             "a guest's request to an http endpoint must send the request line and read back the \
              status, headers, and body, got {head:?} {body:?} after {seen:?}"
+        );
+    }
+
+    /// A loopback server that reads no request body, answering each head it
+    /// reads with `hello` until one asks it to close, which it honours in
+    /// stages as RFC 9112 § 9.6 has a server close; it hands back the heads.
+    fn serve_ignoring_bodies() -> (u16, thread::JoinHandle<Vec<Vec<String>>>) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(5)))
+                .unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut heads = Vec::new();
+            loop {
+                let mut head = Vec::new();
+                let mut line = String::new();
+                while matches!(reader.read_line(&mut line), Ok(read) if read > 0) {
+                    if line.trim_end().is_empty() {
+                        break;
+                    }
+                    head.push(line.trim_end().to_string());
+                    line.clear();
+                }
+                if head.is_empty() {
+                    return heads;
+                }
+                let closes = head
+                    .iter()
+                    .any(|line| line.eq_ignore_ascii_case("connection: close"));
+                heads.push(head);
+                let _ = (&stream).write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nhello");
+                if closes {
+                    let _ = stream.shutdown(std::net::Shutdown::Write);
+                    let _ = io::copy(&mut reader, &mut io::sink());
+                    return heads;
+                }
+            }
+        });
+        (port, server)
+    }
+
+    // @behavior NW-241
+    #[test]
+    fn a_request_declares_that_its_connection_carries_no_other() {
+        let bodies = [
+            b"GET /behind HTTP/1.1\r\nhost: api.example.com\r\n\r\n".to_vec(),
+            vec![b'b'; 1 << 20],
+        ];
+        let answers = bodies.map(|body| {
+            let (port, server) = serve_ignoring_bodies();
+            let namespace = namespace(vec![Endpoint::new("127.0.0.1", port)
+                .unwrap()
+                .with_addresses(vec![crate::network::Addresses::Local])]);
+            let mut request = greeting_request(&format!("127.0.0.1:{port}"));
+            request.body = body;
+            let exchange = crate::net::send(&namespace, &prepare_creds(&[], None), request)
+                .expect("the endpoint names the authority");
+            let read = read_response(&exchange).map(|(head, body)| (head.status, body));
+            exchange.release();
+            let heads = server.join().unwrap();
+            let declarations = heads[0]
+                .iter()
+                .filter(|line| line.eq_ignore_ascii_case("connection: close"))
+                .count();
+            (read, declarations, heads.len())
+        });
+        let expected = (Ok((200, b"hello".to_vec())), 1, 1);
+        assert_eq!(
+            answers,
+            [expected.clone(), expected],
+            "a request to a server reading no body must carry connection: close once, have \
+             nothing behind it run, and read the response whole, its body spelling another \
+             request or past the socket's buffers alike"
         );
     }
 
@@ -2434,7 +2513,7 @@ mod tests {
             (
                 Some(b"Bearer s3cret".to_vec()),
                 Some(b"kobako-token".to_vec()),
-                3,
+                4,
                 "Secret(**)".to_string()
             ),
             "the outbound seam must send a request with its credential's placeholder \

@@ -113,6 +113,17 @@ Swaps are the credentials a request over `https` carries. The connector resolves
 
 The request carries the authority the rules judged, so a server routing by `Host` reads what was admitted. The response head reaches the guest whole, where wasmtime strips its forbidden fields. The guest's `Net::HTTP` reads `transfer-encoding` to tell a sized body from a chunked one, as CRuby's does.
 
+### Connection Ownership
+
+A connection is reused only by whoever owns every byte on it. CRuby's session does so, since one process holds both the bytes and the secret.
+
+| Connection | Bytes from | Reused |
+|---|---|---|
+| a guest's socket to a `tcp` endpoint | the guest | as the guest likes |
+| the L7 proxy's upstream | the guest and the host | never |
+
+On a reused upstream, what a guest hid in one body would meet the next request's secret, or answer in its place. Each request therefore declares `close`, as RFC 9112 asks, and a server honouring it runs nothing behind that request. A server ignoring it, or a proxy reusing its own backend connections, is that service's to secure.
+
 ## Outbound Path
 
 Every outbound connection takes Linux's order: decide on what the guest named, translate, then filter what is really reached.
