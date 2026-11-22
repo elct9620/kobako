@@ -1046,9 +1046,19 @@ impl Body for DrivenBody {
 }
 
 /// A connection, plain or under TLS, as hyper reads and writes it.
-struct Wire<T>(T);
+struct Wire<T: AsyncWrite + Unpin>(T);
 
-impl<T: AsyncRead + Unpin> hyper::rt::Read for Wire<T> {
+/// A connection let go shuts down first, however far its exchange got, so TLS
+/// sends the closure alert RFC 8446 § 6.1 asks before a close. It waits for
+/// no answer, as CRuby's `SSLSocket#sysclose` waits for none.
+impl<T: AsyncWrite + Unpin> Drop for Wire<T> {
+    fn drop(&mut self) {
+        let mut cx = Context::from_waker(Waker::noop());
+        let _ = Pin::new(&mut self.0).poll_shutdown(&mut cx);
+    }
+}
+
+impl<T: AsyncRead + AsyncWrite + Unpin> hyper::rt::Read for Wire<T> {
     fn poll_read(
         self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -1168,6 +1178,7 @@ impl HttpError {
 mod tests {
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::thread;
     use std::time::Duration;
 
@@ -1670,6 +1681,95 @@ mod tests {
                 && seen[0] == "GET /greeting?lang=en HTTP/1.1",
             "a guest's request to an http endpoint must send the request line and read back the \
              status, headers, and body, got {head:?} {body:?} after {seen:?}"
+        );
+    }
+
+    /// A wire answering `response` once a request's head was written, then
+    /// silent as an open connection is, recording whether it was shut down,
+    /// which is where TLS sends its closure alert.
+    struct RecordsShutdown {
+        response: &'static [u8],
+        written: bool,
+        shut_down: Arc<AtomicBool>,
+    }
+
+    impl AsyncRead for RecordsShutdown {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            let this = self.get_mut();
+            if !this.written || this.response.is_empty() {
+                return Poll::Pending;
+            }
+            let n = this.response.len().min(buf.remaining());
+            buf.put_slice(&this.response[..n]);
+            this.response = &this.response[n..];
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl AsyncWrite for RecordsShutdown {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            self.get_mut().written = true;
+            Poll::Ready(Ok(buf.len()))
+        }
+
+        fn poll_flush(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+
+        fn poll_shutdown(self: Pin<&mut Self>, _cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+            self.shut_down.store(true, Ordering::SeqCst);
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    // @behavior NW-240
+    #[test]
+    fn an_exchange_let_go_shuts_its_connection_down() {
+        let responses: [&'static [u8]; 3] = [
+            b"",
+            b"HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\nhello",
+            b"HTTP/1.1 200 OK\r\ncontent-length: 5\r\n\r\nhello",
+        ];
+        let shut_down = responses.map(|response| {
+            let shut_down = Arc::new(AtomicBool::new(false));
+            let wire = RecordsShutdown {
+                response,
+                written: false,
+                shut_down: shut_down.clone(),
+            };
+            let request = to_hyper_request(greeting_request("api.example.com"))
+                .expect("the request's headers are valid");
+            let mut exchange = Box::pin(async move {
+                let mut body = send_over(Wire(wire), request).await?.body;
+                while poll_fn(|cx| Pin::new(&mut body).poll_frame(cx))
+                    .await
+                    .is_some()
+                {}
+                Ok::<_, HttpError>(())
+            });
+            let mut cx = Context::from_waker(Waker::noop());
+            // The wire is ready at once, so a few polls take the exchange as
+            // far as its response lets it go.
+            for _ in 0..16 {
+                if exchange.as_mut().poll(&mut cx).is_ready() {
+                    break;
+                }
+            }
+            drop(exchange);
+            shut_down.load(Ordering::SeqCst)
+        });
+        assert_eq!(
+            shut_down, [true; 3],
+            "an HTTP exchange let go before its response, midway through its body, or after its \
+             end must shut its connection down before closing it, so TLS sends its closure alert"
         );
     }
 

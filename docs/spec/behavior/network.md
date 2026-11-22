@@ -3012,3 +3012,16 @@ endpoint "api.example.com", port: 443
 | Given | a connected TCP socket under a `memory_limit` that leaves little room |
 | When | the guest writes more than the room holds |
 | Then | the socket takes up to 4 KiB past the limit while little is queued, as `tcp_wmem_schedule` forces. Past that a write answers `EAGAIN` and the socket polls unwritable. It polls writable again once the host takes the queue |
+
+## `NW-240` An exchange let go shuts its connection down before closing it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-082` |
+| relates | `NW-048` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an HTTP exchange on an open connection, its response unanswered, partly read, or read to its end |
+| When | the exchange lets the connection go |
+| Then | the connection shuts down before it closes, waiting for no answer. Over TLS that sends the closure alert RFC 8446 asks, as CRuby's `sysclose` does |
