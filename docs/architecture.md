@@ -293,6 +293,7 @@ These rules are written as what never exists, so a single counterexample breaks 
 | a guest crate on `beni` that skips libmruby on a build | no linked-only `cfg` |
 | a Codec namespace under the Ruby gem's `Kobako::Codec` | Ruby has MessagePack only |
 | a cycle through the locks or their lock groups | [`locking/`](locking/README.md), `locking:check` |
+| a cycle through the tiers an invocation waits on | [`resources/`](resources/README.md), `resources:check` |
 | a Ruby frame on a stack that holds a guest's Wasm frames | the Ruby gem's guest threads |
 
 What a successful stat reports, such as an inode number, follows the Profile. `kobako-wasmtime` links no magnus, so a span with the GVL released cannot reach a Ruby value.

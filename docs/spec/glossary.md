@@ -117,6 +117,10 @@ The record one Invocation leaves — what it produced, what it wrote, and what i
 
 The final result of one Invocation. Every Invocation ends with exactly one, whether it succeeded or failed.
 
+### Pinned Share
+
+The most that invocations without a cap may hold between them. Those holdings never end by themselves, so the share always leaves another invocation room to run.
+
 ## Host
 
 ### Includes

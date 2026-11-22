@@ -67,6 +67,7 @@ Start here to grasp the whole before reading code.
 | `docs/spec/` | Behavior, contracts, and the glossary; the source of truth |
 | `docs/wire/`, `docs/isolation/`, `docs/filesystem/`, `docs/network/` | One Context's design across crates |
 | `docs/locking/` | Every lock's order, the edges between lock groups, and the models that check them |
+| `docs/resources/` | How invocations share one process: the tiers, their promises, and the models |
 | `docs/process/convention.md` | How a behavior, a contract, and a name are judged while code is written |
 | `docs/guides/` | What a Host App or an implementer relies on |
 | `lib/kobako/sandbox.rb` | Where a run starts and settles into an `Execution` |
