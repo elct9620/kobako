@@ -3038,3 +3038,16 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint naming a server that reads no request body and honours the `close` option |
 | When | the guest sends a request whose body spells another, or one far past the socket's buffers |
 | Then | each carries `connection: close`, as RFC 9112 § 9.3 asks of a client reusing no connection. The server runs nothing behind it, and the guest reads the response whole. CRuby's started session sends none, since it reuses its connection |
+
+## `NW-242` A CONNECT request is refused unsent
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-184` |
+| relates | `NW-219`, `NW-050` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint with no rules, and a credential bound to it |
+| When | the guest sends a request whose method is CONNECT, in any case |
+| Then | it answers `Denied`, dialing nothing and asking no credential. CONNECT takes only authority-form, and a tunnel would carry bytes no rule judged. CRuby sends it |
