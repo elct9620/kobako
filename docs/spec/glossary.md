@@ -467,10 +467,11 @@ endpoints of every entry + address sets -> Ruleset
 
 ### Credential
 
-A secret an entry binds to its own endpoints. The guest holds only a placeholder, and the secret is swapped in as a request leaves over HTTPS.
+A secret an entry binds to its own endpoints. The guest holds only a placeholder, and the secret is swapped in as a request leaves over HTTPS. A TRACE takes none, since the server echoes it.
 
 ```
 guest: Authorization: Bearer <placeholder> -> wire: Bearer <secret>
+guest: TRACE with the same header          -> wire: Bearer <placeholder>
 ```
 
 ### Protocol Family

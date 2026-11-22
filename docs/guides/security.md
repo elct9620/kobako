@@ -138,7 +138,8 @@ A read answers the socket's own setting, so the host's defaults never reach the 
 
 A credential is swapped in only on the way out, and a response passes untouched.
 An endpoint that echoes a request back, in a header or a body, hands the secret to
-the guest. Bind a credential only to an endpoint that never echoes it.
+the guest. Bind a credential only to an endpoint that never echoes it. A TRACE is
+echoed by definition, so kobako swaps nothing into one and refuses one with a body.
 
 | Endpoint | Bind a credential to it |
 |---|---|

@@ -3051,3 +3051,29 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint with no rules, and a credential bound to it |
 | When | the guest sends a request whose method is CONNECT, in any case |
 | Then | it answers `Denied`, dialing nothing and asking no credential. CONNECT takes only authority-form, and a tunnel would carry bytes no rule judged. CRuby sends it |
+
+## `NW-243` A credential is never swapped into a TRACE request
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-050` |
+| relates | `NW-052`, `NW-242` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint with no rules, and a credential bound to it |
+| When | the guest sends the placeholder over HTTPS in a TRACE, in any case |
+| Then | it goes with the placeholder unchanged, and the credential is never asked for its value. The server echoes what it reads, so RFC 9110 § 9.3.8 bars a secret there |
+
+## `NW-244` A TRACE request carrying content is refused unsent
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-184` |
+| relates | `NW-243` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an `http` endpoint with no rules, and a credential bound to it |
+| When | the guest sends a TRACE with a body, its method in any case |
+| Then | it answers `Denied`, dialing nothing and asking no credential. RFC 9110 § 9.3.8 lets a client send no content in one. CRuby sends it |
