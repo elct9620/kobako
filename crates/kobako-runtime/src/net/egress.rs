@@ -26,9 +26,10 @@ use crate::policy::Policy;
 /// seam frames every request itself, and each name goes on in lower case,
 /// as a request policy reads it. So is a method that is not a token,
 /// which HTTP cannot carry, and a target not in origin form, which a proxy
-/// would forward past the judged authority, and a bound credential's header
-/// carrying its placeholder more than once. Any refusal answers `Denied`, and
-/// nothing is sent.
+/// would forward past the judged authority, and CONNECT, which takes no
+/// origin form and opens a tunnel no rule judges, and a bound credential's
+/// header carrying its placeholder more than once. Any refusal answers
+/// `Denied`, and nothing is sent.
 pub fn send(
     net: &Namespace,
     cred: &Arc<Cred>,
@@ -36,7 +37,7 @@ pub fn send(
 ) -> Result<Arc<Exchange>, HttpError> {
     let in_origin_form = to_origin_form(&request.path_with_query).as_deref()
         == Some(request.path_with_query.as_str());
-    if !in_origin_form || !is_token(&request.method) {
+    if !in_origin_form || !is_token(&request.method) || reads_as(&request.method, "CONNECT") {
         return Err(HttpError::Denied);
     }
     request.headers = std::mem::take(&mut request.headers)
@@ -99,6 +100,12 @@ pub fn send(
             cred,
         )
     })
+}
+
+/// Whether a lenient server reads `method` as `name`, ignoring case as a deny
+/// rule is matched, so no spelling passes what the method itself is refused.
+fn reads_as(method: &str, name: &str) -> bool {
+    method.eq_ignore_ascii_case(name)
 }
 
 /// The entries' request policies, which judge a request `send` found its

@@ -1181,7 +1181,7 @@ impl HttpError {
 mod tests {
     use std::io::{BufRead, BufReader, Read, Write};
     use std::net::TcpListener;
-    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::thread;
     use std::time::Duration;
 
@@ -2223,6 +2223,82 @@ mod tests {
                 && listener.accept().is_err(),
             "a guest's request whose method is empty or holds a space must answer Denied, \
              sending nothing, got {answers:?}"
+        );
+    }
+
+    /// A namespace whose one endpoint, `api.example.com` at 443 with no
+    /// rules, binds a bearer credential, beside how often its source was
+    /// asked, the swaps its seam was handed, and the dials its host saw.
+    struct BoundEndpoint {
+        namespace: Namespace,
+        asked: Arc<AtomicUsize>,
+        seam: Arc<RecordsSwaps>,
+        family: Arc<CountsDials>,
+    }
+
+    impl BoundEndpoint {
+        fn new() -> Self {
+            let asked = Arc::new(AtomicUsize::new(0));
+            let counting = asked.clone();
+            let mut entry = Builder::default();
+            entry
+                .endpoint(Endpoint::new("api.example.com", 443).unwrap())
+                .credential(crate::network::Credential::new(
+                    crate::network::Placement::Bearer,
+                    "kobako-token",
+                    Arc::new(move |_: &crate::network::Request<'_>| {
+                        counting.fetch_add(1, Ordering::SeqCst);
+                        Ok(Some(crate::network::Secret::new("s3cret")))
+                    }),
+                ));
+            let network = Network::new("api", Arc::new(entry)).unwrap();
+            let seam = Arc::new(RecordsSwaps::default());
+            let family = Arc::new(CountsDials::default());
+            let namespace = Namespace::for_network(&network, family.clone(), seam.clone());
+            Self {
+                namespace,
+                asked,
+                seam,
+                family,
+            }
+        }
+
+        /// What `send` answers `method` carrying the placeholder and `body`.
+        fn send(&self, method: &str, body: &[u8]) -> Option<HttpError> {
+            let mut request =
+                OutgoingRequest::new(method, Scheme::Https, "api.example.com:443".to_string());
+            request.headers = vec![("authorization".to_string(), b"Bearer kobako-token".to_vec())];
+            request.body = body.to_vec();
+            match crate::net::send(&self.namespace, &prepare_creds(&[], None), request) {
+                Ok(exchange) => {
+                    let _ = read_response(&exchange);
+                    None
+                }
+                Err(err) => Some(err),
+            }
+        }
+
+        /// How often the source was asked, how many swaps each request the
+        /// seam was handed carried, and the dials the host saw.
+        fn seen(&self) -> (usize, Vec<usize>, usize) {
+            (
+                self.asked.load(Ordering::SeqCst),
+                self.seam.0.lock().unwrap().iter().map(Vec::len).collect(),
+                self.family.dials(),
+            )
+        }
+    }
+
+    // @behavior NW-242
+    #[test]
+    fn a_connect_request_is_refused_unsent() {
+        let endpoint = BoundEndpoint::new();
+        let answers = ["CONNECT", "connect"].map(|method| endpoint.send(method, b""));
+        assert_eq!(
+            (answers, endpoint.seen()),
+            ([Some(HttpError::Denied); 2], (0, Vec::new(), 0)),
+            "a request whose method is CONNECT, in any case, must answer Denied with no \
+             credential asked and nothing sent, its target never being authority-form"
         );
     }
 
