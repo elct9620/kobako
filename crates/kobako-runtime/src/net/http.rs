@@ -2302,6 +2302,33 @@ mod tests {
         );
     }
 
+    // @behavior NW-243
+    #[test]
+    fn a_credential_is_never_swapped_into_a_trace_request() {
+        let endpoint = BoundEndpoint::new();
+        let answers = ["TRACE", "trace", "GET"].map(|method| endpoint.send(method, b""));
+        let (asked, swaps, _) = endpoint.seen();
+        assert_eq!(
+            (answers, asked, swaps),
+            ([None; 3], 1, vec![0, 0, 1]),
+            "a TRACE request over HTTPS, in any case, must go with the placeholder unchanged \
+             and never ask the credential its value, where a GET beside it carries the secret"
+        );
+    }
+
+    // @behavior NW-244
+    #[test]
+    fn a_trace_request_carrying_content_is_refused_unsent() {
+        let endpoint = BoundEndpoint::new();
+        let answers = ["TRACE", "trace"].map(|method| endpoint.send(method, b"content"));
+        assert_eq!(
+            (answers, endpoint.seen()),
+            ([Some(HttpError::Denied); 2], (0, Vec::new(), 0)),
+            "a TRACE request carrying a body, in any case, must answer Denied with no \
+             credential asked and nothing sent"
+        );
+    }
+
     // @behavior NW-048
     #[test]
     fn an_https_request_opens_tls_before_any_byte_of_http() {

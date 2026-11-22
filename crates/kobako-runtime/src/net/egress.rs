@@ -27,9 +27,11 @@ use crate::policy::Policy;
 /// as a request policy reads it. So is a method that is not a token,
 /// which HTTP cannot carry, and a target not in origin form, which a proxy
 /// would forward past the judged authority, and CONNECT, which takes no
-/// origin form and opens a tunnel no rule judges, and a bound credential's
-/// header carrying its placeholder more than once. Any refusal answers
-/// `Denied`, and nothing is sent.
+/// origin form and opens a tunnel no rule judges, and a TRACE with content,
+/// which RFC 9110 § 9.3.8 bars, and a bound credential's header carrying its
+/// placeholder more than once. A TRACE takes no credential, as a request in
+/// clear takes none, since the server echoes what it reads. Any refusal
+/// answers `Denied`, and nothing is sent.
 pub fn send(
     net: &Namespace,
     cred: &Arc<Cred>,
@@ -37,7 +39,12 @@ pub fn send(
 ) -> Result<Arc<Exchange>, HttpError> {
     let in_origin_form = to_origin_form(&request.path_with_query).as_deref()
         == Some(request.path_with_query.as_str());
-    if !in_origin_form || !is_token(&request.method) || reads_as(&request.method, "CONNECT") {
+    let is_trace = reads_as(&request.method, "TRACE");
+    if !in_origin_form
+        || !is_token(&request.method)
+        || reads_as(&request.method, "CONNECT")
+        || (is_trace && !request.body.is_empty())
+    {
         return Err(HttpError::Denied);
     }
     request.headers = std::mem::take(&mut request.headers)
@@ -83,10 +90,10 @@ pub fn send(
         return Err(HttpError::Denied);
     }
     let swaps = match request.scheme {
-        Scheme::Https => proxy
+        Scheme::Https if !is_trace => proxy
             .swaps_of(&policy_request, &request.headers)
             .ok_or(HttpError::Denied)?,
-        Scheme::Http => Vec::new(),
+        Scheme::Https | Scheme::Http => Vec::new(),
     };
     request.authority = join_authority(&host, port, request.scheme);
     request.swaps = swaps;
@@ -122,13 +129,14 @@ impl EgressProxy {
         self.request.iter().all(|policy| policy.allows(request))
     }
 
-    /// The credentials bound to `request`, one over `https`: an entry's own
-    /// endpoint names its exact host and allows it, and the placement's header
-    /// carries the placeholder once. `None` is a request to refuse: one whose
-    /// header carries a placeholder more than once, as OpenShell's leaves no
-    /// second placeholder resolved, so a swap grows a request by one secret at
-    /// most; or one whose credential's source could not answer. Each source answers here, on the guest thread, so its time counts
-    /// against the deadline.
+    /// The credentials bound to `request`, one over `https` and no TRACE: an
+    /// entry's own endpoint names its exact host and allows it, and the
+    /// placement's header carries the placeholder once. `None` is a request to
+    /// refuse: one whose header carries a placeholder more than once, as
+    /// OpenShell's leaves no second placeholder resolved, so a swap grows a
+    /// request by one secret at most; or one whose credential's source could
+    /// not answer. Each source answers here, on the guest thread, so its time
+    /// counts against the deadline.
     pub(crate) fn swaps_of(
         &self,
         request: &Request<'_>,
