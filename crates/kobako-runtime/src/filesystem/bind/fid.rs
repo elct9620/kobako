@@ -106,9 +106,24 @@ impl FidCache {
     /// Open through `open`, and when the host is out of descriptors, let
     /// every kept directory go and try once more. One still in use stays open
     /// with whoever holds it, so only the room no one uses is given back.
-    pub(super) fn open<T>(&self, mut open: impl FnMut() -> Result<T, Errno>) -> Result<T, Errno> {
+    pub(super) fn open<T>(&self, open: impl FnMut() -> Result<T, Errno>) -> Result<T, Errno> {
+        self.open_or_give_way(open, |err| {
+            matches!(
+                err,
+                Errno::TooManyOpenFiles | Errno::TooManyOpenFilesInSystem
+            )
+        })
+    }
+
+    /// As `open` does, for an open answering an error of its own that `full`
+    /// tells to be the host out of descriptors.
+    pub(super) fn open_or_give_way<T, E>(
+        &self,
+        mut open: impl FnMut() -> Result<T, E>,
+        full: impl Fn(&E) -> bool,
+    ) -> Result<T, E> {
         match open() {
-            Err(Errno::TooManyOpenFiles | Errno::TooManyOpenFilesInSystem) => {
+            Err(err) if full(&err) => {
                 let _yielding = Yielding::start(self);
                 while let Some(fid) = self.with(|kept| kept.fids.pop_lru()) {
                     drop(fid);

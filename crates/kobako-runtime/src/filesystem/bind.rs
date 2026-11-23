@@ -51,13 +51,19 @@ pub struct Bind {
 }
 
 impl Bind {
-    /// Open the host directory at `path`, the one place this Filesystem
-    /// reaches outside itself. One the host lets no one read is refused, so its
-    /// root answers an open to read as any directory beneath it does, on every
-    /// host alike.
+    /// Open the host directory at `path` now, the one place this Filesystem
+    /// reaches outside itself, so it stays the directory standing there as
+    /// it is made. One the host lets no one read is refused, so its root
+    /// answers an open to read as any directory beneath it does, on every host
+    /// alike. A host out of descriptors makes the directories Binds keep give
+    /// way first; a refusal answers the host's own errno.
     pub fn new(path: impl AsRef<Path>) -> io::Result<Self> {
-        let root = Dir::open_ambient_dir(path, ambient_authority())?;
-        may_read_dir(&root).map_err(|_| io::Error::from(io::ErrorKind::PermissionDenied))?;
+        let path = path.as_ref();
+        let root = FIDS.open_or_give_way(
+            || Dir::open_ambient_dir(path, ambient_authority()),
+            host_out_of_descriptors,
+        )?;
+        FIDS.open_or_give_way(|| readable(&root), host_out_of_descriptors)?;
         Ok(Self {
             root: Arc::new(root),
             fids: Arc::default(),
@@ -776,12 +782,37 @@ impl FileOperations for BindDir {
 /// which reads and syncs nothing, so the host judges reading it only here.
 #[cfg(unix)]
 fn open_to_read(dir: &Dir) -> Result<rustix::fd::OwnedFd, Errno> {
+    FIDS.open(|| open_to_read_once(dir).map_err(to_error))
+}
+
+/// One try at `open_to_read`, answering the host's own error.
+#[cfg(unix)]
+fn open_to_read_once(dir: &Dir) -> io::Result<rustix::fd::OwnedFd> {
     use rustix::fs::{openat, Mode, OFlags};
 
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
-    FIDS.open(|| {
-        openat(dir, ".", flags, Mode::empty()).map_err(|err| to_error(io::Error::from(err)))
-    })
+    openat(dir, ".", flags, Mode::empty()).map_err(io::Error::from)
+}
+
+/// Whether the host lets `dir` be read, answering the host's own error when
+/// it does not.
+#[cfg(unix)]
+fn readable(dir: &Dir) -> io::Result<()> {
+    open_to_read_once(dir).map(drop)
+}
+
+#[cfg(not(unix))]
+fn readable(_dir: &Dir) -> io::Result<()> {
+    Ok(())
+}
+
+/// Whether the host refused for want of descriptors, its process's or its
+/// machine's.
+fn host_out_of_descriptors(err: &io::Error) -> bool {
+    matches!(
+        Errno::from_io_error(err),
+        Errno::TooManyOpenFiles | Errno::TooManyOpenFilesInSystem
+    )
 }
 
 #[cfg(unix)]
