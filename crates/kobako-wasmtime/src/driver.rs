@@ -52,9 +52,12 @@ impl Driver {
 
     /// The deadline and the `wall_time` bracket open with the Store, so
     /// instantiating the guest and writing its request count against the
-    /// `timeout` as the export call does.
-    fn new_store(&self, wasi: Wasi) -> Result<WtStore<Invocation>, SetupError> {
-        let mut store = WtStore::new(load_engine()?, Invocation::new(wasi));
+    /// `timeout` as the export call does. A host with no thread or memory for
+    /// it stops the run before the guest starts, as instantiating does.
+    fn new_store(&self, wasi: Wasi) -> Result<WtStore<Invocation>, Trap> {
+        let engine = load_engine().map_err(|err| Trap::Other(err.to_string()))?;
+        let mut store = WtStore::try_new(engine, Invocation::new(wasi))
+            .map_err(|err| Trap::Other(format!("failed to create the Sandbox's store: {err}")))?;
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
         trap::arm_deadline(&mut store, self.config.limits.timeout);
         store.data_mut().start_wall_clock();

@@ -62,7 +62,7 @@ const EPOCH_TICK: Duration = Duration::from_millis(10);
 /// one ticker thread per process.
 pub(crate) fn load_engine() -> Result<&'static WtEngine, SetupError> {
     if let Some(engine) = SHARED_ENGINE.get() {
-        spawn_epoch_ticker(engine);
+        spawn_epoch_ticker(engine)?;
         return Ok(engine);
     }
     let mut config = WtConfig::new();
@@ -72,7 +72,7 @@ pub(crate) fn load_engine() -> Result<&'static WtEngine, SetupError> {
     let engine =
         WtEngine::new(&config).map_err(|e| SetupError::Dead(format!("engine init: {e}")))?;
     let engine = SHARED_ENGINE.get_or_init(|| engine);
-    spawn_epoch_ticker(engine);
+    spawn_epoch_ticker(engine)?;
     Ok(engine)
 }
 
@@ -85,8 +85,10 @@ fn catch_traps(config: &mut WtConfig) {
 }
 
 /// The ticker is the process's own: a forked child, which inherits the Engine
-/// but no thread, starts one of its own, or no deadline would fire in it.
-fn spawn_epoch_ticker(engine: &WtEngine) {
+/// but no thread, starts one of its own, or no deadline would fire in it. A
+/// host with no thread to start for it fails the caller, and the next caller
+/// starts it again.
+fn spawn_epoch_ticker(engine: &WtEngine) -> Result<(), SetupError> {
     static TICKER: ProcessLocal<()> = ProcessLocal::new();
     TICKER.with(|ticker| {
         if ticker.is_none() {
@@ -97,10 +99,11 @@ fn spawn_epoch_ticker(engine: &WtEngine) {
                     thread::sleep(EPOCH_TICK);
                     engine.increment_epoch();
                 })
-                .expect("spawn kobako-epoch-ticker thread");
+                .map_err(|err| SetupError::Dead(format!("can't create Thread: {err}")))?;
             *ticker = Some(());
         }
-    });
+        Ok(())
+    })
 }
 
 /// A missing file answers `SetupError::GuestBinaryNotFound`, the common state of

@@ -29,7 +29,8 @@ pub(crate) fn verify(
     let wasi = Wasi::for_probe().map_err(|t| SetupError::Dead(t.to_string()))?;
     // The memory budget stays off: it arms per invocation, and the probe is
     // none.
-    let mut store = WtStore::new(load_engine()?, Invocation::new(wasi));
+    let mut store = WtStore::try_new(load_engine()?, Invocation::new(wasi))
+        .map_err(|err| SetupError::Dead(format!("failed to create the probe's store: {err}")))?;
     trap::arm_deadline(&mut store, setup_timeout);
     let past_deadline = |err: &wasmtime::Error| {
         matches!(trap::cap_trap_of(err), Some(Trap::Timeout(_))).then(|| {
