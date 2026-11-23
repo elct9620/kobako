@@ -53,7 +53,7 @@ App or to other projects.
 | A general-purpose wasmtime Ruby gem | — |
 | mruby upstream development or distribution | — |
 | Billing, SLAs, deployment and operations tooling | — |
-| Equal shares between tenants, priorities, and aggregate metrics | no Invocation starved by what another occupies |
+| Totals across Invocations, equal shares between tenants, priorities, and aggregate metrics | no Invocation starved by what another occupies |
 | Limiting how many Invocations run at once | per-Invocation caps and usage |
 | Adaptive scheduling, or observing it per Invocation | the per-Sandbox `gvl:` mode |
 | Async execution, or pausing and resuming an Invocation | the boot state baked into the artifact at build time |

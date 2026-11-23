@@ -6,24 +6,25 @@
 \*                      letting go.
 \*   LockOrdering       ResourceOrder's, broken here to show why it is needed.
 \* "v" is the victim under :hold. "h" and "g" are hostile runs under :release
-\* that repeat for ever. "n" has no timeout: it keeps its admission and comes
+\* that repeat for ever. "n" has no timeout: it stays past the gate and comes
 \* back to the tiers below for ever, so each tier has a rival: for the GVL it
 \* skips the reactor, which the victim holds as it waits there.
-\* No deadline is here.
+\* The gate holds every run at once: a run waits there only for a fork, which
+\* refuses rather than waits, as locking's ForkGate proves. No deadline is here.
 EXTENDS Naturals, Sequences, FiniteSets
 
 CONSTANTS Breaks, At
 
 Runs == {"v", "h", "g", "n"}
 Path(r) ==
-  CASE Breaks = "lockOrdering" /\ r = "h" -> <<"admission", "reactor", "sleeping", "other">>
-    [] r = "v" -> <<"admission", "sleeping", "reactor", "gvl", "other">>
-    [] r = "h" -> <<"admission", "sleeping", "other">>
-    [] r = "g" -> <<"admission", "reactor", "other">>
-    [] r = "n" /\ At = "gvl" -> <<"admission", "gvl", "other">>
-    [] r = "n" -> <<"admission", "reactor", "gvl", "other">>
-Room(m) == IF m = "admission" THEN 3 ELSE 1
-NeverEnds(r) == r = "n" \/ (Breaks = "share" /\ r \in {"h", "g"})
+  CASE Breaks = "lockOrdering" /\ r = "h" -> <<"gate", "reactor", "sleeping", "other">>
+    [] r = "v" -> <<"gate", "sleeping", "reactor", "gvl", "other">>
+    [] r = "h" -> <<"gate", "sleeping", "other">>
+    [] r = "g" -> <<"gate", "reactor", "other">>
+    [] r = "n" /\ At = "gvl" -> <<"gate", "gvl", "other">>
+    [] r = "n" -> <<"gate", "reactor", "gvl", "other">>
+Room(m) == IF m = "gate" THEN Cardinality(Runs) ELSE 1
+NeverEnds(r) == r = "n"
 
 VARIABLES held, down
 vars == <<held, down>>

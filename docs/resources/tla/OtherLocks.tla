@@ -1,14 +1,13 @@
 ---- MODULE OtherLocks ----
 \* The other locks: the accounts and their short locks. An invocation's
-\* account is its own, a charge answers at once, and the totals' short lock is
-\* let go with no call out under it. One resource stands for memory, fds and
-\* counts.
+\* account is its own, a charge answers at once, and an account's short lock
+\* is let go with no call out under it. One resource stands for the guest's
+\* memory, its descriptors and its counts.
 \*
 \* Assumes: nothing below; the OS hands a free short lock to who waits.
 \*
 \* Breaks takes one rule away:
 \*   shared     the two draw on one account
-\*   othersPay  what another holds is charged to the victim
 \*   waits      a charge waits for room
 \*   callsOut   the short lock is kept across a call out
 EXTENDS Naturals
@@ -21,9 +20,7 @@ VARIABLES spent, ask, lock
 vars == <<spent, ask, lock>>
 
 Init == spent = [r \in Runs |-> 0] /\ ask = [r \in Runs |-> "idle"] /\ lock = "none"
-Account(r) == IF Breaks = "shared" THEN "v"
-              ELSE IF Breaks = "othersPay" /\ r = "h" THEN "v"
-              ELSE r
+Account(r) == IF Breaks = "shared" THEN "v" ELSE r
 Asks(r) == /\ ask[r] \in {"idle", "refused", "ok"}
            /\ r = "v" => ask[r] = "idle"
            /\ ask' = [ask EXCEPT ![r] = "asks"] /\ UNCHANGED <<spent, lock>>
