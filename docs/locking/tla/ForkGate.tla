@@ -58,9 +58,9 @@ Waiting(r) == pc[r] \in {"wait", "woken"}
 
 MayEnter(forks) == forks = 0
 MayFork(inProgress) == inProgress = {}
-\* Who enters in the step that leaves the gate with `forks`: of those that
-\* wait, whom admission has room for.
-LetsIn(forks, waiters, fits) == IF MayEnter(forks) THEN waiters \cap fits ELSE {}
+\* Who enters in the step that leaves the gate with `forks`: every run that
+\* waits.
+LetsIn(forks, waiters) == IF MayEnter(forks) THEN waiters ELSE {}
 
 ----
 \* A run.
@@ -215,7 +215,7 @@ Open(f) ==
   /\ IF Breaks = "neverOpens" /\ pc[f] = "raised"
        THEN To(f, "done") /\ UNCHANGED <<reg, closed>>
        ELSE LET left == Opened
-                lets == LetsIn(left, {r \in Runs : Waiting(r)}, Runs)
+                lets == LetsIn(left, {r \in Runs : Waiting(r)})
                 wakes == Breaks = "wakeOnly"
             IN /\ closed' = left
                /\ reg' = IF wakes THEN reg ELSE reg \cup lets
