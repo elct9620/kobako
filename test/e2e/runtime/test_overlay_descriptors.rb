@@ -16,7 +16,7 @@ class TestE2EOverlayDescriptors < Minitest::Test
   end
 
   def teardown
-    FileUtils.remove_entry(@hosts)
+    TestPaths.remove_host_directory(@hosts)
   end
 
   # A Sandbox under +open_file_limit+ mounting at /o an Overlay of +layers+
