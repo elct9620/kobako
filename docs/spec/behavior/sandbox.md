@@ -32,6 +32,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/unit/catalog/test_snippets_compile.rb`
 - `test/unit/catalog/test_flags.rb`
 - `test/e2e/sandbox/test_sandbox.rb`
+- `test/e2e/sandbox/test_sandbox_descriptors.rb`
 - `test/e2e/sandbox/test_run.rb`
 - `test/e2e/sandbox/test_run_as_eval.rb`
 - `test/e2e/sandbox/test_run_preflight.rb`
