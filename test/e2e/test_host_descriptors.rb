@@ -52,6 +52,32 @@ class TestE2EHostDescriptors < Minitest::Test
                  "must list the directory, every read landing"
   end
 
+  # Descriptors the process holds before and after its Binds kept 100
+  # directories, and in a child forked after that.
+  FORKED = <<~RUBY
+    held = -> { Dir.children("/dev/fd").size }
+    sandboxed = sandbox(b0: tree("b0", count: 100))
+    before = held.call
+    sandboxed.eval('100.times { |d| File.read("/b0/d" + d.to_s + "/note.txt") }')
+    kept = held.call
+    reader, writer = IO.pipe
+    pid = fork { reader.close; writer.print(held.call); exit!(0) }
+    writer.close
+    child = reader.read.to_i
+    Process.wait(pid)
+    print [before, kept, child].inspect
+  RUBY
+
+  # @behavior FS-231
+  def test_a_forked_child_inherits_none_of_the_directories_binds_keep
+    skip "this platform cannot fork" unless Process.respond_to?(:fork)
+    before, kept, child = run_descriptor_child(FORKED).scan(/\d+/).map(&:to_i)
+    assert_operator kept, :>, before + 32, "a Bind reading 100 directories must keep some of them open"
+    assert_operator child, :<=, before + 2,
+                    "a child forked after a Bind kept #{kept - before} directories must hold none of them, " \
+                    "holding #{child} descriptors against #{before} before"
+  end
+
   DEEP = "d/" * 31
 
   OPERATIONS = {
