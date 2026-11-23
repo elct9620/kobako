@@ -20,20 +20,21 @@ The Guest Binary crosses three ABIs. `wasm-tools print` shows the same 122 impor
 |---|---|---|
 | kobako ABI | `upcall` and `preamble` from `kobako:abi/host@0.6.0` | `kobako-runtime`'s `endpoint` |
 | WASI file calls | 21 `fd_*` and `path_*`, and `poll_oneoff` | kobako |
-| WASI rest | `environ_*`, `random_get`, `proc_exit` | wasmtime-wasi |
+| WASI entropy | `random_get` | kobako, from wasmtime-wasi's source |
+| WASI rest | `environ_*`, `proc_exit` | wasmtime-wasi |
 | WASI 0.2 | 94 `wasi:*`, for sockets, HTTP, and their waits | kobako |
 
 The Wasm Driver only wires the kobako ABI's import to `endpoint`.
 
-kobako answers 36 of the 46 preview1 imports: every `fd_*`, `path_*`, and `sock_*` call, and `poll_oneoff`. Those are the calls that read the descriptor table, so the guest stays on one table where the root is its one preopen, `/`. A walk from it reaches every Mount. The 14 the Guest Binary never imports serve a third-party guest. The other ten read no descriptor and stay wasmtime-wasi's.
+kobako answers 37 of the 46 preview1 imports: every `fd_*`, `path_*`, and `sock_*` call, `poll_oneoff`, and `random_get`. The first 36 read the descriptor table, so the guest stays on one table where the root is its one preopen, `/`. A walk from it reaches every Mount. `random_get` is filled a page at a time, so a run stops at its deadline between pages and a buffer past its memory traps before any entropy is drawn. The 14 the Guest Binary never imports serve a third-party guest. The other nine read no descriptor and stay wasmtime-wasi's.
 
 ## Syscall Table
 
-wiggle generates the 36 calls from the witx in `crates/kobako-wasmtime/witx/`, as it generates wasmtime-wasi's.
+wiggle generates the 37 calls from the witx in `crates/kobako-wasmtime/witx/`, as it generates wasmtime-wasi's.
 
 | Property | Consequence |
 |---|---|
-| witx lists only 36 calls | the rest stay wasmtime-wasi's |
+| witx lists only 37 calls | the rest stay wasmtime-wasi's |
 | Generated as wasmtime-wasi's | same argument and answer handling |
 | wiggle needs `wasmtime-environ` | table lives in the Wasm Driver |
 

@@ -69,11 +69,20 @@ pub(crate) fn epoch_deadline_callback(
     {
         return Err(wasmtime::Error::new(TimeoutTrap));
     }
-    match sched::exit_to_user_mode() {
-        Some(FatalSignal::Deadline) => Err(wasmtime::Error::new(TimeoutTrap)),
-        Some(FatalSignal::Interrupt) => Err(wasmtime::Error::new(Interrupted)),
+    match fatal_signal_trap() {
+        Some(trap) => Err(trap),
         None => Ok(UpdateDeadline::Continue(1)),
     }
+}
+
+/// The trap ending the calling thread's run once it takes its pending signal
+/// and finds a fatal one, as the guest's code meets on each tick and a long
+/// host call meets between its steps.
+pub(crate) fn fatal_signal_trap() -> Option<wasmtime::Error> {
+    sched::exit_to_user_mode().map(|signal| match signal {
+        FatalSignal::Deadline => wasmtime::Error::new(TimeoutTrap),
+        FatalSignal::Interrupt => wasmtime::Error::new(Interrupted),
+    })
 }
 
 /// The message leaves out the ABI export symbol, so the Sandbox layer can

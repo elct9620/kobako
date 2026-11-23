@@ -26,9 +26,10 @@ An Engine is the WebAssembly runtime that executes a Guest Binary, such as wasmt
 | every preview1 call that reads the descriptor table: `fd_*`, `path_*`, `sock_*`, `poll_oneoff` | the guest's root is a descriptor, and one table answers every call reading one |
 | every `wasi:sockets` and `wasi:http` import, and the `wasi:io` they stand on | a socket must pass the endpoints a Grant names, which no Engine knows |
 | the monotonic clock's `subscribe-duration` | its pollable waits in kobako's `wasi:io`, beside a socket's |
+| preview1's `random_get`, a page at a time | a run must stay within its deadline and its memory as it reads entropy |
 | the host side of the kobako ABI | no Engine knows that ABI |
 
-Arguments, environment, reading a clock, process, scheduling, and randomness stay with the Engine's native WASI.
+Arguments, environment, reading a clock, process, and scheduling stay with the Engine's native WASI, and so does where entropy comes from.
 
 ```
 +-------------+

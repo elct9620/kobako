@@ -1,14 +1,16 @@
-//! kobako's own answers to the 36 preview1 imports that read the
-//! descriptor table: `fd_*`, `path_*`, `sock_*`, and `poll_oneoff`.
+//! kobako's own answers to the 37 preview1 imports that read the
+//! descriptor table, `fd_*`, `path_*`, `sock_*`, and `poll_oneoff`, and to
+//! `random_get`.
 //!
 //! wasmtime-wasi keeps its table private, so a descriptor kobako places
 //! there would stay invisible to its calls. Answering every call that reads
 //! a descriptor keeps the guest on one table, `descriptors`, where
-//! each outermost Mount is a preopen. The other ten imports — arguments,
-//! environment, clocks, process, scheduling, and randomness — stay
-//! wasmtime-wasi's, so `witx/` declares only these 36. wiggle generates their
-//! glue as it generates wasmtime-wasi's, so a value outside what the witx
-//! defines traps there before a call starts.
+//! each outermost Mount is a preopen. wasmtime-wasi draws all the entropy
+//! `random_get` asks for before it checks the buffer, so kobako answers it a
+//! page at a time. The other nine imports — arguments, environment, clocks,
+//! process, and scheduling — stay wasmtime-wasi's, so `witx/` declares only
+//! these 37. wiggle generates their glue as it generates wasmtime-wasi's, so a
+//! value outside what the witx defines traps there before a call starts.
 
 pub(crate) mod descriptors;
 mod errno;
@@ -16,6 +18,7 @@ mod fd;
 mod memory;
 mod path;
 mod poll;
+mod random;
 mod sock;
 
 #[cfg(test)]
@@ -465,6 +468,17 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
     ) -> Answer<types::Size> {
         self.answer(memory, |mem, inv| {
             poll::poll_oneoff(inv, mem, subs, events, count)
+        })
+    }
+
+    fn random_get(
+        &mut self,
+        memory: &mut wiggle::GuestMemory<'_>,
+        buf: GuestPtr<u8>,
+        len: types::Size,
+    ) -> Answer {
+        self.answer(memory, |mem, inv| {
+            random::get(mem, inv.wasi_mut(), buf, len)
         })
     }
 
