@@ -41,7 +41,12 @@ Groups == [
   resolv   |-> {"ready_waker", "query_ctx"},
   rleaf    |-> {"CURRENT", "sockets", "repoll", "timers"},
   \* The Rust SDK's own, which the Ruby gem does not link.
-  sdk      |-> {"registry", "handle_table"}
+  sdk      |-> {"registry", "handle_table"},
+  \* A fork's gate, closed from its check to its return. Asking at it is no
+  \* edge: a fork never waits for it, and a run waits holding nothing.
+  gate     |-> {"fork_gate"},
+  \* The runs in progress, which a fork checks and a run enters.
+  runs     |-> {"RUNS"}
 ]
 
 LockSet == UNION {Groups[g] : g \in DOMAIN Groups}
@@ -124,6 +129,12 @@ Edges ==
   \cup E("query_ctx", {"wq_waiters", "wq_tasks"})
   \* sdk: sealing a Sandbox compiles its catalog
   \cup E("registry", {"ticker", "memcg"})
+  \* gate: inside its gate a fork may give the GVL up and take it again, and
+  \* lets go of the directories Binds keep before it opens
+  \cup E("fork_gate", {"GVL", "RUNS", "fid_cache"})
+  \* runs: a run enters under the GVL, a waiter queueing on the gate
+  \cup E("GVL", {"RUNS"})
+  \cup E("RUNS", {"wq_waiters"})
   \* cache: a Bind keeps or lets go a directory under whichever Filesystem,
   \* dentry, or GVL lock its call holds, and takes nothing more
   \cup UNION {E(l, {"fid_cache"}) :

@@ -96,6 +96,7 @@ Each lock belongs to one lock group, and the groups form an order with no cycle.
 | ruby | the GVL | GVL |
 | dcache | an inode's dentry, the dentry tables, the rename lock, a dentry's state, the LRU | other |
 | fsi | a Filesystem's own state | other |
+| gate | a fork's closed gate | sleeping |
 | netg | the guest's open sockets, its connection budget | other |
 | request | an exchange's or a lookup's future | other |
 | sock | a socket's state, an exchange's state | other |
@@ -108,6 +109,7 @@ The leaf groups take nothing beyond one another, except init, whose initializers
 | cache, init | the wasmtime caches and the directories Binds keep, a one-time initializer |
 | mock, resolv, rleaf | the network Mock, a resolver's waker, the reactor's queues |
 | sdk | the Rust SDK's registry and Handle tables |
+| runs | the runs in progress, and those waiting for a fork |
 
 ### Group Order
 
@@ -147,6 +149,7 @@ A group edge is an edge that leaves a group. Each states what the group holds as
 | request to sock | the request's `task_future` | a socket takes only leaf locks |
 | ruby to sock | the GVL, under `:hold` | a socket takes only leaf locks |
 | netg to sock | the guest's open socket | a socket takes only leaf locks |
+| gate to ruby, runs, cache | the closed gate | the gate closes beside no run, and a waiter holds nothing |
 
 ### Release Before Wait
 
@@ -257,32 +260,45 @@ An owner must wake its waiters on every exit that runs code, a panic unwinding p
 |---|---|---|
 | a panic unwinding | yes | the owner must wake its waiters from a guard's drop |
 | a longjmp over Rust frames | no | Ruby runs only where no guest frame stands |
-| a fork | no thread but the caller | the fork waits for every run to end, as [Fork Gate](#fork-gate) sets |
+| a fork | no thread but the caller | a fork raises while any run is in progress, as [Fork Gate](#fork-gate) sets |
 | a run's caller that never returns | no | collecting the caller ends its guest's waits |
 
 No rule keeps a fork away from a background thread, the engine's own included. So a lock one takes after every run has ended is never one a forked child waits on. A process-local value, such as the reactor or the connection count, holds this. The child puts a lock of its own in place and never takes the parent's.
 
 #### Fork Gate
 
-A fork through Ruby waits for every run in progress to end, so the child inherits no lock a run held. A run on the forking Thread, another Fiber's included, would wait on itself, so the fork raises instead. The gate closes to new runs only once none is in progress, and opens again as the fork returns in the parent.
+A fork through Ruby raises while any run is in progress. So the child inherits no lock a run held, and no fork waits for a run. Otherwise the fork closes the gate in the same step, and opens it as it returns in the parent.
 
 ```
 fork        prepare           runs
   |  (a)       |                |
-  |----------->|  wait (b)      |
-  |            |--------------->|
+  |----------->|                |
+  |            |  raise or      |
+  |            |  close (b)     |
+  |            |      enter (c) |
   |            |<---------------|
-  |            |  close (c)     |
   |<-----------|                |
   |  open (d)  |                |
+  |----------->|--------------->|
 ```
 
 - (a) `Process._fork` and `Process.daemon` reach the prepare; a fork(2) another C extension makes does not.
-- (b) The wait gives the GVL up, as any other wait does, and an interrupt ends it.
-- (c) Closing while it waited would leave a run whose callback waits for another Thread's run that can no longer enter.
-- (d) The child needs no opening: its gate is its own, as the run registry is process-local.
+- (b) The check and the close are one step under `RUNS`.
+- (c) A run that meets the gate closed waits outside it, holding no run and no GVL. An interrupt ends the wait.
+- (d) Any return opens it, a raise included.
 
-`ForkGate.tla` checks the close at zero, and `ForkGateCloseEarly.tla` reaches the deadlock of closing as the wait starts.
+##### Gate Handover
+
+The one wait left is a run entering while a fork is under way. These rules keep that wait finite.
+
+| Rule | Keeps |
+|---|---|
+| the last fork to open enters every waiting run in that step | the next fork finds them in progress |
+| a run is in progress until its guest ends | a collected caller's guest holds its locks until then |
+| a `_fork` hook inside the gate never waits for a run | that run waits on the gate; the Host App's boundary |
+| the child opens nothing | its run registry is process-local |
+
+`ForkGate.tla` checks the gate with each rule in place. `ForkGateWaits`, `ForkGateCheckApart`, and `ForkGateCollectedEarly` each take one rule away, and `ForkGateHookWaits` reaches the boundary.
 
 #### Collected Callers
 
@@ -292,7 +308,7 @@ A run's caller never returns when its Fiber is left suspended in a callback, or 
 |---|---|
 | nothing reaches the caller any more | the object it kept on its stack, `RunCaller`, goes too |
 | the collector frees `RunCaller` | the guest is interrupted, and its calls into Ruby answer nothing |
-| the guest ends | its locks go |
+| the guest ends | its locks go, and the run is no longer in progress |
 
 `RunCaller` marks the Ruby objects the run pinned rather than rooting them, so none of them keeps the Fiber alive.
 
@@ -313,8 +329,11 @@ The models check the group order and each edge's rule with TLC. A model of a bro
 | `HandoffNoJoin` | the caller returning before its guest ends | deadlock |
 | `HandoffIdle` | an idle thread ending beside a run taking it | ok |
 | `HandoffIdleUnlocked` | the same with the thread deciding apart from leaving the list | deadlock |
-| `ForkGate` | a fork's prepare beside a callback waiting for another Thread's run | ok |
-| `ForkGateCloseEarly` | the same with the gate closing as the wait starts | deadlock |
+| `ForkGate` | a fork beside runs that wait, nest, join it, or are collected | ok |
+| `ForkGateWaits` | the same with the fork waiting for the runs | deadlock |
+| `ForkGateCheckApart` | the same with the check and the close apart | deadlock |
+| `ForkGateCollectedEarly` | a collected run counted out before its guest ends | deadlock |
+| `ForkGateHookWaits` | a `_fork` hook inside the gate waiting for a run | deadlock |
 
 `Locks.tla` is the thread model each edge's model builds on; `Handoff.tla` stands apart, as it models one run's two threads. `ForkGate.tla` stands apart too, as it models runs rather than locks.
 
