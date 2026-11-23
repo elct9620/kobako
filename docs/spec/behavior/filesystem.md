@@ -1561,7 +1561,7 @@ both live in the upper and never show, so no name is reserved
 | When | a file in it is truncated to a smaller size |
 | Then | it succeeds, as only a growth is refused |
 
-## `FS-151` A Bind keeps a bounded number of host directories open for walks
+## `FS-151` The Binds of a process keep a bounded number of host directories open for walks
 
 | Attribute | Value |
 | --- | --- |
@@ -1569,9 +1569,9 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind over directories nested far past the bound |
-| When | a guest opens a file at the bottom and holds it |
-| Then | the open lands, and the Bind keeps at most 64 of those directories open |
+| Given | several Binds, each over directories nested or listed far past the bound |
+| When | a guest reads a file in each of them |
+| Then | every read lands, and the process keeps at most 64 of those directories open, whatever invocation walked to them |
 
 ## `FS-152` A directory held open keeps its host directory past the bound
 
@@ -2360,3 +2360,89 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs holding an Overlay's whiteout, mounted on its own |
 | When | the whiteout is listed, stated, and given new times |
 | Then | it is a character device 0:0 with one link and an inode number its listing shares. It keeps the times set on it, as `shmem_mknod` makes it |
+
+## `FS-217` A host out of descriptors makes the directories Binds keep give way
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-151` |
+| relates | `FS-209` |
+
+| Step | Statement |
+| --- | --- |
+| Given | the directories Binds keep for walks, and a host process holding as many files as it may |
+| When | a Bind opens a host file or directory, and the host refuses it as too many open files |
+| Then | every kept directory is let go, and the open is tried once more and lands |
+
+## `FS-218` An open refused again after the kept directories gave way answers the refusal
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-217` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a host process out of descriptors with nothing a Bind keeps to let go |
+| When | a Bind opens a host file and the host refuses it again |
+| Then | the open fails with the host's own refusal after that one more try, and nothing waits for room |
+
+## `FS-219` Nothing is kept while a Bind gives way
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-217` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind letting the kept directories go for an open the host refused |
+| When | a walk keeps the directory it reached before that open is tried again |
+| Then | the directory is not kept, so the room let go stays free for the open |
+
+## `FS-220` A directory held open answers after the kept directories gave way
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-217` |
+| relates | `FS-152` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest holding a Bind's directory open, and reads in other directories that leave the host out of descriptors |
+| When | the guest lists the directory it holds |
+| Then | the listing answers, since a directory in use closes only once its last user lets it go |
+
+## `FS-221` A Bind let go closes the directories its walks kept
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-151` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind whose walks kept directories for the process |
+| When | every holder of the Bind lets it go |
+| Then | its root closes, and then each directory it kept, so none outlives the Bind |
+
+## `FS-222` A forked child keeps none of the directories its parent's Binds kept
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-151` |
+
+| Step | Statement |
+| --- | --- |
+| Given | directories a process's Binds kept, and a child that process forked |
+| When | a Bind in the child asks for a kept directory |
+| Then | the child finds none kept, and takes no lock or count of its parent's |
+
+## `FS-223` A walk beneath a Bind needs the same host descriptors at any depth
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-217` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a host process with three descriptors free, and a Bind over a file 32 directories deep |
+| When | a guest reads, creates, stats, lists, renames, or removes there |
+| Then | each call lands |
