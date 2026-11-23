@@ -2319,3 +2319,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox keeping the GVL whose guest computes without end, on a Thread of its own |
 | When | another Thread asks for the GVL |
 | Then | it waits as long as it would beside a Thread computing in plain Ruby. A Ruby reading no such variable keeps 100 ms |
+
+## `S-248` The default open-file cap leaves the Host App its descriptors
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-004` |
+| relates | `S-201`, `RT-152` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose open-file cap is its default, and a host process with room for some hundred files |
+| When | the script opens files beneath a Bind until one is refused, and the Host App then opens a hundred |
+| Then | the script opens twelve, and every file the Host App opens lands |
