@@ -61,6 +61,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_trap_during_run.rb`
 - `test/e2e/sandbox/test_mn_threads.rb`
 - `test/e2e/sandbox/test_raise_during_compute.rb`
+- `test/e2e/sandbox/test_gvl_turns*.rb`
 - `test/e2e/sandbox/test_idle_guest_threads.rb`
 - `test/e2e/sandbox/test_fiber_scheduler_wait.rb`
 - `test/e2e/sandbox/test_run_on_another_fiber.rb`
@@ -1931,17 +1932,17 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | a count cap is given an Integer past what the host counts, or a deadline past what it times |
 | Then | it raises `RangeError`, as CRuby does for a number too large to convert. A cap of another class raises `TypeError` |
 
-## `S-215` An interrupt delivered while the guest computes stops the run's next wait
+## `S-215` An interrupt delivered while a guest keeping the GVL computes stops the run as it computes
 
 | Attribute | Value |
 | --- | --- |
-| refines | `S-208` |
+| relates | `S-206`, `S-230` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a permissive Sandbox holding the GVL whose guest computes, then waits on a clock |
-| When | the process receives SIGINT while the guest computes |
-| Then | the wait ends at once, and the run raises `Interrupt` in the Host App. A signal pending as a Linux task sleeps ends that sleep |
+| Given | a permissive Sandbox keeping the GVL on the main Thread whose guest computes without end, its deadline lifted |
+| When | the process receives SIGINT |
+| Then | the run raises `Interrupt` in the Host App within moments, not once the guest would end |
 
 ## `S-216` A deadline still fires in a forked child
 
@@ -2099,7 +2100,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | the signal arrives as the guest computes, before it opens a file there |
 | Then | the run raises the handler's exception once it ends, and the block never sees it |
 
-## `S-230` A raise into a Thread whose run releases the GVL stops the guest as it computes
+## `S-230` A raise into a Thread whose run computes stops the guest as it computes
 
 | Attribute | Value |
 | --- | --- |
@@ -2107,7 +2108,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox releasing the GVL whose guest computes for seconds without calling the host |
+| Given | a Sandbox keeping or releasing the GVL whose guest computes for seconds without calling the host |
 | When | another Thread raises into the Thread running it |
 | Then | the run raises that exception within moments, not once the guest would end. A Linux task dies of a fatal signal on its way back to its own code |
 
@@ -2242,3 +2243,79 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a macOS process with `Pitchfork::Info` defined |
 | When | a run's guest has the system verify a server's certificate |
 | Then | `Pitchfork::Info.no_longer_fork_safe!` is called once, as that run ends. Pitchfork then picks another worker to fork from |
+
+## `S-242` A kill of a Thread whose run computes ends that Thread as the guest computes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-230` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox keeping or releasing the GVL whose guest computes for seconds without calling the host |
+| When | another Thread kills the Thread running it |
+| Then | that Thread ends within moments, not once the guest would end |
+
+## `S-243` A run keeping the GVL lets another Thread run while its guest computes
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-018` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox keeping the GVL whose guest computes without end, its deadline lifted, on a Thread of its own |
+| When | another Thread runs plain Ruby, or a Sandbox whose deadline is a second |
+| Then | that Thread finishes while the guest still computes. A run waiting for its guest hands the GVL to a waiting Thread each quantum, as Ruby's Threads do |
+
+## `S-244` A run keeping the GVL lets another Thread run while its guest blocks in the host
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-243` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Linux process whose Sandbox keeps the GVL on a Thread of its own |
+| Given | its guest opens a Bind file under a lease, which only a trap handler of the main Thread drops |
+| When | the lease is broken |
+| Then | the guest reads the file's contents. The run hands the GVL over though its guest never comes back to it |
+
+## `S-245` A run keeping the GVL takes what Ruby delivers while its guest blocks in the host
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-244` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Linux process whose Sandbox keeps the GVL on the main Thread, no other Thread waiting |
+| Given | its guest opens a Bind file under a lease, which only that Thread's trap handler drops |
+| When | the lease is broken |
+| Then | the guest reads the file's contents. The run takes what Ruby delivered each quantum, whether or not another Thread waits |
+
+## `S-246` Guests of runs keeping the GVL go on side by side
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-243` |
+
+| Step | Statement |
+| --- | --- |
+| Given | two Sandboxes keeping the GVL on two Threads, mounting one Tmpfs |
+| Given | each guest writes a file and computes until the other's file appears, twice in turn |
+| When | both run at once |
+| Then | both answer. A guest runs on while its run hands the GVL over, so a long run no longer runs alone |
+
+## `S-247` A run keeping the GVL hands it over at the quantum Ruby's Threads keep
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-243` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process started with `RUBY_THREAD_TIMESLICE` set to a second |
+| Given | a Sandbox keeping the GVL whose guest computes without end, on a Thread of its own |
+| When | another Thread asks for the GVL |
+| Then | it waits as long as it would beside a Thread computing in plain Ruby. A Ruby reading no such variable keeps 100 ms |
