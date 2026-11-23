@@ -24,7 +24,6 @@ class TestE2EMnThreads < Minitest::Test
 
   # @behavior S-228
   def test_runs_on_threads_of_rubys_mn_scheduler_answer
-    skip "Ruby's M:N scheduler starts with Ruby 3.3" if RUBY_VERSION < "3.3"
     skip "Ruby's M:N scheduler runs off Windows only" if Gem.win_platform?
 
     env = { "KOBAKO_WASM" => REAL_WASM, "RUBY_MN_THREADS" => "1" }
