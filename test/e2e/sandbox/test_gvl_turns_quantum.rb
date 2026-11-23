@@ -37,11 +37,11 @@ class TestE2EGvlTurnsQuantum < Minitest::Test
 
   # @behavior S-247
   def test_a_run_keeping_the_gvl_hands_it_over_at_the_quantum_rubys_threads_keep
-    env = { "KOBAKO_WASM" => REAL_WASM, "RUBY_THREAD_TIMESLICE" => "1000" }
+    env = { "KOBAKO_WASM" => REAL_WASM, "RUBY_THREAD_TIMESLICE" => "500" }
     guest, ruby = %w[guest ruby].map { |beside| run_ruby(STALL, beside, env: env, deadline: DEADLINE) }
     refute_equal :deadlocked, guest, "a Thread must get the GVL back beside a Sandbox keeping it whose guest never ends"
-    assert_equal ruby.to_f > 0.5, guest.to_f > 0.5,
-                 "under RUBY_THREAD_TIMESLICE=1000 a Thread must wait for the GVL beside a Sandbox keeping it " \
+    assert_equal ruby.to_f > 0.3, guest.to_f > 0.3,
+                 "under RUBY_THREAD_TIMESLICE=500 a Thread must wait for the GVL beside a Sandbox keeping it " \
                  "as long as beside a Thread computing in plain Ruby; waited #{guest}s beside the guest and " \
                  "#{ruby}s beside plain Ruby"
   end

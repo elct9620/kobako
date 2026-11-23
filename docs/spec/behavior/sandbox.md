@@ -2315,7 +2315,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a process started with `RUBY_THREAD_TIMESLICE` set to a second |
+| Given | a process started with `RUBY_THREAD_TIMESLICE` set to half a second |
 | Given | a Sandbox keeping the GVL whose guest computes without end, on a Thread of its own |
 | When | another Thread asks for the GVL |
 | Then | it waits as long as it would beside a Thread computing in plain Ruby. A Ruby reading no such variable keeps 100 ms |
