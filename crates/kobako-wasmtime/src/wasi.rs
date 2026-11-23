@@ -147,8 +147,11 @@ impl Wasi {
         grants: &[Grant],
     ) -> Result<Self, InvokeError> {
         // The guest sees entries as its profile allows, through whichever
-        // encoding asks.
-        let opener = opener.with_profile(profile);
+        // encoding asks, and every file held for it, a Filesystem's own
+        // behind a descriptor included, counts against one limit.
+        let opener = opener
+            .with_profile(profile)
+            .with_open_files(OpenFiles::new(open_file_limit));
         let stdout = PipeInodeInfo::new(Capture::pipe_capacity_of(stdout_limit));
         let stderr = PipeInodeInfo::new(Capture::pipe_capacity_of(stderr_limit));
 
@@ -157,10 +160,8 @@ impl Wasi {
         // keeps only what the remaining imports read. preview2's resource
         // table holds every file, the descriptors' included, and counts each
         // against the open files.
-        let mut table = preview2::Table::new(
-            OpenFiles::new(open_file_limit),
-            opener.memory_budget().clone(),
-        );
+        let mut table =
+            preview2::Table::new(opener.open_files().clone(), opener.memory_budget().clone());
         let mounts = grants
             .iter()
             .filter_map(|grant| match grant {

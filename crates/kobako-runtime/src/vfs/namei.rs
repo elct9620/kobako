@@ -884,7 +884,9 @@ fn do_o_path(nd: &mut Nameidata, op: &OpenFlags) -> Result<File, Errno> {
     let child = nd.path()?;
     let kind = child.file_type()?;
     let (f_op, security) = on_path(&nd.mnt, &child, |path| {
-        do_dentry_open(&nd.cred, path, kind, FMode::PATH, how, || child.open(how))
+        do_dentry_open(&nd.cred, path, kind, FMode::PATH, how, || {
+            child.open(how, &nd.cred)
+        })
     })?;
     Ok(File::new(
         nd.path_to(child),
@@ -946,7 +948,9 @@ fn do_open(
     let (f_op, security) = match opened.file {
         Some(file) => file,
         None => on_path(&nd.mnt, &child, |path| {
-            do_dentry_open(&nd.cred, path, kind, mode, how, || child.open(how))
+            do_dentry_open(&nd.cred, path, kind, mode, how, || {
+                child.open(how, &nd.cred)
+            })
         })?,
     };
     if truncate {
@@ -2601,7 +2605,12 @@ mod tests {
             Ok(())
         }
 
-        fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _how: &OpenHow,
+            _cred: &crate::cred::Cred,
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             self.opened.fetch_add(1, Ordering::SeqCst);
             Ok(Box::new(NoOperations))
         }
@@ -2737,9 +2746,14 @@ mod tests {
             Ok(())
         }
 
-        fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+        fn open(
+            &self,
+            dentry: &Dentry,
+            how: &OpenHow,
+            cred: &crate::cred::Cred,
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             let _held = dentry.parent().inode_lock()?;
-            self.0.open(dentry, how)
+            self.0.open(dentry, how, cred)
         }
     }
 
@@ -3800,8 +3814,13 @@ mod tests {
             self.tmpfs.create(dentry)
         }
 
-        fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
-            self.tmpfs.open(dentry, how)
+        fn open(
+            &self,
+            dentry: &Dentry,
+            how: &OpenHow,
+            cred: &crate::cred::Cred,
+        ) -> Result<Box<dyn FileOperations>, Errno> {
+            self.tmpfs.open(dentry, how, cred)
         }
 
         fn mkdir(&self, dentry: &Dentry) -> Result<(), Errno> {
@@ -3902,7 +3921,12 @@ mod tests {
             }
         }
 
-        fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+        fn open(
+            &self,
+            dentry: &Dentry,
+            how: &OpenHow,
+            _cred: &crate::cred::Cred,
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             if dentry.file_type() == Ok(crate::filesystem::FileType::Dir) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
             }
@@ -3976,7 +4000,12 @@ mod tests {
             Ok(Lookup::Found(Inode::new(&link, ops)))
         }
 
-        fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _how: &OpenHow,
+            _cred: &crate::cred::Cred,
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             struct OpenLink;
             impl FileOperations for OpenLink {}
             self.0.fetch_add(1, Ordering::SeqCst);
@@ -4934,7 +4963,12 @@ mod tests {
             Ok(())
         }
 
-        fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _how: &OpenHow,
+            _cred: &crate::cred::Cred,
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             self.0.lock().expect("never poisoned").push("open");
             Ok(Box::new(RecordedFile))
         }
@@ -5189,7 +5223,12 @@ mod tests {
             }
         }
 
-        fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _how: &OpenHow,
+            _cred: &crate::cred::Cred,
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             Ok(Box::new(RecordedFile))
         }
 

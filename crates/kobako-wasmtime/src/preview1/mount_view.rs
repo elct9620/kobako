@@ -1084,7 +1084,12 @@ impl InodeOperations for FailsPastTheDots {
         Ok(Kstat::new(FileType::Dir, 0))
     }
 
-    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(
+        &self,
+        _dentry: &Dentry,
+        _how: &OpenHow,
+        _cred: &kobako_runtime::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(FailsPastTheDotsDir))
     }
 }
@@ -1542,28 +1547,47 @@ fn a_full_table_answers_emfile_whatever_the_path_names() {
 // The three standard descriptors and the preopen leave room for one more,
 // so a directory spanning both Layers taking more than one leaves none
 // for the file.
-// @behavior RT-152
+// @behavior RT-413
 #[test]
-fn an_overlay_directory_takes_one_descriptor_however_many_layers_it_spans() {
-    let overlay = Overlay::new(
-        vec![Filesystem::new(file_and_directory()).expect("the instance must stand")],
-        Some(Filesystem::new(tmpfs_with("dir/upper", "u")).expect("the instance must stand")),
-    )
-    .expect("an upper over a lower Layer must make a view");
-    let mut guest = Guest::with_open_file_limit(
-        Some(6),
-        &[grant(Arc::new(overlay), Access::ReadWrite, None)],
-    );
-    assert_eq!(
+fn an_overlay_directory_takes_nothing_for_a_layer_holding_no_host_directory() {
+    let host = std::env::temp_dir().join(format!("kobako-bind-lower-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&host);
+    std::fs::create_dir_all(host.join("dir")).expect("the host directory must be created");
+    std::fs::write(host.join("file.txt"), "granted").expect("the host file must be written");
+    std::fs::write(host.join("dir/inner"), "x").expect("the host file must be written");
+    // The topmost Layer opens first, so a Tmpfs beneath a Bind is asked
+    // after a host directory is already held.
+    let topmost = [
+        ("Tmpfs", Filesystem::new(file_and_directory())),
         (
-            guest.call_bare("open_dir"),
-            guest.call("read_file", FILE),
-            guest.call("read_file", FILE)
+            "Bind",
+            Filesystem::new(Bind::new(&host).expect("the host directory must open")),
         ),
-        (0, 0, ERRNO_MFILE),
-        "path_open of a directory two Layers of an Overlay hold, then of files, beneath a Mount \
-         through preview1 with room for two descriptors must take one descriptor for each"
-    );
+    ];
+    for (kind, top) in topmost {
+        let overlay = Overlay::new(
+            vec![
+                top.expect("the instance must stand"),
+                Filesystem::new(tmpfs_with("dir/lower", "l")).expect("the instance must stand"),
+            ],
+            None,
+        )
+        .expect("two lower Layers must make a view");
+        let mut guest =
+            Guest::with_open_file_limit(Some(6), &[grant(Arc::new(overlay), Access::Read, None)]);
+        assert_eq!(
+            (
+                guest.call_bare("open_dir"),
+                guest.call("read_file", FILE),
+                guest.call("read_file", FILE)
+            ),
+            (0, 0, ERRNO_MFILE),
+            "path_open of a directory a {kind} over a Tmpfs Layer of an Overlay hold, then of \
+             files, beneath a Mount through preview1 with room for two descriptors must take one \
+             descriptor for each"
+        );
+    }
+    std::fs::remove_dir_all(&host).expect("the host directory must be removed");
 }
 
 // The open looks the directory up without following a link at its end, so
@@ -1765,10 +1789,11 @@ impl Hook for AppendedMeanwhile {
         inner: &dyn InodeOperations,
         dentry: &Dentry,
         how: &OpenHow,
+        cred: &kobako_runtime::cred::Cred,
     ) -> Result<Box<dyn FileOperations>, Errno> {
         let writes = build_how(|how| how.write = true);
-        let file = inner.open(dentry, how)?;
-        let other = inner.open(dentry, &writes)?;
+        let file = inner.open(dentry, how, cred)?;
+        let other = inner.open(dentry, &writes, cred)?;
         Ok(Box::new(AppendedMeanwhileFile {
             file,
             other: std::sync::Mutex::new(other),
@@ -3059,8 +3084,13 @@ impl InodeOperations for ChangesNothing {
         })
     }
 
-    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
-        self.0.open(dentry, how)
+    fn open(
+        &self,
+        dentry: &Dentry,
+        how: &OpenHow,
+        cred: &kobako_runtime::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
+        self.0.open(dentry, how, cred)
     }
 }
 

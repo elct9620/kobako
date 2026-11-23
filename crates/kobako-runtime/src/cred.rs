@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::memcg::MemoryBudget;
 use crate::profile::Profile;
 use crate::security::SecurityOperations;
-use crate::vfs::{MntNamespace, VfsMount};
+use crate::vfs::{MntNamespace, OpenFiles, VfsMount};
 
 /// Who a call is made for, holding the security modules registered for it, as
 /// `cred->security` holds a Landlock domain, and the memory budget the host
@@ -17,10 +17,15 @@ use crate::vfs::{MntNamespace, VfsMount};
 /// from it shares, as a task's memory cgroup does. Its profile decides what the
 /// caller sees of an entry, as `cred->user_ns` decides the owner `cp_new_stat`
 /// reports. Its mount namespace says which mount stands on which name, as a
-/// task's `nsproxy` holds one beside its credentials.
+/// task's `nsproxy` holds one beside its credentials. The files it holds are
+/// counted on its behalf too, as a task's `files` count against its
+/// `RLIMIT_NOFILE`, so a Filesystem opening more host files behind one
+/// charges them where the caller's descriptors are charged.
+#[derive(Clone)]
 pub struct Cred {
     security: Vec<Arc<dyn SecurityOperations>>,
     memory: Arc<MemoryBudget>,
+    files: OpenFiles,
     profile: Profile,
     mnt_ns: Arc<MntNamespace>,
 }
@@ -32,6 +37,7 @@ impl Default for Cred {
         Self {
             security: Vec::new(),
             memory: MemoryBudget::new(None),
+            files: OpenFiles::default(),
             profile: Profile::Hermetic,
             mnt_ns: Arc::default(),
         }
@@ -54,21 +60,21 @@ impl Cred {
         Arc::new(Self {
             security,
             memory,
+            files: OpenFiles::default(),
             profile: Profile::Hermetic,
             mnt_ns: Arc::default(),
         })
     }
 
     /// This Cred with `more` modules registered after its own, sharing the
-    /// memory held on its behalf, as `landlock_restrict_self` adds a domain.
+    /// memory and the files held on its behalf, as `landlock_restrict_self`
+    /// adds a domain.
     pub(crate) fn with_modules(&self, more: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {
         let mut security = self.security.clone();
         security.extend(more);
         Arc::new(Self {
             security,
-            memory: self.memory.clone(),
-            profile: self.profile,
-            mnt_ns: self.mnt_ns.clone(),
+            ..self.clone()
         })
     }
 
@@ -76,11 +82,23 @@ impl Cred {
     /// its mounts holds a namespace of its own.
     pub(crate) fn with_mnt_ns(&self, mnt_ns: Arc<MntNamespace>) -> Arc<Self> {
         Arc::new(Self {
-            security: self.security.clone(),
-            memory: self.memory.clone(),
-            profile: self.profile,
             mnt_ns,
+            ..self.clone()
         })
+    }
+
+    /// This Cred counting the files held on its behalf in `files`, which every
+    /// Cred made from it shares, as one task's descriptor table is.
+    pub fn with_open_files(&self, files: OpenFiles) -> Arc<Self> {
+        Arc::new(Self {
+            files,
+            ..self.clone()
+        })
+    }
+
+    /// The files held on the caller's behalf, against its limit.
+    pub fn open_files(&self) -> &OpenFiles {
+        &self.files
     }
 
     /// The mount every guest path starts from, as a task's `fs->root`: the
@@ -100,10 +118,8 @@ impl Cred {
     /// carry the user namespace its stat is reported in.
     pub fn with_profile(&self, profile: Profile) -> Arc<Self> {
         Arc::new(Self {
-            security: self.security.clone(),
-            memory: self.memory.clone(),
             profile,
-            mnt_ns: self.mnt_ns.clone(),
+            ..self.clone()
         })
     }
 

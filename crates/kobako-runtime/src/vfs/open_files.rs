@@ -47,6 +47,22 @@ impl OpenFiles {
     pub fn close(&self) {
         self.held.fetch_sub(1, Ordering::SeqCst);
     }
+
+    /// Hold one more, as `open` does, given back once what it returns drops.
+    pub fn hold(&self) -> Result<HeldFile, Errno> {
+        self.open()?;
+        Ok(HeldFile(self.clone()))
+    }
+}
+
+/// One file held against an Invocation's count, given back as it drops.
+#[must_use = "the file is given back as soon as this drops"]
+pub struct HeldFile(OpenFiles);
+
+impl Drop for HeldFile {
+    fn drop(&mut self) {
+        self.0.close();
+    }
 }
 
 #[cfg(test)]

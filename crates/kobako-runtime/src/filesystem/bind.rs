@@ -579,7 +579,12 @@ impl InodeOperations for BindRegular {
         })
     }
 
-    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(
+        &self,
+        dentry: &Dentry,
+        how: &OpenHow,
+        _cred: &crate::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         self.0.open_file(dentry, how, false)
     }
 }
@@ -652,13 +657,18 @@ impl InodeOperations for Bind {
         })
     }
 
-    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(
+        &self,
+        dentry: &Dentry,
+        how: &OpenHow,
+        _cred: &crate::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         let fid = self.fid_lookup(dentry)?;
         if how.read {
             may_read_dir(&fid)?;
         }
         OpenDirFid::set(dentry, &fid);
-        Ok(Box::new(BindDir(fid, Rdir::default())))
+        Ok(Box::new(BindDir(fid, Rdir::default(), !dentry.is_root())))
     }
 
     /// A name still in lookup is looked up first, and any name is left to the
@@ -722,8 +732,8 @@ impl InodeOperations for Bind {
 
 /// A host directory, open on the descriptor it holds, as 9p's `v9fs_dir_readdir`
 /// reads the fid in `private_data`, so it follows the directory wherever it
-/// moves.
-struct BindDir(Arc<Dir>, Rdir);
+/// moves. Whether the descriptor is its own: a Bind's root is its maker's.
+struct BindDir(Arc<Dir>, Rdir, bool);
 
 impl FileOperations for BindDir {
     fn llseek(
@@ -755,6 +765,10 @@ impl FileOperations for BindDir {
     /// there the host answers for them itself.
     fn fsync(&mut self, _datasync: bool) -> Result<(), Errno> {
         sync_dir(&self.0)
+    }
+
+    fn host_descriptors(&self) -> usize {
+        usize::from(self.2)
     }
 }
 
@@ -1719,7 +1733,7 @@ mod tests {
         let answer = dir
             .inode_ops()
             .expect("the name records its directory")
-            .open(&dir, &OpenHow::default());
+            .open(&dir, &OpenHow::default(), &crate::cred::Cred::default());
         assert_eq!(
             answer.err(),
             Some(Errno::NotFound),

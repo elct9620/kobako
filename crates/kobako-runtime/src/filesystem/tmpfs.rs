@@ -697,7 +697,12 @@ impl InodeOperations for Tmpfs {
         self.make(dentry, Node::File(data))
     }
 
-    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(
+        &self,
+        _dentry: &Dentry,
+        _how: &OpenHow,
+        _cred: &crate::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(TmpfsDir {
             dir: self.dir.clone(),
             dev: self.tree.dev,
@@ -840,7 +845,12 @@ impl InodeOperations for TmpfsRegular {
         Ok(())
     }
 
-    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(
+        &self,
+        _dentry: &Dentry,
+        _how: &OpenHow,
+        _cred: &crate::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(TmpfsFile {
             data: self.data.clone(),
         }))

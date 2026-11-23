@@ -49,8 +49,9 @@ pub(crate) trait Hook: Send + Sync + 'static {
         inner: &dyn InodeOperations,
         dentry: &Dentry,
         how: &OpenHow,
+        cred: &crate::cred::Cred,
     ) -> Result<Box<dyn FileOperations>, Errno> {
-        inner.open(dentry, how)
+        inner.open(dentry, how, cred)
     }
 
     fn mkdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), Errno> {
@@ -172,8 +173,13 @@ impl<H: Hook> InodeOperations for WrapInode<H> {
         self.inner.get_link(dentry)
     }
 
-    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
-        self.hook.open(self.inner.as_ref(), dentry, how)
+    fn open(
+        &self,
+        dentry: &Dentry,
+        how: &OpenHow,
+        cred: &crate::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
+        self.hook.open(self.inner.as_ref(), dentry, how, cred)
     }
 
     fn create(&self, dentry: &Dentry) -> Result<(), Errno> {

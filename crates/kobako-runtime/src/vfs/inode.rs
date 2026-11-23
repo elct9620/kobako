@@ -116,13 +116,20 @@ pub trait InodeOperations: Any + Send + Sync {
         Err(Errno::InvalidInput)
     }
 
-    /// Open this entry, which `dentry` names, as `how` asks, as `f_op->open`
-    /// makes the open file reading its `f_flags`. The VFS empties a file an
+    /// Open this entry, which `dentry` names, as `how` asks for the caller
+    /// `cred` names, as `f_op->open` makes the open file reading its `f_flags`
+    /// and `f_cred`. What the open holds behind the descriptor counts against
+    /// the caller's open files. The VFS empties a file an
     /// open asks to truncate through `setattr` afterwards, and refuses a link
     /// before it asks. An entry without it opens as Linux's opens with no
     /// `f_op->open`, answering each call on the open file as `FileOperations`
     /// does by default.
-    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(
+        &self,
+        _dentry: &Dentry,
+        _how: &OpenHow,
+        _cred: &crate::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(EmptyFops))
     }
 

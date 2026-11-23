@@ -637,8 +637,13 @@ where
         Ok(self.wrap_found(self.inner.lookup(dentry)?))
     }
 
-    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
-        let opened = self.inner.open(dentry, how)?;
+    fn open(
+        &self,
+        dentry: &Dentry,
+        how: &OpenHow,
+        cred: &kobako_runtime::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
+        let opened = self.inner.open(dentry, how, cred)?;
         if dentry
             .inode()
             .is_none_or(|inode| inode.file_type() == kobako_runtime::filesystem::FileType::Dir)
@@ -653,7 +658,14 @@ where
     fn atomic_open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Finish, Errno> {
         let (made, created) = match self.inner.atomic_open(dentry, how)? {
             Finish::Open { file, created } => (file, created),
-            Finish::NoOpen { created } => (self.inner.open(dentry, how)?, created),
+            Finish::NoOpen { created } => (
+                self.inner.open(
+                    dentry,
+                    how,
+                    &kobako_runtime::security::prepare_creds(&[], None),
+                )?,
+                created,
+            ),
             Finish::Lookup(found) => return Ok(Finish::Lookup(self.wrap_found(found))),
             Finish::Spelled { file, name, inode } => {
                 let Lookup::Found(inode) = self.wrap_found(Lookup::Found(inode)) else {
@@ -1066,8 +1078,13 @@ impl InodeOperations for ReportsLen {
         })
     }
 
-    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
-        self.0.open(dentry, how)
+    fn open(
+        &self,
+        dentry: &Dentry,
+        how: &OpenHow,
+        cred: &kobako_runtime::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
+        self.0.open(dentry, how, cred)
     }
 }
 

@@ -689,6 +689,7 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
+            _cred: &kobako_runtime::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, kobako_runtime::Errno> {
             Ok((self.1)())
         }
@@ -1232,6 +1233,7 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
+            _cred: &kobako_runtime::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, kobako_runtime::Errno> {
             Ok(Box::new(Self(self.0)))
         }

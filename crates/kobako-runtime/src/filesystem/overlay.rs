@@ -23,11 +23,10 @@ use super::{
     InodeOperations, Kstat, Lookup, OpenHow, RenameFlag, Tmpfs,
 };
 use crate::vfs::{
-    generic_file_llseek, generic_read_dir, notify_change, Dentry, DirContext, Inode, Whence,
-    NAME_MAX,
+    generic_file_llseek, generic_read_dir, notify_change, Dentry, DirContext, HeldFile, Inode,
+    Whence, NAME_MAX,
 };
 use inode::{OverlayDirInode, OverlayFileInode};
-use path::OverlayPath;
 use stack::OverlayFs;
 
 /// Read-only lower Layers under an upper Tmpfs, stacked into one
@@ -223,7 +222,12 @@ impl InodeOperations for OverlayRegular {
         )
     }
 
-    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(
+        &self,
+        dentry: &Dentry,
+        how: &OpenHow,
+        _cred: &crate::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         let fs = &self.0.fs;
         fs.open(&fs.parent(dentry)?, dentry, how)
     }
@@ -305,19 +309,41 @@ impl InodeOperations for Overlay {
         }
     }
 
-    fn open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
-        let _real = self
-            .fs
-            .dir(dentry)?
-            .level()
-            .iter()
-            .flatten()
-            .map(OverlayPath::open_real)
-            .collect::<Result<_, _>>()?;
+    /// Each Layer's directory opens in turn, as `ovl_dir_open` opens the
+    /// real one, and every host descriptor each holds counts against the
+    /// caller's open files. The descriptor already counts one, so the first
+    /// held needs no more; each Layer after it takes one before it opens, so
+    /// a refusal comes before the host is asked, and gives it back when that
+    /// Layer holds none. A refusal closes what opened and gives back all.
+    fn open(
+        &self,
+        dentry: &Dentry,
+        _how: &OpenHow,
+        cred: &crate::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
+        // Declared before what it counts, so a refusal closes the directories
+        // before it gives their room back.
+        let mut held = Vec::new();
+        let mut real = Vec::new();
+        let mut host_descriptors = 0;
+        for layer in self.fs.dir(dentry)?.level().iter().flatten() {
+            let unit = match host_descriptors {
+                0 => None,
+                _ => Some(cred.open_files().hold()?),
+            };
+            let opened = layer.open_real(cred)?;
+            if opened.host_descriptors() > 0 {
+                held.extend(unit);
+            }
+            host_descriptors += opened.host_descriptors();
+            real.push(opened);
+        }
         let fs = self.fs.clone();
         Ok(Box::new(OverlayDir {
             fs,
-            _real,
+            _real: real,
+            _held: held,
+            host_descriptors,
             cache: Rdir::default(),
         }))
     }
@@ -367,7 +393,11 @@ impl InodeOperations for Overlay {
 /// directory open while it is, as `struct ovl_dir_file` holds its `realfile`.
 struct OverlayDir {
     fs: OverlayFs,
+    /// Each Layer's directory, closed before the room `_held` counts for it
+    /// is given back.
     _real: Vec<Box<dyn FileOperations>>,
+    _held: Vec<HeldFile>,
+    host_descriptors: usize,
     /// What a listing merged, held until it ends, as `ovl_dir_cache` holds it.
     cache: Rdir,
 }
@@ -401,6 +431,10 @@ impl FileOperations for OverlayDir {
     /// of its own to sync.
     fn fsync(&mut self, _datasync: bool) -> Result<(), Errno> {
         Ok(())
+    }
+
+    fn host_descriptors(&self) -> usize {
+        self.host_descriptors
     }
 }
 
@@ -891,7 +925,12 @@ mod tests {
             Ok(())
         }
 
-        fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _how: &OpenHow,
+            _cred: &crate::cred::Cred,
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             struct Empty;
             impl FileOperations for Empty {
                 fn read_iter(
@@ -1780,11 +1819,12 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             how: &OpenHow,
+            cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
             if dentry.file_type() == Ok(FileType::Dir) && !dentry.is_root() {
                 self.start();
             }
-            inner.open(dentry, how)
+            inner.open(dentry, how, cred)
         }
     }
 
@@ -2370,7 +2410,12 @@ mod tests {
             }
         }
 
-        fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+        fn open(
+            &self,
+            dentry: &Dentry,
+            how: &OpenHow,
+            _cred: &crate::cred::Cred,
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             if dentry.file_type() == Ok(FileType::Dir) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
             }
@@ -2514,8 +2559,9 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             how: &OpenHow,
+            cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
-            let opened = inner.open(dentry, how);
+            let opened = inner.open(dentry, how, cred);
             let run = self.0.lock().expect("never poisoned").take();
             if let Some(run) = run {
                 crate::sched::testing::join("the writer", thread::spawn(run));
@@ -2856,7 +2902,12 @@ mod tests {
             })
         }
 
-        fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+        fn open(
+            &self,
+            _dentry: &Dentry,
+            _how: &OpenHow,
+            _cred: &crate::cred::Cred,
+        ) -> Result<Box<dyn FileOperations>, Errno> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Err(Errno::Interrupted)
         }
@@ -3127,6 +3178,7 @@ mod tests {
             _inner: &dyn InodeOperations,
             _dentry: &Dentry,
             _how: &OpenHow,
+            _cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
             Err(Errno::PermissionDenied)
         }
@@ -3269,11 +3321,12 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             how: &OpenHow,
+            cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
             if !self.opening.swap(true, Ordering::SeqCst) {
                 thread::sleep(Duration::from_millis(100));
             }
-            inner.open(dentry, how)
+            inner.open(dentry, how, cred)
         }
     }
 
@@ -3432,5 +3485,72 @@ mod tests {
                  real inode"
             );
         }
+    }
+
+    /// Counts each open of a directory beneath a Layer's root.
+    #[derive(Default)]
+    struct CountsDirOpens(AtomicUsize);
+
+    impl Hook for CountsDirOpens {
+        fn open(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+            how: &OpenHow,
+            cred: &crate::cred::Cred,
+        ) -> Result<Box<dyn FileOperations>, Errno> {
+            if !dentry.is_root() && dentry.file_type() == Ok(FileType::Dir) {
+                self.0.fetch_add(1, Ordering::SeqCst);
+            }
+            inner.open(dentry, how, cred)
+        }
+    }
+
+    // @behavior FS-224
+    #[cfg(unix)]
+    #[test]
+    fn an_overlay_directory_past_the_cap_opens_no_layer_it_has_no_room_for() {
+        use crate::mount::{Access, Mount};
+        use crate::vfs::{self, OpenFiles, Path};
+        let host = std::env::temp_dir().join(format!("kobako-overlay-room-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&host);
+        let counts = Arc::new(CountsDirOpens::default());
+        let layers = (0..8)
+            .map(|at| {
+                let layer = host.join(at.to_string());
+                std::fs::create_dir_all(layer.join("dir")).expect("the host tree must be made");
+                let bind =
+                    crate::filesystem::Bind::new(&layer).expect("the host directory must open");
+                Filesystem::new(Wrap::new(Arc::new(bind), counts.clone()))
+                    .expect("the instance must stand")
+            })
+            .collect();
+        let overlay = Overlay::new(layers, None).expect("the Overlay must stack");
+        let mount = Mount::new(
+            "/data",
+            Filesystem::new(overlay).expect("the instance must stand"),
+            Access::Read,
+        )
+        .expect("/data is a guest path");
+        let files = OpenFiles::new(Some(2));
+        let cred = crate::cred::Cred::default().with_open_files(files.clone());
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let opened = vfs::kern_path::filp_open(&cred, &Path::root(mount.mnt()), "dir", &read);
+        let room = (files.hold(), files.hold());
+        std::fs::remove_dir_all(&host).expect("the host tree must be removed");
+        assert_eq!(
+            (
+                opened.err(),
+                counts.0.load(Ordering::SeqCst),
+                room.0.is_ok() && room.1.is_ok()
+            ),
+            (Some(Errno::TooManyOpenFiles), 3, true),
+            "vfs::do_file_open of a directory eight Bind Layers of an Overlay hold, with room \
+             for two more open files, must refuse it as EMFILE once three Layers opened and \
+             give both back"
+        );
     }
 }
