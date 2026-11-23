@@ -58,6 +58,7 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_socket_options.rb`
 - `test/e2e/test_network_socket_options_cruby.rb`
 - `test/e2e/test_network_names.rb`
+- `test/e2e/test_network_exhausted_host.rb`
 - `test/e2e/test_network_http.rb`
 - `test/e2e/test_network_http_body_failure.rb`
 - `test/e2e/test_network_http_cruby.rb`
@@ -3131,3 +3132,15 @@ endpoint "api.example.com", port: 443
 | Given | a host process with one descriptor left once its reactor stands |
 | When | the guest opens a TCP connection or makes an HTTP request to a loopback server |
 | Then | each lands, as each holds one host socket |
+
+## `NW-249` A connect the host has no thread to watch answers EAGAIN
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-022` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process that can start no more threads, before any guest socket was watched |
+| When | a guest connects a UDP socket |
+| Then | the connect answers `EAGAIN`, never a Trap. A connect once threads are free succeeds |

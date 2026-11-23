@@ -58,6 +58,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_forked_thread.rb`
 - `test/e2e/sandbox/test_fork_*.rb`
 - `test/e2e/sandbox/test_host_fault.rb`
+- `test/e2e/sandbox/test_exhausted_host.rb`
 - `test/e2e/sandbox/test_interrupt_outside_run.rb`
 - `test/e2e/sandbox/test_trap_during_run.rb`
 - `test/e2e/sandbox/test_mn_threads.rb`
@@ -2358,3 +2359,39 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a run whose Fiber was collected while suspended in a callback |
 | When | the process forks at once |
 | Then | the fork raises `RuntimeError` until that guest ended. A fork after it goes on, and the child takes the locks the run held |
+
+## `S-253` A run the host has no thread for raises a trap
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-232` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process that can start no more threads, its guest threads all busy, beside a run waiting in a Service |
+| When | a Sandbox runs |
+| Then | the run raises `Kobako::TrapError` saying it cannot create a thread. The waiting run answers, and a run once threads are free answers |
+
+## `S-254` A first Sandbox the host has no thread for raises a setup error
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-063` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process that can start no more threads and built no Sandbox yet |
+| When | a Sandbox is built |
+| Then | it raises `Kobako::SetupError`. A Sandbox built once threads are free stops at its deadline |
+
+## `S-255` A run the host has no address space for raises a trap
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-253` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process whose address space has no room for another instance, beside a run waiting in a Service |
+| When | a Sandbox runs on an idle guest thread |
+| Then | the run raises `Kobako::TrapError`. The waiting run answers, and a run once room is free answers |

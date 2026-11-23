@@ -756,7 +756,7 @@ end
 
 ## `Kobako::TrapError`
 
-An invocation the Wasm engine stopped.
+An invocation the Wasm engine stopped, or one the host could not start.
 
 ```ruby
 module Kobako
