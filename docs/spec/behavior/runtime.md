@@ -4595,3 +4595,28 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation whose open-file cap leaves room for twelve, handed an Overlay of thirteen Binds |
 | When | the guest lists the Overlay's root |
 | Then | the listing answers, as each Layer's root is the Host App's to hold |
+
+## `RT-415` A socket released still sending counts as an open file until it closes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-378` |
+| relates | `S-201` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket of an invocation with room for one open file, holding bytes the peer has not taken |
+| When | its last view is dropped |
+| Then | it holds that open file while it holds a host socket, until the peer takes every byte |
+
+## `RT-416` A socket released still sending with no open file left resets its connection
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-415` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected socket holding bytes the peer has not taken, of an invocation with no open file left |
+| When | its last view is dropped |
+| Then | the connection resets at once, as Linux resets an orphan past `tcp_max_orphans` |

@@ -3118,3 +3118,15 @@ endpoint "api.example.com", port: 443
 | Given | a connected TCP socket's output stream under a `memory_limit` already full, its peer not reading |
 | When | the guest writes each permit until `check-write` answers zero, then polls the stream |
 | Then | the pollable is not ready. Once the peer reads, it becomes ready, and `check-write` permits again. The peer reads every byte written, in order |
+
+## `NW-248` A guest's connection holds one host descriptor
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-146`, `RT-415` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a host process with one descriptor left once its reactor stands |
+| When | the guest opens a TCP connection or makes an HTTP request to a loopback server |
+| Then | each lands, as each holds one host socket |
