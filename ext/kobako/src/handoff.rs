@@ -180,8 +180,10 @@ pub(crate) struct Line {
     to_caller: Mailbox<Message>,
     to_guest: Mailbox<Reply>,
     /// Whether the run keeps the GVL while its guest runs, so a wait hands it
-    /// back to the caller to give up.
+    /// back to the caller to give up, and the caller gives it up each quantum.
     keeps_gvl: bool,
+    /// When the caller last took the GVL, which its quantum counts from.
+    turn: Mutex<Instant>,
     pending: Arc<AtomicBool>,
     /// Whether the caller is gone for good, as a Fiber left suspended in a
     /// callback and collected is.
@@ -203,9 +205,21 @@ impl Line {
         self.abandoned.load(Ordering::SeqCst)
     }
 
-    /// What the guest's thread hands over next, waited for.
-    pub(crate) fn take(&self) -> Message {
-        self.to_caller.take()
+    /// What the guest hands over within `limit`, looked for once even when
+    /// `limit` is nothing.
+    pub(crate) fn take_within(&self, limit: Duration) -> Option<Message> {
+        self.to_caller.take_within(limit)
+    }
+
+    /// What is left of the caller's quantum.
+    pub(crate) fn turn_left(&self, quantum: Duration) -> Duration {
+        let turn = *self.turn.lock().unwrap_or_else(PoisonError::into_inner);
+        quantum.saturating_sub(turn.elapsed())
+    }
+
+    /// Start the caller's quantum, as it took the GVL back.
+    pub(crate) fn begin_turn(&self) {
+        *self.turn.lock().unwrap_or_else(PoisonError::into_inner) = Instant::now();
     }
 
     /// What the guest hands over within a spin, as a callback mostly is.
@@ -369,6 +383,7 @@ pub(crate) fn start(
         to_caller: Mailbox::new(),
         to_guest: Mailbox::new(),
         keeps_gvl,
+        turn: Mutex::new(Instant::now()),
         pending,
         abandoned: AtomicBool::new(false),
         interrupt: task.task(),

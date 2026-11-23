@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "rbconfig"
 
 # E2E — a SIGINT a process receives during a run, through the real Guest
 # Binary.
@@ -14,9 +13,9 @@ require "rbconfig"
 # hand-off. The child prints what it caught, "late" when the signal missed
 # the run, and anything else ends it without a word.
 #
-# A guest that computes and then waits meets the signal at that wait, which
-# must end at once; that child says it is ready from inside its run, so the
-# signal lands while the guest computes.
+# A guest that computes without end meets the signal as its run's caller takes
+# what Ruby delivered each quantum; that child says it is ready from inside its
+# run, so the signal lands while the guest computes.
 class TestE2EFirstRunInterrupt < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
@@ -60,7 +59,7 @@ class TestE2EFirstRunInterrupt < Minitest::Test
     })
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     begin
-      sandbox.eval("Host::Ready.call; i = 0; while i < 30_000_000; i += 1; end; IO.select([], [], [], 20); i")
+      sandbox.eval("Host::Ready.call; loop { }")
       print "returned"
     rescue Interrupt
       waited = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
@@ -69,10 +68,10 @@ class TestE2EFirstRunInterrupt < Minitest::Test
   RUBY
 
   # @behavior S-215
-  def test_an_interrupt_delivered_while_the_guest_computes_stops_the_runs_next_wait
+  def test_an_interrupt_delivered_while_a_guest_keeping_the_gvl_computes_stops_the_run_as_it_computes
     assert_equal "Interrupt", caught_interrupting(COMPUTING_CHILD),
-                 "a SIGINT while a Sandbox#eval holding the GVL computes must end the guest's next IO.select at " \
-                 "once and raise Interrupt in the Host App"
+                 "a SIGINT while a Sandbox#eval keeping the GVL runs `loop { }` without a deadline must raise " \
+                 "Interrupt in the Host App within moments"
   end
 
   private
@@ -81,8 +80,7 @@ class TestE2EFirstRunInterrupt < Minitest::Test
   # +:hung+ when it outlives the deadline.
   def caught_interrupting(child)
     reader, writer = IO.pipe
-    pid = Process.spawn({ "KOBAKO_WASM" => REAL_WASM }, RbConfig.ruby, "-I", TestPaths.source("lib"),
-                        "-e", child, out: writer, err: File::NULL)
+    pid = spawn_ruby(child, env: { "KOBAKO_WASM" => REAL_WASM }, out: writer, err: File::NULL)
     writer.close
     interrupt_once_running(reader, pid)
     finished_within?(pid, DEADLINE) ? reader.read : :hung

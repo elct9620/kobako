@@ -17,11 +17,13 @@
 //! trampoline, as a panic must never cross a C frame.
 
 use std::cell::Cell;
-use std::os::raw::{c_int, c_void};
+use std::ffi::CString;
+use std::os::raw::{c_char, c_int, c_long, c_void};
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::ptr;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex, PoisonError};
+use std::sync::{Arc, Mutex, OnceLock, PoisonError};
+use std::time::Duration;
 
 use kobako_runtime::sched::{run_interruptible, Blocking, Current, Task};
 
@@ -366,11 +368,13 @@ impl Drop for RunCaller {
 }
 
 /// Defines the class the `#[magnus::wrap]` name resolves to, and looks it up
-/// once, before any object is wrapped.
+/// once, before any object is wrapped. The quantum is read here, as close to
+/// where CRuby reads its own as an extension stands.
 pub(crate) fn register(kobako: RModule) -> Result<(), MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
     kobako.define_class("RunCaller", ruby.class_object())?;
     RunCaller::class(&ruby);
+    quantum();
     Ok(())
 }
 
@@ -390,7 +394,7 @@ fn serve_line(line: &handoff::Line) -> Option<handoff::Panic> {
         let message = if gives_up {
             take_released(line, &task)
         } else {
-            line.take()
+            take_in_turn(line, &task)
         };
         match message {
             Message::Job(job) => {
@@ -403,11 +407,82 @@ fn serve_line(line: &handoff::Line) -> Option<handoff::Panic> {
             Message::Wait(true) => gives_up = true,
             Message::Wait(false) => {
                 gives_up = release;
+                line.begin_turn();
                 line.resume();
             }
             Message::Answer(panic) | Message::Done(panic) => return panic,
         }
     }
+}
+
+/// What the guest hands over next, waited for keeping the GVL for what is left
+/// of the caller's quantum, then giving it up to whichever Thread waits, as
+/// CRuby's timer has a running Thread do. The mailbox is looked at once
+/// before the time is judged, and nothing handed over starts the quantum
+/// again, so a guest that never comes back, or one that never stops asking,
+/// still lets the other Threads run.
+fn take_in_turn(line: &handoff::Line, task: &Task) -> Message {
+    loop {
+        if let Some(message) = line.take_within(line.turn_left(quantum())) {
+            return message;
+        }
+        yield_turn(task);
+        line.begin_turn();
+    }
+}
+
+/// Hand the GVL to a Thread waiting for it, then take what Ruby delivered, as
+/// `rb_thread_schedule` does, which gives nothing up when no Thread waits. What
+/// that raises is the run's, held, and ends the guest as an interrupt does.
+fn yield_turn(task: &Task) {
+    let scheduled = keeping_held_jump(|| {
+        magnus::rb_sys::protect(|| {
+            // SAFETY: the caller holds the GVL, which `rb_thread_schedule`
+            // gives up and takes back; it raises only into this `protect`.
+            unsafe { rb_sys::rb_thread_schedule() };
+            rb_sys::Qnil as rb_sys::VALUE
+        })
+    });
+    if let Err(raised) = scheduled {
+        escape::keep(raised);
+    }
+    if escape::pending() {
+        task.interrupt();
+    }
+}
+
+/// How long a run's caller keeps the GVL while it waits for its guest: the
+/// quantum CRuby gives each Thread, which Ruby 3.4 and later read from
+/// `RUBY_THREAD_TIMESLICE` as the process starts.
+fn quantum() -> Duration {
+    static QUANTUM: OnceLock<Duration> = OnceLock::new();
+    *QUANTUM.get_or_init(|| {
+        let reads_timeslice = (
+            rb_sys::RUBY_API_VERSION_MAJOR,
+            rb_sys::RUBY_API_VERSION_MINOR,
+        ) >= (3, 4);
+        let set = reads_timeslice
+            .then(|| std::env::var("RUBY_THREAD_TIMESLICE").ok())
+            .flatten()
+            .and_then(|value| timeslice_ms(&value));
+        Duration::from_millis(set.unwrap_or(DEFAULT_QUANTUM_MS).into())
+    })
+}
+
+/// CRuby's `thread_default_quantum_ms`.
+const DEFAULT_QUANTUM_MS: u32 = 100;
+
+/// The milliseconds `value` names as CRuby reads `RUBY_THREAD_TIMESLICE`:
+/// `strtol` in any base, taken only above zero and within 32 bits.
+fn timeslice_ms(value: &str) -> Option<u32> {
+    extern "C" {
+        fn strtol(text: *const c_char, end: *mut *mut c_char, base: c_int) -> c_long;
+    }
+    let text = CString::new(value).ok()?;
+    // SAFETY: `text` is a NUL-terminated string alive across the call, and a
+    // null `end` asks `strtol` not to say where it stopped.
+    let quantum = unsafe { strtol(text.as_ptr(), ptr::null_mut(), 0) };
+    u32::try_from(quantum).ok().filter(|&ms| ms > 0)
 }
 
 /// `rb_nogvl` declines to run its function while an interrupt is pending,
