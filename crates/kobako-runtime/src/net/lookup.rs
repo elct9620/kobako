@@ -58,37 +58,6 @@ pub enum LookupError {
     Again,
 }
 
-thread_local! {
-    /// The place of the lookup whose query this thread is starting.
-    static ASKING: std::cell::RefCell<Option<Arc<Place>>> = const { std::cell::RefCell::new(None) };
-}
-
-/// Run `start`, which starts the query of the lookup holding `place`, so a
-/// query the host lets run on after a cancel can keep the place until it
-/// ends, as `asked_place` hands it out.
-fn asking<T>(place: &Arc<Place>, start: impl FnOnce() -> T) -> T {
-    /// Puts back what was set before, however `start` ends.
-    struct Restore(Option<Arc<Place>>);
-
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            let before = self.0.take();
-            ASKING.with(|asking| asking.replace(before));
-        }
-    }
-
-    let _restore = Restore(ASKING.with(|asking| asking.replace(Some(place.clone()))));
-    start()
-}
-
-/// The place of the lookup whose query this thread is starting, which the
-/// host's own query keeps while the host still works on it; none outside a
-/// lookup's start.
-#[cfg(windows)]
-pub(super) fn asked_place() -> Option<Arc<Place>> {
-    ASKING.with(|asking| asking.borrow().clone())
-}
-
 /// The answer a lookup waits for, shared with the query that sets it.
 type Answer = Arc<Mutex<Option<Result<Vec<IpAddr>, LookupError>>>>;
 
@@ -128,7 +97,7 @@ impl NameLookup {
     ) -> Arc<Self> {
         let answer = Answer::default();
         let wait = Arc::<WaitQueueHead>::default();
-        let resolving = asking(&place, || resolver.resolve(&name));
+        let resolving = resolver.resolve(&name);
         let (answering, waking) = (answer.clone(), wait.clone());
         let query = Task::new(
             async move {
