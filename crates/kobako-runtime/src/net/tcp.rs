@@ -158,20 +158,50 @@ impl State {
         if self.inet.schedule(held + truesize_of(copy)) {
             return copy;
         }
-        let queued = self.write_queue.truesize();
-        let left = TCP_WMEM_MIN.saturating_sub(queued);
-        let take = if left > 0 {
-            let take = copy.min(left);
+        let take = self.wmem_past_limit(copy);
+        if take > 0 {
             self.inet.force_schedule(held + truesize_of(take));
-            take
         } else {
-            let room = self.inet.forward_alloc(held);
-            copy.min(room.saturating_sub(truesize_of(0)))
-        };
-        if take == 0 {
+            let queued = self.write_queue.truesize();
             self.inet.buffers.moderate_sndbuf(queued);
         }
         take
+    }
+
+    /// How much of `copy` bytes the socket takes past the limit: up to
+    /// `tcp_wmem[0]` while little is queued, else what the pages already
+    /// charged leave.
+    fn wmem_past_limit(&self, copy: usize) -> usize {
+        match TCP_WMEM_MIN.saturating_sub(self.write_queue.truesize()) {
+            0 => {
+                let room = self.inet.forward_alloc(self.truesize());
+                copy.min(room.saturating_sub(truesize_of(0)))
+            }
+            left => copy.min(left),
+        }
+    }
+
+    /// How many bytes a send takes now, the send buffer and the memory both
+    /// counted, charging nothing, so a promise of room is one the memory
+    /// keeps.
+    fn wmem_room(&self) -> usize {
+        let copy = self.stream_wspace();
+        if copy == 0 || self.inet.can_schedule(self.truesize() + truesize_of(copy)) {
+            return copy;
+        }
+        self.wmem_past_limit(copy)
+    }
+
+    /// Whether a send may queue, as `sk_stream_wait_connect` answers one not
+    /// connected: EAGAIN while it connects, a pending failure once, then
+    /// EPIPE; and as `sk_stream_error` answers one past its failure or its
+    /// writing side's shutdown: the failure once, then EPIPE.
+    fn sendable(&mut self) -> Result<(), Errno> {
+        match self.phase {
+            Phase::Connecting => Err(Errno::WouldBlock),
+            Phase::Connected if !self.inet.send_shutdown && self.inet.err.is_none() => Ok(()),
+            _ => Err(self.inet.err.take().unwrap_or(Errno::BrokenPipe)),
+        }
     }
 }
 
@@ -561,9 +591,32 @@ impl TcpSock {
         self.state().phase == Phase::Connecting
     }
 
-    /// How many bytes a send would take now.
+    /// How many bytes a send would take now, within both the send buffer and
+    /// the Invocation's memory.
     pub fn send_room(&self) -> usize {
-        self.state().stream_wspace()
+        self.state().wmem_room()
+    }
+
+    /// Queue all of `buf`, charged past the limit should the memory have
+    /// filled since its room was asked, so the room promised stays
+    /// promised. A send buffer that shrank since takes none of it, failing
+    /// whole with ENOBUFS rather than leave the peer a stream with a gap.
+    pub fn send_whole(&self, buf: &[u8]) -> Result<(), Errno> {
+        let mut state = self.state();
+        state.sendable()?;
+        if buf.is_empty() {
+            return Ok(());
+        }
+        if state.stream_wspace() < buf.len() {
+            return Err(Errno::NoBufferSpace);
+        }
+        let truesize = state.truesize() + truesize_of(buf.len());
+        if !state.inet.schedule(truesize) {
+            state.inet.force_schedule(truesize);
+        }
+        state.write_queue.push(buf);
+        self.pump_and_wake(state);
+        Ok(())
     }
 
     /// Whether everything sent has left for the host, as Linux's `SIOCOUTQ`
@@ -658,18 +711,10 @@ impl ProtoOps for TcpSock {
     }
 
     /// Queue what fits of `buf`, sent as the host socket takes it; a full
-    /// buffer answers EAGAIN. A socket not connected answers as
-    /// `sk_stream_wait_connect` does: EAGAIN while it connects, a pending
-    /// failure once, then EPIPE. A connected one past its failure or its
-    /// writing side's shutdown answers as `sk_stream_error`: the failure
-    /// once, then EPIPE.
+    /// buffer answers EAGAIN, and a socket that may not send answers why.
     fn sendmsg(&self, buf: &[u8]) -> Result<usize, Errno> {
         let mut state = self.state();
-        match state.phase {
-            Phase::Connecting => return Err(Errno::WouldBlock),
-            Phase::Connected if !state.inet.send_shutdown && state.inet.err.is_none() => {}
-            _ => return Err(state.inet.err.take().unwrap_or(Errno::BrokenPipe)),
-        }
+        state.sendable()?;
         let copy = buf.len().min(state.stream_wspace());
         let take = state.wmem_schedule(copy);
         if take == 0 && !buf.is_empty() {
@@ -684,7 +729,8 @@ impl ProtoOps for TcpSock {
     /// down, readable once the reading side is, and writable unless it
     /// connects, always so once its writing side is shut down and otherwise
     /// once the room left is half what is queued, as
-    /// `__sk_stream_is_writeable` asks.
+    /// `__sk_stream_is_writeable` asks, and the memory takes a send, so a
+    /// writable stream always has room to promise.
     fn poll(&self, table: Option<&mut PollTable>) -> PollMask {
         poll_wait(&self.wait, table);
         let state = self.state();
@@ -698,7 +744,8 @@ impl ProtoOps for TcpSock {
         if !state.receive_queue.is_empty() || rcv_shutdown {
             mask = mask | PollMask::IN;
         }
-        let writable = state.stream_wspace() >= state.write_queue.len() / 2;
+        let writable =
+            state.stream_wspace() >= state.write_queue.len() / 2 && state.wmem_room() > 0;
         if state.phase != Phase::Connecting && (send_shutdown || writable) {
             mask = mask | PollMask::OUT;
         }

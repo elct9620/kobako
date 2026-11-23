@@ -109,6 +109,15 @@ impl Stream {
         self.lock().write(buf)
     }
 
+    /// Write all of `buf`, which `room` promised, or fail with none of it
+    /// written. A file takes any write whole.
+    pub(crate) fn write_whole(&self, buf: &[u8]) -> Result<(), Errno> {
+        match self {
+            Stream::Socket(socket) => socket.sock.send_whole(buf),
+            Stream::File(_) => self.write(buf).map(drop),
+        }
+    }
+
     /// How many bytes a write takes now.
     pub(crate) fn room(&self) -> usize {
         match self {
