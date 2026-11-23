@@ -11,7 +11,8 @@ class TestE2ESocketOrphan < Minitest::Test
 
   CLOSES_STILL_SENDING = <<~RUBY
     socket = TCPSocket.new("127.0.0.1", %<port>d)
-    4096.times { break unless socket.write_nonblock("x" * 65536, exception: false).is_a?(Integer) }
+    chunk = "x" * 65536
+    2000.times { socket.write_nonblock(chunk, exception: false) }
     socket.close
     opened = File.open("/data/note.txt") { |file| file.read }
     again = begin
