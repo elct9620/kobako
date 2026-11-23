@@ -39,8 +39,10 @@ both live in the upper and never show, so no name is reserved
 ## Includes
 
 - `crates/kobako-runtime/src/filesystem/*.rs`
+- `crates/kobako-runtime/src/filesystem/bind/fid.rs`
 - `crates/kobako-runtime/src/filesystem/bind/lookup.rs`
 - `crates/kobako-runtime/src/filesystem/overlay/stack.rs`
+- `test/e2e/test_host_descriptors.rb`
 
 ## `FS-001` A Tmpfs serves the files it was seeded with
 
