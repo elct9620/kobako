@@ -516,7 +516,7 @@ mod tests {
         assert_eq!(limits.memory_limit, Some(4 * 1024 * 1024));
         assert_eq!(limits.stdout_limit, Some(1 << 20));
         assert_eq!(limits.stderr_limit, Some(1 << 20));
-        assert_eq!(limits.open_file_limit, Some(1024));
+        assert_eq!(limits.open_file_limit, Some(16));
         assert_eq!(limits.open_connection_limit, Some(6));
         assert_eq!(limits.connection_limit, Some(50));
     }
