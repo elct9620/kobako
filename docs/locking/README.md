@@ -105,7 +105,7 @@ The leaf groups take nothing beyond one another, except init, whose initializers
 | Leaf group | Holds |
 |---|---|
 | mem, lockprim, sched | the memory budget, a semaphore's holders, the waiters |
-| cache, init | the wasmtime caches, a one-time initializer |
+| cache, init | the wasmtime caches and the directories Binds keep, a one-time initializer |
 | mock, resolv, rleaf | the network Mock, a resolver's waker, the reactor's queues |
 | sdk | the Rust SDK's registry and Handle tables |
 

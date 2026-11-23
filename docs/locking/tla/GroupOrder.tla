@@ -22,11 +22,12 @@ Groups == [
                 "in_lookup_hashtable", "rename_lock", "dentry_state", "lru"},
   lockprim |-> {"rwsem_holders"},
   fsi      |-> {"tmpfs_state", "tmpfs_content", "whiteout_times", "pipe_state",
-                "OpenRubyFile", "fid_cache", "open_fids", "open_dir_fid",
+                "OpenRubyFile", "open_fids", "open_dir_fid",
                 "ovl_level", "ovl_real", "ovl_unfinished"},
   mem      |-> {"memcg"},
   sched    |-> {"task_sleeping", "waiter_woken", "wq_waiters", "wq_tasks"},
-  cache    |-> {"module_cache", "instance_pre_cache", "ticker"},
+  \* The process's caches: the wasmtime ones, and the directories Binds keep.
+  cache    |-> {"module_cache", "instance_pre_cache", "ticker", "fid_cache"},
   \* An initializer one thread runs while the rest wait for it, as a
   \* OnceLock or LazyLock is; one takes neither the GVL nor a sleeping lock.
   \* One that builds a plain value and takes no lock is left out.
@@ -123,6 +124,10 @@ Edges ==
   \cup E("query_ctx", {"wq_waiters", "wq_tasks"})
   \* sdk: sealing a Sandbox compiles its catalog
   \cup E("registry", {"ticker", "memcg"})
+  \* cache: a Bind keeps or lets go a directory under whichever Filesystem,
+  \* dentry, or GVL lock its call holds, and takes nothing more
+  \cup UNION {E(l, {"fid_cache"}) :
+              l \in (Groups.vfs \cup Groups.dcache \cup Groups.fsi \cup {"GVL"})}
 
 \* Every node an edge of R leads to from X, X itself included.
 RECURSIVE Reach(_, _)

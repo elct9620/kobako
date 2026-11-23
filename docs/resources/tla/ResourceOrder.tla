@@ -10,7 +10,7 @@ EXTENDS GroupOrder, Naturals
 Forbidden == {"waitKeepsGvl", "admissionKeepsGvl", "otherCallsRuby", "registryHeld",
               "waitsAgain", "reactorToSleeping", "gvlWaitsReactor"}
 
-NewGroup == [fork_gate |-> "gate", runs |-> "runs", ledger |-> "account", fid_cache |-> "cache"]
+NewGroup == [fork_gate |-> "gate", runs |-> "runs", ledger |-> "account"]
 Group(l) == IF l \in DOMAIN NewGroup THEN NewGroup[l] ELSE GroupOf(l)
 TierOfLock(l) == CASE Group(l) = "gate" -> "admission"
                    [] Group(l) = "vfs"  -> "sleeping"
@@ -31,13 +31,11 @@ Resources ==
   \* reactor: a guest's poll wakes itself
   \cup E("GVL", {"SharedFile", "task_future", "wq_waiters", "wq_tasks", "waiter_woken", "runs"})
   \cup E("task_future", {"wq_waiters", "wq_tasks", "waiter_woken"})
-  \* other locks: the memory, the counts, the fid cache
+  \* other locks: the memory, the counts
   \cup UNION {E(l, {"memcg"}) :
               l \in {"GVL", "i_rwsem", "layer_i_rwsem", "in_lookup", "layer_in_lookup",
                      "in_lookup_hashtable", "dentry_state"}}
   \cup E("GVL", {"tcp_state", "udp_state", "open_conn", "CURRENT", "sockets", "repoll", "query_ctx"})
-  \cup UNION {E(l, {"fid_cache"}) :
-              l \in (Groups.vfs \cup Groups.dcache \cup Groups.fsi \cup {"GVL"}) \ {"fid_cache"}}
 
 BrokenLock(adds) ==
   CASE adds = "waitKeepsGvl"   -> E("GVL", {"i_rwsem"})
