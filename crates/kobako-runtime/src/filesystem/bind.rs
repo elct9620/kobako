@@ -29,7 +29,7 @@ use super::{
 use crate::vfs::{
     generic_file_llseek, generic_read_dir, Dentry, DirContext, Identity, Inode, Whence,
 };
-use fid::{FidCache, OpenDirFid};
+use fid::{FidOwner, OpenDirFid, FIDS};
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
@@ -38,12 +38,13 @@ use fid::{FidCache, OpenDirFid};
 /// about through the dentry it is handed, as Linux's 9p does. A directory is
 /// opened on the host when first asked, as 9p walks to a dentry's fid only
 /// when a call needs one. One a guest holds open holds a host descriptor; the
-/// others a walk asked about hold one only up to a bound.
+/// others a walk asked about hold one only up to a bound every Bind shares.
 #[derive(Clone)]
 pub struct Bind {
-    /// The host directory the Bind was made at.
+    /// The host directory the Bind was made at, let go before what its walks
+    /// kept.
     root: Arc<Dir>,
-    fids: Arc<FidCache>,
+    fids: Arc<FidOwner>,
     /// Whether only the guest changes the directory, so a name it found
     /// stays as found without asking the host again.
     exclusive: bool,
@@ -77,7 +78,7 @@ impl Bind {
         if dentry.is_root() {
             return Some(self.root.clone());
         }
-        OpenDirFid::get(dentry).or_else(|| self.fids.get(dentry))
+        OpenDirFid::get(dentry).or_else(|| FIDS.get(dentry))
     }
 
     /// The host directory `dentry` names, as 9p's `v9fs_fid_lookup` finds a
@@ -106,12 +107,13 @@ impl Bind {
                     .dir_metadata()
                     .is_ok_and(|found| Identity::of(&to_kstat(found)) == recorded)
         };
+        FIDS.make_room();
         let dir = walk::walk(&above, &names)?;
         if !stands(&dir) {
             return Err(Errno::NotFound);
         }
         let dir = Arc::new(dir);
-        self.fids.put(dentry, &dir);
+        FIDS.put(&self.fids, dentry, &dir);
         Ok(dir)
     }
 
@@ -205,8 +207,7 @@ fn entries_of(dir: &Dir) -> Result<Vec<DirEntry>, Errno> {
         use cap_std::fs::MetadataExt;
         dir.dir_metadata().map_err(to_error)?.dev()
     };
-    dir.entries()
-        .map_err(to_error)?
+    FIDS.open(|| dir.entries().map_err(to_error))?
         .map(|entry| {
             let entry = entry.map_err(to_error)?;
             let name = entry
@@ -388,6 +389,16 @@ fn v9fs_fid_find_inode(dentry: &Dentry, writable: bool) -> Option<Arc<std::fs::F
 /// Open `name` in `dir` as `how` asks, made first where `create` says,
 /// refusing one that already stands.
 fn open_in(dir: &Dir, name: &str, how: &OpenHow, create: bool) -> Result<std::fs::File, Errno> {
+    FIDS.open(|| open_in_once(dir, name, how, create))
+}
+
+/// One try at `open_in`, which the host may refuse for want of descriptors.
+fn open_in_once(
+    dir: &Dir,
+    name: &str,
+    how: &OpenHow,
+    create: bool,
+) -> Result<std::fs::File, Errno> {
     let writes = how.write || how.truncate || create;
     #[cfg(target_os = "linux")]
     if !create {
@@ -754,7 +765,9 @@ fn open_to_read(dir: &Dir) -> Result<rustix::fd::OwnedFd, Errno> {
     use rustix::fs::{openat, Mode, OFlags};
 
     let flags = OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC;
-    openat(dir, ".", flags, Mode::empty()).map_err(|err| to_error(io::Error::from(err)))
+    FIDS.open(|| {
+        openat(dir, ".", flags, Mode::empty()).map_err(|err| to_error(io::Error::from(err)))
+    })
 }
 
 #[cfg(unix)]
@@ -1100,33 +1113,60 @@ mod tests {
         );
     }
 
-    // Counted on the Bind, as a count of the process's descriptors would see
-    // every other test's. Past the bound the walk still lands, so nothing a
-    // guest reaches depends on what was kept.
+    // Counted on the cache, as a count of the process's descriptors would see
+    // every other test's; the bound holds for whatever they keep. Past the
+    // bound each walk still lands, so nothing a guest reaches depends on what
+    // was kept.
     // @behavior FS-151
     #[cfg(unix)]
     #[test]
-    fn a_walk_keeps_a_bounded_number_of_host_directories_open() {
+    fn the_binds_of_a_process_keep_a_bounded_number_of_host_directories_open() {
         use crate::vfs::{self, OpenHow, Path as VfsPath};
-        let host = HostDir::new("bounded-fids");
-        let (bind, file) = nested_tree(&host, 200);
-        let mount = crate::mount::Mount::new(
-            "/data",
-            crate::filesystem::Filesystem::new(bind.clone()).expect("the instance must stand"),
-            crate::mount::Access::Read,
-        )
-        .expect("/data is a guest path");
-        let root = VfsPath::root(mount.mnt());
         let read = OpenHow {
             read: true,
             ..OpenHow::default()
         };
-        let opened = vfs::kern_path::filp_open(&Arc::default(), &root, &file, &read);
+        let hosts = [
+            HostDir::new("bounded-fids-a"),
+            HostDir::new("bounded-fids-b"),
+        ];
+        let opened = hosts.iter().map(|host| {
+            let (bind, file) = nested_tree(host, 100);
+            let mount = crate::mount::Mount::new(
+                "/data",
+                crate::filesystem::Filesystem::new(bind.clone()).expect("the instance must stand"),
+                crate::mount::Access::Read,
+            )
+            .expect("/data is a guest path");
+            let root = VfsPath::root(mount.mnt());
+            let file = vfs::kern_path::filp_open(&Arc::default(), &root, &file, &read);
+            (file.is_ok(), bind)
+        });
+        let (opened, binds): (Vec<_>, Vec<_>) = opened.unzip();
         assert!(
-            opened.is_ok() && bind.fids.len() <= 64,
-            "vfs::do_file_open 200 directories beneath a Bind must land and keep at most 64 of \
-             them open, keeping {}",
-            bind.fids.len()
+            opened.iter().all(|&opened| opened) && FIDS.len() <= 64,
+            "vfs::do_file_open 100 directories beneath each of two Binds must land, the process \
+             keeping at most 64 of them open, keeping {}",
+            FIDS.len()
+        );
+        drop(binds);
+    }
+
+    // @behavior FS-221
+    #[cfg(unix)]
+    #[test]
+    fn a_bind_let_go_closes_the_directories_its_walks_kept() {
+        let host = HostDir::new("released-fids");
+        let (bind, file) = nested_tree(&host, 8);
+        let owner = bind.fids.id();
+        let root = kern_path(bind);
+        root.vfs_lstat(&file).expect("the file must stand");
+        let kept = FIDS.kept_by(owner);
+        drop(root);
+        assert_eq!(
+            (kept > 0, FIDS.kept_by(owner)),
+            (true, 0),
+            "a Bind let go after a walk 8 directories deep must close every directory it kept"
         );
     }
 

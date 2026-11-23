@@ -6,17 +6,19 @@
 
 use cap_std::fs::Dir;
 
+use super::fid::FIDS;
 use super::{open_dir_nofollow, Errno};
 
 /// The directory `names` reach beneath `dir`, a link on the way refused as
 /// a loop, walked in one call as 9p's `Twalk` walks several names. A path past
 /// what the host takes in one call is no name it refuses, so it goes name by
-/// name, where only a name too long for the host is refused.
+/// name, where only a name too long for the host is refused. However deep,
+/// a walk holds at most two descriptors of its own at once.
 pub(super) fn walk(dir: &Dir, names: &[String]) -> Result<Dir, Errno> {
-    match kernel::walk(dir, names) {
+    FIDS.open(|| match kernel::walk(dir, names) {
         None | Some(Err(Errno::InvalidFilename)) => by_name(dir, names),
         Some(opened) => opened,
-    }
+    })
 }
 
 /// Each name opened in turn, the way every host can.

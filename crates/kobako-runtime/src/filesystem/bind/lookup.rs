@@ -30,7 +30,7 @@ pub(super) fn lookup(parent: &Dir, name: &str) -> Result<String, Errno> {
         if linux::matches_exactly(parent) {
             return Ok(name.to_string());
         }
-        lookup_by_listing(parent, name)
+        super::fid::FIDS.open(|| lookup_by_listing(parent, name))
     }
 }
 
