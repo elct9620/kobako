@@ -1349,10 +1349,12 @@ mod tests {
     fn a_socket_polls_writable_once_its_room_is_half_what_it_queued() {
         let (sock, file, _peer) = connected_socket();
         sock.setsockopt(SockOpt::SndBuf, 1000).unwrap();
+        // A reactor event fetched before a deregister can still pump the
+        // queue, so the host socket goes, leaving nowhere to move bytes.
         let polled_with = |queued: usize| {
             let mut state = sock.state();
-            if let Some((stream, registration)) = state.host.as_mut() {
-                registration.deregister(stream);
+            if let Some((mut stream, registration)) = state.host.take() {
+                registration.deregister(&mut stream);
             }
             state.write_queue.purge();
             state.write_queue.push(&vec![0; queued]);
