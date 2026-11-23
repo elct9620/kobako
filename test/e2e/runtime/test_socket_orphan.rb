@@ -26,7 +26,7 @@ class TestE2ESocketOrphan < Minitest::Test
   # room for the socket alone.
   # @behavior RT-415
   def test_a_socket_closed_still_sending_keeps_its_connection_not_its_descriptor
-    with_listening_server do |port|
+    with_small_window_server do |port|
       sandbox = loopback_sandbox(port, open_file_limit: 5, open_connection_limit: 1)
                 .mount("/data", Kobako::Filesystem::Tmpfs.new("note.txt" => "hello"))
 
@@ -35,5 +35,18 @@ class TestE2ESocketOrphan < Minitest::Test
                    "open_connection_limit: 1, must let File.open take the descriptor at once while " \
                    "TCPSocket.new raises Errno::EAGAIN until the socket closes"
     end
+  end
+
+  private
+
+  # A loopback listener that never accepts, its connections' receive window
+  # fixed at 4 KiB, so a peer holds far less than a script writes before its
+  # socket fills, whatever the host's autotuning would grow it to.
+  def with_small_window_server
+    server = TCPServer.new("127.0.0.1", 0)
+    server.setsockopt(Socket::SOL_SOCKET, Socket::SO_RCVBUF, 4096)
+    yield server.addr[1]
+  ensure
+    server&.close
   end
 end
