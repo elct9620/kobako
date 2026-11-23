@@ -8,6 +8,7 @@
 
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use kobako_runtime::filesystem::Bind;
 use kobako_runtime::wait::do_poll;
 use magnus::{function, prelude::*, Error as MagnusError, RModule, Ruby, Value};
 
@@ -21,7 +22,9 @@ pub(crate) fn register(kobako: RModule) -> Result<(), MagnusError> {
 }
 
 /// Wait until no run is in progress, then hold new ones back until
-/// `release`, raising `RuntimeError` for a fork that cannot go on.
+/// `release`, raising `RuntimeError` for a fork that cannot go on. Once held
+/// back, nothing walks a Bind, so the directories Binds keep are let go and
+/// the child inherits none of them.
 fn prepare() -> Result<(), MagnusError> {
     let ruby = Ruby::get().expect("a fork's prepare runs on a Ruby thread");
     refuse_past_trust(&ruby)?;
@@ -31,7 +34,7 @@ fn prepare() -> Result<(), MagnusError> {
     let mut warned = false;
     loop {
         match escape::hold_runs_back(thread, None) {
-            ForkGate::Held => return Ok(()),
+            ForkGate::Held => return held_back(),
             ForkGate::OnThread => {
                 return Err(MagnusError::new(
                     ruby.exception_runtime_error(),
@@ -56,11 +59,18 @@ fn prepare() -> Result<(), MagnusError> {
             },
         );
         match waited {
-            Ok(Some(ForkGate::Held)) => return Ok(()),
+            Ok(Some(ForkGate::Held)) => return held_back(),
             Ok(_) => {}
             Err(_) => ruby.thread_check_ints()?,
         }
     }
+}
+
+/// Runs are held back for the fork, so let go of what the child would inherit
+/// for nothing.
+fn held_back() -> Result<(), MagnusError> {
+    Bind::drop_kept_directories();
+    Ok(())
 }
 
 /// Tell Pitchfork, once, that this process forks no more once the system
