@@ -3435,9 +3435,11 @@ mod tests {
     }
 
     /// Counts each directory beneath a Layer's root its Layer opens.
+    #[cfg(unix)]
     #[derive(Default)]
     struct CountsDirOpens(AtomicUsize);
 
+    #[cfg(unix)]
     impl Hook for CountsDirOpens {
         fn open(
             &self,
