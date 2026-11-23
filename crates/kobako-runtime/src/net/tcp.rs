@@ -24,7 +24,7 @@ use super::socket::{
 use crate::cred::Cred;
 use crate::memcg::MemoryCharge;
 use crate::network::{Protocol, Ruleset};
-use crate::vfs::PollMask;
+use crate::vfs::{HeldFile, OpenFiles, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 use crate::Errno;
 
@@ -120,6 +120,8 @@ struct State {
     /// The socket itself once released with bytes still to send, held until
     /// they and the FIN leave, as Linux keeps an orphan in `FIN_WAIT1`.
     orphan: Option<Arc<TcpSock>>,
+    /// The open file an orphan counts as until it closes.
+    closing: Option<HeldFile>,
 }
 
 impl State {
@@ -211,13 +213,17 @@ pub struct TcpSock {
     /// What a guest's poll waits on.
     wait: Arc<WaitQueueHead>,
     family: Arc<dyn ProtocolFamily>,
+    /// The open files of the Invocation that made it, which a socket still
+    /// sending once released counts against until it closes.
+    files: OpenFiles,
     this: Weak<Self>,
 }
 
 impl TcpSock {
     /// A socket connected to nothing, which connects through `family`, as
     /// `inet_create` makes one; what its queues hold counts against `cred`'s
-    /// memory as it arrives.
+    /// memory as it arrives, and once released still sending, it counts as
+    /// one of `cred`'s open files.
     pub(crate) fn new(family: Arc<dyn ProtocolFamily>, cred: &Arc<Cred>) -> Arc<Self> {
         let memory = MemoryCharge::empty(cred.memory_budget());
         Arc::new_cyclic(|this| Self {
@@ -237,9 +243,11 @@ impl TcpSock {
                 },
                 nodelay: false,
                 orphan: None,
+                closing: None,
             }),
             wait: Arc::default(),
             family,
+            files: cred.open_files().clone(),
             this: this.clone(),
         })
     }
@@ -540,6 +548,7 @@ impl TcpSock {
     fn let_go(state: &mut State) -> Option<Arc<TcpSock>> {
         state.write_queue.purge();
         state.inet.release();
+        state.closing = None;
         Self::close_host(state);
         state.orphan.take()
     }
@@ -831,18 +840,24 @@ impl ProtoOps for TcpSock {
 
     /// Let go of the socket once every view is gone, as `sock_close` runs on
     /// the last `fput` and `__tcp_close` closes it: bytes still queued leave
-    /// before the FIN, the socket holding itself and its place until then,
-    /// and bytes that arrived unread reset the connection instead.
+    /// before the FIN, the socket holding itself, its place, and one of its
+    /// Invocation's open files until then, and bytes that arrived unread reset
+    /// the connection instead. One with no open file left to count as resets
+    /// too, as Linux resets an orphan past `tcp_max_orphans`.
     fn release(&self) {
         let mut state = self.state();
         let unread = !std::mem::take(&mut state.receive_queue).is_empty();
-        if unread {
-            Self::reset_host(&mut state);
-        } else if state.phase == Phase::Connected && !state.write_queue.is_empty() {
-            state.inet.mark_shutdown(Shutdown::Both);
-            state.orphan = self.this.upgrade();
-            self.pump_and_wake(state);
-            return;
+        let sending = state.phase == Phase::Connected && !state.write_queue.is_empty();
+        match (unread, sending.then(|| self.files.hold())) {
+            (false, Some(Ok(closing))) => {
+                state.inet.mark_shutdown(Shutdown::Both);
+                state.orphan = self.this.upgrade();
+                state.closing = Some(closing);
+                self.pump_and_wake(state);
+                return;
+            }
+            (true, _) | (false, Some(Err(_))) => Self::reset_host(&mut state),
+            (false, None) => {}
         }
         let orphan = Self::let_go(&mut state);
         drop(state);
@@ -1608,6 +1623,68 @@ mod tests {
             Some(sent),
             "a socket file dropped with bytes still queued must send every one of the {sent} \
              bytes it took, then its FIN, as __tcp_close sends what is queued"
+        );
+    }
+
+    /// A socket file of an invocation whose open files `files` counts,
+    /// connected to a loopback peer, and that peer. The host takes little of
+    /// what it sends, so bytes written past that stay queued on the socket.
+    fn connected_counting(files: &OpenFiles) -> (Arc<TcpSock>, File, std::net::TcpStream) {
+        let cred = prepare_creds(&[], None).with_open_files(files.clone());
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let addr = listener.local_addr().unwrap();
+        let sock = TcpSock::new(Arc::new(HostInet), &cred);
+        sock.dial(addr, addr, &OpenConnections::new(None))
+            .expect("the socket dials");
+        let file = sock_alloc_file(sock.clone(), &cred);
+        let (peer, _) = listener.accept().expect("the listener accepts");
+        wait_for(|table| file.poll(table), PollMask::OUT);
+        sock.lock_host_send_buffer(4096);
+        (sock, file, peer)
+    }
+
+    // @behavior RT-415
+    #[test]
+    fn a_socket_released_still_sending_counts_as_an_open_file_until_it_closes() {
+        let files = OpenFiles::new(Some(1));
+        let (sock, mut file, mut peer) = connected_counting(&files);
+        peer.set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        fill(&mut file);
+        drop((sock, file));
+        let closing = files.is_full();
+        let _ = peer.read_to_end(&mut Vec::new());
+        let closed = (0..1000).any(|_| {
+            std::thread::sleep(Duration::from_millis(10));
+            !files.is_full()
+        });
+        assert_eq!(
+            (closing, closed),
+            (true, true),
+            "a socket file dropped with bytes still queued, under an open file limit of 1, must \
+             hold that open file until the peer takes every byte, then give it back"
+        );
+    }
+
+    // @behavior RT-416
+    #[test]
+    fn a_socket_released_still_sending_with_no_open_file_left_resets() {
+        let files = OpenFiles::new(Some(1));
+        let (sock, mut file, mut peer) = connected_counting(&files);
+        peer.set_read_timeout(Some(Duration::from_secs(10)))
+            .unwrap();
+        let sent = fill(&mut file);
+        let other = files.hold().expect("the one open file is free");
+        drop((sock, file));
+        let mut got = Vec::new();
+        let read = peer.read_to_end(&mut got);
+        drop(other);
+        assert!(
+            read.as_ref()
+                .is_err_and(|err| err.kind() == io::ErrorKind::ConnectionReset),
+            "a socket file dropped with {sent} bytes still queued and no open file left must \
+             reset its connection, the peer taking {} bytes and {read:?}",
+            got.len()
         );
     }
 
