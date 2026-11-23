@@ -43,6 +43,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_flag.rb`
 - `test/e2e/sandbox/test_usage.rb`
 - `test/e2e/test_caps.rb`
+- `test/e2e/test_memory_budget.rb`
 - `test/e2e/test_open_file_limit.rb`
 - `test/e2e/test_reference_memory.rb`
 - `test/e2e/test_lifecycle.rb`
@@ -1002,13 +1003,17 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | the capture is taken |
 | Then | every byte is there and no mark is set |
 
-## `S-113` Growth before an invocation begins is not bounded
+## `S-113` What a Guest Binary declares takes none of the memory budget
+
+| Attribute | Value |
+| --- | --- |
+| relates | `S-008` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a memory budget and no invocation yet under way |
-| When | the guest's memory grows |
-| Then | the growth is allowed |
+| Given | a Guest Binary declaring a memory and a table larger than a Sandbox's memory cap |
+| When | a script runs |
+| Then | it fails past instantiation, not as `Kobako::MemoryLimitError`. The first page of the heap the engine collects is counted as declared |
 
 ## `S-114` Growth within the budget is allowed
 
@@ -2395,3 +2400,66 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a process whose address space has no room for another instance, beside a run waiting in a Service |
 | When | a Sandbox runs on an idle guest thread |
 | Then | the run raises `Kobako::TrapError`. The waiting run answers, and a run once room is free answers |
+
+## `S-256` A guest's memories add up against the memory budget
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-121` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose memory cap is 1 MiB, over a Guest Binary with two memories |
+| When | the guest grows each memory by 768 KiB |
+| Then | the run raises `Kobako::MemoryLimitError` |
+
+## `S-257` The heap an exception lives in counts beside the guest's memory
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-209` |
+| relates | `S-256`, `RT-237` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a run that grew its memory close to its cap and then rescued an exception |
+| When | it lists a directory larger than what is left |
+| Then | the listing raises `Errno::ENOMEM` in the guest |
+
+## `S-258` A table's growth counts against the memory budget
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-121` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a 1 MiB memory cap, over a Guest Binary whose run grows a table by 2 MiB of entries |
+| When | a script runs |
+| Then | it raises `Kobako::MemoryLimitError` |
+
+## `S-259` Growth while the guest is instantiated counts against the memory budget
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-121` |
+| relates | `S-113` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a 1 MiB memory cap, over a Guest Binary whose instantiation grows its memory by 2 MiB |
+| When | a script runs |
+| Then | it raises `Kobako::MemoryLimitError` |
+
+## `S-260` A request the guest is handed counts against the memory budget
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-121` |
+| relates | `S-259` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose memory cap is 1 MiB |
+| When | a 900 KB source is evaluated, which the guest copies once more as it reads it |
+| Then | it raises `Kobako::MemoryLimitError` |
