@@ -46,8 +46,9 @@ global budget.
 The socket buffers, listings, lookups, and handles the host holds for a run take
 from the same `memory_limit` as the guest's growth. A socket buffer takes only
 what it holds. An empty one still takes one read past the limit so its stream
-moves on, as Linux does. At most that is one read per open connection, and the
-run's next growth then traps.
+moves on, as Linux does. A write still takes the room the guest was promised
+before the memory filled, at most 68 KiB. At most that is one read and one
+write per open connection, and the run's next growth then traps.
 
 `setup_timeout` applies the first time a path is loaded, and later Sandboxes on
 that path skip the check.
@@ -79,7 +80,7 @@ rescued trap reports it just as a completed run does.
 ```ruby
 usage = sandbox.eval(script).usage
 usage.wall_time   # => Float seconds inside the guest
-usage.memory_peak # => Integer bytes grown, past memory_limit only by a network read
+usage.memory_peak # => Integer bytes grown, past memory_limit only by a network queue
 ```
 
 ## Isolation Profile

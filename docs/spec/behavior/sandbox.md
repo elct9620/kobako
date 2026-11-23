@@ -580,11 +580,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 ## `S-062` A refused growth never raises the reported peak past the budget
 
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-116`, `NW-246` |
+
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox whose invocation exceeded its memory budget |
 | When | the usage is read off the raised error's Execution |
-| Then | the memory peak is at or below the configured budget. Only a network queue's forced charge passes it, as `NW-116` states |
+| Then | the memory peak is at or below the configured budget. Only a network queue's forced charge passes it, as `NW-116` and `NW-246` state |
 
 ## `S-063` Both frontends report usage after a run that succeeded
 

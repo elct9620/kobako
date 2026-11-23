@@ -3078,3 +3078,43 @@ endpoint "api.example.com", port: 443
 | Given | an `http` endpoint with no rules, and a credential bound to it |
 | When | the guest sends a TRACE with a body, its method in any case |
 | Then | it answers `Denied`, dialing nothing and asking no credential. RFC 9110 § 9.3.8 lets a client send no content in one. CRuby sends it |
+
+## `NW-245` An output stream permits what the Invocation's memory takes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-239` |
+| relates | `NW-159` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected TCP socket's output stream under a `memory_limit` already full |
+| When | the guest writes every byte `check-write` permits, then shuts the stream's sending side |
+| Then | the permit is at most 4 KiB, and the peer reads every byte of it in order |
+
+## `NW-246` A write takes its whole permit after the memory fills
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-239` |
+| relates | `NW-171` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected TCP socket's output stream, whose `check-write` permitted more than 4 KiB |
+| Given | the Invocation's memory then filling to its `memory_limit` |
+| When | the guest writes every permitted byte, then shuts the stream's sending side |
+| Then | the write answers success, and the peer reads every byte in order. The charge passes the limit by at most the permit and 4 KiB, and returns once the queue drains |
+
+## `NW-247` An output stream polls unready while it permits nothing
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-239` |
+| relates | `NW-245` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a connected TCP socket's output stream under a `memory_limit` already full, its peer not reading |
+| When | the guest writes each permit until `check-write` answers zero, then polls the stream |
+| Then | the pollable is not ready. Once the peer reads, it becomes ready, and `check-write` permits again. The peer reads every byte written, in order |
