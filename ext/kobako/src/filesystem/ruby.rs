@@ -351,7 +351,12 @@ impl InodeOperations for RubyRegular {
         change(file.get(), "truncate", (len,), Errno::ReadOnlyFilesystem)
     }
 
-    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(
+        &self,
+        dentry: &Dentry,
+        how: &OpenHow,
+        _cred: &kobako_runtime::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         self.0.open_at(dentry, how, false)
     }
 }
@@ -395,7 +400,12 @@ impl InodeOperations for RubyFilesystem {
 
     /// A directory opens without asking the object anything; it is asked
     /// for the names only when the guest lists them.
-    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(
+        &self,
+        _dentry: &Dentry,
+        _how: &OpenHow,
+        _cred: &kobako_runtime::cred::Cred,
+    ) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(RubyDir(*self, Rdir::default())))
     }
 
