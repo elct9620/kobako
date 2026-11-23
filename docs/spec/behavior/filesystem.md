@@ -2523,3 +2523,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a host process holding as many files as it may, each still in use |
 | When | the Host App makes a Bind |
 | Then | it raises `Errno::EMFILE`, not an `ArgumentError`, since nothing is wrong with the path |
+
+## `FS-231` A process about to fork lets go of the directories its Binds keep
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-222` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a process whose Binds keep directories for walks, and no run in progress |
+| When | the process forks |
+| Then | the child holds none of those directories, as the process lets them go once it holds new runs back |
