@@ -399,7 +399,7 @@ Snippet replay is the cost that does not amortize: `(183.9 − 13.8) / 64 ≈ 2.
 
 #### Multi-Thread behavior ([`concurrent/threads.rb`](concurrent/threads.rb))
 
-Captured under the default `gvl: :hold`, where wasm-side work is GVL-serialized and only Ruby-side `#eval` setup overlaps; the gvl suite below measures what `:release` changes. Wall-clock timing because that is where scheduler effects manifest.
+Captured under the default `gvl: :hold`, where wasm-side work shorter than a quantum is GVL-serialized and only Ruby-side `#eval` setup overlaps; the gvl suite below measures what `:release` changes. Wall-clock timing because that is where scheduler effects manifest.
 
 | Scenario                                                           | Result          |
 |--------------------------------------------------------------------|-----------------|
@@ -412,7 +412,7 @@ Captured under the default `gvl: :hold`, where wasm-side work is GVL-serialized 
 | `#eval("nil")` baseline                                            | 0.048 ms        |
 | `#eval("nil")` while another Thread is in a long `#eval`           | 0.118 ms (2.46× baseline) |
 
-Throughput stays within one band rather than scaling with Thread count. That is the `:hold` signature — the GVL, not the Sandbox count, is the bound. A long-running script still does not block other Threads' short `#eval` calls by hundreds of ms. Host-side synchronization yields the GVL and the contending Thread interleaves. That contention ratio swings run to run with scheduler quirks; the order of magnitude is the regression signal, not the multiple.
+Throughput stays within one band rather than scaling with Thread count. That is the `:hold` signature — the GVL, not the Sandbox count, is the bound. A long-running script still does not block other Threads' short `#eval` calls by hundreds of ms. Host-side synchronization yields the GVL, a guest that computes on yields it each quantum, and the contending Thread interleaves. That contention ratio swings run to run with scheduler quirks; the order of magnitude is the regression signal, not the multiple.
 
 #### GVL scheduling ([`concurrent/gvl_scheduling.rb`](concurrent/gvl_scheduling.rb))
 
@@ -887,7 +887,7 @@ Two conditions outside the code move these readings.
 | `gvl: :release`              | lifts the bound for guest compute; forfeits it for dispatch-heavy work |
 | cold vs hot page cache       | one-shot timings vary 5-10 %                               |
 
-Multi-Thread scaling stays near-flat because `:hold` holds the GVL across wasm execution; the gvl suite measures what `:release` changes. One-shot timings are filesystem-cache-sensitive because the first `Sandbox.new` reads `data/kobako.wasm` from disk. Warm one-shot rows report a median across rounds for exactly this class of reason.
+Multi-Thread scaling stays near-flat because `:hold` keeps the GVL while the guest runs, giving it up only each quantum; the gvl suite measures what `:release` changes. One-shot timings are filesystem-cache-sensitive because the first `Sandbox.new` reads `data/kobako.wasm` from disk. Warm one-shot rows report a median across rounds for exactly this class of reason.
 
 ### Row sensitivity
 

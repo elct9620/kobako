@@ -1,13 +1,15 @@
 //! A run of a Sandbox, its guest on a thread of its own while the calling Fiber
-//! serves it, giving up the GVL while the guest runs when the Sandbox asks.
+//! serves it, giving up the GVL while the guest runs when the Sandbox asks, and
+//! otherwise each quantum as CRuby's Threads do.
 //!
 //! `run` hands the guest to its thread and serves what it asks of Ruby in this
 //! frame, holding the GVL; `reenter` is how the guest's thread asks, and runs
 //! inline where the GVL is already held. Ruby runs only where no guest frame
 //! stands, so a raise, a trap handler, or a Fiber switch in a callback crosses
 //! none, and a callback takes interrupts as the Host App's own mask allows.
-//! What Ruby delivers while the guest runs without the GVL is held by the run
-//! before the next callback starts, and the run raises it once it ends.
+//! What Ruby delivers while the guest runs is held by the run before the next
+//! callback starts, or as its caller gives up its quantum; what raises stops
+//! the guest, and the run raises it once it ends.
 //!
 //! A wait without the GVL uses `rb_thread_call_without_gvl2`, which declines
 //! rather than raises. A thread-local flag says a thread is inside such a wait,

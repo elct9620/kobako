@@ -29,9 +29,10 @@ module Kobako
   #                   +:hermetic+, which denies the guest the clock and
   #                   entropy, or the weaker +:permissive+, which leaves them
   #                   live; +:hermetic+.
-  # [+gvl+]           How an invocation holds Ruby's GVL: +:hold+ through
-  #                   the invocation, or +:release+ while the guest runs, so
-  #                   Sandboxes on different Threads run in parallel; +:hold+.
+  # [+gvl+]           How an invocation holds Ruby's GVL: +:hold+ while the
+  #                   guest runs, handing it over each quantum, or +:release+,
+  #                   giving it up while the guest runs, so Sandboxes on
+  #                   different Threads run in parallel; +:hold+.
   # [+network+]       What the guest's network dials and looks names up
   #                   through, beneath every rule its entries make: +nil+
   #                   for the host's own, or a Kobako::Network::Mock a test

@@ -32,7 +32,7 @@ Every lock sits in one of three tiers. A thread holding one tier waits only for 
 ```
 
 - (a) `i_rwsem`, `rename_mutex`, an Overlay entry's copy-up lock, and a dentry in lookup. A callback is a Ruby Filesystem's method or a mount's block, which takes the GVL while the run holds one of these.
-- (b) Ruby's GVL. A thread holding it may take a sleeping lock that is free, but gives the GVL up before it waits, through the registered `Blocking`. A waiting thread takes it back only to handle a signal, holding no lock of tier (c).
+- (b) Ruby's GVL. A thread holding it may take a sleeping lock that is free, but gives the GVL up before it waits, through the registered `Blocking`. A waiting thread takes it back only to handle a signal, holding no lock of tier (c). A run's caller waiting for its guest under `:hold` gives it up each quantum, holding no lock at all.
 - (c) Every other lock. It never calls Ruby and never waits through the `Blocking`.
 
 ### GVL Modes
@@ -41,28 +41,28 @@ The GVL decides which runs contend for a lock, so every rule here holds in both 
 
 | Mode | Runs contend |
 |---|---|
-| `:hold` | only while one waits or calls back |
+| `:hold` | while one waits, calls back, or its caller gives the GVL up |
 | `:release` | at any moment |
 
-Under `:hold` the GVL runs the guests one at a time; under `:release` each run drops it while its guest runs.
+Under `:hold` each caller hands the GVL over each quantum, so long guests overlap. Under `:release` each run drops it while its guest runs.
 
 ### Run Threads
 
-A run's guest stands on a thread of its own, and its caller serves what the guest needs of Ruby. The two take turns, so the models treat one run as one thread.
+A run's guest stands on a thread of its own, and its caller serves what the guest needs of Ruby. The two take turns, but for the caller's yield, which holds nothing the guest takes. So the models treat one run as one thread.
 
 | Thread | Holds | Waits for |
 |---|---|---|
 | the guest's | the Wasm frames, and the sleeping locks the run takes | its caller's answer to a callback |
-| the caller's | the GVL while it runs a callback | the guest's next callback or its end |
+| the caller's | the GVL for a callback, or a quantum as it waits under `:hold` | the guest's next callback or its end |
 
 A lock knows its holder by the run, which a run nested in a callback shares. So a nested run asking for its own run's lock is answered, never left waiting. A run on a Fiber a callback starts on the same Thread holds as that run too, through the mark Fiber storage carries. The caller returns only once its guest ends. `Handoff.tla` checks both.
 
 | Stop | Reaches the guest |
 |---|---|
 | a deadline, or the run's interrupt | at its next wait, or within an epoch tick as it computes |
-| a signal Ruby sends the run | handled at its next wait or tick, as Linux's `exit_to_user_mode` does |
+| a signal Ruby sends the run | handled at its next wait, tick, or caller's yield, as `exit_to_user_mode` does |
 
-A contention only `:release` shows, such as a `..` meeting a rename on a shared Filesystem, is a lock's scope showing, not the GVL's.
+Some contention shows only under `:release` or a long `:hold` run, such as a `..` meeting a rename on a shared Filesystem. It is a lock's scope showing, not the GVL's.
 
 #### Idle Threads
 

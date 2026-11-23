@@ -36,9 +36,13 @@ tenant's files or user from another's.
 
 ## GVL Modes
 
-By default an Invocation holds Ruby's GVL for its whole span, so guest code
-across Threads runs one at a time. Each wait on the host gives the GVL up in
-either mode, so a sleeping guest never stalls other Threads. `gvl: :release`
+By default an Invocation holds Ruby's GVL while its guest runs. It hands the GVL
+to a waiting Thread each quantum, as Ruby's own Threads do. The quantum is
+100 ms, or `RUBY_THREAD_TIMESLICE` on Ruby 3.4 and later. Set that before Ruby
+starts, as Ruby reads it then and kobako as it loads. A guest goes on while
+another Thread holds the GVL. So a long run under `:hold` may overlap others
+and use more than one core. Each wait on the host gives the GVL up in either mode,
+so a sleeping guest never stalls other Threads. `gvl: :release`
 drops the GVL while the guest runs and takes it back for each Service call.
 
 ```ruby
@@ -47,7 +51,7 @@ sandbox = Kobako::Sandbox.new(gvl: :release)
 
 | Mode | Throughput | Pays |
 |---|---|---|
-| `:hold` (default) | about 15-20k `#eval`/s in aggregate, at any Thread count | nothing extra |
+| `:hold` (default) | about 15-20k `#eval`/s in aggregate, at any Thread count | a long run waits for its turn at the GVL |
 | `:release` | scales compute-bound scripts with Threads | a handoff at every Service call |
 
 The mode is fixed per Sandbox. Isolation, Handles, captures, and outcomes stay
@@ -56,12 +60,13 @@ the same. Dispatch-heavy scripts match or trail `:hold` under `:release`;
 
 ### Interrupts
 
-A run holds what Ruby delivers while the guest runs, and raises it once it
-ends. A callback takes interrupts as the Host App's own mask allows.
+A run takes what Ruby delivers while the guest runs, within a quantum under
+`:hold`, and stops the guest at what raises. A callback takes interrupts as the
+Host App's own mask allows.
 
 | Arrives | In either mode |
 |---|---|
-| while the guest runs, as a raising `trap` block does | the run raises it once it ends; no callback sees it |
+| while the guest runs, as a raising `trap` block does | the guest stops, and the run raises it; no callback sees it |
 | while a Service or a mount's block runs | that callback takes it, as its mask allows |
 
 A run waiting on the host goes on through a `Thread#wakeup` or a
@@ -77,7 +82,7 @@ runs where a Fiber scheduler can switch them.
 |---|---|
 | is in a Service doing scheduler-aware I/O | run |
 | waits on a guest releasing the GVL, under a scheduler with `blocking_operation_wait` | run |
-| waits on a guest keeping the GVL | wait |
+| waits on a guest keeping the GVL | wait, until the run ends |
 
 A run hands its wait over only once its guest is not back within a short spin.
 A script calling Services often pays nothing extra. Async offers the
