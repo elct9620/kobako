@@ -97,6 +97,7 @@ endpoint "api.example.com", port: 443
 - `crates/kobako-runtime/src/net/lookup.rs`
 - `crates/kobako-runtime/src/net/resolv.rs`
 - `crates/kobako-runtime/src/net/resolv/stub/tests.rs`
+- `crates/kobako-runtime/src/net/resolv/windows.rs`
 - `crates/kobako-runtime/src/net/udp.rs`
 - `crates/kobako-runtime/src/net/reactor.rs`
 - `crates/kobako-wasmtime/src/preview2/host.rs`
@@ -1087,7 +1088,7 @@ endpoint "api.example.com", port: 443
 | When | the guest sends one datagram a byte past what IPv4 UDP carries, to the peer and to another address |
 | Then | each send answers `datagram-too-large`, as Linux's `udp_sendmsg` answers `EMSGSIZE`. The size is judged before the address, as wasmtime's `send` judges it |
 
-## `NW-085` A lookup nobody waits for gives its place back at once
+## `NW-085` A lookup nobody waits for gives its place back as its query ends
 
 | Attribute | Value |
 | --- | --- |
@@ -1098,7 +1099,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | a Sandbox whose `open_connection_limit` is 1, and a host resolver that has not answered |
 | When | a lookup still resolving is dropped, by the guest, by a released request, or by its invocation's end |
-| Then | the resolver's query is cancelled, and the lookup's place returns at once to the invocation's count and the process's. No lookup outlives the invocation that asked, as a process's own `getaddrinfo` ends with it |
+| Then | the resolver's query is cancelled, and the lookup's place returns to both counts as the query ends. A host that ends a query on cancel returns it at once. No lookup outlives the invocation that asked, as a process's own `getaddrinfo` ends with it |
 
 ## `NW-086` A zero-byte read keeps a UDP socket's datagram
 
@@ -3131,3 +3132,15 @@ endpoint "api.example.com", port: 443
 | Given | a host process with one descriptor left once its reactor stands |
 | When | the guest opens a TCP connection or makes an HTTP request to a loopback server |
 | Then | each lands, as each holds one host socket |
+
+## `NW-249` A lookup the host cancels late holds its place until its query ends
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-085` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a lookup on Windows dropped while the host's query still runs, as `GetAddrInfoExCancel` lets it run on to its routine |
+| When | the query's routine has not yet run |
+| Then | the lookup's place stays counted, and returns once the routine runs |
