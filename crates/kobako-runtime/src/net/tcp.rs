@@ -1651,6 +1651,7 @@ mod tests {
         peer.set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
         fill(&mut file);
+        sock.state().write_queue.push(&[7]);
         drop((sock, file));
         let closing = files.is_full();
         let _ = peer.read_to_end(&mut Vec::new());
@@ -1675,6 +1676,8 @@ mod tests {
             .unwrap();
         let sent = fill(&mut file);
         let other = files.hold().expect("the one open file is free");
+        // Bytes still queued on the socket itself, whatever the host took.
+        sock.state().write_queue.push(&[7]);
         drop((sock, file));
         let mut got = Vec::new();
         let read = peer.read_to_end(&mut got);
