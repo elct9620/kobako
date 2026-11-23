@@ -2173,7 +2173,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | it stops a Fiber whose run waits on a guest that only computes |
 | Then | the run ends within moments raising what the scheduler raised, and the next run answers |
 
-## `S-236` A fork waits for another Thread's run to end
+## `S-236` A fork beside another Thread's run raises
 
 | Attribute | Value |
 | --- | --- |
@@ -2181,21 +2181,9 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a Thread whose run waits in a callback |
+| Given | a Thread whose run is in progress, keeping or releasing the GVL |
 | When | another Thread forks |
-| Then | the fork warns once, then returns only after that run ends, and the child runs a Sandbox. A forked child inherits no lock a run held |
-
-## `S-237` A run that starts while a fork waits still runs
-
-| Attribute | Value |
-| --- | --- |
-| refines | `S-236` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a fork waiting for a run whose callback waits for another Thread's run |
-| When | that Thread starts its run |
-| Then | both runs end and the fork returns. New runs are held back only once no run is in progress |
+| Then | the fork raises `RuntimeError` at once, no child starts, and the run goes on. A fork after the run ended goes on, and the child runs a Sandbox |
 
 ## `S-238` A fork from a Thread inside a run raises
 
@@ -2205,21 +2193,9 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a run's callback, or a Fiber beside one suspended inside a run on the same Thread |
+| Given | a run's callback, a trap handler interrupting a run, or a Fiber beside a run suspended on that Thread |
 | When | it forks through `Kernel#fork`, `IO.popen("-")`, or `Process.daemon` |
-| Then | the fork raises `RuntimeError` and no child starts. Waiting would wait on the Thread's own run. The class is not a `Kobako::Error`, so no rescue for a run's failure takes it |
-
-## `S-239` An interrupt ends a fork's wait
-
-| Attribute | Value |
-| --- | --- |
-| refines | `S-236` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a fork waiting for another Thread's run |
-| When | the forking Thread is raised into |
-| Then | the fork raises that exception, no child starts, and a later fork goes on as usual |
+| Then | the fork raises `RuntimeError` and no child starts. The class is not a `Kobako::Error`, so no rescue for a run's failure takes it |
 
 ## `S-240` A fork on macOS after a guest's HTTPS raises
 
@@ -2333,3 +2309,52 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox whose open-file cap is its default, and a host process with room for some hundred files |
 | When | the script opens files beneath a Bind until one is refused, and the Host App then opens a hundred |
 | Then | the script opens twelve, and every file the Host App opens lands |
+
+## `S-249` A run starting while a fork is under way waits for it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-236` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a fork stopped in a `_fork` hook prepended before the first Sandbox |
+| When | another Thread starts a run |
+| Then | the run waits until the fork returns, and an interrupt ends that wait. A run that only waits keeps no other fork back |
+
+## `S-250` A run waiting on a fork enters as that fork returns
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-249` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a run waiting on a fork, its callback then waiting in a Service |
+| When | the fork returns and the process forks again at once |
+| Then | the second fork raises `RuntimeError`, as the waiting run entered when the first returned |
+
+## `S-251` A fork whose hook raises still lets runs in
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-249` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a `_fork` hook prepended before the first Sandbox that raises |
+| When | a fork raises through it |
+| Then | a later run answers, and a later fork goes on |
+
+## `S-252` A fork while a collected run's guest still ends raises
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-236` |
+| relates | `S-226` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a run whose Fiber was collected while suspended in a callback |
+| When | the process forks at once |
+| Then | the fork raises `RuntimeError` until that guest ended. A fork after it goes on, and the child takes the locks the run held |
