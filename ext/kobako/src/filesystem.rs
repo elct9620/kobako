@@ -10,12 +10,13 @@
 mod grants;
 mod ruby;
 
+use std::io;
 use std::sync::Arc;
 
 use magnus::value::{Opaque, ReprValue};
 use magnus::{
     function, gc, prelude::*, scan_args::get_kwargs, scan_args::scan_args, DataTypeFunctions,
-    Error as MagnusError, RArray, RHash, RModule, RString, Ruby, Symbol, TypedData, Value,
+    Error as MagnusError, RArray, RClass, RHash, RModule, RString, Ruby, Symbol, TypedData, Value,
 };
 
 use ruby::RubyFilesystem;
@@ -123,6 +124,39 @@ fn to_instance_error(error: Errno) -> MagnusError {
     )
 }
 
+/// Whether the host refused `err` for want of descriptors, its process's or
+/// its machine's, by the numbers Ruby's `Errno` classes hold for this host.
+fn out_of_descriptors(ruby: &Ruby, err: &io::Error) -> bool {
+    let number = |name: &str| -> Option<i32> {
+        let errno: RModule = ruby.class_object().const_get("Errno").ok()?;
+        let class: RClass = errno.const_get(name).ok()?;
+        class.const_get("Errno").ok()
+    };
+    err.raw_os_error().is_some_and(|code| {
+        ["EMFILE", "ENFILE"]
+            .iter()
+            .any(|name| number(name) == Some(code))
+    })
+}
+
+/// Why `Bind.new` could not open `path`: the host's own `Errno` when it was out
+/// of descriptors, which is no fault of the argument, and an `ArgumentError`
+/// naming the path otherwise.
+fn refusal(ruby: &Ruby, path: &str, err: &io::Error) -> MagnusError {
+    if let Some(code) = err.raw_os_error().filter(|_| out_of_descriptors(ruby, err)) {
+        if let Ok(raised) = ruby
+            .exception_system_call_error()
+            .new_instance((path.to_string(), code))
+        {
+            return MagnusError::from(raised);
+        }
+    }
+    MagnusError::new(
+        ruby.exception_arg_error(),
+        format!("cannot open host directory {path}: {err}"),
+    )
+}
+
 /// A `size:` or `nr_inodes:` count, or `nil` for none.
 fn to_count(count: Value) -> Result<Option<usize>, MagnusError> {
     Option::<usize>::try_convert(count)
@@ -135,12 +169,17 @@ fn bind_new(args: &[Value]) -> Result<BindFs, MagnusError> {
     let (path,) = args.required;
     let kwargs = get_kwargs::<_, (), (Option<bool>,), ()>(args.keywords, &[], &["exclusive"])?;
     let (exclusive,) = kwargs.optional;
-    let directory = Bind::new(&path).map_err(|err| {
-        MagnusError::new(
-            ruby.exception_arg_error(),
-            format!("cannot open host directory {path}: {err}"),
-        )
-    })?;
+    // A host out of descriptors may be holding ones the Host App let go
+    // without closing, so they are collected once and the open tried again,
+    // as `rb_gc_for_fd` has `Dir.new` do.
+    let directory = match Bind::new(&path) {
+        Err(err) if out_of_descriptors(&ruby, &err) => {
+            ruby.gc_start();
+            Bind::new(&path)
+        }
+        opened => opened,
+    }
+    .map_err(|err| refusal(&ruby, &path, &err))?;
     Filesystem::new(directory.with_exclusive(exclusive.unwrap_or(false)))
         .map(BindFs)
         .map_err(to_instance_error)
