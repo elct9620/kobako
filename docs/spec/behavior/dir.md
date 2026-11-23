@@ -311,3 +311,15 @@ A glob of `**/` with `base:` leaves out the `/` CRuby answers for the base itsel
 | Given | an invocation handed a Mount over files, one named with a character of several bytes |
 | When | the script asks `Dir.glob` with `?` and a bracket, with an unclosed brace, and with a trailing backslash |
 | Then | each answers the paths CRuby answers |
+
+## `FL-107` A glob raises when a directory it walks to cannot be listed for want of descriptors
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FL-095`, `RT-152` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose open-file cap leaves room for twelve, mounting an Overlay of Binds whose thirteen Layers hold a directory |
+| When | the script globs through that directory |
+| Then | the glob raises `Errno::EMFILE`, as CRuby's raises for every listing failure but a missing entry, no directory, or no permission |

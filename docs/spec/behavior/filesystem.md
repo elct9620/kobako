@@ -2448,3 +2448,16 @@ both live in the upper and never show, so no name is reserved
 | Given | a host process with three descriptors free, and a Bind over a file 32 directories deep |
 | When | a guest reads, creates, stats, lists, renames, or removes there |
 | Then | each call lands |
+
+## `FS-224` An Overlay directory past the open-file cap opens no Layer it has no room for
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-112` |
+| relates | `RT-152` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a caller with room for two more open files, and an Overlay of Binds whose eight Layers hold a directory |
+| When | the caller opens the directory |
+| Then | it is refused as too many open files after three Layers open. Each Layer opened closes and gives its room back |

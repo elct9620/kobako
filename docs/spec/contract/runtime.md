@@ -1222,13 +1222,14 @@ pub trait InodeOperations {
 
 ## `InodeOperations::open`
 
-Open this entry. A directory opens to be listed. The runtime refuses a link
-before it asks, and empties a file through `setattr` afterwards. An entry without
-it opens with no operations.
+Open this entry for the caller the `Cred` names, whose open files count what
+the open holds behind its descriptor. A directory opens to be listed. The
+runtime refuses a link before it asks, and empties a file through `setattr`
+afterwards. An entry without it opens with no operations.
 
 ```rust
 pub trait InodeOperations {
-    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno>;
+    fn open(&self, _dentry: &Dentry, _how: &OpenHow, _cred: &Cred) -> Result<Box<dyn FileOperations>, Errno>;
 }
 ```
 
@@ -1591,6 +1592,17 @@ default takes a position.
 ```rust
 pub trait FileOperations {
     fn is_stream(&self) -> bool;
+}
+```
+
+## `FileOperations::host_descriptors`
+
+How many of the host's descriptors the file holds open. An Overlay counts
+them against the caller's open files. The default holds none.
+
+```rust
+pub trait FileOperations {
+    fn host_descriptors(&self) -> usize;
 }
 ```
 

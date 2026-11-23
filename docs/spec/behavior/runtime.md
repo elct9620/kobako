@@ -1607,17 +1607,17 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the Filesystem reports no identity for the directory, and a lookup goes through it |
 | Then | the lookup answers ENOENT |
 
-## `RT-152` An Overlay directory takes one descriptor however many Layers it spans
+## `RT-152` An Overlay directory takes one descriptor for each Bind Layer holding it
 
 | Attribute | Value |
 | --- | --- |
-| relates | `S-201` |
+| relates | `S-201`, `FS-112` |
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation with room for two descriptors, handed an Overlay whose two Layers hold a directory |
-| When | the guest opens the directory, then two files |
-| Then | the directory and the first file open, and the second answers EMFILE |
+| Given | an invocation whose open-file cap leaves room for twelve, handed an Overlay of Binds whose eight Layers hold a directory |
+| When | the guest holds the directory open, then opens files until one is refused |
+| Then | four files open, as the directory holds a host directory for each Layer. Linux counts only the descriptor, but the cap bounds what the host holds for the invocation |
 
 ## `RT-154` A link loop answers ELOOP
 
@@ -1946,6 +1946,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a file opened to read, a file opened to write, and a pipe's write end |
 | When | a caller allocates no bytes on the first, then some on each |
 | Then | the calls answer EINVAL, EBADF, ENOTSUP, and ESPIPE |
+
 ## `RT-182` A listing hands `.` and `..` first and goes on where it stopped
 
 | Attribute | Value |
@@ -1969,7 +1970,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a permissive guest and a hermetic guest, each holding a Mount of a file |
 | When | each stats the file and lists its directory |
 | Then | the permissive guest reads one hash in both, and the hermetic guest reads 0 |
-
 ## `RT-184` A directory answers as one open to read does
 
 | Attribute | Value |
@@ -4571,3 +4571,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Guest Binary one process compiled and cached in a directory no other local user may write |
 | When | another process builds a runtime over the same Guest Binary |
 | Then | it reads the cached artifact rather than compiling the Guest Binary again |
+
+## `RT-413` An Overlay directory takes nothing for a Layer holding no host directory
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-152` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation with room for two descriptors, and an Overlay directory a Tmpfs or a Bind holds over a Tmpfs |
+| When | the guest opens the directory, then two files |
+| Then | the directory and the first file open, and the second answers EMFILE |
+
+## `RT-414` An Overlay's root takes one descriptor however many Binds it stacks
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-152` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation whose open-file cap leaves room for twelve, handed an Overlay of thirteen Binds |
+| When | the guest lists the Overlay's root |
+| Then | the listing answers, as each Layer's root is the Host App's to hold |
