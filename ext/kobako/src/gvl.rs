@@ -364,7 +364,7 @@ impl Drop for RunCaller {
     fn drop(&mut self) {
         if !self.served.load(Ordering::SeqCst) {
             self.line.abandon();
-            escape::forget(self.fiber);
+            escape::forget(self.fiber, &self.line);
         }
     }
 }

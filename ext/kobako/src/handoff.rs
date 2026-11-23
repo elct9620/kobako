@@ -188,6 +188,8 @@ pub(crate) struct Line {
     /// Whether the caller is gone for good, as a Fiber left suspended in a
     /// callback and collected is.
     abandoned: AtomicBool,
+    /// Whether the guest ended, every lock it took let go.
+    ended: AtomicBool,
     /// Ends the run's waits once its caller is gone.
     interrupt: Task,
 }
@@ -203,6 +205,12 @@ impl Line {
 
     fn is_abandoned(&self) -> bool {
         self.abandoned.load(Ordering::SeqCst)
+    }
+
+    /// Whether the guest ended, as a run whose caller is gone stays in
+    /// progress until then.
+    pub(crate) fn has_ended(&self) -> bool {
+        self.ended.load(Ordering::SeqCst)
     }
 
     /// What the guest hands over within `limit`, looked for once even when
@@ -386,6 +394,7 @@ pub(crate) fn start(
         turn: Mutex::new(Instant::now()),
         pending,
         abandoned: AtomicBool::new(false),
+        ended: AtomicBool::new(false),
         interrupt: task.task(),
     });
     let guest_line = line.clone();
@@ -393,6 +402,7 @@ pub(crate) fn start(
         LINE.with(|held| *held.borrow_mut() = Some(guest_line.clone()));
         let panic = catch_unwind(AssertUnwindSafe(|| task.carry(run))).err();
         LINE.with(|held| *held.borrow_mut() = None);
+        guest_line.ended.store(true, Ordering::SeqCst);
         guest_line.to_caller.put(Message::Done(panic));
     });
     let idle = IDLE.with(|idle| idle.get_or_insert_with(Vec::new).pop());

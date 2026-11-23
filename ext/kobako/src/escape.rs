@@ -32,10 +32,24 @@ static RUNS: ProcessLocal<Runs> = ProcessLocal::new();
 #[derive(Default)]
 struct Runs {
     by_fiber: HashMap<FiberId, Arc<RunState>>,
-    /// The forks about to happen, each found no run in progress.
+    /// The guests of runs whose caller was collected, in progress until each
+    /// ends. The Fiber's address is free for another run once collected.
+    ending: Vec<Arc<Line>>,
+    /// The forks under way, each found no run in progress.
     forks: usize,
-    /// Woken as a run ends or a fork returns.
-    changed: Arc<WaitQueueHead>,
+    /// The outermost runs waiting for the forks under way to return.
+    waiting: Vec<(FiberId, Arc<RunState>)>,
+    /// Woken as the last fork under way returns.
+    opened: Arc<WaitQueueHead>,
+}
+
+impl Runs {
+    /// Whether a run is in progress, one whose caller was collected included
+    /// until its guest ends.
+    fn in_progress(&mut self) -> bool {
+        self.ending.retain(|line| !line.has_ended());
+        !self.by_fiber.is_empty() || !self.ending.is_empty()
+    }
 }
 
 /// Run `f` on the runs in progress.
@@ -43,49 +57,61 @@ fn with_runs<R>(f: impl FnOnce(&mut Runs) -> R) -> R {
     RUNS.with(|runs| f(runs.get_or_insert_with(Runs::default)))
 }
 
-/// Forget the run on `fiber`, waking a fork that waits for every run to end.
+/// Forget the run on `fiber`.
 fn remove(fiber: FiberId) {
-    let changed = with_runs(|runs| {
-        runs.by_fiber.remove(&fiber);
-        runs.changed.clone()
-    });
-    changed.wake_up();
+    with_runs(|runs| runs.by_fiber.remove(&fiber));
 }
 
-/// What a fork about to happen finds of the runs in progress.
-pub(super) enum ForkGate {
-    /// None was in progress, and none starts until `let_runs_in`.
-    Held,
-    /// One is on the forking Thread, which waiting would wait on.
-    OnThread,
-    /// Another Thread's run is in progress.
-    Busy,
-}
-
-/// Hold new runs back for a fork once none is in progress, as `table` waits
-/// for one to end.
-pub(super) fn hold_runs_back(thread: rb_sys::VALUE, table: Option<&mut PollTable>) -> ForkGate {
-    with_runs(|runs| {
-        poll_wait(&runs.changed, table);
-        if runs.by_fiber.values().any(|run| run.thread == thread) {
-            ForkGate::OnThread
-        } else if runs.by_fiber.is_empty() {
-            runs.forks += 1;
-            ForkGate::Held
-        } else {
-            ForkGate::Busy
+/// Wait, without the GVL, until the last fork under way enters the run on
+/// `fiber`. An interrupt ends the wait, and the run gives back its place,
+/// whether still waiting or entered as the interrupt came.
+fn wait_for_forks(ruby: &Ruby, fiber: FiberId) -> Result<(), MagnusError> {
+    let entered = |table: Option<&mut PollTable>| {
+        with_runs(|runs| {
+            poll_wait(&runs.opened, table);
+            runs.by_fiber.contains_key(&fiber).then_some(())
+        })
+    };
+    loop {
+        if let Ok(Some(())) = do_poll(|| None, &entered) {
+            return Ok(());
         }
+        if let Err(interrupt) = ruby.thread_check_ints() {
+            with_runs(|runs| {
+                runs.waiting.retain(|(waiting, _)| *waiting != fiber);
+                runs.by_fiber.remove(&fiber);
+            });
+            return Err(interrupt);
+        }
+    }
+}
+
+/// Hold new runs back for a fork, unless a run is in progress, which a forked
+/// child would inherit the locks of. Checking and holding back are one step,
+/// so no run starts between them.
+pub(super) fn hold_runs_back() -> bool {
+    with_runs(|runs| {
+        let held = !runs.in_progress();
+        if held {
+            runs.forks += 1;
+        }
+        held
     })
 }
 
-/// Let runs in again as a fork that held them back returns. A forked child
-/// held none back.
+/// Let runs in again as a fork that held them back returns. The last one
+/// enters every waiting run in the same step, so no fork closes the gate
+/// before they do. A forked child held none back.
 pub(super) fn let_runs_in() {
-    let changed = with_runs(|runs| {
+    let opened = with_runs(|runs| {
         runs.forks = runs.forks.saturating_sub(1);
-        runs.changed.clone()
+        if runs.forks == 0 {
+            let waiting = std::mem::take(&mut runs.waiting);
+            runs.by_fiber.extend(waiting);
+        }
+        runs.opened.clone()
     });
-    changed.wake_up();
+    opened.wake_up();
 }
 
 /// One outermost run on a Fiber and the runs nested in its callbacks.
@@ -179,7 +205,7 @@ impl Run {
     /// callback started on the same Thread is known to locks as the run whose
     /// callback it is, as the Fiber inherits that run's mark.
     ///
-    /// An outermost run waits while a fork holds runs back, and raises what
+    /// An outermost run waits while a fork is under way, and raises what
     /// interrupts that wait.
     pub(super) fn enter(ruby: &Ruby) -> Result<Self, MagnusError> {
         let fiber = fiber_id();
@@ -187,16 +213,16 @@ impl Run {
             Some(state) => state,
             None => {
                 let state = start(ruby);
-                let admit = |table: Option<&mut PollTable>| {
-                    with_runs(|runs| {
-                        poll_wait(&runs.changed, table);
-                        (runs.forks == 0).then(|| runs.by_fiber.insert(fiber, state.clone()))
-                    })
-                };
-                if admit(None).is_none() {
-                    while !matches!(do_poll(|| None, &admit), Ok(Some(_))) {
-                        ruby.thread_check_ints()?;
+                let entered = with_runs(|runs| {
+                    if runs.forks == 0 {
+                        runs.by_fiber.insert(fiber, state.clone());
+                    } else {
+                        runs.waiting.push((fiber, state.clone()));
                     }
+                    runs.forks == 0
+                });
+                if !entered {
+                    wait_for_forks(ruby, fiber)?;
                 }
                 state
             }
@@ -303,10 +329,17 @@ pub(crate) fn register(kobako: RModule) -> Result<(), MagnusError> {
     Ok(())
 }
 
-/// Forget the run `fiber` is in, as the collector freed the Fiber while it
-/// was suspended in a callback.
-pub(super) fn forget(fiber: FiberId) {
-    remove(fiber);
+/// Move the run `fiber` is in to the guest `line` leads to, as the collector
+/// freed the Fiber while it was suspended in a callback: the run stays in
+/// progress until that guest ends, and the Fiber's address is free for
+/// another run.
+pub(super) fn forget(fiber: FiberId, line: &Arc<Line>) {
+    with_runs(|runs| {
+        runs.by_fiber.remove(&fiber);
+        if !line.has_ended() {
+            runs.ending.push(line.clone());
+        }
+    });
 }
 
 /// A Fiber as a run knows it: the Fiber itself, which the run's `Run` keeps on

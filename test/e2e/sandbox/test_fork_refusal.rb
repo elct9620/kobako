@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E — a fork from a Thread inside a run, through the real Guest Binary,
-# which raises, as waiting would wait on the Thread's own run.
+# which raises, as the fork would wait on the Thread's own run.
 class TestE2EForkRefusal < Minitest::Test
   include ForkingChild
 
@@ -54,5 +54,29 @@ class TestE2EForkRefusal < Minitest::Test
     assert_equal "[:raised, 1]", run_forking_child(FORK_BESIDE_SUSPENDED_RUN),
                  "Kernel#fork beside a Fiber suspended in a Service its Sandbox#eval called must raise " \
                  "RuntimeError, and the run must answer once resumed"
+  end
+
+  FORKS_IN_A_TRAP = <<~RUBY
+    print(%i[hold release].map do |gvl|
+      seen = []
+      ended = false
+      trap("USR1") { seen << [fork_outcome.first, ended] }
+      started = Queue.new
+      computing = Kobako::Sandbox.new(wasm_path: WASM, gvl: gvl, timeout: 2).bind("Started", -> { started << 1 })
+      Thread.new { started.pop; Process.kill("USR1", Process.pid) }
+      begin
+        computing.eval("Started.call; loop {}")
+      rescue Kobako::TimeoutError
+        ended = true
+      end
+      seen
+    end.inspect)
+  RUBY
+
+  # @behavior S-238
+  def test_a_fork_from_a_trap_handler_interrupting_a_run_raises
+    assert_equal "[[[:raised, false]], [[:raised, false]]]", run_forking_child(FORKS_IN_A_TRAP),
+                 "Kernel#fork in a trap handler that runs while the same Thread's Sandbox#eval (either gvl) " \
+                 "computes must raise RuntimeError before the run ends"
   end
 end

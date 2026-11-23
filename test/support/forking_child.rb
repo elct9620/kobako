@@ -1,9 +1,11 @@
 # frozen_string_literal: true
 
 # A child process that forks beside its own runs, through the real Guest
-# Binary. A fork that waits forever is killed past BOUND rather than hanging
+# Binary. A child stuck in a fork is killed past BOUND rather than hanging
 # the suite. The prelude gives each script a Service that blocks on a Queue,
-# and the outcome of a fork as the script sees it.
+# the outcome of a fork as the script sees it, and that outcome read on
+# another Thread within a bound, so a fork that does not answer at once
+# never keeps the script from letting its runs go.
 module ForkingChild
   include ChildProcess
 
@@ -28,6 +30,10 @@ module ForkingChild
       :forked
     rescue RuntimeError => e
       [:raised, e.message]
+    end
+    def fork_within(seconds)
+      forking = Thread.new { fork_outcome }
+      forking.join(seconds) ? forking.value : :unanswered
     end
   RUBY
 
