@@ -4,7 +4,8 @@
 # effect of the per-Sandbox gvl: mode on multi-Thread guest
 # execution. :release drops Ruby's GVL for the guest span so distinct
 # Sandboxes on distinct Threads run their wasm in parallel; :hold
-# serializes them. Two opposed workloads bracket where release helps
+# serializes them, as each invocation here ends within one quantum of
+# the GVL. Two opposed workloads bracket where release helps
 # and where it hurts:
 #
 #   compute  — each Thread runs a pure guest loop with no dispatch.
