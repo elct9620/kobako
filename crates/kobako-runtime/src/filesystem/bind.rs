@@ -27,8 +27,7 @@ use super::{
     Finish, Iattr, InodeOperations, Kiocb, Kstat, Lookup, OpenHow, RenameFlag, SetTime,
 };
 use crate::vfs::{
-    self, generic_file_llseek, generic_read_dir, Dentry, DirContext, HeldFile, Identity, Inode,
-    Whence,
+    generic_file_llseek, generic_read_dir, Dentry, DirContext, Identity, Inode, Whence,
 };
 use fid::{FidOwner, OpenDirFid, FIDS};
 
@@ -666,15 +665,7 @@ impl InodeOperations for Bind {
         })
     }
 
-    /// A directory beneath the root holds a host descriptor of its own, so it
-    /// counts against whoever opens it, a room taken before the host is
-    /// asked; the root is its maker's. The descriptor covers the first one an
-    /// open holds, so an Overlay's directory counts one for each Bind Layer.
     fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
-        let held = match dentry.is_root() {
-            true => None,
-            false => vfs::hold_behind()?,
-        };
         let fid = self.fid_lookup(dentry)?;
         if how.read {
             may_read_dir(&fid)?;
@@ -683,7 +674,6 @@ impl InodeOperations for Bind {
         Ok(Box::new(BindDir {
             fid,
             cache: Rdir::default(),
-            _held: held,
         }))
     }
 
@@ -753,9 +743,6 @@ struct BindDir {
     fid: Arc<Dir>,
     /// What a listing began with, as 9p's `fid->rdir` holds it.
     cache: Rdir,
-    /// The open file it counts as beside its descriptor, given back after
-    /// the host descriptor above closes.
-    _held: Option<HeldFile>,
 }
 
 impl FileOperations for BindDir {

@@ -44,8 +44,6 @@ pub use namei::{
     filename_symlinkat, filename_unlinkat,
 };
 pub(crate) use namespace::MntNamespace;
-pub(crate) use open_files::hold_behind;
-pub(crate) use open_files::HeldFile;
 pub use open_files::OpenFiles;
 pub use openat2::{build_open_flags, OpenFlags, OpenHow};
 pub use path::{Path, Start};

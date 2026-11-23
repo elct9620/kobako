@@ -6,8 +6,9 @@ require "tmpdir"
 
 # E2E — what an Overlay of Binds counts against the open-file cap, through
 # the real Guest Binary. A directory each Bind Layer holds keeps a host
-# directory open for each, so it counts one for each; the three standard
-# descriptors and the root preopen leave a cap of 16 room for twelve.
+# directory open for each, yet the cap counts the guest's descriptor alone,
+# as Linux's RLIMIT_NOFILE does; the three standard descriptors and the root
+# preopen leave a cap of 16 room for twelve.
 class TestE2EOverlayDescriptors < Minitest::Test
   include E2eGuestHelper
 
@@ -50,31 +51,16 @@ class TestE2EOverlayDescriptors < Minitest::Test
   RUBY
 
   # @behavior RT-152
-  def test_an_overlay_directory_takes_a_descriptor_for_each_bind_layer
-    assert_equal 4, answer(stacked(8, open_file_limit: 16), OPENS_PAST_A_HELD_DIRECTORY),
+  def test_an_overlay_directory_takes_one_descriptor_however_many_bind_layers_hold_it
+    assert_equal 11, answer(stacked(8, open_file_limit: 16), OPENS_PAST_A_HELD_DIRECTORY),
                  "File.open past a directory eight Bind Layers of an Overlay hold, under an open-file cap of 16, " \
-                 "must open four files"
+                 "must open eleven files"
   end
 
   # @behavior RT-152
-  def test_an_overlay_directory_lists_only_with_room_for_each_bind_layer
-    answers = [16, 17].map { |limit| answer(stacked(13, open_file_limit: limit), 'Dir.children("/o/d")') }
-    assert_equal ["Errno::EMFILE", ["note.txt"]], answers,
-                 "Dir.children of a directory thirteen Bind Layers of an Overlay hold must raise Errno::EMFILE " \
-                 "under an open-file cap of 16 and list it under 17"
-  end
-
-  # @behavior RT-414
-  def test_an_overlay_root_lists_however_many_binds_it_stacks
-    names = answer(stacked(13, open_file_limit: 16), 'Dir.children("/o").sort')
-    assert_equal ["d", *Array.new(20) { |file| "f#{file}" }].sort, names,
-                 "Dir.children of the root of an Overlay of thirteen Binds, under an open-file cap of 16, must list it"
-  end
-
-  # @behavior FL-107
-  def test_a_glob_through_a_directory_with_no_room_raises
-    assert_equal "Errno::EMFILE", answer(stacked(13, open_file_limit: 16), 'Dir.glob("/o/d/*")'),
-                 "Dir.glob through a directory thirteen Bind Layers of an Overlay hold, under an open-file cap " \
-                 "of 16, must raise Errno::EMFILE"
+  def test_an_overlay_directory_lists_however_many_bind_layers_hold_it
+    assert_equal ["note.txt"], answer(stacked(13, open_file_limit: 16), 'Dir.children("/o/d")'),
+                 "Dir.children of a directory thirteen Bind Layers of an Overlay hold, under an open-file cap of 16, " \
+                 "must list it"
   end
 end

@@ -322,8 +322,7 @@ pub(super) fn do_dentry_open(
         at.mnt.mnt_want_write()?;
     }
     let security = cred.security_file_open(at, kind, mode, how)?;
-    let opened = super::open_files::opening(cred.open_files(), open)?;
-    Ok((opened, security))
+    Ok((open()?, security))
 }
 
 /// One open file or directory, as a descriptor refers to it.

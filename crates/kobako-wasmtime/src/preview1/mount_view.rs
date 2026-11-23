@@ -1539,35 +1539,38 @@ fn a_full_table_answers_emfile_whatever_the_path_names() {
     );
 }
 
-// The three standard descriptors and the preopen leave room for one more,
+// The three standard descriptors and the preopen leave room for two more,
 // so a directory spanning both Layers taking more than one leaves none
 // for the file.
-// @behavior RT-413
+// @behavior RT-152
 #[test]
-fn an_overlay_directory_takes_nothing_for_a_layer_holding_no_host_directory() {
+fn an_overlay_directory_takes_one_descriptor_however_many_layers_it_spans() {
     let host = std::env::temp_dir().join(format!("kobako-bind-lower-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&host);
     std::fs::create_dir_all(host.join("dir")).expect("the host directory must be created");
     std::fs::write(host.join("file.txt"), "granted").expect("the host file must be written");
     std::fs::write(host.join("dir/inner"), "x").expect("the host file must be written");
-    // The topmost Layer opens first, so a Tmpfs beneath a Bind is asked
-    // after a host directory is already held.
-    let topmost = [
-        ("Tmpfs", Filesystem::new(file_and_directory())),
+    let lower = std::env::temp_dir().join(format!("kobako-bind-lowest-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&lower);
+    std::fs::create_dir_all(lower.join("dir")).expect("the host directory must be created");
+    std::fs::write(lower.join("dir/lower"), "l").expect("the host file must be written");
+    // Each Bind Layer holds a host directory behind the descriptor, which the
+    // cap leaves uncounted as Linux's RLIMIT_NOFILE does.
+    let bind = |at: &std::path::Path| {
+        Filesystem::new(Bind::new(at).expect("the host directory must open"))
+            .expect("the instance must stand")
+    };
+    let stacks = [
         (
-            "Bind",
-            Filesystem::new(Bind::new(&host).expect("the host directory must open")),
+            "Tmpfs over a Tmpfs",
+            Filesystem::new(file_and_directory()).expect("the instance must stand"),
+            Filesystem::new(tmpfs_with("dir/lower", "l")).expect("the instance must stand"),
         ),
+        ("Bind over a Bind", bind(&host), bind(&lower)),
     ];
-    for (kind, top) in topmost {
-        let overlay = Overlay::new(
-            vec![
-                top.expect("the instance must stand"),
-                Filesystem::new(tmpfs_with("dir/lower", "l")).expect("the instance must stand"),
-            ],
-            None,
-        )
-        .expect("two lower Layers must make a view");
+    for (kind, top, beneath) in stacks {
+        let overlay =
+            Overlay::new(vec![top, beneath], None).expect("two lower Layers must make a view");
         let mut guest =
             Guest::with_open_file_limit(Some(6), &[grant(Arc::new(overlay), Access::Read, None)]);
         assert_eq!(
@@ -1577,12 +1580,13 @@ fn an_overlay_directory_takes_nothing_for_a_layer_holding_no_host_directory() {
                 guest.call("read_file", FILE)
             ),
             (0, 0, ERRNO_MFILE),
-            "path_open of a directory a {kind} over a Tmpfs Layer of an Overlay hold, then of \
-             files, beneath a Mount through preview1 with room for two descriptors must take one \
-             descriptor for each"
+            "path_open of a directory the Layers of an Overlay of a {kind} hold, then of files, \
+             beneath a Mount through preview1 with room for two descriptors must take one \
+             descriptor for each, however many Layers hold the directory"
         );
     }
     std::fs::remove_dir_all(&host).expect("the host directory must be removed");
+    std::fs::remove_dir_all(&lower).expect("the host directory must be removed");
 }
 
 // The open looks the directory up without following a link at its end, so

@@ -115,4 +115,21 @@ class TestE2EDirGlob < Minitest::Test
                  "Dir.glob through the bundled guest must refuse a NUL and sort: nil with ArgumentError, " \
                  "and an Integer pattern with TypeError"
   end
+
+  # The three standard descriptors and the root preopen leave a cap of 6
+  # room for the two files the script holds, and none for the listing.
+  FILLS_THE_CAP = <<~RUBY
+    held = Array.new(2) { File.open("/t/a.rb") }
+    attempt.call(-> { Dir.glob("/t/sub/*") })
+  RUBY
+
+  # @behavior FL-107
+  def test_a_glob_with_the_open_file_cap_full_raises_as_crubys_does
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, open_file_limit: 6)
+                             .mount("/t", Kobako::Filesystem::Tmpfs.new("a.rb" => "x", "sub/b.rb" => "x"))
+
+    assert_equal "Errno::EMFILE", sandbox.eval(ATTEMPT + FILLS_THE_CAP).value,
+                 "Dir.glob while the script holds every file its open_file_limit allows must raise " \
+                 "Errno::EMFILE, as CRuby's does past RLIMIT_NOFILE"
+  end
 end
