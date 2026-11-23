@@ -49,7 +49,7 @@ impl OpenFiles {
     }
 
     /// Hold one more, as `open` does, given back once what it returns drops.
-    pub fn hold(&self) -> Result<HeldFile, Errno> {
+    pub(crate) fn hold(&self) -> Result<HeldFile, Errno> {
         self.open()?;
         Ok(HeldFile(self.clone()))
     }
@@ -57,7 +57,7 @@ impl OpenFiles {
 
 /// One file held against an Invocation's count, given back as it drops.
 #[must_use = "the file is given back as soon as this drops"]
-pub struct HeldFile(OpenFiles);
+pub(crate) struct HeldFile(OpenFiles);
 
 impl Drop for HeldFile {
     fn drop(&mut self) {

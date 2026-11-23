@@ -45,7 +45,8 @@ pub use namei::{
 };
 pub(crate) use namespace::MntNamespace;
 pub(crate) use open_files::hold_behind;
-pub use open_files::{HeldFile, OpenFiles};
+pub(crate) use open_files::HeldFile;
+pub use open_files::OpenFiles;
 pub use openat2::{build_open_flags, OpenFlags, OpenHow};
 pub use path::{Path, Start};
 pub use readdir::{
