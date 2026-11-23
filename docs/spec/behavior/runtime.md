@@ -1607,7 +1607,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the Filesystem reports no identity for the directory, and a lookup goes through it |
 | Then | the lookup answers ENOENT |
 
-## `RT-152` An Overlay directory takes one descriptor for each Bind Layer holding it
+## `RT-152` An Overlay directory takes one descriptor however many Layers it spans
 
 | Attribute | Value |
 | --- | --- |
@@ -1615,9 +1615,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation whose open-file cap leaves room for twelve, handed an Overlay of Binds whose eight Layers hold a directory |
+| Given | an invocation whose open-file cap leaves room for twelve, handed an Overlay whose Layers hold a directory, Binds among them |
 | When | the guest holds the directory open, then opens files until one is refused |
-| Then | four files open, as the directory holds a host directory for each Layer. Linux counts only the descriptor, but the cap bounds what the host holds for the invocation |
+| Then | eleven files open, as Linux's `RLIMIT_NOFILE` counts the descriptor alone, however many Layers stand behind it |
 
 ## `RT-154` A link loop answers ELOOP
 
@@ -4572,51 +4572,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | another process builds a runtime over the same Guest Binary |
 | Then | it reads the cached artifact rather than compiling the Guest Binary again |
 
-## `RT-413` An Overlay directory takes nothing for a Layer holding no host directory
-
-| Attribute | Value |
-| --- | --- |
-| refines | `RT-152` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an invocation with room for two descriptors, and an Overlay directory a Tmpfs or a Bind holds over a Tmpfs |
-| When | the guest opens the directory, then two files |
-| Then | the directory and the first file open, and the second answers EMFILE |
-
-## `RT-414` An Overlay's root takes one descriptor however many Binds it stacks
-
-| Attribute | Value |
-| --- | --- |
-| refines | `RT-152` |
-
-| Step | Statement |
-| --- | --- |
-| Given | an invocation whose open-file cap leaves room for twelve, handed an Overlay of thirteen Binds |
-| When | the guest lists the Overlay's root |
-| Then | the listing answers, as each Layer's root is the Host App's to hold |
-
-## `RT-415` A socket released still sending counts as an open file until it closes
+## `RT-415` A socket released still sending keeps its connection, not its open file
 
 | Attribute | Value |
 | --- | --- |
 | refines | `RT-378` |
-| relates | `S-201` |
+| relates | `S-201`, `NW-022` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a connected socket of an invocation with room for one open file, holding bytes the peer has not taken |
+| Given | an invocation with room for one open file and one connection, whose socket holds bytes its peer has not taken |
 | When | its last view is dropped |
-| Then | it holds that open file while it holds a host socket, until the peer takes every byte |
-
-## `RT-416` A socket released still sending with no open file left resets its connection
-
-| Attribute | Value |
-| --- | --- |
-| refines | `RT-415` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a connected socket holding bytes the peer has not taken, of an invocation with no open file left |
-| When | its last view is dropped |
-| Then | the connection resets at once, as Linux resets an orphan past `tcp_max_orphans` |
+| Then | another file opens at once, as Linux's orphan holds no descriptor. Another connection answers EAGAIN until the peer takes every byte |

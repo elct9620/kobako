@@ -317,10 +317,10 @@ A glob of `**/` with `base:` leaves out the `/` CRuby answers for the base itsel
 
 | Attribute | Value |
 | --- | --- |
-| relates | `FL-095`, `RT-152` |
+| relates | `FL-095`, `S-201` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose open-file cap leaves room for twelve, mounting an Overlay of Binds whose thirteen Layers hold a directory |
+| Given | a script holding as many files as its open-file cap allows, and a Mount holding a directory |
 | When | the script globs through that directory |
 | Then | the glob raises `Errno::EMFILE`, as CRuby's raises for every listing failure but a missing entry, no directory, or no permission |
