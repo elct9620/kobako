@@ -33,28 +33,35 @@ pub(crate) fn filp_open(
     do_file_open(cred, start, path, &build_open_flags(how)?)
 }
 
-/// A directory of a Filesystem reached through the VFS.
+/// A directory of a Filesystem reached through the VFS, held open as a
+/// descriptor holds it once `open_dir` opened it.
 #[derive(Clone)]
-pub(crate) struct KernPath(Path);
+pub(crate) struct KernPath {
+    path: Path,
+    _held: Option<Arc<Box<dyn FileOperations>>>,
+}
 
 /// The root of `filesystem`, mounted read-write.
 pub(crate) fn kern_path(filesystem: Arc<dyn FileSystemType>) -> KernPath {
     let filesystem = SuperBlock::new(filesystem).expect("the instance must stand");
     let mount = Mount::new("/data", filesystem, Access::ReadWrite).expect("/data is a guest path");
-    KernPath(Path::root(mount.mnt()))
+    KernPath {
+        path: Path::root(mount.mnt()),
+        _held: None,
+    }
 }
 
 impl KernPath {
     /// `path` resolved beneath this directory, a link at its end left as
     /// it stands.
     fn resolve(&self, path: &str) -> Result<Nameidata, Errno> {
-        filename_lookup(&Arc::default(), &self.0, path, false)
+        filename_lookup(&Arc::default(), &self.path, path, false)
     }
 
     /// The directory holding the last name of `path`, and that name's dentry,
     /// whether or not anything stands there.
     fn parent(&self, path: &str) -> Result<(Nameidata, Arc<Dentry>), Errno> {
-        let nd = filename_parentat(&Arc::default(), &self.0, path)?;
+        let nd = filename_parentat(&Arc::default(), &self.path, path)?;
         let child = lookup_one_qstr_excl(nd.mnt.sb(), nd.dentry(), &nd.last)?;
         Ok((nd, child))
     }
@@ -127,8 +134,15 @@ impl KernPath {
         match dentry.file_type()? {
             FileType::Symlink => Err(Errno::FilesystemLoop),
             FileType::Dir => {
-                dentry.getattr()?;
-                Ok(Self(self.0.with_dentry(dentry)))
+                let directory = OpenHow {
+                    directory: true,
+                    ..OpenHow::default()
+                };
+                let held = dentry.open(&directory)?;
+                Ok(Self {
+                    path: self.path.with_dentry(dentry),
+                    _held: Some(Arc::new(held)),
+                })
             }
             _ => Err(Errno::NotADirectory),
         }
@@ -136,7 +150,7 @@ impl KernPath {
 
     /// What the directory reports of itself, as `vfs_getattr`.
     pub(crate) fn vfs_getattr(&self) -> Result<Kstat, Errno> {
-        self.0.dentry().getattr()
+        self.path.dentry().getattr()
     }
 
     /// What `path` names, a link reported as itself, as `vfs_lstat`; the
@@ -149,7 +163,7 @@ impl KernPath {
     }
 
     pub(crate) fn lookup(&self, path: &str) -> Result<String, Errno> {
-        let nd = filename_parentat(&Arc::default(), &self.0, path)?;
+        let nd = filename_parentat(&Arc::default(), &self.path, path)?;
         Ok(lookup_one_qstr_excl(nd.mnt.sb(), nd.dentry(), &nd.last)?.name())
     }
 
@@ -163,7 +177,7 @@ impl KernPath {
             read: true,
             ..OpenHow::default()
         };
-        File::dentry_open(self.0.clone(), &read, &Arc::default())?.iterate_shared()
+        File::dentry_open(self.path.clone(), &read, &Arc::default())?.iterate_shared()
     }
 
     pub(crate) fn vfs_mkdir(&self, path: &str) -> Result<(), Errno> {
