@@ -234,11 +234,13 @@ fn dir_globs(
     let mut found = Vec::new();
     for pattern in patterns {
         let pattern = path_text(mrb, *pattern)?;
-        found.extend(glob::glob(
+        let matched = glob::glob(
             pattern.as_bytes(),
             base.as_deref().map(str::as_bytes),
             options,
-        ));
+        )
+        .map_err(|(err, at)| errno::from_io(mrb, &err, &String::from_utf8_lossy(&at)))?;
+        found.extend(matched);
     }
     match block {
         Some(block) => {

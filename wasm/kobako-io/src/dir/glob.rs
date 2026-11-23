@@ -5,6 +5,7 @@
 
 use std::ffi::{CStr, OsStr};
 use std::fs;
+use std::io;
 #[cfg(unix)]
 use std::os::unix::ffi::OsStrExt;
 #[cfg(target_os = "wasi")]
@@ -46,20 +47,30 @@ impl Options {
 }
 
 /// The paths `pattern` names, read from `base` when the pattern is
-/// relative and `base` is given, as `Dir.glob` answers them.
-pub(super) fn glob(pattern: &[u8], base: Option<&[u8]>, options: Options) -> Vec<Vec<u8>> {
+/// relative and `base` is given, as `Dir.glob` answers them; or why a
+/// directory it walked to could not be listed, with that directory, which
+/// ends the walk as `glob_helper` ends at an error `rb_glob_error` raises.
+pub(super) fn glob(
+    pattern: &[u8],
+    base: Option<&[u8]>,
+    options: Options,
+) -> Result<Vec<Vec<u8>>, (io::Error, Vec<u8>)> {
     let mut found = Vec::new();
     for expanded in brace_expand(pattern, options.escape) {
-        Walk {
+        let mut walk = Walk {
             nodes: compile(&expanded, options.escape),
             base,
             options,
             found: &mut found,
             listed: false,
+            failed: None,
+        };
+        walk.start(&expanded);
+        if let Some(failed) = walk.failed {
+            return Err(failed);
         }
-        .start(&expanded);
     }
-    found
+    Ok(found)
 }
 
 /// Each pattern `pattern`'s braces spell, in order, as `ruby_brace_expand`
@@ -311,6 +322,8 @@ struct Walk<'a> {
     found: &'a mut Vec<Vec<u8>>,
     /// The walk has listed a directory, so no later listing offers `.`.
     listed: bool,
+    /// Why a directory could not be listed, which stops the walk.
+    failed: Option<(io::Error, Vec<u8>)>,
 }
 
 impl Walk<'_> {
@@ -340,14 +353,30 @@ impl Walk<'_> {
     }
 
     /// The entries of the directory `path` names, each beside whether it is a
-    /// directory and not a link; none where it reads as no directory, as a
-    /// glob ignores what it cannot list. `..` is never among them, and `.`
-    /// only in the walk's first listing, and there only when `**/` is not
-    /// pending or `FNM_DOTMATCH` is given, as `glob_helper`'s `skipdot` keeps
-    /// a walk from answering each directory again as its own `.`.
+    /// directory and not a link. None where nothing stands there, it reads as
+    /// no directory, or it may not be read, as `do_opendir` ignores `ENOENT`
+    /// and `ENOTDIR` and only warns of `EACCES`; any other failure stops the
+    /// walk. `..` is never among them, and `.` only in the walk's first
+    /// listing, and there only when `**/` is not pending or `FNM_DOTMATCH` is
+    /// given, as `glob_helper`'s `skipdot` keeps a walk from answering each
+    /// directory again as its own `.`.
     fn entries(&mut self, path: &[u8], recursive: bool) -> Vec<(Vec<u8>, bool)> {
-        let Ok(listing) = super::read_entries(OsStr::from_bytes(&self.host_path(path))) else {
-            return Vec::new();
+        let listing = match super::read_entries(OsStr::from_bytes(&self.host_path(path))) {
+            Ok(listing) => listing,
+            Err(err)
+                if matches!(
+                    err.kind(),
+                    io::ErrorKind::NotFound
+                        | io::ErrorKind::NotADirectory
+                        | io::ErrorKind::PermissionDenied
+                ) =>
+            {
+                return Vec::new();
+            }
+            Err(err) => {
+                self.failed.get_or_insert((err, path.to_vec()));
+                return Vec::new();
+            }
         };
         let mut entries = Vec::new();
         if !self.listed && (self.options.dotmatch || !recursive) {
@@ -365,6 +394,9 @@ impl Walk<'_> {
     /// ends it reaches, then the entries its segments match, each walked in
     /// turn. `known` says whether `path` is known to exist.
     fn visit(&mut self, path: Vec<u8>, pending: Vec<Pending>, known: bool) {
+        if self.failed.is_some() {
+            return;
+        }
         let mut here = Vec::new();
         for (node, separators) in pending {
             here.push((node, separators.clone()));
