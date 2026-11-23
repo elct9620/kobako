@@ -2497,7 +2497,7 @@ both live in the upper and never show, so no name is reserved
 | --- | --- |
 | Given | a host process whose descriptors the Binds a Host App let go of still hold, garbage collection disabled or not |
 | When | the Host App makes another Bind |
-| Then | the Bind is made, as Ruby collects garbage once and the open is tried again, as `Dir.new` does |
+| Then | Ruby collects garbage once and the open is tried again, as `Dir.new` has it. Where Ruby collects nothing while disabled, as 3.3 does, it raises as `Dir.new` does |
 
 ## `FS-228` A Bind made in a callback while the host is out of descriptors completes
 
