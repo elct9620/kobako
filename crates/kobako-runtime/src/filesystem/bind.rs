@@ -27,7 +27,8 @@ use super::{
     Finish, Iattr, InodeOperations, Kiocb, Kstat, Lookup, OpenHow, RenameFlag, SetTime,
 };
 use crate::vfs::{
-    generic_file_llseek, generic_read_dir, Dentry, DirContext, Identity, Inode, Whence,
+    self, generic_file_llseek, generic_read_dir, Dentry, DirContext, HeldFile, Identity, Inode,
+    Whence,
 };
 use fid::{FidOwner, OpenDirFid, FIDS};
 
@@ -585,12 +586,7 @@ impl InodeOperations for BindRegular {
         })
     }
 
-    fn open(
-        &self,
-        dentry: &Dentry,
-        how: &OpenHow,
-        _cred: &crate::cred::Cred,
-    ) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         self.0.open_file(dentry, how, false)
     }
 }
@@ -663,18 +659,25 @@ impl InodeOperations for Bind {
         })
     }
 
-    fn open(
-        &self,
-        dentry: &Dentry,
-        how: &OpenHow,
-        _cred: &crate::cred::Cred,
-    ) -> Result<Box<dyn FileOperations>, Errno> {
+    /// A directory beneath the root holds a host descriptor of its own, so it
+    /// counts against whoever opens it, a room taken before the host is
+    /// asked; the root is its maker's. The descriptor covers the first one an
+    /// open holds, so an Overlay's directory counts one for each Bind Layer.
+    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+        let held = match dentry.is_root() {
+            true => None,
+            false => vfs::hold_behind()?,
+        };
         let fid = self.fid_lookup(dentry)?;
         if how.read {
             may_read_dir(&fid)?;
         }
         OpenDirFid::set(dentry, &fid);
-        Ok(Box::new(BindDir(fid, Rdir::default(), !dentry.is_root())))
+        Ok(Box::new(BindDir {
+            fid,
+            cache: Rdir::default(),
+            _held: held,
+        }))
     }
 
     /// A name still in lookup is looked up first, and any name is left to the
@@ -738,8 +741,15 @@ impl InodeOperations for Bind {
 
 /// A host directory, open on the descriptor it holds, as 9p's `v9fs_dir_readdir`
 /// reads the fid in `private_data`, so it follows the directory wherever it
-/// moves. Whether the descriptor is its own: a Bind's root is its maker's.
-struct BindDir(Arc<Dir>, Rdir, bool);
+/// moves.
+struct BindDir {
+    fid: Arc<Dir>,
+    /// What a listing began with, as 9p's `fid->rdir` holds it.
+    cache: Rdir,
+    /// The open file it counts as beside its descriptor, given back after
+    /// the host descriptor above closes.
+    _held: Option<HeldFile>,
+}
 
 impl FileOperations for BindDir {
     fn llseek(
@@ -763,18 +773,14 @@ impl FileOperations for BindDir {
     /// What a listing began with stays on the open directory until it ends, as
     /// 9p's `fid->rdir` holds what the server sent.
     fn iterate_shared(&mut self, dentry: &Dentry, ctx: &mut DirContext<'_>) -> Result<(), Errno> {
-        let dir = self.0.clone();
-        self.1.iterate_shared(dentry, ctx, || entries_of(&dir))
+        let dir = self.fid.clone();
+        self.cache.iterate_shared(dentry, ctx, || entries_of(&dir))
     }
 
     /// Make the host directory's names durable. Windows syncs no directory, so
     /// there the host answers for them itself.
     fn fsync(&mut self, _datasync: bool) -> Result<(), Errno> {
-        sync_dir(&self.0)
-    }
-
-    fn host_descriptors(&self) -> usize {
-        usize::from(self.2)
+        sync_dir(&self.fid)
     }
 }
 
@@ -1764,7 +1770,7 @@ mod tests {
         let answer = dir
             .inode_ops()
             .expect("the name records its directory")
-            .open(&dir, &OpenHow::default(), &crate::cred::Cred::default());
+            .open(&dir, &OpenHow::default());
         assert_eq!(
             answer.err(),
             Some(Errno::NotFound),

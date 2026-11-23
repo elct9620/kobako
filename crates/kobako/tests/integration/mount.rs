@@ -323,12 +323,7 @@ impl InodeOperations for OneNote {
         })
     }
 
-    fn open(
-        &self,
-        _dentry: &Dentry,
-        _options: &OpenHow,
-        _cred: &kobako_runtime::cred::Cred,
-    ) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(&self, _dentry: &Dentry, _options: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(NoteDir))
     }
 }
@@ -360,12 +355,7 @@ impl InodeOperations for Note {
         Ok(Kstat::new(FileType::RegFile, self.0.len() as u64))
     }
 
-    fn open(
-        &self,
-        _dentry: &Dentry,
-        _options: &OpenHow,
-        _cred: &kobako_runtime::cred::Cred,
-    ) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(&self, _dentry: &Dentry, _options: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(NoteFile(self.0)))
     }
 }

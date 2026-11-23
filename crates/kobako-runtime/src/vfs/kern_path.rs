@@ -65,7 +65,7 @@ impl KernPath {
         if child.file_type() == Ok(FileType::Symlink) {
             return Err(Errno::FilesystemLoop);
         }
-        let file = child.open(how, &crate::cred::Cred::default())?;
+        let file = child.open(how)?;
         if how.truncate {
             child
                 .inode()
@@ -103,10 +103,7 @@ impl KernPath {
         let opened = atomic_open(nd.mnt.sb(), nd.dentry(), &child, &how)?;
         match opened.file {
             Some(file) => Ok(file),
-            None => opened
-                .spliced
-                .unwrap_or(child)
-                .open(&how, &crate::cred::Cred::default()),
+            None => opened.spliced.unwrap_or(child).open(&how),
         }
     }
 

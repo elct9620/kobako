@@ -1084,12 +1084,7 @@ impl InodeOperations for FailsPastTheDots {
         Ok(Kstat::new(FileType::Dir, 0))
     }
 
-    fn open(
-        &self,
-        _dentry: &Dentry,
-        _how: &OpenHow,
-        _cred: &kobako_runtime::cred::Cred,
-    ) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         Ok(Box::new(FailsPastTheDotsDir))
     }
 }
@@ -1789,11 +1784,10 @@ impl Hook for AppendedMeanwhile {
         inner: &dyn InodeOperations,
         dentry: &Dentry,
         how: &OpenHow,
-        cred: &kobako_runtime::cred::Cred,
     ) -> Result<Box<dyn FileOperations>, Errno> {
         let writes = build_how(|how| how.write = true);
-        let file = inner.open(dentry, how, cred)?;
-        let other = inner.open(dentry, &writes, cred)?;
+        let file = inner.open(dentry, how)?;
+        let other = inner.open(dentry, &writes)?;
         Ok(Box::new(AppendedMeanwhileFile {
             file,
             other: std::sync::Mutex::new(other),
@@ -3084,13 +3078,8 @@ impl InodeOperations for ChangesNothing {
         })
     }
 
-    fn open(
-        &self,
-        dentry: &Dentry,
-        how: &OpenHow,
-        cred: &kobako_runtime::cred::Cred,
-    ) -> Result<Box<dyn FileOperations>, Errno> {
-        self.0.open(dentry, how, cred)
+    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+        self.0.open(dentry, how)
     }
 }
 

@@ -174,13 +174,6 @@ pub trait FileOperations: Any + Send + Sync {
     fn is_stream(&self) -> bool {
         false
     }
-
-    /// How many of its host's descriptors this file holds open, each counted
-    /// against the caller's open files where a Filesystem stacks it. The
-    /// default holds none, as a file kept in memory or by the Host App does.
-    fn host_descriptors(&self) -> usize {
-        0
-    }
 }
 
 /// Where a seek by `offset` from `whence` leaves a file `dentry` names, whose
@@ -329,7 +322,8 @@ pub(super) fn do_dentry_open(
         at.mnt.mnt_want_write()?;
     }
     let security = cred.security_file_open(at, kind, mode, how)?;
-    Ok((open()?, security))
+    let opened = super::open_files::opening(cred.open_files(), open)?;
+    Ok((opened, security))
 }
 
 /// One open file or directory, as a descriptor refers to it.
@@ -446,7 +440,7 @@ impl File {
         let kind = path.dentry().file_type()?;
         let mode = FMode::of(how);
         let (ops, security) = on_path(path.mnt(), path.dentry(), |at| {
-            do_dentry_open(cred, at, kind, mode, how, || path.dentry().open(how, cred))
+            do_dentry_open(cred, at, kind, mode, how, || path.dentry().open(how))
         })?;
         Ok(Self::new(path, ops, mode, how, cred, security))
     }
@@ -836,7 +830,6 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-            _cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
             Ok((self.0)())
         }
@@ -1242,7 +1235,6 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-            _cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
             Ok(Box::new(ReadsWholeDir(crate::filesystem::Rdir::default())))
         }
@@ -1267,7 +1259,6 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-            _cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
             Ok(Box::new(ReadsWholeDir(crate::filesystem::Rdir::default())))
         }
@@ -1292,7 +1283,6 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-            _cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
             Ok(Box::new(ReadsWholeDir(crate::filesystem::Rdir::default())))
         }
@@ -1670,7 +1660,6 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-            _cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
             Ok(Box::new(self.clone()))
         }
@@ -1773,7 +1762,6 @@ mod tests {
             &self,
             _dentry: &Dentry,
             _options: &OpenHow,
-            _cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
             Ok(Box::new(CountsSyncs(self.0.clone())))
         }

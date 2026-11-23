@@ -37,9 +37,8 @@ pub(super) trait Hook: Send + Sync + 'static {
         inner: &dyn InodeOperations,
         dentry: &Dentry,
         how: &OpenHow,
-        cred: &kobako_runtime::cred::Cred,
     ) -> Result<Box<dyn FileOperations>, Errno> {
-        inner.open(dentry, how, cred)
+        inner.open(dentry, how)
     }
 
     fn mkdir(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<(), Errno> {
@@ -157,13 +156,8 @@ impl<H: Hook> InodeOperations for WrapInode<H> {
         Ok(self.wrap(self.hook.lookup(self.inner.as_ref(), dentry)?))
     }
 
-    fn open(
-        &self,
-        dentry: &Dentry,
-        how: &OpenHow,
-        cred: &kobako_runtime::cred::Cred,
-    ) -> Result<Box<dyn FileOperations>, Errno> {
-        self.hook.open(self.inner.as_ref(), dentry, how, cred)
+    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+        self.hook.open(self.inner.as_ref(), dentry, how)
     }
 
     fn create(&self, dentry: &Dentry) -> Result<(), Errno> {

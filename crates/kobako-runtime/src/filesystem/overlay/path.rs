@@ -211,28 +211,18 @@ impl OverlayPath {
     }
 
     /// This directory opened, kept open for whoever holds it, as overlayfs's
-    /// `ovl_dir_open` opens the real directory. What the Layer holds behind
-    /// it is charged to `files_of`, whoever the Overlay opens it as.
-    pub(super) fn open_real(&self, files_of: &Cred) -> Result<Box<dyn FileOperations>, Errno> {
-        let read = OpenHow {
+    /// `ovl_dir_open` opens the real directory.
+    pub(super) fn open_real(&self) -> Result<Box<dyn FileOperations>, Errno> {
+        self.open_realfile(&OpenHow {
             read: true,
             ..OpenHow::default()
-        };
-        self.open_realfile_for(&read, files_of)
+        })
     }
 
     /// What this dentry names opened as `how` asks, once its Layer lets the
     /// Overlay's creator open it so, as `ovl_open_realfile` asks
     /// `inode_permission` for `MAY_OPEN` and the access before it opens.
     pub(super) fn open_realfile(&self, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
-        self.open_realfile_for(how, &self.creator_cred)
-    }
-
-    fn open_realfile_for(
-        &self,
-        how: &OpenHow,
-        files_of: &Cred,
-    ) -> Result<Box<dyn FileOperations>, Errno> {
         let mut mask = Mask::OPEN;
         if how.read {
             mask = mask | Mask::READ;
@@ -241,7 +231,7 @@ impl OverlayPath {
             mask = mask | Mask::WRITE;
         }
         inode_permission(&self.creator_cred, &self.filesystem, &self.dentry, mask)?;
-        self.dentry.open(how, files_of)
+        self.dentry.open(how)
     }
 
     pub(super) fn entries(&self) -> Result<Vec<DirEntry>, Errno> {
@@ -251,7 +241,7 @@ impl OverlayPath {
             entries.push(emit.to_dir_entry());
             true
         };
-        self.open_real(&self.creator_cred)?
+        self.open_real()?
             .iterate_shared(&self.dentry, &mut DirContext::new(2, &mut actor))?;
         Ok(entries)
     }

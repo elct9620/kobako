@@ -566,13 +566,9 @@ impl Dentry {
 
     /// Open the file this records as `how` asks, as `vfs_open` finds
     /// `f_op->open` on the inode a dentry holds.
-    pub(crate) fn open(
-        &self,
-        how: &OpenHow,
-        cred: &crate::cred::Cred,
-    ) -> Result<Box<dyn FileOperations>, Errno> {
+    pub(crate) fn open(&self, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         match self.inode() {
-            Some(inode) => inode.ops().open(self, how, cred),
+            Some(inode) => inode.ops().open(self, how),
             None => Err(Errno::NotFound),
         }
     }
@@ -1027,12 +1023,7 @@ mod tests {
             }
         }
 
-        fn open(
-            &self,
-            dentry: &Dentry,
-            how: &OpenHow,
-            _cred: &crate::cred::Cred,
-        ) -> Result<Box<dyn FileOperations>, Errno> {
+        fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
             if dentry.file_type() == Ok(FileType::Dir) {
                 return Ok(Box::new(ByPathDir(self.root.clone())));
             }

@@ -23,10 +23,11 @@ use super::{
     InodeOperations, Kstat, Lookup, OpenHow, RenameFlag, Tmpfs,
 };
 use crate::vfs::{
-    generic_file_llseek, generic_read_dir, notify_change, Dentry, DirContext, HeldFile, Inode,
-    Whence, NAME_MAX,
+    generic_file_llseek, generic_read_dir, notify_change, Dentry, DirContext, Inode, Whence,
+    NAME_MAX,
 };
 use inode::{OverlayDirInode, OverlayFileInode};
+use path::OverlayPath;
 use stack::OverlayFs;
 
 /// Read-only lower Layers under an upper Tmpfs, stacked into one
@@ -222,12 +223,7 @@ impl InodeOperations for OverlayRegular {
         )
     }
 
-    fn open(
-        &self,
-        dentry: &Dentry,
-        how: &OpenHow,
-        _cred: &crate::cred::Cred,
-    ) -> Result<Box<dyn FileOperations>, Errno> {
+    fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
         let fs = &self.0.fs;
         fs.open(&fs.parent(dentry)?, dentry, how)
     }
@@ -309,41 +305,19 @@ impl InodeOperations for Overlay {
         }
     }
 
-    /// Each Layer's directory opens in turn, as `ovl_dir_open` opens the
-    /// real one, and every host descriptor each holds counts against the
-    /// caller's open files. The descriptor already counts one, so the first
-    /// held needs no more; each Layer after it takes one before it opens, so
-    /// a refusal comes before the host is asked, and gives it back when that
-    /// Layer holds none. A refusal closes what opened and gives back all.
-    fn open(
-        &self,
-        dentry: &Dentry,
-        _how: &OpenHow,
-        cred: &crate::cred::Cred,
-    ) -> Result<Box<dyn FileOperations>, Errno> {
-        // Declared before what it counts, so a refusal closes the directories
-        // before it gives their room back.
-        let mut held = Vec::new();
-        let mut real = Vec::new();
-        let mut host_descriptors = 0;
-        for layer in self.fs.dir(dentry)?.level().iter().flatten() {
-            let unit = match host_descriptors {
-                0 => None,
-                _ => Some(cred.open_files().hold()?),
-            };
-            let opened = layer.open_real(cred)?;
-            if opened.host_descriptors() > 0 {
-                held.extend(unit);
-            }
-            host_descriptors += opened.host_descriptors();
-            real.push(opened);
-        }
+    fn open(&self, dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
+        let _real = self
+            .fs
+            .dir(dentry)?
+            .level()
+            .iter()
+            .flatten()
+            .map(OverlayPath::open_real)
+            .collect::<Result<_, _>>()?;
         let fs = self.fs.clone();
         Ok(Box::new(OverlayDir {
             fs,
-            _real: real,
-            _held: held,
-            host_descriptors,
+            _real,
             cache: Rdir::default(),
         }))
     }
@@ -393,11 +367,7 @@ impl InodeOperations for Overlay {
 /// directory open while it is, as `struct ovl_dir_file` holds its `realfile`.
 struct OverlayDir {
     fs: OverlayFs,
-    /// Each Layer's directory, closed before the room `_held` counts for it
-    /// is given back.
     _real: Vec<Box<dyn FileOperations>>,
-    _held: Vec<HeldFile>,
-    host_descriptors: usize,
     /// What a listing merged, held until it ends, as `ovl_dir_cache` holds it.
     cache: Rdir,
 }
@@ -431,10 +401,6 @@ impl FileOperations for OverlayDir {
     /// of its own to sync.
     fn fsync(&mut self, _datasync: bool) -> Result<(), Errno> {
         Ok(())
-    }
-
-    fn host_descriptors(&self) -> usize {
-        self.host_descriptors
     }
 }
 
@@ -925,12 +891,7 @@ mod tests {
             Ok(())
         }
 
-        fn open(
-            &self,
-            _dentry: &Dentry,
-            _how: &OpenHow,
-            _cred: &crate::cred::Cred,
-        ) -> Result<Box<dyn FileOperations>, Errno> {
+        fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
             struct Empty;
             impl FileOperations for Empty {
                 fn read_iter(
@@ -1819,12 +1780,11 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             how: &OpenHow,
-            cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
             if dentry.file_type() == Ok(FileType::Dir) && !dentry.is_root() {
                 self.start();
             }
-            inner.open(dentry, how, cred)
+            inner.open(dentry, how)
         }
     }
 
@@ -2410,12 +2370,7 @@ mod tests {
             }
         }
 
-        fn open(
-            &self,
-            dentry: &Dentry,
-            how: &OpenHow,
-            _cred: &crate::cred::Cred,
-        ) -> Result<Box<dyn FileOperations>, Errno> {
+        fn open(&self, dentry: &Dentry, how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
             if dentry.file_type() == Ok(FileType::Dir) {
                 return Ok(Box::new(FoldedDir(self.root.clone())));
             }
@@ -2559,9 +2514,8 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             how: &OpenHow,
-            cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
-            let opened = inner.open(dentry, how, cred);
+            let opened = inner.open(dentry, how);
             let run = self.0.lock().expect("never poisoned").take();
             if let Some(run) = run {
                 crate::sched::testing::join("the writer", thread::spawn(run));
@@ -2902,12 +2856,7 @@ mod tests {
             })
         }
 
-        fn open(
-            &self,
-            _dentry: &Dentry,
-            _how: &OpenHow,
-            _cred: &crate::cred::Cred,
-        ) -> Result<Box<dyn FileOperations>, Errno> {
+        fn open(&self, _dentry: &Dentry, _how: &OpenHow) -> Result<Box<dyn FileOperations>, Errno> {
             self.0.fetch_add(1, Ordering::SeqCst);
             Err(Errno::Interrupted)
         }
@@ -3178,7 +3127,6 @@ mod tests {
             _inner: &dyn InodeOperations,
             _dentry: &Dentry,
             _how: &OpenHow,
-            _cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
             Err(Errno::PermissionDenied)
         }
@@ -3321,12 +3269,11 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             how: &OpenHow,
-            cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
             if !self.opening.swap(true, Ordering::SeqCst) {
                 thread::sleep(Duration::from_millis(100));
             }
-            inner.open(dentry, how, cred)
+            inner.open(dentry, how)
         }
     }
 
@@ -3487,7 +3434,7 @@ mod tests {
         }
     }
 
-    /// Counts each open of a directory beneath a Layer's root.
+    /// Counts each directory beneath a Layer's root its Layer opens.
     #[derive(Default)]
     struct CountsDirOpens(AtomicUsize);
 
@@ -3497,12 +3444,12 @@ mod tests {
             inner: &dyn InodeOperations,
             dentry: &Dentry,
             how: &OpenHow,
-            cred: &crate::cred::Cred,
         ) -> Result<Box<dyn FileOperations>, Errno> {
+            let opened = inner.open(dentry, how)?;
             if !dentry.is_root() && dentry.file_type() == Ok(FileType::Dir) {
                 self.0.fetch_add(1, Ordering::SeqCst);
             }
-            inner.open(dentry, how, cred)
+            Ok(opened)
         }
     }
 
