@@ -20,20 +20,27 @@ module ExhaustedChild
     #{BLOCKER}
 
     # What the block answers while the process can start no thread, beside
-    # whether Ruby's own Thread.new was refused meanwhile.
+    # whether the limit binds it.
     def without_threads
       Process::UID.change_privilege(65_534) if Process.uid.zero?
       soft, hard = Process.getrlimit(:NPROC)
       Process.setrlimit(:NPROC, 0, hard)
-      refused = begin
-        Thread.new {}.join
-        false
-      rescue ThreadError
-        true
-      end
-      [refused, yield]
+      [threads_refused?, yield]
     ensure
       Process.setrlimit(:NPROC, soft, hard)
+    end
+
+    # Whether the process can start no thread. Ruby 3.4 shows it through
+    # Thread.new itself; Ruby 3.3 queues a Thread whose native thread failed
+    # and hands it the GVL for ever (Bug #20779), so there the limit and the
+    # user are read instead.
+    def threads_refused?
+      return !Process.uid.zero? && Process.getrlimit(:NPROC).first.zero? if RUBY_VERSION < "3.4"
+
+      Thread.new {}.join
+      false
+    rescue ThreadError
+      true
     end
 
     # What the block answers while the process has 512 MiB of address space
