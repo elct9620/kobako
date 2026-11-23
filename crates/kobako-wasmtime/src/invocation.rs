@@ -133,11 +133,10 @@ impl Invocation {
         &mut self.limiter
     }
 
-    /// Only the `memory.grow` delta past `baseline` is charged, so the
-    /// image's initial allocation and the high-water mark of earlier
-    /// invocations do not consume the budget.
-    pub(crate) fn arm_memory_budget(&mut self, baseline: usize) {
-        self.limiter.budget().arm(baseline);
+    /// Growth past the `declared` bytes the Guest Binary's memories and
+    /// tables start with is charged from now on.
+    pub(crate) fn arm_memory_budget(&mut self, declared: usize) {
+        self.limiter.budget().arm(declared);
     }
 
     /// Disarmed once the export returns, so post-run host bookkeeping such

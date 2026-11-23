@@ -10,9 +10,10 @@
 
 use std::time::{Duration, Instant};
 
-use wasmtime::{Store, StoreHookState, UpdateDeadline};
+use wasmtime::{GcHeapOutOfMemory, Store, StoreHookState, UpdateDeadline};
 
 use crate::invocation::Invocation;
+use crate::limiter::MemoryLimiter;
 use kobako_runtime::error::{SetupError, Trap};
 use kobako_runtime::memcg::MemoryLimitExceeded;
 use kobako_runtime::sched::{self, FatalSignal};
@@ -91,6 +92,18 @@ pub(crate) fn arm_deadline(store: &mut Store<Invocation>, limit: Option<Duration
         .data_mut()
         .set_deadline(limit.map(|limit| Instant::now() + limit));
     store.set_epoch_deadline(1);
+}
+
+/// The cap trap ending a run in `err`, `limiter` having charged its growth:
+/// a GC allocation wasmtime failed once the budget refused the heap room is
+/// the budget's, though wasmtime dropped the refusal.
+pub(crate) fn run_cap_trap_of(err: &wasmtime::Error, limiter: &MemoryLimiter) -> Option<Trap> {
+    cap_trap_of(err).or_else(|| {
+        limiter
+            .refused()
+            .filter(|_| err.is::<GcHeapOutOfMemory<()>>())
+            .map(|refused| Trap::MemoryLimit(refused.to_string()))
+    })
 }
 
 /// The cap trap `err` carries, if a cap fired: a setup step that fails

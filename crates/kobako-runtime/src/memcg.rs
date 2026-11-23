@@ -7,9 +7,9 @@ use std::sync::{Arc, Mutex, PoisonError};
 use crate::Errno;
 
 /// What one Invocation has taken against its `memory_limit`: the guest's
-/// memory grown past where the run began, and what the host holds on its
-/// behalf between calls. `None` bounds neither, while both are still counted
-/// so the peak is reported either way.
+/// memories, tables, and heaps grown past what its Guest Binary declares,
+/// and what the host holds on its behalf between calls. `None` bounds
+/// neither, while both are still counted so the peak is reported either way.
 pub struct MemoryBudget {
     limit: Option<usize>,
     charged: Mutex<Charged>,
@@ -17,10 +17,14 @@ pub struct MemoryBudget {
 
 #[derive(Default)]
 struct Charged {
-    /// Whether the guest's growth is charged; it is not before the run
-    /// begins, as the image's own allocation must pass.
+    /// Whether the guest's growth is charged; it is not before the run's
+    /// Store opens, nor once the run returns.
     armed: bool,
-    baseline: usize,
+    /// What the Guest Binary declares, which the growth that creates its
+    /// memories and tables fills without charge.
+    declared: usize,
+    /// Every growth since the budget was armed, whichever memory, table, or
+    /// heap it lands in.
     grown: usize,
     held: usize,
     peak: usize,
@@ -28,7 +32,9 @@ struct Charged {
 
 impl Charged {
     fn total(&self) -> usize {
-        self.grown.saturating_add(self.held)
+        self.grown
+            .saturating_sub(self.declared)
+            .saturating_add(self.held)
     }
 }
 
@@ -40,13 +46,13 @@ impl MemoryBudget {
         })
     }
 
-    /// Charge the guest's memory past `baseline` from now on, as the run
-    /// begins, so the image's allocation and what earlier runs left behind
-    /// take none of it.
-    pub fn arm(&self, baseline: usize) {
+    /// Charge the guest's growth from now on, as the run's Store opens, past
+    /// the `declared` bytes its Guest Binary's memories and tables start
+    /// with, so what the binary declares takes none of it.
+    pub fn arm(&self, declared: usize) {
         let mut charged = self.charged();
         charged.armed = true;
-        charged.baseline = baseline;
+        charged.declared = declared;
         charged.grown = 0;
         charged.peak = charged.held;
     }
@@ -64,25 +70,24 @@ impl MemoryBudget {
         self.charged().peak
     }
 
-    /// Charge the guest's memory growing to `desired` bytes, refused where it
-    /// and what the host holds would pass the limit. What it answers gives the
-    /// charge back should the growth then fail.
-    pub fn charge_growth(&self, desired: usize) -> Result<GrowthCharge, MemoryLimitExceeded> {
+    /// Charge `bytes` the guest's memory, table, or heap grows by, refused
+    /// where they and what is already taken would pass the limit, as each
+    /// page a cgroup's task faults in adds to one `memory.current`. What it
+    /// answers gives the charge back should the growth then fail.
+    pub fn charge_growth(&self, bytes: usize) -> Result<GrowthCharge, MemoryLimitExceeded> {
         let mut charged = self.charged();
-        let before = GrowthCharge {
-            grown: charged.grown,
-        };
         if !charged.armed {
-            return Ok(before);
+            return Ok(GrowthCharge { bytes: 0 });
         }
-        let grown = desired.saturating_sub(charged.baseline);
-        let total = grown.saturating_add(charged.held);
+        let before = charged.grown;
+        charged.grown = before.saturating_add(bytes);
+        let total = charged.total();
         if let Some(limit) = self.limit.filter(|&limit| total > limit) {
-            return Err(MemoryLimitExceeded::new(desired, limit));
+            charged.grown = before;
+            return Err(MemoryLimitExceeded::new(total, limit));
         }
-        charged.grown = grown;
         charged.peak = charged.peak.max(total);
-        Ok(before)
+        Ok(GrowthCharge { bytes })
     }
 
     /// Give back `charge`, a growth the Engine failed to make once the budget
@@ -90,7 +95,8 @@ impl MemoryBudget {
     /// `page_counter_cancel` gives a charge back. The peak keeps it, as the
     /// watermark the charge raised stays.
     pub fn cancel_growth(&self, charge: GrowthCharge) {
-        self.charged().grown = charge.grown;
+        let mut charged = self.charged();
+        charged.grown = charged.grown.saturating_sub(charge.bytes);
     }
 
     /// Charge `bytes` the host holds for the guest, refused as ENOMEM where
@@ -143,11 +149,11 @@ impl MemoryBudget {
     }
 }
 
-/// What the guest's growth stood at before one charge, which a growth the
-/// Engine fails to make gives back through `MemoryBudget::cancel_growth`.
+/// The bytes one growth charged, which a growth the Engine fails to make
+/// gives back through `MemoryBudget::cancel_growth`.
 #[must_use]
 pub struct GrowthCharge {
-    grown: usize,
+    bytes: usize,
 }
 
 /// Memory the host holds for a guest, charged to its budget as it is taken
@@ -227,15 +233,15 @@ impl Drop for MemoryCharge {
 /// invocation with it, and a Wasm Driver finds it again to classify the
 /// failure as a memory-limit `Trap`. Callers use the `Display` impl below — no
 /// field is read directly — so the inner state stays private.
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct MemoryLimitExceeded {
-    desired: usize,
+    requested: usize,
     limit: usize,
 }
 
 impl MemoryLimitExceeded {
-    pub fn new(desired: usize, limit: usize) -> Self {
-        Self { desired, limit }
+    pub fn new(requested: usize, limit: usize) -> Self {
+        Self { requested, limit }
     }
 }
 
@@ -245,7 +251,7 @@ impl std::fmt::Display for MemoryLimitExceeded {
             f,
             "memory usage exceeded memory_limit: \
              requested={} bytes, limit={} bytes",
-            self.desired, self.limit
+            self.requested, self.limit
         )
     }
 }
@@ -261,25 +267,45 @@ mod tests {
     use super::MemoryBudget;
     use crate::Errno;
 
-    fn assert_charged(budget: &MemoryBudget, desired: usize, what: &str) {
+    fn assert_charged(budget: &MemoryBudget, bytes: usize, what: &str) {
         assert!(
-            budget.charge_growth(desired).is_ok(),
+            budget.charge_growth(bytes).is_ok(),
             "{what} through MemoryBudget::charge_growth must be allowed"
         );
     }
 
-    fn assert_refused(budget: &MemoryBudget, desired: usize, what: &str) {
+    fn assert_refused(budget: &MemoryBudget, bytes: usize, what: &str) {
         assert!(
-            budget.charge_growth(desired).is_err(),
+            budget.charge_growth(bytes).is_err(),
             "{what} through MemoryBudget::charge_growth must be refused"
         );
     }
 
     // @behavior S-113
     #[test]
-    fn a_growth_before_the_budget_is_armed_is_not_bounded() {
+    fn what_the_guest_binary_declares_takes_none_of_the_budget() {
         let budget = MemoryBudget::new(Some(1 << 20));
-        assert_charged(&budget, 100 << 20, "a 100 MiB growth before arm");
+        budget.arm(2 << 20);
+        assert_charged(&budget, 2 << 20, "creating 2 MiB a Guest Binary declares");
+        assert_eq!(
+            budget.peak(),
+            0,
+            "creating the 2 MiB a Guest Binary declares under a 1 MiB limit must leave \
+             MemoryBudget::peak at 0"
+        );
+    }
+
+    // @behavior S-256
+    #[test]
+    fn growths_of_apart_memories_add_up() {
+        let budget = MemoryBudget::new(Some(1 << 20));
+        budget.arm(0);
+        assert_charged(&budget, 3 << 18, "a 768 KiB growth of one memory");
+        assert_refused(
+            &budget,
+            3 << 18,
+            "a 768 KiB growth of another memory beside it under a 1 MiB limit",
+        );
     }
 
     // @behavior S-114
@@ -346,7 +372,7 @@ mod tests {
         let while_past = (
             budget.peak(),
             budget.try_charge(1),
-            budget.charge_growth((2 << 20) + (3 << 18) + 1).is_err(),
+            budget.charge_growth(1).is_err(),
         );
         charge.force_resize(0);
         assert_eq!(
@@ -399,7 +425,7 @@ mod tests {
         let budget = MemoryBudget::new(Some(1 << 20));
         budget.arm(2 << 20);
         assert_charged(&budget, (2 << 20) + (1 << 18), "a 256 KiB growth");
-        assert_charged(&budget, (2 << 20) + (1 << 19), "a 512 KiB growth");
+        assert_charged(&budget, 1 << 18, "another 256 KiB growth");
         budget
             .try_charge(1 << 17)
             .expect("128 KiB of host buffers must be charged");

@@ -168,6 +168,18 @@ Hand-written text-format module that looks up through a directory it holds open 
 3. Make another `dir`.
 4. Stat `inner` through the descriptor opened on `dir`, and answer its errno as an Integer.
 
+## Memory budget fixtures
+
+Hand-written text-format modules that grow memory where the real Guest Binary never does. Each sits against a 1 MiB `memory_limit`.
+
+| Fixture | Grows | Where |
+|---|---|---|
+| `minimal_declared_large.wat` | nothing; declares a 2 MiB memory and a 2 MiB table | instantiation |
+| `minimal_two_memories.wat` | two memories by 768 KiB each | the run |
+| `minimal_growing_table.wat` | a table by 2 MiB of entries | the run |
+| `minimal_growing_start.wat` | its memory by 2 MiB | the start function |
+| `minimal_gc_global.wat` | the GC heap by a 2 MiB array | a global's initializer |
+
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures
 
 Each fixture exercises one bytecode-preload path of [`sandbox.md`](../../docs/spec/behavior/sandbox.md) through the real `data/kobako.wasm`.

@@ -17,7 +17,7 @@ use crate::exports::{self, Exports};
 use crate::guest::Guest;
 use crate::invocation::Invocation;
 use crate::wasi::Wasi;
-use crate::{instance_pre, trap};
+use crate::{instance_pre, limiter, trap};
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::endpoint;
 use kobako_runtime::error::{InvokeError, SetupError, Trap};
@@ -26,6 +26,9 @@ use kobako_runtime::profile::Profile;
 use kobako_runtime::runtime::{Entry, Runtime as ContractRuntime};
 use kobako_runtime::snapshot::{Capture, Completion, Snapshot, Usage};
 use kobako_transport::envelope::Preamble;
+
+/// The GC heap a Store makes before its memory budget opens.
+const GC_HEAP_PAGE: u64 = 64 * 1024;
 
 /// The wasmtime execution unit behind one sandbox runtime.
 pub struct Driver {
@@ -50,15 +53,23 @@ impl Driver {
         })
     }
 
-    /// The deadline and the `wall_time` bracket open with the Store, so
-    /// instantiating the guest and writing its request count against the
-    /// `timeout` as the export call does. A host with no thread or memory for
-    /// it stops the run before the guest starts, as instantiating does.
+    /// The deadline, the `wall_time` bracket, and the memory budget open with
+    /// the Store, so instantiating the guest and writing its request count
+    /// against the caps as the export call does. The GC heap's first page is
+    /// made before the budget opens, a fixed cost like what the Guest Binary
+    /// declares, so a run that filled its budget can still raise and rescue.
+    /// A host with no thread or memory for it stops the run before the guest
+    /// starts, as instantiating does.
     fn new_store(&self, wasi: Wasi) -> Result<WtStore<Invocation>, Trap> {
         let engine = load_engine().map_err(|err| Trap::Other(err.to_string()))?;
         let mut store = WtStore::try_new(engine, Invocation::new(wasi))
             .map_err(|err| Trap::Other(format!("failed to create the Sandbox's store: {err}")))?;
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
+        store
+            .gc_heap_grow(GC_HEAP_PAGE)
+            .map_err(|err| Trap::Other(format!("failed to create the Sandbox's GC heap: {err}")))?;
+        let declared = limiter::declared(self.instance_pre.module());
+        store.data_mut().arm_memory_budget(declared);
         trap::arm_deadline(&mut store, self.config.limits.timeout);
         store.data_mut().start_wall_clock();
         Ok(store)
@@ -71,7 +82,7 @@ impl Driver {
             .instance_pre
             .instantiate(store.as_context_mut())
             .map_err(|e| {
-                trap::cap_trap_of(&e).unwrap_or_else(|| {
+                trap::run_cap_trap_of(&e, store.data_mut().limiter_mut()).unwrap_or_else(|| {
                     Trap::Other(format!("failed to instantiate the Sandbox runtime: {e}"))
                 })
             })?;
@@ -93,7 +104,6 @@ impl Driver {
         let exports = self.instantiate(store)?;
         let downcall = exports::require(exports.downcall.as_ref())?;
         let (ptr, len) = endpoint::write_request(&mut guest_of(store), request)?;
-        self.arm_memory_budget(store, &exports);
         // A wait for a lock the call meets ends at the same deadline the guest's
         // code does, so another Sandbox holding it cannot keep this one past it.
         let deadline = store.data().deadline();
@@ -102,17 +112,6 @@ impl Driver {
         });
         disarm_caps(store);
         Ok(result)
-    }
-
-    /// The pre-initialized image's allocation is folded into the memory
-    /// baseline rather than the budget, so the budget arms only once the
-    /// image is in place.
-    fn arm_memory_budget(&self, store: &mut WtStore<Invocation>, exports: &Exports) {
-        let baseline = match exports.memory {
-            Some(m) => m.data_size(store.as_context_mut()),
-            None => 0,
-        };
-        store.data_mut().arm_memory_budget(baseline);
     }
 
     /// Built the same for every `completion`: captures and usage must
@@ -157,7 +156,10 @@ impl ContractRuntime for Driver {
                 Ok(outcome) => Completion::Outcome(outcome),
                 Err(t) => Completion::Trap(t),
             },
-            Err(e) => Completion::Trap(trap::to_trap(e)),
+            Err(e) => Completion::Trap(
+                trap::run_cap_trap_of(&e, store.data_mut().limiter_mut())
+                    .unwrap_or_else(|| trap::to_trap(e)),
+            ),
         };
         Ok(self.build_snapshot(&store, completion))
     }

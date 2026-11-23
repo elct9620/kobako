@@ -40,7 +40,7 @@ global budget.
 |---|---|
 | `timeout` | wall time inside the guest, Service calls included |
 | `setup_timeout` | instantiating a Guest Binary and reading its ABI version, not compiling it |
-| `memory_limit` | the run's `memory.grow` and what the host holds for it |
+| `memory_limit` | every memory, table, and GC heap growth past what the Guest Binary declares, from instantiation on, and what the host holds for the run |
 | `open_file_limit` | every descriptor one run holds: the standard three, the root, sockets, lookups, HTTP requests |
 
 The socket buffers, listings, lookups, and handles the host holds for a run take

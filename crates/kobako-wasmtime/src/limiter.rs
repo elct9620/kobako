@@ -2,16 +2,40 @@
 
 use std::sync::Arc;
 
-use kobako_runtime::memcg::{GrowthCharge, MemoryBudget};
-use wasmtime::ResourceLimiter;
+use kobako_runtime::memcg::{GrowthCharge, MemoryBudget, MemoryLimitExceeded};
+use wasmtime::{Module, ResourceLimiter};
 
-/// wasmtime asks this as `memory.grow` runs; an `Err` becomes the trap
-/// surfaced to the host as a guest invocation failure. A growth it allowed
-/// may still fail, past the memory's maximum or for want of host memory, and
-/// its charge is then given back.
+/// What one wasm page of a memory takes; the Engine enables no custom page
+/// size.
+const PAGE: usize = 64 * 1024;
+
+/// What one table entry takes, a pointer in wasmtime.
+const TABLE_ENTRY: usize = size_of::<usize>();
+
+/// The bytes the memories and tables `module` defines start with, which
+/// wasmtime reports as their count and the largest initial size, so a module
+/// whose sizes differ is granted the largest for each.
+pub(crate) fn declared(module: &Module) -> usize {
+    let required = module.resources_required();
+    let memory = to_usize(required.max_initial_memory_size).saturating_mul(PAGE);
+    let table = to_usize(required.max_initial_table_size).saturating_mul(TABLE_ENTRY);
+    (required.num_memories as usize)
+        .saturating_mul(memory)
+        .saturating_add((required.num_tables as usize).saturating_mul(table))
+}
+
+fn to_usize(size: Option<u64>) -> usize {
+    size.map_or(0, |size| usize::try_from(size).unwrap_or(usize::MAX))
+}
+
+/// wasmtime asks this as a memory, a table, or the GC heap is created or
+/// grows; an `Err` becomes the trap surfaced to the host as a guest
+/// invocation failure. A growth it allowed may still fail, past the memory's
+/// maximum or for want of host memory, and its charge is then given back.
 pub(crate) struct MemoryLimiter {
     budget: Arc<MemoryBudget>,
     pending: Option<GrowthCharge>,
+    refused: Option<MemoryLimitExceeded>,
 }
 
 impl MemoryLimiter {
@@ -19,6 +43,7 @@ impl MemoryLimiter {
         Self {
             budget,
             pending: None,
+            refused: None,
         }
     }
 
@@ -26,37 +51,57 @@ impl MemoryLimiter {
     pub(crate) fn budget(&self) -> &MemoryBudget {
         &self.budget
     }
+
+    /// The last growth the budget refused. wasmtime drops a refusal to grow
+    /// the GC heap and fails the allocation after it instead, so this is
+    /// what tells that failure apart as the budget's.
+    pub(crate) fn refused(&self) -> Option<&MemoryLimitExceeded> {
+        self.refused.as_ref()
+    }
+
+    fn charge(&mut self, bytes: usize) -> wasmtime::Result<bool> {
+        let charge = self.budget.charge_growth(bytes).map_err(|refusal| {
+            self.refused = Some(refusal.clone());
+            wasmtime::Error::new(refusal)
+        })?;
+        self.pending = Some(charge);
+        Ok(true)
+    }
+
+    fn give_back(&mut self) {
+        if let Some(charge) = self.pending.take() {
+            self.budget.cancel_growth(charge);
+        }
+    }
 }
 
 impl ResourceLimiter for MemoryLimiter {
     fn memory_growing(
         &mut self,
-        _current: usize,
+        current: usize,
         desired: usize,
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
-        let charge = self
-            .budget
-            .charge_growth(desired)
-            .map_err(wasmtime::Error::new)?;
-        self.pending = Some(charge);
-        Ok(true)
+        self.charge(desired.saturating_sub(current))
     }
 
     fn memory_grow_failed(&mut self, _error: wasmtime::Error) -> wasmtime::Result<()> {
-        if let Some(charge) = self.pending.take() {
-            self.budget.cancel_growth(charge);
-        }
+        self.give_back();
         Ok(())
     }
 
     fn table_growing(
         &mut self,
-        _current: usize,
-        _desired: usize,
+        current: usize,
+        desired: usize,
         _maximum: Option<usize>,
     ) -> wasmtime::Result<bool> {
-        Ok(true)
+        self.charge(desired.saturating_sub(current).saturating_mul(TABLE_ENTRY))
+    }
+
+    fn table_grow_failed(&mut self, _error: wasmtime::Error) -> wasmtime::Result<()> {
+        self.give_back();
+        Ok(())
     }
 }
 
