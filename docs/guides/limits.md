@@ -41,7 +41,7 @@ global budget.
 | `timeout` | wall time inside the guest, Service calls included |
 | `setup_timeout` | instantiating a Guest Binary and reading its ABI version, not compiling it |
 | `memory_limit` | the run's `memory.grow` and what the host holds for it |
-| `open_file_limit` | every descriptor one run holds, each counting the host descriptors behind it |
+| `open_file_limit` | every descriptor one run holds: the standard three, the root, sockets, lookups, HTTP requests |
 
 The socket buffers, listings, lookups, and handles the host holds for a run take
 from the same `memory_limit` as the guest's growth. A socket buffer takes only
@@ -56,19 +56,18 @@ that path skip the check.
 ## Host Descriptors
 
 Every run and the Host App share one process's descriptors, so the default of
-16 keeps one run from taking them all. The table says what each descriptor
-counts.
+16 keeps one run from taking them all. The cap counts descriptors, as Linux's
+`RLIMIT_NOFILE` does, so the host holds more than it counts in two places.
 
-| Held by the run | Counts |
-|---|---|
-| the standard three and the root | 1 each |
-| a file, a socket, an HTTP request, a lookup | 1 each |
-| an Overlay directory | 1 for each Bind Layer holding it |
-| a connection closed with bytes unsent | 1 until the peer takes them |
+| Held by the run | Counts | The host holds |
+|---|---|---|
+| the standard three and the root | 1 each | — |
+| a file, a socket, an HTTP request, a lookup | 1 each | — |
+| an Overlay directory | 1 | a directory for each Bind Layer holding it |
+| a connection closed with bytes unsent | 0 | its socket and its place in `open_connection_limit`, until the peer takes them |
 
 Sixteen leaves twelve past the standard three and the root, so six files stay
-open with every connection open. An Overlay directory over more than twelve
-Binds raises `Errno::EMFILE`; it needs a cap of four plus its Layers.
+open with every connection open.
 
 ### Process Descriptors
 

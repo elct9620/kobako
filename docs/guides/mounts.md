@@ -165,7 +165,7 @@ A Bind opens only files and directories: a FIFO, socket, or device raises
 
 Each file the guest holds open holds one host descriptor. Each directory it
 holds open holds one for each Bind it spans, so an Overlay's directory holds one
-per Layer that is a Bind. Each counts against `open_file_limit`. The
+per Layer that is a Bind, though `open_file_limit` counts it once. The
 process's Binds also keep up to 64 directories between them for walks,
 besides their roots. [Host Descriptors](limits.md#host-descriptors) sizes both.
 
