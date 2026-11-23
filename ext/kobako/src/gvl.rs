@@ -36,6 +36,7 @@ use magnus::typed_data::DataTypeFunctions;
 use magnus::TypedData;
 use magnus::{prelude::*, Error as MagnusError, RModule, Ruby, Value};
 
+use super::errors;
 use super::escape;
 use super::fork;
 use super::handoff::{self, Message};
@@ -294,7 +295,7 @@ where
 {
     let run = escape::Run::enter(ruby)?;
     let f = setup()?;
-    let ran = serve(ruby, release, run.state(), f);
+    let ran = serve(ruby, release, run.state(), f)?;
     fork::tell_pitchfork_past_trust(ruby);
     run.finish()?;
     Ok(ran)
@@ -302,13 +303,15 @@ where
 
 /// Run `f` on a guest's thread carrying the run's task and serve it until it
 /// ends. Each job it hands over runs here holding the GVL, in this frame, so
-/// what a callback raises or switches to never crosses the guest's frames.
+/// what a callback raises or switches to never crosses the guest's frames. A
+/// host with no thread for the guest raises `TrapError`, the guest not
+/// started.
 fn serve<R: Send + 'static>(
     ruby: &Ruby,
     release: bool,
     state: &Arc<escape::RunState>,
     f: impl FnOnce() -> R + Send + 'static,
-) -> R {
+) -> Result<R, MagnusError> {
     let ran = Arc::new(Mutex::new(None));
     let answered = ran.clone();
     let line = handoff::start(
@@ -319,7 +322,8 @@ fn serve<R: Send + 'static>(
             let value = f();
             *answered.lock().unwrap_or_else(PoisonError::into_inner) = Some(value);
         },
-    );
+    )
+    .map_err(|err| errors::trap_err(ruby, format!("can't create Thread: {err}")))?;
     let caller = ruby.obj_wrap(RunCaller {
         line: line.clone(),
         fiber: escape::fiber_id(),
@@ -333,7 +337,7 @@ fn serve<R: Send + 'static>(
         resume_unwind(panic);
     }
     let value = ran.lock().unwrap_or_else(PoisonError::into_inner).take();
-    value.expect("a run that ended without a panic answered")
+    Ok(value.expect("a run that ended without a panic answered"))
 }
 
 /// A run's caller as Ruby's collector sees it. It stands on the caller's stack

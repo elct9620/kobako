@@ -20,7 +20,8 @@ module Kobako
   end
 
   # The engine stopped the guest: a trap, a cap reached, or an outcome that
-  # could not be read. The next invocation on the same Sandbox runs as usual.
+  # could not be read. Or the host could not start it, out of threads or
+  # address space. The next invocation on the same Sandbox runs as usual.
   # +execution+ is the failed run's Execution, so a rescue reads its captures
   # and usage as a successful caller would; it is +nil+ when the failure came
   # before the guest ran.

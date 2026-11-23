@@ -16,6 +16,7 @@
 use std::any::Any;
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::io;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
@@ -380,13 +381,14 @@ static IDLE: ProcessLocal<Vec<Worker>> = ProcessLocal::new();
 
 /// Start `run` on a guest's thread carrying `task`, and hand back the line its
 /// caller serves until `Message::Done`. The run owns all it reads, as its
-/// caller may never come back for it.
+/// caller may never come back for it. A host with no thread to start for it
+/// answers why, and the run never starts.
 pub(crate) fn start(
     task: Current,
     keeps_gvl: bool,
     pending: Arc<AtomicBool>,
     run: impl FnOnce() + Send + 'static,
-) -> Arc<Line> {
+) -> io::Result<Arc<Line>> {
     let line = Arc::new(Line {
         to_caller: Mailbox::new(),
         to_guest: Mailbox::new(),
@@ -408,12 +410,12 @@ pub(crate) fn start(
     let idle = IDLE.with(|idle| idle.get_or_insert_with(Vec::new).pop());
     match idle {
         Some(worker) => worker.runs.put(job),
-        None => spawn(job),
+        None => spawn(job)?,
     }
-    line
+    Ok(line)
 }
 
-fn spawn(first: Job) {
+fn spawn(first: Job) -> io::Result<()> {
     let runs = Arc::new(Mailbox::new());
     runs.put(first);
     thread::Builder::new()
@@ -431,8 +433,8 @@ fn spawn(first: Job) {
                 idle.get_or_insert_with(Vec::new)
                     .push(Worker { runs: runs.clone() })
             });
-        })
-        .expect("a guest's thread starts");
+        })?;
+    Ok(())
 }
 
 /// Take the thread waiting on `runs` off the idle list, unless a caller took

@@ -185,7 +185,8 @@ module Kobako
     #
     # Raises TypeError when +code+ is no String, and ArgumentError when it is
     # not UTF-8 text, before the guest runs; TrapError when the engine
-    # stopped the guest, a deadline or memory budget included; SandboxError
+    # stopped the guest, a deadline or memory budget included, or the host
+    # could not start it; SandboxError
     # when the guest failed, the Guest Binary not starting the run included;
     # and ServiceError when a Service call failed and the guest left it
     # unrescued.
