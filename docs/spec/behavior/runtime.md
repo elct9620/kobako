@@ -4584,3 +4584,27 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation with room for one open file and one connection, whose socket holds bytes its peer has not taken |
 | When | its last view is dropped |
 | Then | another file opens at once, as Linux's orphan holds no descriptor. Another connection answers EAGAIN until the peer takes every byte |
+
+## `RT-416` Entropy asked for past the guest's memory traps before any is drawn
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-050` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest at the weaker profile whose entropy buffer ends past its memory |
+| When | it reads entropy into that buffer |
+| Then | the run raises `Kobako::TrapError` at once, as Linux's `getrandom` faults on such a buffer |
+
+## `RT-417` A run reading entropy stops at its deadline
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-050`, `S-149` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest that reads 64 MiB of entropy over and over, under a deadline of a fifth of a second |
+| When | it runs |
+| Then | it raises `Kobako::TimeoutError` within a second, as Linux's `getrandom` looks for a fatal signal between pages |
