@@ -63,7 +63,6 @@ def bound_sandbox(guest, roots)
 end
 
 hosts = Dir.mktmpdir("kobako-bench-mount")
-at_exit { FileUtils.remove_entry(hosts) }
 deep, wide, *spread = %w[deep wide s0 s1 s2 s3].map { |name| File.join(hosts, name) }
 host_tree(deep, 1, 8)
 host_tree(wide, 100, 1)
@@ -85,6 +84,13 @@ runner.case_with_usage("14d-read-100-block") { guarded.eval(READ_100) }
 deep_bound = bound_sandbox(guest, [deep])
 wide_bound = bound_sandbox(guest, [wide])
 spread_bound = bound_sandbox(guest, spread)
+# A host directory a Bind holds open cannot be removed on Windows, so the
+# Sandboxes go first.
+at_exit do
+  deep_bound = wide_bound = spread_bound = nil
+  GC.start
+  FileUtils.remove_entry(hosts)
+end
 
 runner.case_with_usage("14e-bind-read-100-deep") { deep_bound.eval(READ_DEEP) }
 runner.case_with_usage("14f-bind-read-100-dirs") { wide_bound.eval(READ_WIDE) }
