@@ -41,6 +41,7 @@ A glob of `**/` with `base:` leaves out the `/` CRuby answers for the base itsel
 - `test/e2e/test_dir_opened.rb`
 - `test/e2e/test_dir_glob.rb`
 - `test/e2e/test_dir_working_directory.rb`
+- `test/e2e/runtime/test_overlay_descriptors.rb`
 
 ## `FL-050` A script lists a directory beneath a Mount
 
