@@ -50,8 +50,7 @@ moves on, as Linux does. At most that is one read per open connection, and the
 run's next growth then traps.
 
 `setup_timeout` applies the first time a path is loaded, and later Sandboxes on
-that path skip the check. A Pool builds each Sandbox at its first checkout, so
-its `SetupError` raises from `with`.
+that path skip the check.
 
 ## Network Caps
 
