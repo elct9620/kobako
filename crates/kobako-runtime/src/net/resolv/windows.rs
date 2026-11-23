@@ -21,7 +21,8 @@ use windows_sys::Win32::Networking::WinSock::{
 };
 use windows_sys::Win32::System::IO::OVERLAPPED;
 
-use crate::net::lookup::{LookupError, Resolving};
+use crate::net::connections::Place;
+use crate::net::lookup::{asked_place, LookupError, Resolving};
 
 /// `name`'s addresses; Winsock that cannot start is `Again`.
 pub(super) fn resolve(name: &str) -> Resolving {
@@ -59,6 +60,9 @@ struct QueryContext {
     /// for the routine to finish.
     completed: AtomicBool,
     state: Mutex<State>,
+    /// The place of the lookup that started it, kept until the routine runs,
+    /// as the query still runs on a system thread after a cancel.
+    place: Mutex<Option<Arc<Place>>>,
 }
 
 // Windows writes the cells before the routine runs, and the routine alone
@@ -73,13 +77,14 @@ struct State {
 }
 
 impl QueryContext {
-    fn new() -> Self {
+    fn new(place: Option<Arc<Place>>) -> Self {
         Self {
             overlapped: UnsafeCell::new(unsafe { std::mem::zeroed() }),
             result: UnsafeCell::new(null_mut()),
             handle: UnsafeCell::new(null_mut()),
             completed: AtomicBool::new(false),
             state: Mutex::default(),
+            place: Mutex::new(place),
         }
     }
 
@@ -96,8 +101,8 @@ impl QueryContext {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
-    /// Take the query's outcome, `error` being its Winsock code, and wake
-    /// whoever waits for it.
+    /// Take the query's outcome, `error` being its Winsock code, wake
+    /// whoever waits for it, and give the lookup's place back.
     fn finish(&self, error: u32) {
         self.completed.store(true, Ordering::Release);
         let result = unsafe { std::mem::replace(&mut *self.result.get(), null_mut()) };
@@ -113,6 +118,13 @@ impl QueryContext {
         if let Some(waker) = state.waker.take() {
             waker.wake();
         }
+        drop(state);
+        drop(
+            self.place
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner)
+                .take(),
+        );
     }
 }
 
@@ -170,7 +182,7 @@ impl Query {
         hints.ai_family = i32::from(AF_UNSPEC);
         hints.ai_socktype = SOCK_STREAM;
         hints.ai_protocol = IPPROTO_TCP;
-        let context = Arc::new(QueryContext::new());
+        let context = Arc::new(QueryContext::new(asked_place()));
         // The routine's own reference, which it takes back as it runs.
         let routine = Arc::into_raw(context.clone());
         let error = unsafe {
@@ -214,5 +226,31 @@ impl Future for Query {
 impl Drop for Query {
     fn drop(&mut self) {
         self.context.cancel();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::net::connections::{open, OpenConnections};
+
+    // Windows answers a cancel only through the routine, so the context
+    // stands in for a query cancelled before its routine runs.
+    // @behavior NW-249
+    #[test]
+    fn a_cancelled_query_holds_its_place_until_its_routine_runs() {
+        let count = OpenConnections::new(Some(1));
+        let place = open(&count).expect("the count has room");
+        let context = QueryContext::new(Some(Arc::new(place)));
+        context.cancel();
+        let held = open(&count).is_none();
+        context.finish(windows_sys::Win32::Networking::WinSock::WSA_E_CANCELLED as u32);
+        let back = open(&count).is_some();
+        assert_eq!(
+            (held, back),
+            (true, true),
+            "a Windows query cancelled before its routine runs must keep the lookup's place \
+             counted until the routine runs, then give it back"
+        );
     }
 }
