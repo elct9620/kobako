@@ -165,8 +165,9 @@ A Bind opens only files and directories: a FIFO, socket, or device raises
 
 Each file the guest holds open holds one host descriptor. Each directory it
 holds open holds one for each Bind it spans, so an Overlay's directory holds one
-per Layer that is a Bind. A Bind also keeps up to 64
-directories open for walks, besides its root.
+per Layer that is a Bind. Each counts against `open_file_limit`. The
+process's Binds also keep up to 64 directories between them for walks,
+besides their roots. [Host Descriptors](limits.md#host-descriptors) sizes both.
 
 The compile cache is `$XDG_CACHE_HOME/kobako` when it is set, else
 `~/.cache/kobako` on Unix and `%LOCALAPPDATA%\kobako` on Windows. A Bind of the

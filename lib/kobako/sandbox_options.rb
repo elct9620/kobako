@@ -16,8 +16,9 @@ module Kobako
   # [+stdout_limit+, +stderr_limit+]
   #                   Integer bytes kept from each output channel; 1 MiB.
   # [+open_file_limit+]
-  #                   Integer descriptors one invocation may hold open, the
-  #                   standard ones and each outermost mount's included; 1024.
+  #                   Integer files one invocation may hold open, the standard
+  #                   descriptors and each outermost mount's included, each
+  #                   counting the host descriptors held behind it; 16.
   # [+open_connection_limit+]
   #                   Integer connections one invocation holds open at once, each
   #                   socket once it dials, HTTP request, and name lookup in

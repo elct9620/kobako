@@ -27,7 +27,7 @@ Each cap has a default and its own way to end a run.
 | `setup_timeout` | 10.0 s | `Kobako::SetupError` at `new` |
 | `memory_limit` | 4 MiB | `Kobako::MemoryLimitError`; a host buffer past it is `Errno::ENOMEM` in the guest |
 | `stdout_limit`, `stderr_limit` | 1 MiB each | output clipped, no raise |
-| `open_file_limit` | 1024 | `Errno::EMFILE` in the guest |
+| `open_file_limit` | 16 | `Errno::EMFILE` in the guest |
 | `open_connection_limit` | 6 | `Errno::EAGAIN` in the guest |
 | `connection_limit` | 50 | `Errno::EAGAIN` in the guest |
 
@@ -41,7 +41,7 @@ global budget.
 | `timeout` | wall time inside the guest, Service calls included |
 | `setup_timeout` | instantiating a Guest Binary and reading its ABI version, not compiling it |
 | `memory_limit` | the run's `memory.grow` and what the host holds for it |
-| `open_file_limit` | every descriptor one run holds: the standard three, the root, sockets, lookups, HTTP requests |
+| `open_file_limit` | every descriptor one run holds, each counting the host descriptors behind it |
 
 The socket buffers, listings, lookups, and handles the host holds for a run take
 from the same `memory_limit` as the guest's growth. A socket buffer takes only
@@ -52,6 +52,34 @@ write per open connection, and the run's next growth then traps.
 
 `setup_timeout` applies the first time a path is loaded, and later Sandboxes on
 that path skip the check.
+
+## Host Descriptors
+
+Every run and the Host App share one process's descriptors, so the default of
+16 keeps one run from taking them all. The table says what each descriptor
+counts.
+
+| Held by the run | Counts |
+|---|---|
+| the standard three and the root | 1 each |
+| a file, a socket, an HTTP request, a lookup | 1 each |
+| an Overlay directory | 1 for each Bind Layer holding it |
+| a connection closed with bytes unsent | 1 until the peer takes them |
+
+Sixteen leaves twelve past the standard three and the root, so six files stay
+open with every connection open. An Overlay directory over more than twelve
+Binds raises `Errno::EMFILE`; it needs a cap of four plus its Layers.
+
+### Process Descriptors
+
+Besides each run's own, the process's Binds keep up to 64 host directories
+between them for walks. Those give way whenever the host runs out, and a Bind
+the Host App let go of holds its root until Ruby collects it.
+
+| Choose | Because |
+|---|---|
+| `open_file_limit` above what the host leaves | each run's descriptors stay its own |
+| a higher process limit, as `ulimit -n` | collected Binds and runs fit beside the Host App |
 
 ## Network Caps
 
