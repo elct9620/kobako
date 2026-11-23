@@ -7,6 +7,14 @@ require "tempfile"
 # Thread of the process able to run a timeout, so code that may deadlock
 # runs in a child instead.
 module ChildProcess
+  # A child script's Service that blocks a run on a Queue until the script
+  # fills it, so the run stays in progress as long as the script needs.
+  BLOCKER = <<~RUBY
+    Blocker = Struct.new(:queue) do
+      def wait = queue.pop
+    end
+  RUBY
+
   # What +script+ prints, run as a child with +args+ under +env+ and the
   # source tree's +lib+ on its load path, or +:deadlocked+ when it outlives
   # +deadline+ seconds. A child that fails flunks with what it wrote to

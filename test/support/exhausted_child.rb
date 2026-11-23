@@ -14,12 +14,10 @@ module ExhaustedChild
 
   DEADLINE = 60
 
-  PRELUDE = <<~RUBY
+  PRELUDE = <<~RUBY.freeze
     require "kobako"
     WASM = ENV.fetch("KOBAKO_WASM")
-    Blocker = Struct.new(:queue) do
-      def wait = queue.pop
-    end
+    #{BLOCKER}
 
     # What the block answers while the process can start no thread, beside
     # whether Ruby's own Thread.new was refused meanwhile.

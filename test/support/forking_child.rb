@@ -11,13 +11,11 @@ module ForkingChild
 
   BOUND = 30
 
-  PRELUDE = <<~RUBY
+  PRELUDE = <<~RUBY.freeze
     require "kobako"
     require "stringio"
     WASM = ENV.fetch("KOBAKO_WASM")
-    Blocker = Struct.new(:queue) do
-      def wait = queue.pop
-    end
+    #{BLOCKER}
     def sandbox = Kobako::Sandbox.new(wasm_path: WASM)
     def child_answers?(sandbox)
       pid = fork { exit!(sandbox.eval("1 + 1").value == 2 ? 0 : 1) }
