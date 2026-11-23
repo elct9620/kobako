@@ -72,7 +72,7 @@ call itself raises before the run, as a Ruby core method raises it:
 begin
   sandbox.eval(script)
 rescue Kobako::TrapError
-  # The engine stopped the guest, a cap included.
+  # The engine stopped the guest, a cap included, or the host could not start it.
 rescue Kobako::ServiceError
   # A Service call failed and the script did not rescue it.
 rescue Kobako::SandboxError => e

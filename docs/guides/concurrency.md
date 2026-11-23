@@ -34,6 +34,21 @@ sandbox.eval(script) { |ctx| ctx.mount("/data", tenant_files, access: :read_writ
 Choosing per Invocation keeps concurrent requests apart, such as one
 tenant's files or user from another's.
 
+## Run Count
+
+kobako runs as many Invocations at once as your Threads and Fibers start. Each
+takes a guest thread and address space from the process, so one the process
+has no room for raises at once.
+
+| Out of | Raises |
+|---|---|
+| threads, building the first Sandbox | `Kobako::SetupError` |
+| threads, starting a run | `Kobako::TrapError` |
+| address space, starting a run | `Kobako::TrapError` |
+
+The next run goes on once room is free. Bound how many run at once with a pool
+of your own, sized below what the process allows.
+
 ## GVL Modes
 
 By default an Invocation holds Ruby's GVL while its guest runs. It hands the GVL
@@ -124,15 +139,17 @@ interrupt of its Thread. The callback's own wait never ends alone.
 
 A forked child keeps only the Thread that forked, so a lock a run held would
 stay held in the child. Once a Sandbox is built, every fork through Ruby
-first waits for the runs in progress. `Kernel#fork`, `IO.popen("-")`, and
-`Process.daemon` all wait.
+raises while any run is in progress. `Kernel#fork`, `IO.popen("-")`, and
+`Process.daemon` are all checked.
 
 | Fork | Outcome |
 |---|---|
-| outside any run, as a preloading server does | forks at once |
-| while another Thread's run is in progress | warns, then waits for that run to end |
-| from a Service, or beside a Fiber suspended in a run on the same Thread | raises `RuntimeError` |
+| while no run is in progress, as a preloading server does | forks at once |
+| while a run on any Thread is in progress | raises `RuntimeError`; fork again once it ends |
 | on macOS, after a guest's HTTPS | raises `RuntimeError` naming that server |
+
+A run is in progress until its guest ends, its caller collected or not. A run
+that starts while a fork is under way waits for that fork to return.
 
 The refusals raise `RuntimeError`, not a `Kobako::Error`. A `rescue` for a
 failed run never catches one by mistake.
@@ -145,8 +162,12 @@ Pitchfork forks from another worker.
 
 | Watch for | Because |
 |---|---|
-| a `fork(2)` another C extension makes | it skips the wait; make it while no run is in progress |
-| a `_fork` hook prepended after the first Sandbox that stops a service | it stops it before the wait; a run needing it never ends, nor the wait |
+| a `fork(2)` another C extension makes | it skips the check; make it while no run is in progress |
+| a `_fork` hook prepended after the first Sandbox that stops a service | it runs before the check; restart the service in `ensure` |
+| a `_fork` hook prepended before the first Sandbox that awaits a run | that run waits for the fork, which waits for it |
+| a trap handler that awaits a run while a fork is under way | the same |
+| a Fiber left suspended in a run | every fork raises until the Fiber is collected and its guest ends |
+| Threads forking so often their forks always overlap | a starting run waits until they stop |
 
 ## Rust SDK
 
