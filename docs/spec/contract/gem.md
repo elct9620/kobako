@@ -414,7 +414,9 @@ end
 
 ## `Kobako::Filesystem::Bind.new`
 
-A Filesystem over a host directory, reaching nothing outside it.
+A Filesystem over a host directory, reaching nothing outside it. A path it
+cannot open raises `ArgumentError`, and a host out of descriptors raises its
+`Errno`.
 
 | Attribute | Value |
 | --- | --- |

@@ -1802,8 +1802,8 @@ pub struct Bind {}
 
 ## `Bind::new`
 
-A Bind over the host directory at a path, refusing one that cannot be
-opened.
+A Bind over the host directory at a path, opened as it is made. One the host
+refuses to open answers the host's own error.
 
 ```rust
 impl Bind {

@@ -2461,3 +2461,64 @@ both live in the upper and never show, so no name is reserved
 | Given | a caller with room for two more open files, and an Overlay of Binds whose eight Layers hold a directory |
 | When | the caller opens the directory |
 | Then | it is refused as too many open files after three Layers open. Each Layer opened closes and gives its room back |
+
+## `FS-225` A Bind reaches the host directory standing where it was made
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-135` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind made over a host directory, which the host then moves away and replaces with another |
+| When | a guest reads a file through the Bind |
+| Then | it reads the directory the Bind was made over, as the Bind opened it when made |
+
+## `FS-226` A Bind made while the host is out of descriptors makes the kept directories give way
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-217` |
+
+| Step | Statement |
+| --- | --- |
+| Given | directories other Binds keep, and a host process holding as many files as it may |
+| When | the Host App makes a Bind |
+| Then | the Bind is made, as the kept directories give way before its directory opens again |
+
+## `FS-227` A Bind made while the host is out of descriptors collects garbage once
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-226` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a host process whose descriptors the Binds a Host App let go of still hold, garbage collection disabled or not |
+| When | the Host App makes another Bind |
+| Then | the Bind is made, as Ruby collects garbage once and the open is tried again, as `Dir.new` does |
+
+## `FS-228` A Bind made in a callback while the host is out of descriptors completes
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-227` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a host process out of descriptors, and a Ruby Filesystem whose callback makes a Bind while a directory is locked |
+| When | a guest call reaches that callback |
+| Then | the call completes within its deadline, as collecting garbage takes no lock the call holds |
+
+## `FS-229` A Bind made while the host is out of descriptors raises the host's refusal
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-226` |
+| relates | `FS-209` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a host process holding as many files as it may, each still in use |
+| When | the Host App makes a Bind |
+| Then | it raises `Errno::EMFILE`, not an `ArgumentError`, since nothing is wrong with the path |
