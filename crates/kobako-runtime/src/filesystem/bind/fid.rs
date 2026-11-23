@@ -125,12 +125,18 @@ impl FidCache {
         match open() {
             Err(err) if full(&err) => {
                 let _yielding = Yielding::start(self);
-                while let Some(fid) = self.with(|kept| kept.fids.pop_lru()) {
-                    drop(fid);
-                }
+                self.drop_all();
                 open()
             }
             answer => answer,
+        }
+    }
+
+    /// Let every kept directory go, one at a time and each closed past the
+    /// lock, so a fork about to happen hands the child none of them.
+    pub(super) fn drop_all(&self) {
+        while let Some(fid) = self.with(|kept| kept.fids.pop_lru()) {
+            drop(fid);
         }
     }
 

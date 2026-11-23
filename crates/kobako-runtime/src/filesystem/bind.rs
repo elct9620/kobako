@@ -52,6 +52,13 @@ pub struct Bind {
 }
 
 impl Bind {
+    /// Let go of every host directory the process's Binds keep for walks,
+    /// as a process about to fork does, so the child inherits none of them.
+    /// A directory a guest holds open stays with the guest.
+    pub fn drop_kept_directories() {
+        FIDS.drop_all();
+    }
+
     /// Open the host directory at `path` now, the one place this Filesystem
     /// reaches outside itself, so it stays the directory standing there as
     /// it is made. One the host lets no one read is refused, so its root
