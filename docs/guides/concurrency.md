@@ -47,7 +47,10 @@ has no room for raises at once.
 | address space, starting a run | `Kobako::TrapError` |
 
 The next run goes on once room is free. Bound how many run at once with a pool
-of your own, sized below what the process allows.
+of your own, sized below what the process allows. Guest threads count against
+the same limit as your own Threads. On Ruby 3.3, a refused `Thread.new` hangs
+the whole process (Ruby Bug #20779). So keep the pool below that limit, or
+move to Ruby 3.4.
 
 ## GVL Modes
 
