@@ -2062,11 +2062,14 @@ mod tests {
         use super::super::bindings::HttpHost;
         let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let udp_port = peer.local_addr().unwrap().port();
+        let server = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let http_port = server.local_addr().unwrap().port();
         let mut guest = limited_network_guest(
             [
                 network::Endpoint::new("127.0.0.1", udp_port)
                     .unwrap()
                     .with_protocol(network::Protocol::Udp),
+                network::Endpoint::new("127.0.0.1", http_port).unwrap(),
                 network::Endpoint::new("localhost", 80)
                     .unwrap()
                     .with_addresses(vec![network::Addresses::Local]),
@@ -2122,7 +2125,10 @@ mod tests {
                 .types_outgoing_request_set_scheme(request, Some(Scheme::HTTP))?
                 .expect("http is a scheme");
             guest
-                .types_outgoing_request_set_authority(request, Some("other.test".to_string()))?
+                .types_outgoing_request_set_authority(
+                    request,
+                    Some(format!("127.0.0.1:{http_port}")),
+                )?
                 .expect("an authority");
             let body = guest
                 .types_outgoing_request_body(request)?
@@ -2131,7 +2137,7 @@ mod tests {
             let future = guest
                 .outgoing_handler_handle(request, None)
                 .into_answer()?
-                .expect("a request whose body is unfinished waits in its future");
+                .expect("an http endpoint names the authority");
             guest.types_outgoing_body_drop(body)?;
             let arrived = guest.types_future_incoming_response_subscribe(future)?;
             let future_held = guest.types_future_incoming_response_drop(future).is_err();

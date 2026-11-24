@@ -24,27 +24,11 @@ use super::io::{self, SharedFile, Stream};
 use super::to_nanos;
 use crate::invocation::Invocation;
 
-/// A request's body and whether the guest ended it, shared between the request
-/// and the `outgoing-body` its `body` hands out.
+/// A request's body and whether the guest asked for it, shared between the
+/// request and the `outgoing-body` its `body` hands out.
 pub(crate) struct BodyLink {
     body: Arc<RequestBody>,
     handed: AtomicBool,
-    finished: AtomicBool,
-    /// Whether the guest dropped the body without finishing it, which fails
-    /// its request, as wasmtime's `abort` does.
-    aborted: AtomicBool,
-}
-
-impl BodyLink {
-    /// Whether the request may leave: its body was never asked for, or was
-    /// ended.
-    fn is_complete(&self) -> bool {
-        !self.handed.load(Ordering::Acquire) || self.finished.load(Ordering::Acquire)
-    }
-
-    fn is_aborted(&self) -> bool {
-        self.aborted.load(Ordering::Acquire)
-    }
 }
 
 /// A request the guest is building.
@@ -77,8 +61,6 @@ impl Request {
 
 /// Where a `future-incoming-response` stands.
 pub(crate) enum FutureState {
-    /// Handed over before its body ended, so it leaves once it does.
-    Waiting(Request),
     /// Sent, with the file its response's arrival wakes, made as it leaves.
     Sent(Arc<Exchange>, SharedFile),
     Refused(ErrorCode),
@@ -221,8 +203,12 @@ impl Invocation {
     }
 
     /// Hand `request` to the namespace, which judges it here on the guest
-    /// thread before it is sent.
+    /// thread before it is sent. Its body streams as the guest writes it; one
+    /// the guest never asked for is empty.
     fn send(&mut self, request: Request) -> FutureState {
+        if !request.link.handed.load(Ordering::Acquire) {
+            request.link.body.finish();
+        }
         let method = name_of(&request.method).to_string();
         let scheme = match request.scheme.as_ref() {
             Some(Scheme::HTTP) => net::Scheme::Http,
@@ -241,7 +227,7 @@ impl Invocation {
             outgoing.path_with_query = path;
         }
         outgoing.headers = request.headers.entries();
-        outgoing.body = request.link.body.take();
+        outgoing.body = request.link.body.clone();
         outgoing.timeouts = request.timeouts;
         // The exchange reserves the request's parts itself, so the guest's
         // copies give theirs back before it does.
@@ -254,25 +240,6 @@ impl Invocation {
             }
             Err(err) => FutureState::Refused(to_error_code(err)),
         }
-    }
-
-    /// The future's request leaves once its body ended, and fails once its body
-    /// was dropped unfinished.
-    fn advance(&mut self, future: FutureIncomingResponse) -> wasmtime::Result<()> {
-        let state = self.future_mut(future)?;
-        if matches!(state, FutureState::Waiting(request) if request.link.is_aborted()) {
-            *state = FutureState::Refused(ErrorCode::HTTPProtocolError);
-            return Ok(());
-        }
-        if !matches!(state, FutureState::Waiting(request) if request.link.is_complete()) {
-            return Ok(());
-        }
-        let FutureState::Waiting(request) = std::mem::replace(state, FutureState::Taken) else {
-            unreachable!("matched as waiting above");
-        };
-        let sent = self.send(request);
-        *self.future_mut(future)? = sent;
-        Ok(())
     }
 }
 
@@ -340,10 +307,8 @@ impl HttpHost for Invocation {
         let cred = self.wasi().cred().clone();
         let memory = MemoryCharge::empty(cred.memory_budget());
         let link = Arc::new(BodyLink {
-            body: RequestBody::new(cred),
+            body: RequestBody::new(),
             handed: AtomicBool::new(false),
-            finished: AtomicBool::new(false),
-            aborted: AtomicBool::new(false),
         });
         self.table_mut().push(resource::OutgoingRequest(Request {
             method: Method::Get,
@@ -443,26 +408,29 @@ impl HttpHost for Invocation {
         if std::mem::replace(&mut body.stream_handed, true) {
             return Ok(Err(()));
         }
-        let stream = Stream::from(body.link.body.alloc_file());
+        let link = body.link.clone();
+        let file = link.body.alloc_file(self.wasi().cred());
+        let stream = Stream::RequestBody(link.body.clone(), Arc::new(Mutex::new(file)));
         self.table_mut()
             .push_child(io::OutputStream::new(stream), this)
             .map(Ok)
     }
 
-    /// End the body, so its request may leave. Trailers holding a field
-    /// answer `HTTP-request-denied` and fail the request: an egress proxy
-    /// sends none by default, as Envoy drops HTTP/1 trailers, and the request
-    /// policies never see them, so dropping them would succeed differently.
+    /// End the body, so its request ends once the seam sends what is left.
+    /// Trailers holding a field answer `HTTP-request-denied` and fail the
+    /// request: an egress proxy sends none by default, as Envoy drops HTTP/1
+    /// trailers, and the request policies never see them, so dropping them
+    /// would succeed differently.
     fn types_outgoing_body_finish(
         &mut self,
         this: resource::OutgoingBody,
         trailers: Option<resource::Fields>,
     ) -> Result<(), error::HttpError> {
         if trailers.is_some_and(|trailers| !trailers.entries.entries().is_empty()) {
-            this.link.aborted.store(true, Ordering::Release);
+            this.link.body.fail(net::HttpError::ProtocolError);
             return Err(ErrorCode::HTTPRequestDenied.into());
         }
-        this.link.finished.store(true, Ordering::Release);
+        this.link.body.finish();
         Ok(())
     }
 
@@ -470,17 +438,16 @@ impl HttpHost for Invocation {
     /// it with an HTTP protocol error.
     fn types_outgoing_body_drop(&mut self, handle: OutgoingBody) -> wasmtime::Result<()> {
         let link = self.table_mut().delete(handle)?.link;
-        link.aborted.store(true, Ordering::Release);
+        link.body.fail(net::HttpError::ProtocolError);
         Ok(())
     }
 
-    /// Ready once the response's head arrives; one whose request has not left
-    /// yet, or that already answered, is ready at once.
+    /// Ready once the response's head arrives; one already answered is ready
+    /// at once.
     fn types_future_incoming_response_subscribe(
         &mut self,
         this: FutureIncomingResponse,
     ) -> wasmtime::Result<Pollable> {
-        self.advance(this)?;
         let pollable = match self.future_mut(this)? {
             FutureState::Sent(exchange, file) => {
                 io::Pollable::Exchange(file.clone(), exchange.clone())
@@ -496,10 +463,8 @@ impl HttpHost for Invocation {
         &mut self,
         this: FutureIncomingResponse,
     ) -> wasmtime::Result<Option<Result<Result<IncomingResponse, ErrorCode>, ()>>> {
-        self.advance(this)?;
         let state = self.future_mut(this)?;
         let answer = match state {
-            FutureState::Waiting(_) => return Ok(None),
             FutureState::Taken => return Ok(Some(Err(()))),
             FutureState::Refused(code) => Err(code.clone()),
             FutureState::Sent(exchange, _) => match exchange.response() {
@@ -680,9 +645,9 @@ impl HttpHost for Invocation {
     }
 
     /// Send `request`, which it takes. Without a network Grant it answers
-    /// `HTTP-request-denied` at once, doing nothing first; a request whose body
-    /// has not ended leaves once it does, bound by the timeouts `options`
-    /// sets.
+    /// `HTTP-request-denied` at once, doing nothing first. The request leaves
+    /// at once, bound by the timeouts `options` sets, and its body streams
+    /// after it as the guest writes it, as wasi-http's backpressure asks.
     fn outgoing_handler_handle(
         &mut self,
         request: resource::OutgoingRequest,
@@ -700,10 +665,7 @@ impl HttpHost for Invocation {
         else {
             return Err(ErrorCode::ConnectionLimitReached.into());
         };
-        let future = match request.link.is_complete() {
-            true => self.send(request),
-            false => FutureState::Waiting(request),
-        };
+        let future = self.send(request);
         if let FutureState::Refused(code) = future {
             return Err(code.into());
         }
@@ -724,7 +686,7 @@ mod tests {
 
     use super::super::IntoAnswer;
     use super::*;
-    use crate::preview2::bindings::{Host as _, IoHost};
+    use crate::preview2::bindings::{ClocksHost, Host as _, IoHost};
 
     // @behavior NW-225
     #[test]
@@ -1408,16 +1370,165 @@ mod tests {
         );
     }
 
+    /// A loopback server that takes connections and never answers, and the
+    /// guest whose one http endpoint names it.
+    fn guest_of_a_silent_server() -> (Invocation, String, TcpListener) {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let guest = guest(Some(vec![
+            network::Endpoint::new("127.0.0.1", port).unwrap()
+        ]));
+        (guest, format!("127.0.0.1:{port}"), listener)
+    }
+
+    /// The error `future` answers once its request settles.
+    fn settled_error(guest: &mut Invocation, future: FutureIncomingResponse) -> Option<ErrorCode> {
+        run_task(Some(Instant::now() + Wait::from_secs(10)), || {
+            let ready = guest.types_future_incoming_response_subscribe(future)?;
+            guest.poll_pollable_block(ready)?;
+            guest.poll_pollable_drop(ready)?;
+            Ok::<_, wasmtime::Error>(
+                guest
+                    .types_future_incoming_response_get(future)?
+                    .and_then(|answer| answer.ok())
+                    .and_then(|response| response.err()),
+            )
+        })
+        .expect("the request settles")
+    }
+
+    /// The body a chunked request carries, read from `reader` to its last
+    /// chunk.
+    fn read_chunked(reader: &mut impl BufRead) -> Vec<u8> {
+        let mut body = Vec::new();
+        loop {
+            let mut size = String::new();
+            reader.read_line(&mut size).unwrap();
+            let size = usize::from_str_radix(size.trim(), 16).unwrap();
+            let mut chunk = vec![0; size + 2];
+            std::io::Read::read_exact(reader, &mut chunk).unwrap();
+            if size == 0 {
+                return body;
+            }
+            body.extend_from_slice(&chunk[..size]);
+        }
+    }
+
+    // @behavior NW-251
+    #[test]
+    fn a_request_body_holds_one_socket_buffer_until_the_server_takes_it() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (start_reading, reading) = std::sync::mpsc::channel::<()>();
+        let server = std::thread::spawn(move || {
+            let (stream, _) = listener.accept().unwrap();
+            reading.recv().unwrap();
+            let mut reader = BufReader::new(stream.try_clone().unwrap());
+            let mut line = String::new();
+            while line != "\r\n" {
+                line.clear();
+                reader.read_line(&mut line).unwrap();
+            }
+            let body = read_chunked(&mut reader);
+            (&stream)
+                .write_all(b"HTTP/1.1 204 No Content\r\n\r\n")
+                .unwrap();
+            body
+        });
+        let mut guest = guest(Some(vec![
+            network::Endpoint::new("127.0.0.1", port).unwrap()
+        ]));
+        let sent = (0..8 << 20).map(|i| (i % 251) as u8).collect::<Vec<_>>();
+        let deadline = Instant::now() + Wait::from_secs(20);
+        let (most, unready, status) = run_task(Some(deadline), || {
+            let request = greeting_request(&mut guest, &format!("127.0.0.1:{port}"))?;
+            guest
+                .types_outgoing_request_set_method(request, Method::Post)?
+                .expect("POST is a method");
+            let body = guest
+                .types_outgoing_request_body(request)?
+                .expect("the body is handed out once");
+            let output = guest
+                .types_outgoing_body_write(body)?
+                .expect("the stream is handed out once");
+            let request = guest.take_handle(request)?;
+            let future = guest
+                .outgoing_handler_handle(request, None)
+                .into_answer()?
+                .expect("an http endpoint names the authority");
+            let writable = guest.streams_output_stream_subscribe(output)?;
+            let (mut written, mut most, mut unready) = (0, 0, false);
+            while written < sent.len() {
+                let permit = guest
+                    .streams_output_stream_check_write(output)
+                    .into_answer()?
+                    .expect("an open stream permits") as usize;
+                most = most.max(permit);
+                if permit == 0 {
+                    // The seam may still move what is queued into the
+                    // host's socket; once that is full too, nothing frees room.
+                    if !unready {
+                        let now = guest.monotonic_clock_subscribe_duration(0)?;
+                        unready = !guest.poll_poll(vec![writable, now])?.contains(&0);
+                        guest.poll_pollable_drop(now)?;
+                        if !unready {
+                            continue;
+                        }
+                        start_reading.send(()).unwrap();
+                    }
+                    guest.poll_pollable_block(writable)?;
+                    continue;
+                }
+                let take = permit.min(sent.len() - written);
+                guest
+                    .streams_output_stream_write(output, sent[written..written + take].to_vec())
+                    .into_answer()?
+                    .expect("a write of the permit succeeds");
+                written += take;
+            }
+            if !unready {
+                start_reading.send(()).unwrap();
+            }
+            guest.poll_pollable_drop(writable)?;
+            guest.streams_output_stream_drop(output)?;
+            let body = guest.take_handle(body)?;
+            guest
+                .types_outgoing_body_finish(body, None)
+                .into_answer()?
+                .expect("the body ends");
+            let ready = guest.types_future_incoming_response_subscribe(future)?;
+            guest.poll_pollable_block(ready)?;
+            let response = guest
+                .types_future_incoming_response_get(future)?
+                .expect("the head arrived")
+                .expect("handed out once")
+                .expect("the server answered");
+            Ok::<_, wasmtime::Error>((
+                most,
+                unready,
+                guest.types_incoming_response_status(response)?,
+            ))
+        })
+        .expect("the request answers");
+        let received = server.join().unwrap();
+        assert!(
+            most <= 64 * 1024 && unready && status == 204 && received == sent,
+            "an 8 MiB request body to a server that reads it late must be permitted at \
+             most one 64 KiB socket buffer at a time, poll unready while the buffer is full, and \
+             reach the server whole and in order; permitted at most {most}, unready {unready}, \
+             status {status}, the server read {} bytes",
+            received.len()
+        );
+    }
+
     // @behavior NW-193
     #[test]
     fn a_body_finished_with_trailers_is_refused_and_fails_its_request() {
-        let mut guest = guest(Some(vec![
-            network::Endpoint::new("example.com", 80).unwrap()
-        ]));
+        let (mut guest, authority, _server) = guest_of_a_silent_server();
         // Whether `finish` with `trailers` refuses, and what the request's
         // future answers then.
-        let mut finished_with = |trailer: Option<(&str, &[u8])>| {
-            let request = greeting_request(&mut guest, "example.com").unwrap();
+        let finished_with = |guest: &mut Invocation, trailer: Option<(&str, &[u8])>| {
+            let request = greeting_request(guest, &authority).unwrap();
             let body = guest
                 .types_outgoing_request_body(request)
                 .unwrap()
@@ -1427,7 +1538,7 @@ mod tests {
                 .outgoing_handler_handle(request, None)
                 .into_answer()
                 .unwrap()
-                .expect("the request waits on its body");
+                .expect("an http endpoint names the authority");
             let trailers = guest.types_fields_new().unwrap();
             if let Some((name, value)) = trailer {
                 guest
@@ -1442,15 +1553,11 @@ mod tests {
                 .types_outgoing_body_finish(body, Some(trailers))
                 .into_answer()
                 .unwrap();
-            let answer = guest
-                .types_future_incoming_response_get(future)
-                .unwrap()
-                .and_then(|answer| answer.ok())
-                .and_then(|response| response.err());
-            (finished, answer)
+            (finished, future)
         };
-        let refused = finished_with(Some(("cookie", b"session=1")));
-        let empty = finished_with(None);
+        let (refused, refused_future) = finished_with(&mut guest, Some(("cookie", b"session=1")));
+        let refused = (refused, settled_error(&mut guest, refused_future));
+        let empty = finished_with(&mut guest, None);
         assert_eq!(
             (refused, empty.0),
             (
@@ -1469,10 +1576,8 @@ mod tests {
     // @behavior NW-071
     #[test]
     fn a_body_dropped_unfinished_fails_its_request() {
-        let mut guest = guest(Some(vec![
-            network::Endpoint::new("example.com", 80).unwrap()
-        ]));
-        let request = greeting_request(&mut guest, "example.com").unwrap();
+        let (mut guest, authority, _server) = guest_of_a_silent_server();
+        let request = greeting_request(&mut guest, &authority).unwrap();
         let body = guest
             .types_outgoing_request_body(request)
             .unwrap()
@@ -1482,17 +1587,13 @@ mod tests {
             .outgoing_handler_handle(request, None)
             .into_answer()
             .unwrap()
-            .expect("the request waits on its body");
+            .expect("an http endpoint names the authority");
         let waiting = guest
             .types_future_incoming_response_get(future)
             .unwrap()
             .is_none();
         guest.types_outgoing_body_drop(body).unwrap();
-        let answer = guest
-            .types_future_incoming_response_get(future)
-            .unwrap()
-            .and_then(|answer| answer.ok())
-            .and_then(|response| response.err());
+        let answer = settled_error(&mut guest, future);
         assert_eq!(
             (waiting, answer),
             (true, Some(ErrorCode::HTTPProtocolError)),

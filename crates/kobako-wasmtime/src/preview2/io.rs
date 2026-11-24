@@ -5,7 +5,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Instant;
 
-use kobako_runtime::net::{Exchange, TcpSock};
+use kobako_runtime::net::{Exchange, RequestBody, TcpSock};
 use kobako_runtime::profile::Profile;
 use kobako_runtime::vfs::{File, PollMask};
 use kobako_runtime::wait::PollTable;
@@ -65,11 +65,13 @@ impl<S> SocketFile<S> {
 }
 
 /// What an `input-stream` or an `output-stream` reads or writes: a socket's
-/// file, whose socket holds what was written until the host takes it, or any
+/// file, whose socket holds what was written until the host takes it; a
+/// request body's file, whose buffer holds it until the seam takes it; or any
 /// other file.
 #[derive(Clone)]
 pub(crate) enum Stream {
     Socket(SocketFile<TcpSock>),
+    RequestBody(Arc<RequestBody>, SharedFile),
     File(SharedFile),
 }
 
@@ -86,7 +88,7 @@ impl Stream {
     pub(crate) fn shared_file(&self) -> SharedFile {
         match self {
             Stream::Socket(socket) => socket.shared_file(),
-            Stream::File(file) => file.clone(),
+            Stream::RequestBody(_, file) | Stream::File(file) => file.clone(),
         }
     }
 
@@ -94,7 +96,7 @@ impl Stream {
     pub(crate) fn lock(&self) -> MutexGuard<'_, File> {
         match self {
             Stream::Socket(socket) => socket.file(),
-            Stream::File(file) => lock(file),
+            Stream::RequestBody(_, file) | Stream::File(file) => lock(file),
         }
     }
 
@@ -114,7 +116,7 @@ impl Stream {
     pub(crate) fn write_whole(&self, buf: &[u8]) -> Result<(), Errno> {
         match self {
             Stream::Socket(socket) => socket.sock.send_whole(buf),
-            Stream::File(_) => self.write(buf).map(drop),
+            Stream::RequestBody(..) | Stream::File(_) => self.write(buf).map(drop),
         }
     }
 
@@ -122,6 +124,7 @@ impl Stream {
     pub(crate) fn room(&self) -> usize {
         match self {
             Stream::Socket(socket) => socket.sock.send_room(),
+            Stream::RequestBody(body, _) => body.room(),
             // A file takes any write, so it offers what wasmtime-wasi offers
             // a file's output stream.
             Stream::File(_) => MAX_READ_SIZE_ALLOC,
@@ -132,6 +135,7 @@ impl Stream {
     pub(crate) fn is_drained(&self) -> bool {
         match self {
             Stream::Socket(socket) => socket.sock.is_drained(),
+            Stream::RequestBody(body, _) => body.is_drained(),
             Stream::File(_) => true,
         }
     }

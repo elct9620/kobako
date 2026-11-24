@@ -30,7 +30,8 @@ use crate::policy::Policy;
 /// - a target not in origin form, which a proxy would forward past the
 ///   judged authority;
 /// - CONNECT, which takes no origin form and opens a tunnel no rule judges;
-/// - a TRACE with content, which RFC 9110 § 9.3.8 bars;
+/// - a TRACE with content, which RFC 9110 § 9.3.8 bars; content written
+///   once it is sent is refused as `EPIPE`;
 /// - a bound credential's header carrying its placeholder more than once.
 ///
 /// A TRACE takes no credential, as a request in clear takes none, since the
@@ -47,7 +48,7 @@ pub fn send(
     if !in_origin_form
         || !is_token(&request.method)
         || reads_as(&request.method, "CONNECT")
-        || (is_trace && !request.body.is_empty())
+        || (is_trace && request.body.has_content())
     {
         return Err(HttpError::Denied);
     }
@@ -101,6 +102,9 @@ pub fn send(
     };
     request.authority = join_authority(&host, port, request.scheme);
     request.swaps = swaps;
+    if is_trace {
+        request.body.refuse_content();
+    }
 
     net.within_connection_budget(HttpError::ConnectionLimitReached, || {
         Exchange::start(

@@ -1,21 +1,22 @@
 //! An HTTP request the guest sends, as a userspace proxy forwards one: the
 //! namespace judges what the guest named on the guest thread, then a task on
 //! the reactor hands the request to the outbound seam, whose only dialer is
-//! kobako's connector. The response's body fills a buffer the guest reads
-//! through the wait queue, so a full buffer stops the task and the TCP window
-//! pushes back.
+//! kobako's connector. The request's body streams through a buffer the guest
+//! writes into, and the response's body fills a buffer the guest reads
+//! through the wait queue, so a full buffer either way stops its side and the
+//! TCP window pushes back.
 
 use std::future::{poll_fn, Future};
 use std::io;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError, Weak};
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
-use bytes::Bytes;
+use bytes::{Bytes, BytesMut};
 use http_body::Body;
 use http_body_util::combinators::UnsyncBoxBody;
-use http_body_util::{BodyExt, Full};
+use http_body_util::BodyExt;
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
 use super::connections::{open, OpenConnections, Place};
@@ -272,7 +273,7 @@ pub struct OutgoingRequest {
     pub authority: String,
     pub path_with_query: String,
     pub headers: Vec<(String, Vec<u8>)>,
-    pub body: Vec<u8>,
+    pub body: Arc<RequestBody>,
     pub timeouts: Timeouts,
     /// The credentials bound to this request, swapped in only by the default
     /// outbound seam and only on the way out, so no other seam reads a secret.
@@ -314,7 +315,7 @@ impl OutgoingRequest {
             authority: authority.into(),
             path_with_query: "/".to_string(),
             headers: Vec::new(),
-            body: Vec::new(),
+            body: RequestBody::finished(&[]),
             timeouts: Timeouts::default(),
             swaps: Vec::new(),
         }
@@ -330,64 +331,238 @@ impl OutgoingRequest {
     }
 }
 
-/// The body a guest writes for a request, its bytes held on the guest's behalf
-/// against the Invocation's memory, as `vm_committed_as` counts a mapping, so a
-/// guest cannot grow the host past what it was allotted.
+/// The body a guest writes for a request, streamed to the seam as it is
+/// written, as a pipe holds what its reader has not taken. The host holds at
+/// most one socket buffer of it, so a server slow to take the body stops the
+/// guest's writes and the TCP window pushes back, as wasi-http's
+/// backpressure does.
 pub struct RequestBody {
-    cred: Arc<Cred>,
-    written: Mutex<WrittenBody>,
+    pipe: Mutex<Pipe>,
+    /// Writers waiting for room, as a pipe's `wr_wait`.
+    wait: Arc<WaitQueueHead>,
+    /// The exchange sending the body, which only the guest moves, so its
+    /// writes and polls move it too.
+    exchange: OnceLock<Weak<Exchange>>,
 }
 
-/// What a body holds and the room it takes.
-struct WrittenBody {
-    bytes: Vec<u8>,
-    room: MemoryCharge,
+struct Pipe {
+    queued: BytesMut,
+    end: BodyEnd,
+    /// The seam's task waiting for what is written next.
+    reader: Option<Waker>,
+    /// A TRACE carries no content, so a write with any is refused.
+    refuses_content: bool,
+}
+
+/// How far a request body got.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum BodyEnd {
+    Open,
+    Finished,
+    /// It ended without finishing, which fails its request as the code names.
+    Failed(HttpError),
 }
 
 impl RequestBody {
-    /// An empty body, its bytes charged to `cred`.
-    pub fn new(cred: Arc<Cred>) -> Arc<Self> {
-        let room = MemoryCharge::empty(cred.memory_budget());
+    /// A body the guest has written nothing to yet.
+    pub fn new() -> Arc<Self> {
         Arc::new(Self {
-            cred,
-            written: Mutex::new(WrittenBody {
-                bytes: Vec::new(),
-                room,
+            pipe: Mutex::new(Pipe {
+                queued: BytesMut::new(),
+                end: BodyEnd::Open,
+                reader: None,
+                refuses_content: false,
             }),
+            wait: Arc::default(),
+            exchange: OnceLock::new(),
         })
     }
 
-    fn written(&self) -> MutexGuard<'_, WrittenBody> {
-        self.written.lock().unwrap_or_else(PoisonError::into_inner)
+    /// Move the exchange sending the body as far as it goes, so the seam
+    /// takes what was written.
+    fn move_exchange(&self) -> Option<Arc<Exchange>> {
+        let exchange = self.exchange.get()?.upgrade()?;
+        exchange.poll_task();
+        Some(exchange)
     }
 
-    /// Allocate the file the guest writes the body through, as
-    /// `anon_inode_getfile` does; it is always ready for a write.
-    pub fn alloc_file(self: &Arc<Self>) -> File {
+    /// A body already finished with `bytes`, as a request built whole sends.
+    pub(crate) fn finished(bytes: &[u8]) -> Arc<Self> {
+        let body = Self::new();
+        {
+            let mut pipe = body.pipe();
+            pipe.queued.extend_from_slice(bytes);
+            pipe.end = BodyEnd::Finished;
+        }
+        body
+    }
+
+    fn pipe(&self) -> MutexGuard<'_, Pipe> {
+        self.pipe.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Allocate the file the guest writes the body through as `cred`, as
+    /// `anon_inode_getfile` does; it polls writable while the buffer has room.
+    pub fn alloc_file(self: &Arc<Self>, cred: &Arc<Cred>) -> File {
         let how = OpenHow {
             write: true,
             nonblock: true,
             ..OpenHow::default()
         };
-        anon_inode_getfile(Box::new(RequestBodyFile(self.clone())), &how, &self.cred)
+        anon_inode_getfile(Box::new(RequestBodyFile(self.clone())), &how, cred)
     }
 
-    /// Append `buf`, refused past the Invocation's memory as `ENOMEM`.
+    /// How many bytes a write takes now: what the buffer has left.
+    pub fn room(&self) -> usize {
+        MAX_SOCKET_BUFFER.saturating_sub(self.pipe().queued.len())
+    }
+
+    /// Whether the seam took everything written, so a flush is done.
+    pub fn is_drained(&self) -> bool {
+        self.pipe().queued.is_empty()
+    }
+
+    /// Append what of `buf` the buffer has room for: `EAGAIN` while it has
+    /// none, and `EPIPE` once the body ended or for a TRACE's content.
     fn write(&self, buf: &[u8]) -> Result<usize, Errno> {
-        let mut written = self.written();
-        let grown = written.bytes.len() + buf.len();
-        written.room.resize(grown)?;
-        written.bytes.extend_from_slice(buf);
-        Ok(buf.len())
+        let mut pipe = self.pipe();
+        if pipe.end != BodyEnd::Open || (pipe.refuses_content && !buf.is_empty()) {
+            return Err(Errno::BrokenPipe);
+        }
+        let take = buf.len().min(MAX_SOCKET_BUFFER - pipe.queued.len());
+        if take == 0 && !buf.is_empty() {
+            return Err(Errno::WouldBlock);
+        }
+        pipe.queued.extend_from_slice(&buf[..take]);
+        let reader = pipe.reader.take();
+        drop(pipe);
+        if let Some(reader) = reader {
+            reader.wake();
+        }
+        self.move_exchange();
+        Ok(take)
     }
 
-    /// Take what was written, given back to the Invocation's memory, as the
-    /// exchange that sends it reserves it again.
-    pub fn take(&self) -> Vec<u8> {
-        let mut written = self.written();
-        let bytes = std::mem::take(&mut written.bytes);
-        written.room = MemoryCharge::empty(self.cred.memory_budget());
-        bytes
+    /// End the body, so the seam sends what is left and finishes the request.
+    pub fn finish(&self) {
+        self.end(BodyEnd::Finished);
+    }
+
+    /// End the body unfinished, which fails its request with `code`.
+    pub fn fail(&self, code: HttpError) {
+        self.end(BodyEnd::Failed(code));
+    }
+
+    fn end(&self, end: BodyEnd) {
+        let mut pipe = self.pipe();
+        if pipe.end != BodyEnd::Open {
+            return;
+        }
+        pipe.end = end;
+        let reader = pipe.reader.take();
+        drop(pipe);
+        if let Some(reader) = reader {
+            reader.wake();
+        }
+        self.wait.wake_up();
+    }
+
+    /// Whether the guest finished the body before it was sent.
+    fn is_finished(&self) -> bool {
+        self.pipe().end == BodyEnd::Finished
+    }
+
+    /// Whether the guest wrote content the seam has not taken, as a request
+    /// policy judges before anything is sent.
+    pub(crate) fn has_content(&self) -> bool {
+        !self.pipe().queued.is_empty()
+    }
+
+    /// Refuse any content written from now on, as a TRACE carries none.
+    pub(crate) fn refuse_content(&self) {
+        self.pipe().refuses_content = true;
+    }
+
+    /// The next part of the body for the seam, waking writers the room it
+    /// frees.
+    fn poll_part(&self, cx: &mut Context<'_>) -> Poll<Option<Result<Bytes, BodyFailed>>> {
+        let mut pipe = self.pipe();
+        if !pipe.queued.is_empty() {
+            let part = pipe.queued.split().freeze();
+            drop(pipe);
+            self.wait.wake_up();
+            return Poll::Ready(Some(Ok(part)));
+        }
+        match pipe.end {
+            BodyEnd::Finished => Poll::Ready(None),
+            BodyEnd::Failed(code) => Poll::Ready(Some(Err(BodyFailed(code)))),
+            BodyEnd::Open => {
+                pipe.reader = Some(cx.waker().clone());
+                Poll::Pending
+            }
+        }
+    }
+}
+
+impl std::fmt::Debug for RequestBody {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RequestBody")
+            .field("queued", &self.pipe().queued.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// A body is one stream, the same only as itself.
+impl PartialEq for RequestBody {
+    fn eq(&self, other: &Self) -> bool {
+        std::ptr::eq(self, other)
+    }
+}
+
+impl Eq for RequestBody {}
+
+/// Why a request body ended unfinished, carried through hyper to the
+/// exchange it fails.
+#[derive(Debug)]
+struct BodyFailed(HttpError);
+
+impl std::fmt::Display for BodyFailed {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("the request body ended unfinished")
+    }
+}
+
+impl std::error::Error for BodyFailed {}
+
+/// A request body as hyper sends it, one part at a time.
+struct StreamedBody(Arc<RequestBody>);
+
+impl Body for StreamedBody {
+    type Data = Bytes;
+    type Error = BodyFailed;
+
+    fn poll_frame(
+        self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<Option<Result<http_body::Frame<Bytes>, BodyFailed>>> {
+        self.0
+            .poll_part(cx)
+            .map(|part| part.map(|part| part.map(http_body::Frame::data)))
+    }
+
+    fn is_end_stream(&self) -> bool {
+        let pipe = self.0.pipe();
+        pipe.end == BodyEnd::Finished && pipe.queued.is_empty()
+    }
+
+    /// Exact once the guest finished the body, so hyper frames it by its
+    /// length, as CRuby's Net::HTTP does; chunked while it still streams.
+    fn size_hint(&self) -> http_body::SizeHint {
+        let pipe = self.0.pipe();
+        match pipe.end {
+            BodyEnd::Finished => http_body::SizeHint::with_exact(pipe.queued.len() as u64),
+            BodyEnd::Open | BodyEnd::Failed(_) => http_body::SizeHint::default(),
+        }
     }
 }
 
@@ -399,8 +574,18 @@ impl FileOperations for RequestBodyFile {
         self.0.write(buf)
     }
 
-    fn poll(&self, _mode: FMode, _table: Option<&mut PollTable>) -> PollMask {
-        PollMask::OUT
+    /// A wait on the body sleeps on the exchange too, whose socket's wake
+    /// moves the seam on to take what is written.
+    fn poll(&self, _mode: FMode, mut table: Option<&mut PollTable>) -> PollMask {
+        if let Some(exchange) = self.0.move_exchange() {
+            poll_wait(&exchange.wait, table.as_deref_mut());
+        }
+        poll_wait(&self.0.wait, table);
+        let pipe = self.0.pipe();
+        match pipe.end != BodyEnd::Open || pipe.queued.len() < MAX_SOCKET_BUFFER {
+            true => PollMask::OUT,
+            false => PollMask::default(),
+        }
     }
 
     fn is_stream(&self) -> bool {
@@ -581,7 +766,7 @@ impl Exchange {
         open_connections: &Arc<OpenConnections>,
         cred: &Arc<Cred>,
     ) -> Result<Arc<Self>, HttpError> {
-        let room = request.room() + request.body.len() + MAX_READ_BUFFER;
+        let room = request.room() + MAX_READ_BUFFER;
         let memory =
             MemoryCharge::new(cred.memory_budget(), room).map_err(|_| HttpError::Internal)?;
         let place = Arc::new(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
@@ -613,6 +798,7 @@ impl Exchange {
         let (state, wait) = (exchange.state.clone(), exchange.wait.clone());
         let cred = cred.clone();
         connector.wait = Some(wait.clone());
+        let _ = request.body.exchange.set(Arc::downgrade(&exchange));
         let sending = seam.send_request(request, connector);
         let sent = async move {
             match sending.await {
@@ -955,7 +1141,7 @@ impl Outbound for HyperOutbound {
 /// with its credentials swapped in. The seam reuses no connection, and says
 /// so as RFC 9112 § 9.3 asks, so a server runs nothing a body hid behind the
 /// request the rules judged.
-fn to_hyper_request(request: OutgoingRequest) -> Result<hyper::Request<Full<Bytes>>, HttpError> {
+fn to_hyper_request(request: OutgoingRequest) -> Result<hyper::Request<StreamedBody>, HttpError> {
     let mut builder = hyper::Request::builder()
         .method(request.method.as_str())
         .uri(request.path_with_query.as_str())
@@ -968,19 +1154,23 @@ fn to_hyper_request(request: OutgoingRequest) -> Result<hyper::Request<Full<Byte
             .fold(value.clone(), |value, swap| swap.apply(name, &value));
         builder = builder.header(name.as_str(), value);
     }
+    // A body still streaming is chunked whatever the method, so hyper never
+    // takes a GET's for empty and leaves what the guest writes unsent.
+    if !request.body.is_finished() {
+        builder = builder.header("transfer-encoding", "chunked");
+    }
     builder
-        .body(Full::new(Bytes::from(request.body)))
+        .body(StreamedBody(request.body))
         .map_err(|_| HttpError::ProtocolError)
 }
 
 /// Send `request` over `wire` as HTTP/1, driving the connection beside it, and
 /// answer its response, whose body drives the connection on until it ends.
-async fn send_over<T>(
-    wire: Wire<T>,
-    request: hyper::Request<Full<Bytes>>,
-) -> Result<Response, HttpError>
+async fn send_over<T, B>(wire: Wire<T>, request: hyper::Request<B>) -> Result<Response, HttpError>
 where
     T: AsyncRead + AsyncWrite + Unpin + Send + 'static,
+    B: Body<Data = Bytes> + Send + 'static,
+    B::Error: Into<Box<dyn std::error::Error + Send + Sync>>,
 {
     let (mut sender, connection) = hyper::client::conn::http1::Builder::new()
         .max_buf_size(MAX_READ_BUFFER)
@@ -1157,6 +1347,11 @@ impl HttpError {
     /// answers as an open connection's failure does, as the TLS handshake's
     /// does, so a failure answers one code wherever in the exchange it lands.
     fn from_hyper(err: &hyper::Error) -> Self {
+        if let Some(BodyFailed(code)) =
+            std::error::Error::source(err).and_then(|source| source.downcast_ref::<BodyFailed>())
+        {
+            return *code;
+        }
         let failed = std::error::Error::source(err)
             .and_then(|source| source.downcast_ref::<io::Error>())
             .and_then(io::Error::get_ref)
@@ -1438,7 +1633,7 @@ mod tests {
             // Linux sizes a send buffer as the connection opens, from its
             // MSS, up to `tcp_wmem`'s default most of 4 MiB, so a body past
             // that always leaves bytes in the upstream's queue.
-            request.body = vec![b'b'; 8 * 1024 * 1024];
+            request.body = RequestBody::finished(&vec![b'b'; 8 * 1024 * 1024]);
             let exchange =
                 crate::net::send(&namespace, &cred, request).expect("the endpoint admits it");
             // The peer accepts and never reads, so the request's bytes stay queued.
@@ -1741,7 +1936,7 @@ mod tests {
                 .unwrap()
                 .with_addresses(vec![crate::network::Addresses::Local])]);
             let mut request = greeting_request(&format!("127.0.0.1:{port}"));
-            request.body = body;
+            request.body = RequestBody::finished(&body);
             let exchange = crate::net::send(&namespace, &prepare_creds(&[], None), request)
                 .expect("the endpoint names the authority");
             let read = read_response(&exchange).map(|(head, body)| (head.status, body));
@@ -2273,7 +2468,7 @@ mod tests {
         fn send(&self, method: &str, body: &[u8]) -> Option<HttpError> {
             let mut request = OutgoingRequest::new(method, Scheme::Https, "api.example.com:443");
             request.headers = vec![("authorization".to_string(), b"Bearer kobako-token".to_vec())];
-            request.body = body.to_vec();
+            request.body = RequestBody::finished(body);
             match crate::net::send(&self.namespace, &prepare_creds(&[], None), request) {
                 Ok(exchange) => {
                     let _ = read_response(&exchange);

@@ -932,18 +932,46 @@ fn send(mrb: &Mrb, parts: &RequestParts<'_>) -> Result<Answer, Error> {
     request
         .set_path_with_query(Some(parts.path))
         .map_err(|()| argument_error(mrb, "invalid path"))?;
+    // A body the host takes at once leaves whole, framed by its length as
+    // CRuby's is; a longer one streams after the request leaves, since the
+    // host holds only so much of it before the server takes it.
     let out = request.body().map_err(|()| failed("request body taken"))?;
-    if let Some(body) = &parts.body {
-        let stream = out.write().map_err(|()| failed("request body taken"))?;
-        let written = write_within(&stream, body, parts.timeouts.write)
-            .map_err(|err| socket::from_stream(mrb, err, None))?;
-        if !written {
-            return Err(net_error(mrb, c"WriteTimeout", "Net::WriteTimeout"));
+    let streaming = match &parts.body {
+        Some(body) => {
+            let stream = out.write().map_err(|()| failed("request body taken"))?;
+            let room = stream
+                .check_write()
+                .map_err(|err| socket::from_stream(mrb, err, None))?;
+            if usize::try_from(room).is_ok_and(|room| room >= body.len()) {
+                stream
+                    .write(body)
+                    .map_err(|err| socket::from_stream(mrb, err, None))?;
+                None
+            } else {
+                Some((stream, body))
+            }
         }
-    }
-    OutgoingBody::finish(out, None).map_err(|code| to_error(mrb, parts, code))?;
+        None => None,
+    };
     let options = parts.timeouts.options();
-    let future = handle(request, Some(options)).map_err(|code| to_error(mrb, parts, code))?;
+    let future = match streaming {
+        None => {
+            OutgoingBody::finish(out, None).map_err(|code| to_error(mrb, parts, code))?;
+            handle(request, Some(options)).map_err(|code| to_error(mrb, parts, code))?
+        }
+        Some((stream, body)) => {
+            let future =
+                handle(request, Some(options)).map_err(|code| to_error(mrb, parts, code))?;
+            let written = write_within(&stream, body, parts.timeouts.write)
+                .map_err(|err| socket::from_stream(mrb, err, None))?;
+            if !written {
+                return Err(net_error(mrb, c"WriteTimeout", "Net::WriteTimeout"));
+            }
+            drop(stream);
+            OutgoingBody::finish(out, None).map_err(|code| to_error(mrb, parts, code))?;
+            future
+        }
+    };
     let response = loop {
         match future.get() {
             Some(answer) => break answer,
