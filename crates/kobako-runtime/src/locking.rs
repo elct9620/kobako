@@ -216,12 +216,13 @@ impl RwSemaphore {
         Some(self.guard(current, false))
     }
 
-    /// Hold it exclusive where nobody holds it or waits for it, without
-    /// waiting, as `down_write_trylock` takes only an unlocked count.
+    /// Hold it exclusive where nobody holds it and none was handed it, without
+    /// waiting, as `mutex_trylock` fails only on an owner or a handoff: its
+    /// one caller takes `rename_mutex`, which Linux keeps as a mutex.
     pub(crate) fn down_write_trylock(self: &Arc<Self>) -> Option<RwSemaphoreGuard> {
         let current = sched::current();
         let mut holders = self.holders();
-        if !holders.free() || !holders.waiters.is_empty() {
+        if !holders.free() || holders.handoff {
             return None;
         }
         holders.writer = Some(current);
