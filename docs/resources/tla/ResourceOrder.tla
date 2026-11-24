@@ -17,7 +17,7 @@ TierOfLock(l) == CASE Group(l) = "gate" -> "gate"
                    [] Group(l) = "ruby" -> "gvl"
                    [] OTHER             -> "other"
 
-Gone == {e \in Edges : "connection_budget" \in {e[1], e[2]}} \cup E("registry", {"ticker", "memcg"})
+Gone == E("registry", {"ticker", "memcg"})
 Resources ==
   \* fork gate: the gate and the runs' registry
      E("fork_gate", {"GVL", "runs", "fid_cache"})

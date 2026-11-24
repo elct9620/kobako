@@ -83,11 +83,11 @@ leaves the host exposed in its own way.
 | `timeout` | a thread held for as long as the guest runs |
 | `timeout`, with a network | a socket a silent peer holds open as long as the run |
 | `setup_timeout` | `Sandbox.new` held for as long as the Guest Binary takes to start |
-| `memory_limit` | up to 4 GiB of memory, no value budget, every listing a guest holds |
+| `memory_limit` | up to 4 GiB of memory, no value budget, 128 MiB copied in each host call |
 | `stdout_limit`, `stderr_limit` | host memory without bound, read back after the run ends |
 | `open_file_limit` | host descriptors for each file or directory open beneath a Bind |
 | `open_file_limit`, with a network | sockets bounded only by `open_connection_limit` |
-| `open_connection_limit` | host sockets bounded only by the process's limit |
+| `open_connection_limit` | host sockets bounded only by the process's limit, none by default |
 | `connection_limit` | a run dialing again and again, each closed connection making room |
 | a Tmpfs's `size:` | host memory without bound; one write far past a file's end fills the gap |
 | a Tmpfs's `nr_inodes:` | an entry for every file and directory it makes |

@@ -97,9 +97,9 @@ Each lock belongs to one lock group, and the groups form an order with no cycle.
 | dcache | an inode's dentry, the dentry tables, the rename lock, a dentry's state, the LRU | other |
 | fsi | a Filesystem's own state | other |
 | gate | a fork's closed gate | sleeping |
-| netg | the guest's open sockets, its connection budget | other |
+| netg | the guest's open sockets, a request's place and header lists | other |
 | request | an exchange's or a lookup's future | other |
-| sock | a socket's state, an exchange's state | other |
+| sock | a socket's state, an exchange's state, a request body's buffer | other |
 
 The leaf groups take nothing beyond one another, except init, whose initializers build a Filesystem's dentry cache.
 

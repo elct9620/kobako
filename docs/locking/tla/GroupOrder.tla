@@ -32,11 +32,12 @@ Groups == [
   \* OnceLock or LazyLock is; one takes neither the GVL nor a sleeping lock.
   \* One that builds a plain value and takes no lock is left out.
   init     |-> {"platform_once", "mnt_once"},
-  netg     |-> {"SharedFile", "connection_budget", "exchange_task", "translations",
-                "exchange_place", "exchange_memory", "fields_list", "request_body"},
+  netg     |-> {"SharedFile", "exchange_task", "translations", "exchange_place",
+                "fields_list"},
   request  |-> {"task_future"},
-  sock     |-> {"tcp_state", "udp_state", "exchange_state", "lookup_answer",
-                "bindhash", "open_conn", "tcp_sockets"},
+  \* A request body's buffer is a leaf the guest writes and its future drains.
+  sock     |-> {"tcp_state", "udp_state", "exchange_state", "request_body",
+                "lookup_answer", "bindhash", "open_conn", "tcp_sockets"},
   mock     |-> {"mock_state"},
   resolv   |-> {"ready_waker", "query_ctx"},
   rleaf    |-> {"CURRENT", "sockets", "repoll", "timers"},
@@ -70,7 +71,7 @@ Edges ==
   \cup E("layer_in_lookup", {"GVL", "inode_dentry", "inode_hashtable"})
   \* A Layer may be a Ruby Filesystem, which copy up reads under ovl_lock.
   \cup E("ovl_lock", {"layer_rename_mutex", "layer_i_rwsem", "ovl_level", "ovl_real",
-                      "ovl_unfinished", "tmpfs_content", "memcg", "GVL"})
+                      "ovl_unfinished", "tmpfs_content", "GVL"})
   \cup E("layer_rename_mutex", {"layer_i_rwsem"})
   \cup E("layer_i_rwsem", {"layer_i_rwsem", "layer_in_lookup", "inode_dentry", "dentry_hashtable",
                            "tmpfs_state", "tmpfs_content", "GVL"})
@@ -90,9 +91,9 @@ Edges ==
                  "open_dir_fid", "ovl_level", "ovl_real", "ovl_unfinished"})
   \cup E("interrupt_lock", {"task_sleeping"})
   \* ruby: a guest under :hold makes every network call with the GVL held
-  \cup E("GVL", {"SharedFile", "connection_budget", "translations", "fields_list",
-                 "request_body", "exchange_task", "task_future", "exchange_state",
-                 "exchange_place", "exchange_memory", "mock_state"})
+  \cup E("GVL", {"SharedFile", "translations", "fields_list", "request_body",
+                 "exchange_task", "task_future", "exchange_state", "exchange_place",
+                 "mock_state"})
   \* ruby: a guest under :hold grows its Store with the GVL held, as one run
   \* counts as one thread
   \cup E("GVL", {"memcg"})
@@ -109,23 +110,15 @@ Edges ==
                         "wq_waiters", "wq_tasks", "exchange_task", "task_future",
                         "request_body", "pipe_state"})
   \cup E("exchange_place", {"open_conn"})
-  \cup E("exchange_memory", {"memcg"})
-  \cup E("fields_list", {"memcg"})
-  \cup E("request_body", {"memcg"})
-  \cup E("connection_budget", {"tcp_state", "udp_state", "CURRENT", "sockets",
-                               "exchange_task", "mock_state", "open_conn", "memcg", "repoll",
-                               "task_future", "query_ctx"})
-  \cup E("translations", {"memcg"})
-  \* request: what a request's future takes as the guest waiting on it polls it
+  \* request: what a request's future takes as the guest waiting on it polls
+  \* it, its body's next part among them
   \cup E("task_future", {"task_future", "tcp_state", "exchange_state", "lookup_answer",
                          "wq_waiters", "wq_tasks", "mock_state", "ready_waker",
-                         "CURRENT", "timers", "sockets", "tcp_sockets", "open_conn", "memcg",
-                         "query_ctx"})
+                         "CURRENT", "timers", "sockets", "tcp_sockets", "open_conn",
+                         "query_ctx", "request_body"})
   \* sock: a socket registering on the reactor
-  \cup E("tcp_state", {"CURRENT", "sockets", "mock_state", "bindhash", "open_conn", "memcg"})
-  \cup E("udp_state", {"mock_state", "repoll", "sockets", "bindhash", "open_conn", "memcg"})
-  \* sock: an exchange charging its body as a frame arrives or the guest reads
-  \cup E("exchange_state", {"memcg"})
+  \cup E("tcp_state", {"CURRENT", "sockets", "mock_state", "bindhash", "open_conn"})
+  \cup E("udp_state", {"mock_state", "repoll", "sockets", "bindhash", "open_conn"})
   \* mock, resolv: a wake made under the lock reaches the request's wait queue
   \cup E("mock_state", {"wq_waiters", "wq_tasks"})
   \cup E("ready_waker", {"wq_waiters", "wq_tasks"})

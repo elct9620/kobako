@@ -69,8 +69,6 @@ Each role keeps to its own work, so a change that crosses roles is a change in t
 
 The Driver sets a Cred up as a Landlock sandboxer does: it opens the guest's root, then restricts the Cred through the runtime. What the Cred may reach is judged only by the hooks.
 
-The VFS also charges what a Cred's Filesystems hold to that Cred's memory budget, the one the guest's own growth is charged to.
-
 ## Linux Alignment
 
 WASI governs the boundary and Linux governs the inside. WASI fixes which calls exist and their shape, and leaves the meaning to POSIX; kobako fills that meaning from Linux.
