@@ -256,7 +256,7 @@ Four words name a bound, each for one origin.
 | Word | Names | As in |
 |---|---|---|
 | `X_limit`, `limit` | a bound the Host App sets; `nil` or `None` turns it off | `memory_limit`, `stdout_limit` |
-| `budget` | a bound worked out from another, spent as one piece of work runs | `value_budget` |
+| `budget` | a bound worked out from another, spent as one piece of work runs | `connection_budget` |
 | `MAX_X` | a constant kobako fixes | `MAX_NESTING_DEPTH` |
 | `X_MAX` | a constant an outside standard names, as it spells it | `PATH_MAX` |
 
