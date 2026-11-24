@@ -49,6 +49,7 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 - `test/e2e/test_overlay_threads.rb`
 - `test/e2e/test_directory_lock_threads.rb`
 - `test/e2e/test_directory_lock_stops.rb`
+- `test/e2e/test_filesystem_neighbours.rb`
 - `crates/kobako/tests/integration/mount.rs`
 - `crates/kobako-runtime/src/vfs/namespace.rs`
 - `test/parity/test_mount.rb`
@@ -656,3 +657,16 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 | Given | several Threads sharing one Sandbox with a Tmpfs at `/data`, each Context mounting a Tmpfs of its own there |
 | When | their invocations write and read beneath `/data` at once |
 | Then | each reaches only its own Tmpfs, and the Sandbox's own is left as it was |
+
+## `MT-064` A run beside others hammering a shared Filesystem finishes its own calls
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-421` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs, a Bind, or an Overlay mounted in four runs that create, move, list, and write there |
+| Given | either `gvl:` mode |
+| When | another run looks up and creates names there 100 times, under a 5 s `timeout:` |
+| Then | it answers each call |
