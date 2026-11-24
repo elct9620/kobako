@@ -1,6 +1,6 @@
 //! The yield position: a block's arguments and answer as value trees.
 
-use kobako_codec::msgpack::codec::{Decoder, Encoder, Value};
+use kobako_codec::msgpack::codec::{Decoder, Encoder, Value, MAX_PAYLOAD_VALUES};
 
 use crate::yielder::{YieldError, Yielder};
 
@@ -29,7 +29,7 @@ fn encode_args(args: &[Value]) -> Result<Vec<u8>, YieldError> {
 /// endpoint's schema cannot read.
 fn decode_body(body: &[u8]) -> Result<Value, YieldError> {
     Decoder::new(body)
-        .with_value_budget(super::budget::current())
+        .with_value_budget(Some(MAX_PAYLOAD_VALUES))
         .read_sole_value()
         .map_err(|err| YieldError::Aborted(format!("malformed Yield Reply payload: {err}")))
 }
@@ -104,14 +104,16 @@ mod tests {
         );
     }
 
-    // [1, 2, 3] is four values against a budget of three.
+    // An array of 262144 Integers is 262145 values, one past the budget.
     // @behavior T-289
     #[test]
     fn an_answer_past_the_value_budget_never_reaches_the_receiver() {
-        let mut raw = script(vec![YieldReply::Ok(vec![0x93, 0x01, 0x02, 0x03])]);
+        let mut wide = vec![0xdd];
+        wide.extend_from_slice(&(MAX_PAYLOAD_VALUES as u32).to_be_bytes());
+        wide.resize(wide.len() + MAX_PAYLOAD_VALUES, 0x01);
+        let mut raw = script(vec![YieldReply::Ok(wide)]);
 
-        let answer =
-            crate::msgpack::budget::within(Some(3), || Yielder::new(&mut raw).call_values(&[]));
+        let answer = Yielder::new(&mut raw).call_values(&[]);
 
         assert_eq!(
             answer,

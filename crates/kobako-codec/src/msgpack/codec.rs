@@ -46,3 +46,9 @@ const EXT_HANDLE: i8 = 0x01;
 /// boundary. Shared with `kobako-mruby`'s walk from mruby values to this
 /// codec's, so the two guest walks cannot drift apart.
 pub const MAX_NESTING_DEPTH: usize = 128;
+
+/// The most values one guest payload may make the host build, whatever the
+/// guest's memory cap: the Codec decodes outside that memory, so it bounds
+/// the work by its own amount. Shared with the Ruby host's Codec, so both
+/// hosts refuse the same payload.
+pub const MAX_PAYLOAD_VALUES: usize = 262_144;

@@ -103,10 +103,6 @@ pub struct Sandbox {
     // an `Arc<Sandbox>` drives concurrent `&self` invocations.
     registry: Mutex<Registry>,
     extensions: Extensions,
-    // The most values a guest payload may make the host build. An engine
-    // the caller brought keeps its memory cap to itself, so its Sandbox
-    // holds no budget.
-    value_budget: Option<usize>,
 }
 
 impl Sandbox {
@@ -134,9 +130,7 @@ impl Sandbox {
         config.profile = profile;
         config.network = network;
         let driver = Driver::from_file(wasm_path.as_ref(), config).map_err(Error::Setup)?;
-        let mut sandbox = Sandbox::with_runtime(driver, profile)?;
-        sandbox.value_budget = limits.value_budget();
-        Ok(sandbox)
+        Sandbox::with_runtime(driver, profile)
     }
 
     /// Drive a guest through an engine of the caller's own, which carries its
@@ -160,7 +154,6 @@ impl Sandbox {
             runtime: Box::new(runtime),
             registry: Mutex::new(Registry::Open(Catalog::default())),
             extensions: Extensions::default(),
-            value_budget: None,
         })
     }
 
@@ -385,12 +378,10 @@ impl Sandbox {
             Entry::Run { .. } => "run",
         };
         let handler = Arc::new(CatalogHandler::new(catalog, handles.clone(), resolved));
-        within_value_budget(self.value_budget, || {
-            let snapshot = self
-                .runtime
-                .invoke(entry, &preamble, Some(handler), &grants)?;
-            Ok(build_execution(snapshot, handles, verb))
-        })
+        let snapshot = self
+            .runtime
+            .invoke(entry, &preamble, Some(handler), &grants)?;
+        Ok(build_execution(snapshot, handles, verb))
     }
 
     /// The seal locks the registry, so concurrent first invocations serialize
@@ -419,18 +410,6 @@ fn open_catalog(registry: &mut Mutex<Registry>) -> Result<&mut Catalog, Error> {
         .get_mut()
         .expect("the registry mutex is never poisoned")
         .open_mut()
-}
-
-/// Every guest payload the invocation decodes, its outcome included, is
-/// held to the budget; only the bundled schema can count values.
-#[cfg(feature = "msgpack")]
-fn within_value_budget<T>(budget: Option<usize>, run: impl FnOnce() -> T) -> T {
-    crate::msgpack::budget::within(budget, run)
-}
-
-#[cfg(not(feature = "msgpack"))]
-fn within_value_budget<T>(_budget: Option<usize>, run: impl FnOnce() -> T) -> T {
-    run()
 }
 
 /// The `handles` table rides along so the result's Handles resolve on the

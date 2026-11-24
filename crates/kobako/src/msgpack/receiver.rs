@@ -3,7 +3,7 @@
 use std::any::Any;
 use std::sync::Arc;
 
-use kobako_codec::msgpack::codec::{Encoder, Value};
+use kobako_codec::msgpack::codec::{Encoder, Value, MAX_PAYLOAD_VALUES};
 use kobako_codec::msgpack::payload::Arguments;
 
 use crate::handles::Handles;
@@ -81,7 +81,7 @@ impl<V: ValueReceiver> Receiver for IntoReceiver<V> {
         block: Option<&mut Yielder<'_>>,
         handles: &Handles<'_>,
     ) -> Result<Vec<u8>, Fault> {
-        let arguments = Arguments::decode_with_value_budget(payload, super::budget::current())
+        let arguments = Arguments::decode_with_value_budget(payload, Some(MAX_PAYLOAD_VALUES))
             .map_err(|err| {
                 Fault::new(
                     FaultKind::Internal,
@@ -172,17 +172,20 @@ mod tests {
         );
     }
 
-    // [[nil, nil, nil, nil], {}] is seven values against a budget of six.
+    // [[nil × 262143], {}] is 262146 values against the budget of 262144.
     // @behavior T-288
     #[test]
     fn a_call_past_the_value_budget_folds_into_an_internal_fault() {
         let table = DetachedHandles::new();
-        let wide = [0x92, 0x94, 0xc0, 0xc0, 0xc0, 0xc0, 0x80];
+        let nils = MAX_PAYLOAD_VALUES - 1;
+        let mut wide = vec![0x92, 0xdd];
+        wide.extend_from_slice(&(nils as u32).to_be_bytes());
+        wide.resize(wide.len() + nils, 0xc0);
+        wide.push(0x80);
 
-        let refusal = crate::msgpack::budget::within(Some(6), || {
-            Echo.into_receiver()
-                .call("echo", &wide, None, &table.as_handles())
-        });
+        let refusal = Echo
+            .into_receiver()
+            .call("echo", &wide, None, &table.as_handles());
 
         assert_eq!(
             refusal,

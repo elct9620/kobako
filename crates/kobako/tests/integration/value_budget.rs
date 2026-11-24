@@ -1,51 +1,59 @@
-//! The value budget a memory cap grants a guest payload, driven by a
-//! fixture whose answer holds six values without growing its memory. The
-//! real Guest Binary cannot reach the budget: encoding a value costs it
-//! more memory than the budget grants.
+//! The most values one guest payload may make the host build, the Codec's
+//! own 262144 whatever the memory cap.
 
 #![cfg(all(feature = "wasmtime", feature = "msgpack"))]
 
 use crate::common::real_sandbox_with;
 use kobako::msgpack::Value;
-use kobako::{Error, Options, Sandbox};
+use kobako::{Error, Options};
 
-const FIXTURE: &str = concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../test/fixtures/minimal_wide_outcome.wat"
-);
+// 1 + 512 arrays + 512 * 511 Integers = 262145 values, one past the budget;
+// popping one Integer leaves exactly 262144.
+const PAST_BUDGET: &str = "Array.new(512) { Array.new(511, 0) }";
+const AT_BUDGET: &str = "a = Array.new(512) { Array.new(511, 0) }; a[0].pop; a";
+const REFUSAL: &str = "malformed msgpack structure: payload holds more values than its budget";
 
-fn answer_under(memory_limit: usize) -> Result<Value, Error> {
+fn answer_under(memory_limit: Option<usize>, script: &str) -> Option<Result<Value, Error>> {
     let mut options = Options::default();
-    options.limits.memory_limit = Some(memory_limit);
-    let sandbox = Sandbox::new(FIXTURE, options).expect("the fixture must load");
-    sandbox.eval("")?.value()
+    options.limits.memory_limit = memory_limit;
+    let sandbox = real_sandbox_with(options)?;
+    Some(sandbox.eval(script).and_then(|execution| execution.value()))
 }
 
-// 96 bytes of memory cap grant 96 / 16 = 6 values, exactly what the
-// answer holds.
+fn is_refused(answer: &Result<Value, Error>) -> bool {
+    matches!(answer, Err(Error::Sandbox(failure))
+        if failure.diagnostic.as_deref() == Some(REFUSAL))
+}
+
 // @behavior S-204
 #[test]
 fn an_answer_at_the_value_budget_reaches_the_host() {
-    assert_eq!(
-        answer_under(96).expect("the answer must decode"),
-        Value::Array(vec![Value::Int(0); 5]),
-        "an answer holding as many values as memory_limit / 16 through Execution::value must \
-         reach the Host App"
+    let Some(answer) = answer_under(Some(64 << 20), AT_BUDGET) else {
+        return;
+    };
+
+    assert!(
+        matches!(&answer, Ok(Value::Array(items)) if items.len() == 512),
+        "an answer holding 262144 values through Execution::value must reach the Host App, \
+         got {answer:?}"
     );
 }
 
-// 80 bytes grant 5 values, one fewer than the answer holds.
 // @behavior S-204
 #[test]
-fn an_answer_past_the_value_budget_is_a_sandbox_failure() {
-    let refusal = answer_under(80);
+fn an_answer_past_the_value_budget_fails_whatever_the_memory_cap() {
+    let answers: Option<Vec<_>> = [Some(64 << 20), None]
+        .into_iter()
+        .map(|memory_limit| answer_under(memory_limit, PAST_BUDGET))
+        .collect();
+    let Some(answers) = answers else {
+        return;
+    };
 
     assert!(
-        matches!(&refusal, Err(Error::Sandbox(failure))
-            if failure.diagnostic.as_deref()
-                == Some("malformed msgpack structure: payload holds more values than its budget")),
-        "an answer holding more values than memory_limit / 16 through Execution::value must fail \
-         as a Sandbox failure whose diagnostic names the budget, got {refusal:?}"
+        answers.iter().all(is_refused),
+        "an answer holding 262145 values through Execution::value under memory_limit 64 MiB or \
+         none must fail as a Sandbox failure whose diagnostic names the budget, got {answers:?}"
     );
 }
 
@@ -53,34 +61,24 @@ fn nan_keys(count: usize) -> String {
     format!("h = {{}}; {count}.times {{ h[0.0 / 0.0] = 0 }}; h")
 }
 
-// 64 MiB grant 4194304 values: 1000 NaN keys cost about half a million,
-// 4000 cost about eight million.
+// 500 NaN keys cost about 126 thousand values, 1000 about half a million.
 // @behavior S-219
 #[test]
 fn a_hash_of_nan_keys_pays_for_comparing_them() {
-    let mut options = Options::default();
-    options.limits.memory_limit = Some(64 << 20);
-    let Some(sandbox) = real_sandbox_with(options) else {
+    let (Some(within), Some(past)) = (
+        answer_under(Some(64 << 20), &nan_keys(500)),
+        answer_under(Some(64 << 20), &nan_keys(1000)),
+    ) else {
         return;
     };
 
-    let within = sandbox
-        .eval(&nan_keys(1000))
-        .expect("the guest ran")
-        .value();
     assert!(
-        matches!(&within, Ok(Value::Map(pairs)) if pairs.len() == 1000),
-        "a Hash of 1000 NaN keys through Execution::value under memory_limit 64 MiB must reach the \
-         Host App, got {within:?}"
+        matches!(&within, Ok(Value::Map(pairs)) if pairs.len() == 500),
+        "a Hash of 500 NaN keys through Execution::value must reach the Host App, got {within:?}"
     );
-    let past = sandbox
-        .eval(&nan_keys(4000))
-        .and_then(|execution| execution.value());
     assert!(
-        matches!(&past, Err(Error::Sandbox(failure))
-            if failure.diagnostic.as_deref()
-                == Some("malformed msgpack structure: payload holds more values than its budget")),
-        "a Hash of 4000 NaN keys through Execution::value under memory_limit 64 MiB must fail as a \
-         Sandbox failure whose diagnostic names the budget, got {past:?}"
+        is_refused(&past),
+        "a Hash of 1000 NaN keys through Execution::value must fail as a Sandbox failure whose \
+         diagnostic names the budget, got {past:?}"
     );
 }

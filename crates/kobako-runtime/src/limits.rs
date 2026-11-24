@@ -39,8 +39,7 @@ pub struct Limits {
 
 impl Default for Limits {
     /// A 60-second deadline, 10 seconds to set the Guest Binary up, 4 MiB of
-    /// memory growth, sized for a guest whose every value takes 16 bytes,
-    /// 1 MiB for each output channel, 16 open files, and 6 open connections
+    /// memory growth, 1 MiB for each output channel, 16 open files, and 6 open connections
     /// and 50 in all, as a Cloudflare Worker may hold 6 waiting and make 50
     /// subrequests on its free plan. The open files are far below the 1024
     /// Linux gives a process (`INR_OPEN_CUR`), since every invocation shares
@@ -60,17 +59,7 @@ impl Default for Limits {
     }
 }
 
-/// The least guest memory one value occupies, so a guest payload may hold one
-/// value for each of these bytes of the memory cap.
-const VALUE_BYTES: usize = 16;
-
 impl Limits {
-    /// The most values a guest payload may make the host build, one for each
-    /// `VALUE_BYTES` of `memory_limit`; none where memory is not capped.
-    pub fn value_budget(&self) -> Option<usize> {
-        self.memory_limit.map(|limit| limit / VALUE_BYTES)
-    }
-
     /// Each cap, named by the option a Host App sets it with, so every
     /// frontend reads and writes the caps from this one list.
     pub fn caps_mut(&mut self) -> [(&'static str, Cap<'_>); 8] {
@@ -150,20 +139,6 @@ mod tests {
             },
             "a Sandbox given no caps must start under a 60 s deadline, 10 s of setup, 4 MiB of \
              memory, 1 MiB per output channel, 16 open files, and 6 open connections of 50"
-        );
-    }
-
-    #[test]
-    fn a_payload_holds_one_value_for_each_sixteen_bytes_of_memory() {
-        let uncapped = Limits {
-            memory_limit: None,
-            ..Limits::default()
-        };
-        assert_eq!(
-            (Limits::default().value_budget(), uncapped.value_budget()),
-            (Some(4 * 1024 * 1024 / 16), None),
-            "Limits::value_budget must allow one value for each 16 bytes of memory_limit, and \
-             none to count where memory is not capped"
         );
     }
 
