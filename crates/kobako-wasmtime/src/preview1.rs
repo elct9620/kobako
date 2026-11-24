@@ -75,7 +75,9 @@ pub(crate) fn shadow(linker: &mut Linker<Invocation>) -> wasmtime::Result<()> {
 
 impl Invocation {
     /// Run one call against the calling instance's memory, answering what it
-    /// answers unless its host has given the invocation up by then.
+    /// answers unless its host has given the invocation up by then, or the
+    /// run is to stop as the call returns: that ends the run there, as Linux's
+    /// `exit_to_user_mode` ends a task before it reads what the call answered.
     fn answer<T>(
         &mut self,
         memory: &mut wiggle::GuestMemory<'_>,
@@ -83,7 +85,7 @@ impl Invocation {
     ) -> Answer<T> {
         let fuel = self.hostcall_fuel();
         let answer = call(&mut GuestMemory::new(memory, fuel), self);
-        match self.abandonment() {
+        match self.abandonment().or_else(crate::trap::fatal_signal_trap) {
             Some(trap) => Err(types::Error::trap(trap)),
             None => answer,
         }

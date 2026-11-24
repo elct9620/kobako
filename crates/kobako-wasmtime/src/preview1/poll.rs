@@ -21,7 +21,6 @@ use super::memory::GuestMemory;
 use super::types::{self, Clockid, Eventrwflags, Eventtype, Subclockflags, SubscriptionU};
 use crate::invocation::Invocation;
 use crate::preview2::Pollable;
-use crate::trap::Interrupted;
 
 /// One subscription as the guest wrote it, and the error its event reports.
 struct Subscription {
@@ -73,11 +72,9 @@ pub(crate) fn poll_oneoff(
         .iter()
         .map(|sub| sub.to_pollable(started))
         .collect();
-    let ready = match invocation.poll_ready(pollables) {
-        Ok(ready) => ready,
-        Err(err) if err.is::<Interrupted>() => return Err(Errno::Intr.into()),
-        Err(err) => return Err(types::Error::trap(err)),
-    };
+    let ready = invocation
+        .poll_ready(pollables)
+        .map_err(types::Error::trap)?;
 
     for (written, index) in ready.iter().enumerate() {
         let sub = &subscriptions[*index as usize];
@@ -276,7 +273,7 @@ mod tests {
 
     // @behavior RT-337
     #[test]
-    fn an_interrupted_wait_answers_eintr_at_once() {
+    fn an_interrupted_wait_ends_its_run_at_once() {
         let (ended, spent) = wait_ten_seconds(
             Profile::Permissive,
             Some(Duration::from_secs(20)),
@@ -288,14 +285,16 @@ mod tests {
             }),
         );
         assert!(
-            ended.as_ref().ok() == Some(&ERRNO_INTR) && spent < Duration::from_secs(5),
+            ended
+                .as_ref()
+                .err()
+                .is_some_and(|trap| trap.is::<crate::trap::Interrupted>())
+                && spent < Duration::from_secs(5),
             "a ten-second clock wait through a permissive guest's poll_oneoff, its thread \
-             interrupted, must answer EINTR at once, got {:?} after {spent:?}",
+             interrupted, must end the run as interrupted at once, got {:?} after {spent:?}",
             ended.map_err(|trap| trap.to_string())
         );
     }
-
-    const ERRNO_INTR: i32 = 27;
 
     /// Poll `count` subscriptions at 0 in a fresh instance whose one page
     /// holds few of them, answering the errno or the trap.
