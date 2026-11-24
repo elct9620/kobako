@@ -2998,7 +2998,7 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | an `http` endpoint naming a loopback server that never reads the request body |
+| Given | an `http` endpoint that takes none of the request body |
 | When | the script posts a megabyte body, its `write_timeout` a hundredth of a second |
 | Then | it raises `Net::WriteTimeout` once the body fills the buffers, as CRuby's does. `read_timeout` runs from the connect, as wasi-http's first-byte timeout does. CRuby's starts once the body is written |
 

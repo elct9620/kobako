@@ -1,11 +1,10 @@
 # frozen_string_literal: true
 
-require "socket"
 require "test_helper"
 
 # E2E — how a Net::HTTP request body, which streams to the server after the
 # request leaves, reaches the script when its write fails: one a TRACE may
-# not carry, and one a loopback server never reads.
+# not carry, and one nothing takes.
 class TestE2ENetworkHttpBodyFailure < Minitest::Test
   include E2eGuestHelper
   include NetworkLoopback
@@ -34,10 +33,9 @@ class TestE2ENetworkHttpBodyFailure < Minitest::Test
     end
   end
 
-  UNREAD_POST = <<~RUBY
-    http = Net::HTTP.new("127.0.0.1", %<port>d)
+  UNTAKEN_POST = <<~RUBY
+    http = Net::HTTP.new("held.test", 80)
     http.write_timeout = 0.01
-    http.read_timeout = 5
     begin
       http.post("/", "x" * 1_000_000)
     rescue Timeout::Error => e
@@ -45,16 +43,15 @@ class TestE2ENetworkHttpBodyFailure < Minitest::Test
     end
   RUBY
 
+  # A name the Mock holds unanswered never connects, so nothing takes the
+  # body past the buffer the host holds, whatever the host's own buffers.
   # @behavior NW-238
-  def test_a_request_body_the_server_never_reads_raises_net_write_timeout
-    server = TCPServer.new("127.0.0.1", 0)
-    # A small receive buffer, so the server's window holds little of the body.
-    server.setsockopt(Socket::SOL_SOCKET, Socket::SO_RCVBUF, 4096)
-    port = server.addr[1]
-    assert_equal "Net::WriteTimeout", http_sandbox(port).eval(format(UNREAD_POST, port: port)).value,
-                 "Net::HTTP#post of a megabyte body to a server that never reads it, with write_timeout 0.01, " \
-                 "must raise Net::WriteTimeout once the body fills the buffers, as CRuby's does"
-  ensure
-    server&.close
+  def test_a_request_body_nothing_takes_raises_net_write_timeout
+    mock = mock_resolving({ "held.test" => "93.184.216.34" })
+    sandbox = mock_sandbox(mock) { |net| net.endpoint "held.test", port: 80 }
+    answer = mock.hold("held.test") { sandbox.eval(UNTAKEN_POST).value }
+    assert_equal "Net::WriteTimeout", answer,
+                 "Net::HTTP#post of a megabyte body nothing takes, with write_timeout 0.01, must raise " \
+                 "Net::WriteTimeout once the body fills the buffers, as CRuby's does"
   end
 end
