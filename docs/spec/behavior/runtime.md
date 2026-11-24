@@ -4677,6 +4677,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Attribute | Value |
 | --- | --- |
+| refines | `RT-267` |
 | relates | `RT-253` |
 
 | Step | Statement |
