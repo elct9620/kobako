@@ -21,6 +21,8 @@ use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::endpoint::{Calls, ABANDONED};
 use kobako_runtime::profile::Profile;
 
+use wasmtime::{Engine, Store};
+
 use crate::exports::Exports;
 use crate::limiter::MemoryLimiter;
 use crate::wasi::Wasi;
@@ -61,6 +63,19 @@ impl Invocation {
             hostcall_fuel: 0,
             preamble: Arc::from([]),
         }
+    }
+
+    /// The Store the invocation's guest runs in. Each host call may have the
+    /// host copy at most the run's `memory_limit` out of the guest, or
+    /// wasmtime's default with no limit, as a one-call lift is overhead the
+    /// limit sizes.
+    pub(crate) fn into_store(self, engine: &Engine) -> wasmtime::Result<Store<Self>> {
+        let fuel = self.limiter.budget().limit();
+        let mut store = Store::try_new(engine, self)?;
+        if let Some(fuel) = fuel {
+            store.set_hostcall_fuel(fuel);
+        }
+        Ok(store)
     }
 
     /// The Preamble bytes the `preamble` import hands the guest; empty until

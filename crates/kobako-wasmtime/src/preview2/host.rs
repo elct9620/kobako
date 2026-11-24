@@ -1315,7 +1315,7 @@ mod tests {
     /// The guest module, instantiated over `invocation`.
     fn instantiate(invocation: Invocation) -> (Store<Invocation>, Instance) {
         let engine = load_engine().expect("shared engine must be constructible");
-        let mut store = Store::new(engine, invocation);
+        let mut store = invocation.into_store(engine).expect("the Store must open");
         store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
         let module = Module::new(engine, GUEST_WAT).expect("the guest module must compile");
         let instance = imports::linker()
@@ -1459,13 +1459,43 @@ mod tests {
     // @behavior RT-374
     #[test]
     fn lists_past_the_calls_hostcall_fuel_trap_before_the_host_answers() {
+        let fuel_trap = |trap: &Result<(), String>| {
+            trap.as_ref()
+                .is_err_and(|trap| trap.contains("hostcall fuel"))
+        };
+        let reached_host = |trap: &Result<(), String>| {
+            trap.as_ref()
+                .is_err_and(|trap| trap.contains("more datagrams than check-send permitted"))
+        };
+        let limited = sends_of_one_region(Some(1 << 20), [18, 2]);
+        let unlimited = sends_of_one_region(None, [2400, 2]);
+        assert!(
+            fuel_trap(&limited[0])
+                && reached_host(&limited[1])
+                && fuel_trap(&unlimited[0])
+                && reached_host(&unlimited[1]),
+            "outgoing-datagram-stream.send of datagrams naming one 60000-byte region must trap \
+             on its hostcall fuel before the host answers past a 1 MiB memory_limit, or past \
+             128 MiB with none, and of two must reach the host; got {limited:?} and \
+             {unlimited:?}"
+        );
+    }
+
+    /// What `outgoing-datagram-stream.send` answers a guest under
+    /// `memory_limit` for each count of datagrams naming the same 60000 bytes.
+    fn sends_of_one_region(
+        memory_limit: Option<usize>,
+        counts: [i32; 2],
+    ) -> [Result<(), String>; 2] {
         let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
         let port = peer.local_addr().unwrap().port();
-        let (mut store, instance) = instantiate(network_guest(
-            network::Endpoint::new("127.0.0.1", port)
-                .unwrap()
-                .with_protocol(network::Protocol::Udp),
-        ));
+        let endpoint = network::Endpoint::new("127.0.0.1", port)
+            .unwrap()
+            .with_protocol(network::Protocol::Udp);
+        let (mut store, instance) =
+            instantiate(Invocation::hermetic(Some(vec![endpoint]), |config| {
+                config.limits.memory_limit = memory_limit
+            }));
         let outgoing = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
             let guest = store.data_mut();
             let network = guest.instance_network_instance_network()?;
@@ -1509,18 +1539,7 @@ mod tests {
             )
             .map_err(|trap| trap.root_cause().to_string())
         };
-        let past = answer(&mut store, 2400);
-        let within = answer(&mut store, 2);
-        assert!(
-            past.as_ref()
-                .is_err_and(|trap| trap.contains("hostcall fuel"))
-                && within
-                    .as_ref()
-                    .is_err_and(|trap| trap.contains("more datagrams than check-send permitted")),
-            "outgoing-datagram-stream.send of 2400 datagrams naming one 60000-byte region must \
-             trap on its hostcall fuel before the host answers, and of two must reach the host; \
-             got {past:?} and {within:?}"
-        );
+        counts.map(|count| answer(&mut store, count))
     }
 
     // @behavior RT-373

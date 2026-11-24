@@ -46,6 +46,11 @@ impl MemoryBudget {
         })
     }
 
+    /// The `memory_limit` the budget holds the run to; `None` lifts it.
+    pub fn limit(&self) -> Option<usize> {
+        self.limit
+    }
+
     /// Charge the guest's growth from now on, as the run's Store opens, past
     /// the `declared` bytes its Guest Binary's memories and tables start
     /// with, so what the binary declares takes none of it.

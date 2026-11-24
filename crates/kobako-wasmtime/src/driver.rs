@@ -62,7 +62,8 @@ impl Driver {
     /// starts, as instantiating does.
     fn new_store(&self, wasi: Wasi) -> Result<WtStore<Invocation>, Trap> {
         let engine = load_engine().map_err(|err| Trap::Other(err.to_string()))?;
-        let mut store = WtStore::try_new(engine, Invocation::new(wasi))
+        let mut store = Invocation::new(wasi)
+            .into_store(engine)
             .map_err(|err| Trap::Other(format!("failed to create the Sandbox's store: {err}")))?;
         store.limiter(|state: &mut Invocation| -> &mut dyn ResourceLimiter { state.limiter_mut() });
         store
