@@ -53,9 +53,5 @@ module Kobako
                                               open_file_limit:, open_connection_limit:, connection_limit: })
       super(**caps.merge(profile:, gvl:, network:))
     end
-
-    def value_budget # :nodoc:
-      Kobako::Runtime.value_budget_of(memory_limit)
-    end
   end
 end

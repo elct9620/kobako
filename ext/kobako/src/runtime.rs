@@ -101,7 +101,6 @@ pub(crate) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     runtime.define_singleton_method("from_path", function!(Runtime::from_path, 2))?;
     runtime.define_singleton_method("default_options", function!(Runtime::default_options, 0))?;
     runtime.define_singleton_method("normalize_caps", function!(normalize_caps, 1))?;
-    runtime.define_singleton_method("value_budget_of", function!(value_budget_of, 1))?;
     runtime.define_method("eval", method!(Runtime::eval, 3))?;
     runtime.define_method("run", method!(Runtime::run, 4))?;
     runtime.define_method("profile", method!(Runtime::profile, 0))?;
@@ -129,14 +128,6 @@ pub(crate) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
 fn normalize_caps(caps: RHash) -> Result<RHash, MagnusError> {
     let ruby = Ruby::get().expect("Ruby thread");
     caps_of(&ruby, &to_limits(&ruby, caps)?)
-}
-
-/// The most values a guest payload may make the host build under
-/// `memory_limit`, as the runtime's caps count them.
-fn value_budget_of(memory_limit: Option<usize>) -> Option<usize> {
-    let mut limits = Limits::default();
-    limits.memory_limit = memory_limit;
-    limits.value_budget()
 }
 
 /// The caps in `caps`, keyed as `Kobako::SandboxOptions` names them, each read

@@ -94,7 +94,7 @@ impl OpenFrames {
 ///
 /// The guest's Store is re-entered for the fiber that drives the
 /// invocation, and only for it, on the guest's own thread where its frames
-/// stand: the value budget and the open dispatch frames are that fiber's. A
+/// stand: the open dispatch frames are that fiber's. A
 /// block run from any other fiber, including one on another thread, is
 /// refused before it reaches the guest.
 ///

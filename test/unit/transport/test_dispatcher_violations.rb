@@ -89,15 +89,15 @@ class TestTransportDispatchViolations < Minitest::Test
     assert_match(/Sandbox could not read the request/, answer.payload.message)
   end
 
-  # The payload is [[nil, nil, nil, nil], {}] — seven values against a
-  # budget of six, so the count, not the shape, refuses it.
+  # The payload is [[nil × 262143], {}] — 262146 values against the
+  # budget of 262144, so the count, not the shape, refuses it.
   # @behavior T-288
   def test_a_call_past_the_value_budget_is_contained_as_an_internal_fault
-    wide_payload = "\x92\x94\xC0\xC0\xC0\xC0\x80".b
+    wide_payload = "\x92\xDD".b + [262_143].pack("N") + ("\xC0".b * 262_143) + "\x80".b
 
-    answer = Kobako::Codec.within_value_budget(6) { reify(dispatch(payload_call(wide_payload))) }
+    answer = reify(dispatch(payload_call(wide_payload)))
 
-    assert_equal ["internal", "Sandbox could not read the request: payload holds more than 6 values"],
+    assert_equal ["internal", "Sandbox could not read the request: payload holds more than 262144 values"],
                  [answer.payload.type, answer.payload.message],
                  "a Call whose arguments hold more values than the budget through Dispatcher.dispatch " \
                  "must refuse as an internal fault naming the budget"

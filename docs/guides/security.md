@@ -83,7 +83,7 @@ leaves the host exposed in its own way.
 | `timeout` | a thread held for as long as the guest runs |
 | `timeout`, with a network | a socket a silent peer holds open as long as the run |
 | `setup_timeout` | `Sandbox.new` held for as long as the Guest Binary takes to start |
-| `memory_limit` | 4 GiB of memory, no value budget, 128 MiB per host call |
+| `memory_limit` | 4 GiB of memory, 128 MiB per host call |
 | `stdout_limit`, `stderr_limit` | host memory without bound, read back after the run ends |
 | `open_file_limit` | host descriptors for each file or directory open beneath a Bind |
 | `open_file_limit`, with a network | sockets bounded only by `open_connection_limit` |
@@ -383,9 +383,9 @@ its object stays in host memory until the Invocation ends
 ([transport-dispatch](../spec/behavior/transport-dispatch.md)). For hostile input,
 bound the calls and Handles a single Invocation can create.
 
-Each payload the guest sends holds at most one value per 16 bytes of `memory_limit`
-([payload-msgpack](../wire/payload-msgpack.md)). Raising the memory cap raises what one
-call may make the host build.
+Each payload the guest sends holds at most 262144 values, whatever `memory_limit` is
+([payload-msgpack](../wire/payload-msgpack.md)). What one call makes the host build
+stays the same as the memory cap rises.
 
 ```ruby
 sandbox.bind("Cur::Next")  # filled per Invocation

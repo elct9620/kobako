@@ -13,7 +13,7 @@ module Kobako
       # from the decoded payload reports a broken invariant as
       # InvalidTypeError without its own Boundary.within.
       def self.decode(bytes)
-        ValueBudget.assert_within(bytes, State.current.value_budget)
+        ValueBudget.assert_within(bytes, MAX_PAYLOAD_VALUES)
         value = FACTORY.load(bytes.b)
         validate_utf8(value)
         block_given? ? yield(value) : value

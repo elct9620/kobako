@@ -15,7 +15,7 @@ module Kobako
 
       NAN_ENTRY: Integer
 
-      def self.assert_within: (String bytes, Integer? budget) -> void
+      def self.assert_within: (String bytes, Integer budget) -> void
 
       class Count
         class OpenContainer < Struct[untyped]

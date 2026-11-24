@@ -19,16 +19,15 @@ module Kobako
     # packer.
     MAX_NESTING_DEPTH = 128
 
+    # The most values one guest payload may make the host build, whatever
+    # the memory cap, shared with the Rust +kobako_codec+ so both hosts
+    # refuse the same payload.
+    MAX_PAYLOAD_VALUES = 262_144
+
     # Answers the block's result with whether the decode carried a
     # Capability Handle, so a caller can skip an all-identity restore walk.
     def self.track_handles(&block)
       State.current.track_handles(&block)
-    end
-
-    # Holds every decode the block runs on this thread to +budget+ values,
-    # or to none when +budget+ is nil.
-    def self.within_value_budget(budget, &block)
-      State.current.within_value_budget(budget, &block)
     end
   end
 end

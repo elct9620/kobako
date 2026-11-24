@@ -5,9 +5,9 @@ require_relative "error"
 module Kobako
   module Codec
     # Counts the values a payload holds before the decoder builds any, so a
-    # guest cannot make the host build more objects than it could hold in
-    # its own memory. Every value takes at least one byte, so a payload no
-    # longer than the budget, and holding no float, needs no count.
+    # short payload cannot make the host build a large value. Every value
+    # takes at least one byte, so a payload no longer than the budget, and
+    # holding no float, needs no count.
     #
     # A map key holding a NaN costs one more value for each such key the
     # map already holds, as a Ruby Hash compares it with each: every NaN
@@ -45,7 +45,7 @@ module Kobako
       private_constant :FLOAT_FORMATS, :FLOATS, :NAN_ENTRY
 
       def self.assert_within(bytes, budget)
-        return if budget.nil? || within_by_size?(bytes, budget)
+        return if within_by_size?(bytes, budget)
 
         Count.new(bytes, budget).run
       end

@@ -53,7 +53,5 @@ module Kobako
       gvl: Symbol,
       network: Network::Mock?
     }
-
-    def value_budget: () -> Integer?
   end
 end

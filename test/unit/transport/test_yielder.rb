@@ -42,15 +42,13 @@ class TestYielder < Minitest::Test
                  "a Handle-free ok payload reaches the Service yield site unchanged"
   end
 
-  # [1, 2, 3] is four values against a budget of three.
+  # An Array of 262144 Integers is 262145 values, one past the budget.
   # @behavior T-289
   def test_a_block_answer_past_the_value_budget_raises_at_the_yield
-    yielder = yielder_answering(:ok, value: [1, 2, 3])
+    yielder = yielder_answering(:ok, value: Array.new(262_144, 0))
 
-    error = assert_raises(Kobako::Codec::InvalidTypeError) do
-      Kobako::Codec.within_value_budget(3) { yielder.yield }
-    end
-    assert_equal "payload holds more than 3 values", error.message,
+    error = assert_raises(Kobako::Codec::InvalidTypeError) { yielder.yield }
+    assert_equal "payload holds more than 262144 values", error.message,
                  "a block answer holding more values than the budget through Yielder#yield must " \
                  "raise at the Service's yield site rather than reach the Service"
   end

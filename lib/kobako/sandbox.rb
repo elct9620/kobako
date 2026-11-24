@@ -176,7 +176,7 @@ module Kobako
     # wire carries. A failed run raises as #eval does.
     def run(target, *args, **kwargs, &block)
       request = Transport::Run.new(entrypoint: target, args: args, kwargs: kwargs)
-      Codec.within_value_budget(@options.value_budget) { begin_invocation.run(request, &block) }
+      begin_invocation.run(request, &block)
     end
 
     # Evaluate +code+, mruby source as a String, and return the Execution,
@@ -196,7 +196,7 @@ module Kobako
       source = code.dup.force_encoding(Encoding::UTF_8)
       raise ArgumentError, "code must be UTF-8 text" unless source.valid_encoding?
 
-      Codec.within_value_budget(@options.value_budget) { begin_invocation.eval(source, &block) }
+      begin_invocation.eval(source, &block)
     end
 
     private

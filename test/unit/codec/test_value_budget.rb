@@ -50,11 +50,6 @@ class TestCodecValueBudget < Minitest::Test
            "a container claiming elements the payload never holds must be left for the decoder"
   end
 
-  def test_no_budget_counts_nothing
-    refute count_refused?("\x9f#{"\x00" * 15}", nil),
-           "a payload must pass when the invocation has no memory cap"
-  end
-
   NAN64 = "\xcb\x7f\xf8\x00\x00\x00\x00\x00\x00"
   NAN32 = "\xca\x7f\xc0\x00\x00"
 

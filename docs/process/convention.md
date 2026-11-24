@@ -179,7 +179,7 @@ A method is named for what it does, and each kind shows it this way.
 | answers a part of its argument, changing nothing | the noun, then `_of` | `size_of`, `TypeId::of`, `request_of` |
 | makes or converts a value | `new`, `with_`, `for_`, `from_`, `into_`, `to_` | `with_nr_inodes`, `from_posix_name` |
 | adds one more of a member it already holds | the member's noun, as `Command::arg` | `flag` |
-| runs a block under a condition | a preposition and the condition | `within_value_budget { … }` |
+| runs a block under a condition | a preposition and the condition | `within_connection_budget { … }` |
 | acts for as long as its block runs | a verb, then its object, as `Dir.chdir` | `hold(name) { … }` |
 
 A preposition opens a name only where the call reads as a phrase without it, as `with_X(…)` and `within_X { … }` do. Elsewhere it stands after a verb.
@@ -192,7 +192,6 @@ A name reads at the call site as a phrase, without a comment repeating it.
 
 ```ruby
 sandbox.mount("/data", fs)                    # subject, verb, object
-Codec.within_value_budget(budget) { run }     # a preposition, then the condition
 
 memory.emptied                                # drift: a participle names no act
 memory.to_empty                               # a conversion names what it makes
