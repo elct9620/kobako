@@ -157,10 +157,7 @@ impl Wasi {
         // keeps only what the remaining imports read. preview2's resource
         // table holds every file, the descriptors' included, and counts each
         // against the open files.
-        let mut table = preview2::Table::new(
-            OpenFiles::new(open_file_limit),
-            opener.memory_budget().clone(),
-        );
+        let mut table = preview2::Table::new(OpenFiles::new(open_file_limit));
         let mounts = grants
             .iter()
             .filter_map(|grant| match grant {

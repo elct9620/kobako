@@ -8,7 +8,6 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use kobako_runtime::memcg::MemoryCharge;
 use kobako_runtime::net::{self, Exchange, FieldError, RequestBody};
 
 use super::bindings::wasi_http_types_0_2_12::{
@@ -21,6 +20,7 @@ use super::bindings::wasi_io_streams_0_2_12::{InputStream, OutputStream};
 use super::bindings::HttpHost;
 use super::error;
 use super::io::{self, SharedFile, Stream};
+use super::table;
 use super::to_nanos;
 use crate::invocation::Invocation;
 
@@ -39,16 +39,14 @@ pub(crate) struct Request {
     path_with_query: Option<String>,
     headers: Arc<net::Fields>,
     link: Arc<BodyLink>,
-    /// What the method, authority, and path the guest set hold, reserved
-    /// against the Invocation's memory, as its headers' room is.
-    memory: MemoryCharge,
     /// The options `handle` was given.
     timeouts: net::Timeouts,
 }
 
 impl Request {
-    /// The bytes the guest's own strings hold.
-    fn size(&self) -> usize {
+    /// The room its method, authority, path, and headers take together, as
+    /// a server's header buffer holds the request line beside the headers.
+    fn room(&self) -> usize {
         let method = match &self.method {
             Method::Other(other) => other.len(),
             _ => 0,
@@ -56,6 +54,7 @@ impl Request {
         method
             + self.authority.as_ref().map_or(0, String::len)
             + self.path_with_query.as_ref().map_or(0, String::len)
+            + self.headers.room()
     }
 }
 
@@ -96,8 +95,7 @@ pub(crate) mod resource {
     #[derive(Default)]
     pub(crate) struct RequestOptions(pub(crate) net::Timeouts);
 
-    /// A response whose head its exchange holds once, against the
-    /// Invocation's memory.
+    /// A response whose head its exchange holds once.
     pub(crate) struct IncomingResponse {
         pub(crate) status: u16,
         pub(crate) exchange: Arc<Exchange>,
@@ -119,15 +117,6 @@ fn to_header_error(err: FieldError) -> HeaderError {
     match err {
         FieldError::Forbidden => HeaderError::Forbidden,
         _ => HeaderError::InvalidSyntax,
-    }
-}
-
-/// The trap a header list past its room ends the run with, since
-/// `header-error` has no case for it.
-fn to_field_trap(err: FieldError) -> wasmtime::Error {
-    match err {
-        FieldError::OutOfMemory => wasmtime::Error::msg("the guest's headers outgrow its memory"),
-        _ => wasmtime::Error::msg("the guest's headers outgrow the most one list may hold"),
     }
 }
 
@@ -181,8 +170,8 @@ impl Invocation {
             .map(|request| &mut request.0)
     }
 
-    /// Change `request` through `change`, then reserve what its strings now
-    /// hold; past the Invocation's memory the call traps, as a header list's
+    /// Change `request` through `change`; past `MAX_FIELD_SIZE` for its
+    /// parts and headers together the call traps, as a header list's append
     /// does.
     fn change_request(
         &mut self,
@@ -191,11 +180,21 @@ impl Invocation {
     ) -> wasmtime::Result<()> {
         let request = self.request_mut(request)?;
         change(request);
-        let size = request.size();
-        request
-            .memory
-            .resize(size)
-            .map_err(|_| wasmtime::Error::msg("the guest's request outgrows its memory"))
+        match request.room() > net::MAX_FIELD_SIZE {
+            true => Err(wasmtime::Error::msg(
+                "the guest's request outgrows the most one request's head may hold",
+            )),
+            false => Ok(()),
+        }
+    }
+
+    /// Room for a header list or a request the host holds for the guest, which
+    /// takes an open file as a host-side producer does; none left traps,
+    /// since no constructor has an error for it.
+    fn reserve_held(&self) -> wasmtime::Result<table::FileRoom> {
+        self.wasi().table().reserve_producer().ok_or_else(|| {
+            wasmtime::Error::msg("the guest's open files leave no room for what the host holds")
+        })
     }
 
     fn future_mut(&mut self, future: FutureIncomingResponse) -> wasmtime::Result<&mut FutureState> {
@@ -229,9 +228,6 @@ impl Invocation {
         outgoing.headers = request.headers.entries();
         outgoing.body = request.link.body.clone();
         outgoing.timeouts = request.timeouts;
-        // The exchange reserves the request's parts itself, so the guest's
-        // copies give theirs back before it does.
-        drop((request.headers, request.memory));
         let cred = self.wasi().cred();
         match net::send(self.network(), cred, outgoing) {
             Ok(exchange) => {
@@ -256,16 +252,18 @@ impl HttpHost for Invocation {
     }
 
     fn types_fields_new(&mut self) -> wasmtime::Result<Fields> {
-        let entries = net::Fields::new(self.wasi().cred().clone());
-        self.table_mut().push(resource::Fields {
-            entries,
-            mutable: true,
-        })
+        let room = self.reserve_held()?;
+        Ok(self.table_mut().install(
+            room,
+            resource::Fields {
+                entries: net::Fields::new(),
+                mutable: true,
+            },
+        ))
     }
 
     /// A header appended, or the `header-error` refusing it; a list past
-    /// `MAX_FIELD_SIZE` or the Invocation's memory traps, as wasmtime's
-    /// field limit does.
+    /// `MAX_FIELD_SIZE` traps, as wasmtime's field limit does.
     fn types_fields_append(
         &mut self,
         this: Fields,
@@ -283,9 +281,10 @@ impl HttpHost for Invocation {
         }
         match fields.entries.append(&name, value) {
             Ok(()) => Ok(()),
-            Err(err @ (FieldError::TooLarge | FieldError::OutOfMemory)) => {
-                Err(to_field_trap(err).into())
-            }
+            Err(FieldError::TooLarge) => Err(wasmtime::Error::msg(
+                "the guest's headers outgrow the most one list may hold",
+            )
+            .into()),
             Err(err) => Err(to_header_error(err).into()),
         }
     }
@@ -303,23 +302,24 @@ impl HttpHost for Invocation {
         &mut self,
         headers: resource::Fields,
     ) -> wasmtime::Result<OutgoingRequest> {
-        let entries = headers.entries;
-        let cred = self.wasi().cred().clone();
-        let memory = MemoryCharge::empty(cred.memory_budget());
+        // The list's own place went with its handle, so the request takes it.
+        let room = self.reserve_held()?;
         let link = Arc::new(BodyLink {
             body: RequestBody::new(),
             handed: AtomicBool::new(false),
         });
-        self.table_mut().push(resource::OutgoingRequest(Request {
+        let request = Request {
             method: Method::Get,
             scheme: None,
             authority: None,
             path_with_query: None,
-            headers: entries,
+            headers: headers.entries,
             link,
-            memory,
             timeouts: net::Timeouts::default(),
-        }))
+        };
+        Ok(self
+            .table_mut()
+            .install(room, resource::OutgoingRequest(request)))
     }
 
     /// The body, handed out once.
@@ -510,12 +510,14 @@ impl HttpHost for Invocation {
             Some(Ok(head)) => head.headers,
             _ => unreachable!("a response is handed out only once its head arrived"),
         };
-        let cred = self.wasi().cred().clone();
-        let entries = net::Fields::with_entries(cred, headers).map_err(to_field_trap)?;
-        self.table_mut().push(resource::Fields {
-            entries,
-            mutable: false,
-        })
+        let room = self.reserve_held()?;
+        Ok(self.table_mut().install(
+            room,
+            resource::Fields {
+                entries: net::Fields::with_entries(headers),
+                mutable: false,
+            },
+        ))
     }
 
     /// The body, handed out once.
@@ -658,11 +660,7 @@ impl HttpHost for Invocation {
         if self.wasi().network().is_none() {
             return Err(ErrorCode::HTTPRequestDenied.into());
         }
-        let Some(room) = self
-            .wasi()
-            .table()
-            .reserve_producer::<FutureIncomingResponse>()?
-        else {
+        let Some(room) = self.wasi().table().reserve_producer() else {
             return Err(ErrorCode::ConnectionLimitReached.into());
         };
         let future = self.send(request);
@@ -1074,77 +1072,61 @@ mod tests {
 
     // @behavior NW-081
     #[test]
-    fn a_header_list_past_its_room_or_the_guests_memory_traps() {
-        // How many 1 KiB headers a new list takes before its trap, and the trap.
-        let fill = |guest: &mut Invocation| {
-            let fields = guest.types_fields_new().unwrap();
-            let mut taken = 0;
-            for i in 0..200 {
-                if let Err(trap) = guest
-                    .types_fields_append(fields, format!("x-{i}"), vec![b'v'; 1024])
-                    .into_answer()
-                {
-                    guest.types_fields_drop(fields).unwrap();
-                    return (taken, trap.to_string());
-                }
-                taken += 1;
+    fn a_header_list_past_its_room_traps() {
+        let mut guest = limited_guest(None, Some(16 * 1024));
+        let fields = guest.types_fields_new().unwrap();
+        let mut taken = 0;
+        let trap = loop {
+            if let Err(trap) = guest
+                .types_fields_append(fields, format!("x-{taken}"), vec![b'v'; 1024])
+                .into_answer()
+            {
+                break trap.to_string();
             }
-            (taken, "no trap".to_string())
+            taken += 1;
         };
-        let (_, roomy) = fill(&mut guest(None));
-        let mut tight = limited_guest(None, Some(16 * 1024));
-        let (first, short) = fill(&mut tight);
-        let (again, _) = fill(&mut tight);
         assert_eq!(
-            (roomy.as_str(), short.as_str(), first > 0 && again == first),
+            (trap.as_str(), taken > 16 && taken < 128),
             (
                 "the guest's headers outgrow the most one list may hold",
-                "the guest's headers outgrow its memory",
                 true
             ),
-            "fields.append of 1 KiB values must trap once the list passes 128 KiB, and sooner \
-             once it passes a 16 KiB memory_limit; a dropped list must give its room back, so \
-             a new one takes as many"
+            "fields.append of 1 KiB values under a 16 KiB memory_limit must trap once the list \
+             passes 128 KiB, whatever the memory_limit; took {taken}"
         );
     }
 
     // @behavior NW-156
     #[test]
-    fn the_paths_requests_hold_count_against_the_guests_memory() {
-        // How many requests holding a `path_len` path a guest builds before a
-        // call traps; every request it built is dropped after.
-        let fill = |guest: &mut Invocation, path_len: usize| {
-            let path = format!("/{}", "p".repeat(path_len - 1));
-            let mut held = Vec::new();
-            let mut build = |guest: &mut Invocation| -> wasmtime::Result<()> {
-                let headers = guest.types_fields_new()?;
-                let headers = guest.take_handle(headers)?;
-                let request = guest.types_outgoing_request_new(headers)?;
-                held.push(request);
-                guest
-                    .types_outgoing_request_set_path_with_query(request, Some(path.clone()))?
-                    .map_err(|()| wasmtime::Error::msg("the path was refused"))
-            };
-            let mut taken = 0;
-            while taken <= 1000 && build(guest).is_ok() {
-                taken += 1;
-            }
-            for request in held {
-                guest.types_outgoing_request_drop(request).unwrap();
-            }
-            taken
+    fn a_requests_line_shares_its_headers_room() {
+        // Whether a request whose headers hold `headers` bytes takes a path of
+        // `path` bytes.
+        let set = |headers: usize, path: usize| {
+            let mut guest = guest(None);
+            let fields = guest.types_fields_new().unwrap();
+            guest
+                .types_fields_append(fields, "x-pad".to_string(), vec![b'v'; headers])
+                .into_answer()
+                .unwrap()
+                .expect("a header within the list's room appends");
+            let fields = guest.take_handle(fields).unwrap();
+            let request = guest.types_outgoing_request_new(fields).unwrap();
+            let path = format!("/{}", "p".repeat(path - 1));
+            guest
+                .types_outgoing_request_set_path_with_query(request, Some(path))
+                .map(drop)
+                .map_err(|trap| trap.to_string())
         };
-        let mut tight = limited_guest(None, Some(16 * 1024));
-        let short = fill(&mut tight, 1);
-        let first = fill(&mut tight, 1024);
-        let again = fill(&mut tight, 1024);
         assert_eq!(
-            (first > 0 && first < 16 && first < short, again == first),
-            (true, true),
-            "outgoing-request.set-path-with-query of 1 KiB paths must trap once the requests \
-             holding them pass a 16 KiB memory_limit, short of as many requests as hold a 1-byte \
-             path, and dropped requests must give their room back, so as many are taken again; \
-             took {first} then {again}, {short} with a 1-byte path"
+            (set(96 * 1024, 16 * 1024), set(96 * 1024, 40 * 1024)),
+            (
+                Ok(()),
+                Err(
+                    "the guest's request outgrows the most one request's head may hold".to_string()
+                )
+            ),
+            "outgoing-request.set-path-with-query must take a 16 KiB path beside 96 KiB of \
+             headers, and trap on a 40 KiB one, which passes the 128 KiB they share"
         );
     }
 

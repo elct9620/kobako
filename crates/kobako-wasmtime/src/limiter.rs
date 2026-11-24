@@ -107,7 +107,6 @@ impl ResourceLimiter for MemoryLimiter {
 
 #[cfg(test)]
 mod tests {
-    use kobako_runtime::memcg::MemoryCharge;
     use wasmtime::{Memory, MemoryType, Store};
 
     use super::*;
@@ -129,12 +128,12 @@ mod tests {
             .expect("a memory of one page within its maximum must be made");
         let failed = memory.grow(&mut store, 2).is_err();
         let peak = budget.peak();
-        let held = MemoryCharge::new(&budget, 2 * PAGE).is_ok();
+        let regrown = budget.charge_growth(2 * PAGE).is_ok();
         assert_eq!(
-            (failed, peak, held),
+            (failed, peak, regrown),
             (true, 2 * PAGE, true),
             "a growth past a memory's maximum that the budget allowed must fail, give the \
-             budget back for the host to hold, and stay in the peak reported"
+             budget back for the next growth, and stay in the peak reported"
         );
     }
 }

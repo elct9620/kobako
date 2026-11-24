@@ -110,9 +110,8 @@ pub fn send(
         Exchange::start(
             net.outbound().clone(),
             request,
-            |place| Connector::new(net, cred, judged, port, place),
+            |place| Connector::new(net, judged, port, place),
             net.open_connections(),
-            cred,
         )
     })
 }

@@ -71,7 +71,6 @@ const ERRNO_ISDIR: i32 = 31;
 #[cfg(unix)]
 const ERRNO_LOOP: i32 = 32;
 const ERRNO_NOENT: i32 = 44;
-const ERRNO_NOMEM: i32 = 48;
 const ERRNO_OVERFLOW: i32 = 61;
 const ERRNO_NOTDIR: i32 = 54;
 const ERRNO_NOTEMPTY: i32 = 55;
@@ -517,40 +516,27 @@ impl Guest {
 
     /// A guest holding at most `open_file_limit` descriptors at once.
     fn with_open_file_limit(open_file_limit: Option<usize>, grants: &[Grant]) -> Self {
-        Self::build(open_file_limit, None, Profile::Hermetic, Vec::new(), grants)
-    }
-
-    /// A guest allotted `memory_limit` bytes.
-    fn with_memory_limit(memory_limit: usize, grants: &[Grant]) -> Self {
-        Self::build(
-            None,
-            Some(memory_limit),
-            Profile::Hermetic,
-            Vec::new(),
-            grants,
-        )
+        Self::build(open_file_limit, Profile::Hermetic, Vec::new(), grants)
     }
 
     /// A guest on `profile`.
     fn for_profile(profile: Profile, grants: &[Grant]) -> Self {
-        Self::build(None, None, profile, Vec::new(), grants)
+        Self::build(None, profile, Vec::new(), grants)
     }
 
     /// A guest whose Driver was built with `security`.
     fn with_security(security: Vec<Arc<dyn SecurityOperations>>, grants: &[Grant]) -> Self {
-        Self::build(None, None, Profile::Hermetic, security, grants)
+        Self::build(None, Profile::Hermetic, security, grants)
     }
 
     fn build(
         open_file_limit: Option<usize>,
-        memory_limit: Option<usize>,
         profile: Profile,
         security: Vec<Arc<dyn SecurityOperations>>,
         grants: &[Grant],
     ) -> Self {
         let engine = load_engine().expect("shared engine must be constructible");
         let mut config = Config::for_profile(profile);
-        config.limits.memory_limit = memory_limit;
         config.limits.open_file_limit = open_file_limit;
         config.security = security;
         let wasi = Wasi::for_invocation(&config, grants).expect("WASI context must build");
@@ -1009,51 +995,6 @@ fn a_listing_goes_on_over_the_entries_it_began_with() {
         from_the_start,
         [".", "..", "a.txt", "b.txt"],
         "a listing from the start through fd_readdir must read the directory as it stands"
-    );
-}
-
-// A buffer of 51 takes only the dots, one of 4096 the whole listing; the limit
-// the listing is held against is the memory the guest was allotted, counted
-// from the moment the listing is read.
-// @behavior RT-237
-#[test]
-fn a_listing_it_cannot_hold_within_a_guests_memory_answers_enomem() {
-    let dir = host_dir_with_a_file("holds");
-    let answer = |memory_limit, len| {
-        let bind = Arc::new(Bind::new(&dir).expect("the host directory must open"));
-        let mut guest =
-            Guest::with_memory_limit(memory_limit, &[grant(bind, Access::ReadWrite, None)]);
-        let errno = guest.call_list(0, len);
-        let memory = guest
-            .instance
-            .get_memory(&mut guest.store, "memory")
-            .expect("probe exports its memory");
-        let used = u32::from_le_bytes(memory.data(&guest.store)[136..140].try_into().unwrap());
-        (errno, used)
-    };
-    assert_eq!(
-        [answer(1, 51), answer(1, 4096), answer(1 << 20, 51)],
-        [(ERRNO_NOMEM, 0), (ERRNO_NOMEM, 0), (0, 51)],
-        "fd_readdir through preview1, with more to hold than the guest's memory_limit, must \
-         answer ENOMEM before it hands any entry, read part way or whole, and within it succeed"
-    );
-}
-
-// @behavior RT-400
-#[test]
-fn an_open_the_memory_limit_cannot_hold_answers_enomem_whatever_the_path_names() {
-    let mut starved =
-        Guest::with_memory_limit(1, &[grant(file_and_directory(), Access::Read, None)]);
-    let refused = [FILE, THROUGH_MISSING].map(|path| starved.call("open_close", path));
-    let mut held =
-        Guest::with_memory_limit(1 << 20, &[grant(file_and_directory(), Access::Read, None)]);
-    let reopened = (0..10_000).all(|_| held.call("open_close", FILE) == 0);
-    assert_eq!(
-        (refused, reopened),
-        ([ERRNO_NOMEM; 2], true),
-        "path_open through preview1 under a memory_limit that holds no more files must answer \
-         ENOMEM for a file and a missing path alike, as Linux's path_openat allocates the file \
-         before the walk, and a closed file must give its room back for the next open"
     );
 }
 

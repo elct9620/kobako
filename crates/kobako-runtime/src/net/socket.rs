@@ -9,9 +9,7 @@ use std::sync::{Arc, LazyLock, Mutex, MutexGuard, PoisonError};
 
 use socket2::SockRef;
 
-use super::skbuff::sk_mem_pages;
 use crate::cred::Cred;
-use crate::memcg::MemoryCharge;
 use crate::vfs::{
     alloc_file_pseudo, Dentry, FMode, File, FileOperations, FileSystemType, FileType, Inode,
     InodeOperations, Kiocb, Kstat, OpenHow, PollMask, SuperBlock, VfsMount,
@@ -250,15 +248,11 @@ pub(crate) struct InetSock {
     /// Whether the bind named its port, which the socket then keeps once it
     /// closes, as `SOCK_BINDPORT_LOCK` does.
     bindport_locked: bool,
-    /// What its queues hold, charged against the Invocation's memory in
-    /// whole pages until the socket is released, as `sk_forward_alloc`.
-    memory: Option<MemoryCharge>,
 }
 
 impl InetSock {
-    /// A socket whose queues start at `buffers`, charging what they hold to
-    /// `memory`.
-    pub(crate) fn new(memory: MemoryCharge, buffers: Buffers) -> Self {
+    /// A socket whose queues start at `buffers`.
+    pub(crate) fn new(buffers: Buffers) -> Self {
         Self {
             num: None,
             sport: None,
@@ -271,7 +265,6 @@ impl InetSock {
             send_shutdown: false,
             place: None,
             bindport_locked: false,
-            memory: Some(memory),
         }
     }
 
@@ -379,53 +372,10 @@ impl InetSock {
         }
     }
 
-    /// Charge `truesize` bytes of buffers in whole pages, as
-    /// `sk_rmem_schedule` and `sk_wmem_schedule` raise a socket's charge;
-    /// past the limit it keeps what it held and answers false. Less than it
-    /// holds gives the rest back.
-    pub(crate) fn schedule(&mut self, truesize: usize) -> bool {
-        self.memory
-            .as_mut()
-            .is_none_or(|memory| memory.resize(sk_mem_pages(truesize)).is_ok())
-    }
-
-    /// Whether charging `truesize` bytes of buffers would stay within the
-    /// limit, so a socket holding bytes takes more only while it would.
-    pub(crate) fn can_schedule(&self, truesize: usize) -> bool {
-        self.memory
-            .as_ref()
-            .is_none_or(|memory| memory.can_resize(sk_mem_pages(truesize)))
-    }
-
-    /// Charge `truesize` bytes of buffers even past the limit, as
-    /// `sk_forced_mem_schedule` charges what a socket must hold to move on.
-    pub(crate) fn force_schedule(&mut self, truesize: usize) {
-        if let Some(memory) = self.memory.as_mut() {
-            memory.force_resize(sk_mem_pages(truesize));
-        }
-    }
-
-    /// What the pages it holds leave past `truesize`, as `sk_forward_alloc`
-    /// answers what a socket may queue without charging more.
-    pub(crate) fn forward_alloc(&self, truesize: usize) -> usize {
-        self.memory
-            .as_ref()
-            .map_or(usize::MAX, |memory| memory.bytes().saturating_sub(truesize))
-    }
-
-    /// Whether the Invocation's memory is past its limit, as
-    /// `mem_cgroup_under_socket_pressure` keeps a socket from growing.
-    pub(crate) fn under_memory_pressure(&self) -> bool {
-        self.memory
-            .as_ref()
-            .is_some_and(MemoryCharge::is_over_limit)
-    }
-
-    /// Give back the socket's place and its memory, as `sk_free` does once
-    /// the socket is released.
+    /// Give back the socket's place, as `sk_free` does once the socket is
+    /// released.
     pub(crate) fn release(&mut self) {
         self.place = None;
-        self.memory = None;
     }
 
     /// What `opt` reads at the socket and IP levels, as `sk_getsockopt` and
@@ -518,15 +468,6 @@ impl Buffers {
     pub(crate) fn sndbuf_expand(&mut self) {
         if !self.sndbuf_locked {
             self.sndbuf = MAX_SOCKET_BUFFER;
-        }
-    }
-
-    /// Shrink the send buffer to half of `wmem_queued` once memory refuses a
-    /// write, as `sk_stream_moderate_sndbuf` does, so the socket polls
-    /// unwritable until what is queued leaves. One the guest set stays.
-    pub(crate) fn moderate_sndbuf(&mut self, wmem_queued: usize) {
-        if !self.sndbuf_locked {
-            self.sndbuf = self.sndbuf.min(wmem_queued / 2).max(SOCK_MIN_SNDBUF);
         }
     }
 
@@ -699,44 +640,30 @@ pub(crate) fn check_family(family: AddressFamily) -> Result<(), Errno> {
 }
 
 impl TcpSock {
-    /// A TCP socket of `family`, connected to nothing, in `net` for `cred`,
-    /// as `__sock_create` makes one; it connects through `net`'s Protocol
-    /// Family, and its buffers count against `cred`'s memory, as a socket's
-    /// do against its creator's memory cgroup.
-    pub fn create(
-        net: &Namespace,
-        cred: &Arc<Cred>,
-        family: AddressFamily,
-    ) -> Result<Arc<Self>, Errno> {
+    /// A TCP socket of `family`, connected to nothing, in `net`, as
+    /// `__sock_create` makes one; it connects through `net`'s Protocol
+    /// Family.
+    pub fn create(net: &Namespace, family: AddressFamily) -> Result<Arc<Self>, Errno> {
         check_family(family)?;
-        Ok(Self::create_kern(net.family(), net.tcp_sockets(), cred))
+        Ok(Self::create_kern(net.family(), net.tcp_sockets()))
     }
 
     /// A TCP socket the runtime makes for itself, as `sock_create_kern` does:
-    /// it connects through `family`, `sockets` holds it until the Invocation
-    /// ends, and what its queues hold counts against `cred`'s memory.
-    pub(crate) fn create_kern(
-        family: &Arc<dyn ProtocolFamily>,
-        sockets: &TcpSockets,
-        cred: &Arc<Cred>,
-    ) -> Arc<Self> {
-        let sock = Self::new(family.clone(), cred);
+    /// it connects through `family`, and `sockets` holds it until the
+    /// Invocation ends.
+    pub(crate) fn create_kern(family: &Arc<dyn ProtocolFamily>, sockets: &TcpSockets) -> Arc<Self> {
+        let sock = Self::new(family.clone());
         sockets.hold(&sock);
         sock
     }
 }
 
 impl UdpSock {
-    /// A UDP socket of `family`, connected to nothing, in `net` for `cred`,
-    /// as `__sock_create` makes one; its receive queue counts against
-    /// `cred`'s memory.
-    pub fn create(
-        _net: &Namespace,
-        cred: &Arc<Cred>,
-        family: AddressFamily,
-    ) -> Result<Arc<Self>, Errno> {
+    /// A UDP socket of `family`, connected to nothing, in `net`, as
+    /// `__sock_create` makes one.
+    pub fn create(_net: &Namespace, family: AddressFamily) -> Result<Arc<Self>, Errno> {
         check_family(family)?;
-        Ok(Self::new(cred))
+        Ok(Self::new())
     }
 }
 
@@ -901,11 +828,10 @@ mod tests {
             Arc::new(super::super::family::testing::CountsDials::default()),
             Arc::new(super::super::HyperOutbound::new()),
         );
-        let cred = crate::security::prepare_creds(&[], None);
         let answers = (
-            TcpSock::create(&net, &cred, AddressFamily::Inet6).err(),
-            UdpSock::create(&net, &cred, AddressFamily::Inet6).err(),
-            TcpSock::create(&net, &cred, AddressFamily::Inet).is_ok(),
+            TcpSock::create(&net, AddressFamily::Inet6).err(),
+            UdpSock::create(&net, AddressFamily::Inet6).err(),
+            TcpSock::create(&net, AddressFamily::Inet).is_ok(),
         );
         assert_eq!(
             answers,

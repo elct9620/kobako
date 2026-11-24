@@ -2,58 +2,39 @@
 //! goes on, as 9p's `fid->rdir` holds what its server sent, so a caller reading in
 //! small steps costs one listing, not one per step.
 
-use crate::cred::Cred;
-use crate::memcg::MemoryCharge;
 use crate::vfs::{Dentry, DirContext, DirEntry, FileType};
 use crate::Errno;
 
 /// The entries a listing began with, `.` and `..` first, on the open directory
-/// until it reaches its end, counted against who holds them.
+/// until it reaches its end.
 #[derive(Default)]
-pub struct Rdir(Option<Listing>);
-
-struct Listing {
-    entries: Vec<DirEntry>,
-    /// Gives the entries' bytes back once the listing goes.
-    _charge: MemoryCharge,
-}
-
-/// Charge the bytes `entries` hold to `cred` for as long as the listing holds
-/// them.
-fn charge(cred: &Cred, entries: &[DirEntry]) -> Result<MemoryCharge, Errno> {
-    let names: usize = entries.iter().map(|entry| entry.name.capacity()).sum();
-    MemoryCharge::new(cred.memory_budget(), size_of_val(entries) + names)
-}
+pub struct Rdir(Option<Vec<DirEntry>>);
 
 impl Rdir {
     /// Hand `ctx` the directory from its position. A listing from the start
     /// reads the directory through `read`, then stats it and what stands above
     /// it for `.` and `..`, as 9p and FUSE take those from their server and
     /// `ovl_cache_update` asks `vfs_getattr`; a failure of either answers before
-    /// any entry. A listing going on reads what that listing began with. Those
-    /// entries count against the caller from the moment they are read until the
-    /// listing ends, as `ovl_cache_get` and `v9fs_alloc_rdir_buf` allocate before
-    /// the first `dir_emit`: past what a security module allows, the listing
-    /// answers out of memory before it hands any entry.
+    /// any entry. A listing going on reads what that listing began with, as
+    /// `ovl_cache_get` and `v9fs_alloc_rdir_buf` keep it until the listing ends.
     pub fn iterate_shared(
         &mut self,
         dentry: &Dentry,
         ctx: &mut DirContext<'_>,
         read: impl FnOnce() -> Result<Vec<DirEntry>, Errno>,
     ) -> Result<(), Errno> {
-        let listing = match self.0.take().filter(|_| ctx.pos() != 0) {
+        let entries = match self.0.take().filter(|_| ctx.pos() != 0) {
             Some(held) => held,
             None => {
                 let read = read()?;
                 let mut entries = dots(dentry)?;
                 entries.extend(read);
                 entries.shrink_to_fit();
-                let _charge = charge(ctx.cred(), &entries)?;
-                Listing { entries, _charge }
+                entries
             }
         };
-        if !emit_from(ctx, &listing.entries) {
-            self.0 = Some(listing);
+        if !emit_from(ctx, &entries) {
+            self.0 = Some(entries);
         }
         Ok(())
     }

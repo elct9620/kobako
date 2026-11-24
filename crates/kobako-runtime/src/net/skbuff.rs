@@ -1,27 +1,8 @@
 //! The bytes a stream holds, as Linux's `sk_buff_head` chains a socket's
 //! buffers: each push is a buffer of its own, sized to what it holds, freed
-//! once wholly read, so what the queue costs is what it holds.
+//! once wholly read.
 
 use std::collections::VecDeque;
-
-/// What one buffer costs beside its bytes, as `skb->truesize` counts the
-/// `sk_buff` itself.
-const SKB_OVERHEAD: usize = std::mem::size_of::<Vec<u8>>();
-
-/// The page a socket's memory is charged in, as `sk_mem_pages` rounds a
-/// charge up to `PAGE_SIZE`.
-const PAGE_SIZE: usize = 4096;
-
-/// What `truesize` bytes of buffers hold against the Invocation's memory,
-/// in whole pages, as `sk_forward_alloc` holds a socket's charge.
-pub(crate) fn sk_mem_pages(truesize: usize) -> usize {
-    truesize.div_ceil(PAGE_SIZE) * PAGE_SIZE
-}
-
-/// What a buffer of `len` bytes costs, as `SKB_TRUESIZE` counts one.
-pub(crate) fn truesize_of(len: usize) -> usize {
-    len + SKB_OVERHEAD
-}
 
 /// A stream's queued bytes, oldest first.
 #[derive(Default)]
@@ -30,7 +11,6 @@ pub(crate) struct SkBuffHead {
     /// How much of the oldest buffer was read already.
     offset: usize,
     len: usize,
-    truesize: usize,
 }
 
 impl SkBuffHead {
@@ -41,12 +21,6 @@ impl SkBuffHead {
 
     pub(crate) fn is_empty(&self) -> bool {
         self.len == 0
-    }
-
-    /// What its buffers cost, read or not, as `sk_rmem_alloc` and
-    /// `sk_wmem_queued` count each buffer until it is freed.
-    pub(crate) fn truesize(&self) -> usize {
-        self.truesize
     }
 
     /// Queue `bytes` as one buffer of their own.
@@ -60,7 +34,6 @@ impl SkBuffHead {
             return;
         }
         self.len += buffer.len();
-        self.truesize += truesize_of(buffer.len());
         self.buffers.push_back(buffer);
     }
 
@@ -85,7 +58,6 @@ impl SkBuffHead {
                 return;
             }
             n -= left;
-            self.truesize -= truesize_of(buffer.len());
             self.buffers.pop_front();
             self.offset = 0;
         }
@@ -116,31 +88,22 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_queue_costs_its_buffers_until_each_is_wholly_read() {
+    fn a_queue_answers_its_bytes_in_order_and_frees_each_buffer_wholly_read() {
         let mut queue = SkBuffHead::default();
         queue.push(b"hello");
         queue.push(b"world");
         let mut buf = [0; 7];
         let copied = queue.read_into(&mut buf);
         assert_eq!(
-            (&buf[..copied], queue.len(), queue.truesize(), queue.front()),
-            (&b"hellowo"[..], 3, truesize_of(5), &b"rld"[..]),
-            "a queue of two 5-byte buffers read 7 bytes into must answer them in order, \
-             cost only the buffer still partly unread, and answer its rest first"
-        );
-    }
-
-    #[test]
-    fn a_charge_rounds_up_to_whole_pages() {
-        assert_eq!(
             (
-                sk_mem_pages(0),
-                sk_mem_pages(1),
-                sk_mem_pages(4096),
-                sk_mem_pages(4097)
+                &buf[..copied],
+                queue.len(),
+                queue.buffers.len(),
+                queue.front()
             ),
-            (0, 4096, 4096, 8192),
-            "a socket's charge must round up to whole 4 KiB pages, as sk_mem_pages does"
+            (&b"hellowo"[..], 3, 1, &b"rld"[..]),
+            "a queue of two 5-byte buffers read 7 bytes into must answer them in order, \
+             keep only the buffer still partly unread, and answer its rest first"
         );
     }
 }

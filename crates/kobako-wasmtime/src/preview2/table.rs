@@ -1,15 +1,11 @@
 //! The resource table preview2 hands the guest its handles from, as
 //! wasmtime's `ResourceTable` is: it numbers its own, apart from preview1's
 //! descriptors, holds every file either encoding opens and counts each
-//! against the open files, and charges every entry the guest makes to the
-//! Invocation's memory, as Linux's `filp` cache is accounted to the memory
-//! cgroup of the task that allocates it.
+//! against the open files, and holds at most `MAX_TABLE_ENTRIES` entries.
 
 use std::any::Any;
 use std::collections::BTreeMap;
-use std::sync::Arc;
 
-use kobako_runtime::memcg::{MemoryBudget, MemoryCharge};
 use kobako_runtime::vfs::OpenFiles;
 use kobako_runtime::Errno;
 
@@ -28,11 +24,6 @@ pub(crate) trait Handle: Copy {
 /// `ResourceTable::max_capacity` bounds a table.
 pub(crate) const MAX_TABLE_ENTRIES: usize = 1_000_000;
 
-/// The memory one entry holding a resource of kind `H` takes.
-fn bytes_of<H: Handle>() -> usize {
-    size_of::<Entry>() + size_of::<H::Host>()
-}
-
 /// One handle's resource, and the handle it is a child of, as wasmtime's
 /// `ResourceTable` keeps each entry's parent.
 struct Entry {
@@ -45,18 +36,12 @@ struct Entry {
     /// Whether it counts against the open files, as a host-side producer
     /// does and a view does not.
     counted: bool,
-    /// What the entry and its resource hold, against the Invocation's
-    /// memory, as each `struct file` is charged through `SLAB_ACCOUNT`.
-    _memory: MemoryCharge,
 }
 
 /// The room one file takes in the table before it opens, as Linux's
-/// `get_unused_fd_flags` counts it and `alloc_empty_file` charges it before
-/// the walk. Dropped unused, it gives both back.
-pub(crate) struct FileRoom {
-    count: FileCount,
-    memory: MemoryCharge,
-}
+/// `get_unused_fd_flags` counts it before the walk. Dropped unused, it gives
+/// the count back.
+pub(crate) struct FileRoom(FileCount);
 
 /// One file counted against the open files until the table takes it over.
 struct FileCount(Option<OpenFiles>);
@@ -77,73 +62,49 @@ pub(crate) struct Table {
     /// The number past every one handed out so far.
     next: u32,
     open_files: OpenFiles,
-    memory: Arc<MemoryBudget>,
 }
 
 impl Table {
-    /// A table holding nothing, counting its files against `open_files` and
-    /// its entries against `memory`. Numbers start at 1, as the Canonical ABI
-    /// keeps 0 for no handle.
-    pub(crate) fn new(open_files: OpenFiles, memory: Arc<MemoryBudget>) -> Self {
+    /// A table holding nothing, counting its files against `open_files`.
+    /// Numbers start at 1, as the Canonical ABI keeps 0 for no handle.
+    pub(crate) fn new(open_files: OpenFiles) -> Self {
         Self {
             entries: BTreeMap::new(),
             free: Vec::new(),
             next: 1,
             open_files,
-            memory,
         }
     }
 
     /// The room a host-side producer's file takes, as a socket's, a
     /// lookup's, or an exchange's does: none past the open file limit, which
     /// each WIT answers with its own code, as Linux's `socket()` answers
-    /// EMFILE; a trap past the Invocation's memory, since no WIT constructor
-    /// has an error for it.
-    pub(crate) fn reserve_producer<H: Handle>(&self) -> wasmtime::Result<Option<FileRoom>> {
-        match self.reserve_file::<H>() {
-            Ok(room) => Ok(Some(room)),
-            Err(Errno::OutOfMemory) => Err(wasmtime::Error::msg(
-                "the guest's resources outgrow its memory",
-            )),
-            Err(_) => Ok(None),
-        }
+    /// EMFILE.
+    pub(crate) fn reserve_producer(&self) -> Option<FileRoom> {
+        self.reserve_file().ok()
     }
 
-    /// The room a file of kind `H` takes, refused as EMFILE past the open
-    /// file limit or a full table, and as ENOMEM past the Invocation's
-    /// memory, both before the file opens.
-    pub(crate) fn reserve_file<H: Handle>(&self) -> Result<FileRoom, Errno> {
-        self.reserve(bytes_of::<H>())
-    }
-
-    /// The room a file the Driver opened before the guest runs takes: counted
-    /// against the open files, and charged to none of the guest's memory, as
-    /// Linux charges a `struct file` to the task that allocates it.
-    pub(crate) fn reserve_inherited_file(&self) -> Result<FileRoom, Errno> {
-        self.reserve(0)
-    }
-
-    fn reserve(&self, bytes: usize) -> Result<FileRoom, Errno> {
+    /// The room a file takes, refused as EMFILE past the open file limit or
+    /// a full table, before the file opens.
+    pub(crate) fn reserve_file(&self) -> Result<FileRoom, Errno> {
         if self.is_full() {
             return Err(Errno::TooManyOpenFiles);
         }
         self.open_files.open()?;
-        let count = FileCount(Some(self.open_files.clone()));
-        let memory = MemoryCharge::new(&self.memory, bytes)?;
-        Ok(FileRoom { count, memory })
+        Ok(FileRoom(FileCount(Some(self.open_files.clone()))))
     }
 
     /// Hand out a handle for `resource`, a file opened into `room`.
     pub(crate) fn install<H: Handle>(&mut self, room: FileRoom, resource: H::Host) -> H {
-        let FileRoom { mut count, memory } = room;
+        let FileRoom(mut count) = room;
         count.0 = None;
-        H::new(self.place(Box::new(resource), None, true, memory))
+        H::new(self.place(Box::new(resource), None, true))
     }
 
     /// Hand out a handle for `resource`, a view that holds no file of its
     /// own; refused past `MAX_TABLE_ENTRIES`.
     pub(crate) fn push<H: Handle>(&mut self, resource: H::Host) -> wasmtime::Result<H> {
-        self.insert::<H>(resource, None).map(H::new)
+        self.insert(Box::new(resource), None).map(H::new)
     }
 
     /// Hand out a handle for `resource` as a child of `parent`, which cannot
@@ -155,7 +116,7 @@ impl Table {
     ) -> wasmtime::Result<H> {
         let parent = parent.index();
         self.entry(parent)?;
-        let handle = self.insert::<H>(resource, Some(parent))?;
+        let handle = self.insert(Box::new(resource), Some(parent))?;
         self.entries
             .get_mut(&parent)
             .expect("the parent was just found")
@@ -164,11 +125,11 @@ impl Table {
     }
 
     /// Number `resource` from the free list, else past every number handed
-    /// out; refused past `MAX_TABLE_ENTRIES`, and past the Invocation's
-    /// memory as a trap, since no WIT constructor has an error for it.
-    fn insert<H: Handle>(
+    /// out; refused past `MAX_TABLE_ENTRIES` as a trap, since no WIT
+    /// constructor has an error for it.
+    fn insert(
         &mut self,
-        resource: H::Host,
+        resource: Box<dyn Any + Send>,
         parent: Option<u32>,
     ) -> wasmtime::Result<u32> {
         if self.is_full() {
@@ -176,9 +137,7 @@ impl Table {
                 "the guest holds as many resources as a table may",
             ));
         }
-        let memory = MemoryCharge::new(&self.memory, bytes_of::<H>())
-            .map_err(|_| wasmtime::Error::msg("the guest's resources outgrow its memory"))?;
-        Ok(self.place(Box::new(resource), parent, false, memory))
+        Ok(self.place(resource, parent, false))
     }
 
     /// Whether the table holds as many entries as it may.
@@ -188,13 +147,7 @@ impl Table {
 
     /// Number `resource` from the free list, else past every number handed
     /// out.
-    fn place(
-        &mut self,
-        resource: Box<dyn Any + Send>,
-        parent: Option<u32>,
-        counted: bool,
-        memory: MemoryCharge,
-    ) -> u32 {
+    fn place(&mut self, resource: Box<dyn Any + Send>, parent: Option<u32>, counted: bool) -> u32 {
         let handle = self.free.pop().unwrap_or_else(|| {
             self.next += 1;
             self.next - 1
@@ -205,7 +158,6 @@ impl Table {
             children: 0,
             lends: 0,
             counted,
-            _memory: memory,
         };
         self.entries.insert(handle, entry);
         handle

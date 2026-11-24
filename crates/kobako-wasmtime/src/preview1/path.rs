@@ -7,7 +7,7 @@ use kobako_runtime::filesystem::Iattr;
 use kobako_runtime::vfs::{self, OpenHow};
 use wiggle::GuestPtr;
 
-use super::descriptors::{Descriptor, FileHandle};
+use super::descriptors::Descriptor;
 use super::errno::{Answer, Errno};
 use super::fd::to_filestat;
 use super::memory::GuestMemory;
@@ -119,9 +119,9 @@ pub(crate) fn open(
         .intersects(types::Fdflags::RSYNC | types::Fdflags::SYNC);
     // Linux's `do_sys_openat2` builds the flags, then reserves a descriptor
     // and `path_openat` allocates the file before the walk answers for the
-    // name, so a full table or a full memory answers whatever the path names.
+    // name, so a full table answers whatever the path names.
     let op = vfs::build_open_flags(&how)?;
-    let room = wasi.table().reserve_file::<FileHandle>()?;
+    let room = wasi.table().reserve_file()?;
     let new = wasi.descriptors().lowest_unused().ok_or(Errno::Mfile)?;
     let path = mem.read_path(path)?;
     let file = retry_eagain(|| vfs::do_file_open(wasi.cred(), &start_of(wasi, fd), &path, &op))?;

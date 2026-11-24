@@ -48,8 +48,8 @@ pub(crate) struct Invocation {
 }
 
 impl Invocation {
-    /// The guest's growth is charged to the budget `wasi`'s Cred charges what
-    /// the host holds for it to, so both count against one `memory_limit`.
+    /// The guest's growth is charged to the budget `wasi`'s Cred carries, which
+    /// counts it against the run's `memory_limit`.
     pub(crate) fn new(wasi: Wasi) -> Self {
         let limiter = MemoryLimiter::new(wasi.cred().memory_budget().clone());
         Self {

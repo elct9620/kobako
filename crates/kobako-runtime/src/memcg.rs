@@ -1,15 +1,14 @@
-//! The memory one Invocation may take, as Linux's memory cgroup counts a
-//! task's pages and the memory the kernel holds for it, socket buffers among
-//! them, in one `memory.current` against `memory.max`.
+//! The memory one Invocation's guest may take, as a virtual machine's RAM is
+//! bounded apart from what its runtime holds for it: the guest's pages count
+//! in one `memory.current` against `memory.max`, and what the host holds for
+//! the guest is bounded by counts and fixed sizes instead.
 
 use std::sync::{Arc, Mutex, PoisonError};
 
-use crate::Errno;
-
-/// What one Invocation has taken against its `memory_limit`: the guest's
-/// memories, tables, and heaps grown past what its Guest Binary declares,
-/// and what the host holds on its behalf between calls. `None` bounds
-/// neither, while both are still counted so the peak is reported either way.
+/// What one Invocation's guest has taken against its `memory_limit`: its
+/// memories, tables, and heaps grown past what its Guest Binary declares.
+/// `None` bounds nothing, while the growth is still counted so the peak is
+/// reported either way.
 pub struct MemoryBudget {
     limit: Option<usize>,
     charged: Mutex<Charged>,
@@ -26,15 +25,12 @@ struct Charged {
     /// Every growth since the budget was armed, whichever memory, table, or
     /// heap it lands in.
     grown: usize,
-    held: usize,
     peak: usize,
 }
 
 impl Charged {
     fn total(&self) -> usize {
-        self.grown
-            .saturating_sub(self.declared)
-            .saturating_add(self.held)
+        self.grown.saturating_sub(self.declared)
     }
 }
 
@@ -59,7 +55,7 @@ impl MemoryBudget {
         charged.armed = true;
         charged.declared = declared;
         charged.grown = 0;
-        charged.peak = charged.held;
+        charged.peak = 0;
     }
 
     /// Stop charging the guest's growth once the run returns, so reading its
@@ -68,9 +64,8 @@ impl MemoryBudget {
         self.charged().armed = false;
     }
 
-    /// The most the run held at once. A charge the budget refused never
-    /// raises it; a forced one does, past `memory_limit`, as `memory.peak`
-    /// records usage a forced charge took over `memory.max`.
+    /// The most the run held at once, never past `memory_limit`, since a
+    /// growth the budget refused never raises it.
     pub fn peak(&self) -> usize {
         self.charged().peak
     }
@@ -104,51 +99,6 @@ impl MemoryBudget {
         charged.grown = charged.grown.saturating_sub(charge.bytes);
     }
 
-    /// Charge `bytes` the host holds for the guest, refused as ENOMEM where
-    /// they would pass the limit, as `try_charge_memcg` refuses a charge past
-    /// `memory.max`.
-    pub(crate) fn try_charge(&self, bytes: usize) -> Result<(), Errno> {
-        let mut charged = self.charged();
-        let total = charged
-            .total()
-            .checked_add(bytes)
-            .filter(|&total| self.limit.is_none_or(|limit| total <= limit))
-            .ok_or(Errno::OutOfMemory)?;
-        charged.held += bytes;
-        charged.peak = charged.peak.max(total);
-        Ok(())
-    }
-
-    /// Charge `bytes` the host must hold for the guest to move on, past the
-    /// limit if need be, as `try_charge_memcg` force-charges an allocation
-    /// that frees memory soon. While the total stays past the limit, every
-    /// other charge and the guest's growth are refused.
-    fn force_charge(&self, bytes: usize) {
-        let mut charged = self.charged();
-        charged.held = charged.held.saturating_add(bytes);
-        charged.peak = charged.peak.max(charged.total());
-    }
-
-    /// Whether `bytes` more would stay within the limit.
-    fn can_charge(&self, bytes: usize) -> bool {
-        let total = self.charged().total();
-        self.limit
-            .is_none_or(|limit| total.checked_add(bytes).is_some_and(|total| total <= limit))
-    }
-
-    /// Whether what it holds reached the limit, so no charge can grow.
-    fn is_over_limit(&self) -> bool {
-        let total = self.charged().total();
-        self.limit.is_some_and(|limit| total >= limit)
-    }
-
-    /// `bytes` charged earlier are held no more, as `memcg_uncharge` gives
-    /// them back.
-    fn uncharge(&self, bytes: usize) {
-        let mut charged = self.charged();
-        charged.held = charged.held.saturating_sub(bytes);
-    }
-
     fn charged(&self) -> std::sync::MutexGuard<'_, Charged> {
         self.charged.lock().unwrap_or_else(PoisonError::into_inner)
     }
@@ -159,79 +109,6 @@ impl MemoryBudget {
 #[must_use]
 pub struct GrowthCharge {
     bytes: usize,
-}
-
-/// Memory the host holds for a guest, charged to its budget as it is taken
-/// and given back as it is let go, as `obj_cgroup_charge` and
-/// `obj_cgroup_uncharge` count what the kernel holds for a cgroup by the byte:
-/// a socket's queues, a listing, or a part of a request the guest builds.
-pub struct MemoryCharge {
-    budget: Arc<MemoryBudget>,
-    bytes: usize,
-}
-
-impl MemoryCharge {
-    /// Charge `bytes` to `budget`, refused past its limit as `ENOMEM`.
-    pub fn new(budget: &Arc<MemoryBudget>, bytes: usize) -> Result<Self, Errno> {
-        budget.try_charge(bytes)?;
-        Ok(Self {
-            budget: budget.clone(),
-            bytes,
-        })
-    }
-
-    /// A charge to `budget` that holds nothing yet.
-    pub fn empty(budget: &Arc<MemoryBudget>) -> Self {
-        Self {
-            budget: budget.clone(),
-            bytes: 0,
-        }
-    }
-
-    /// The bytes it holds.
-    pub fn bytes(&self) -> usize {
-        self.bytes
-    }
-
-    /// Hold `bytes` in place of what it held, charging only the growth and
-    /// giving back the rest; refused past the limit as `ENOMEM`, keeping what
-    /// it held.
-    pub fn resize(&mut self, bytes: usize) -> Result<(), Errno> {
-        match bytes.checked_sub(self.bytes) {
-            Some(growth) => self.budget.try_charge(growth)?,
-            None => self.budget.uncharge(self.bytes - bytes),
-        }
-        self.bytes = bytes;
-        Ok(())
-    }
-
-    /// Whether its budget reached the limit, so no charge can grow.
-    pub fn is_over_limit(&self) -> bool {
-        self.budget.is_over_limit()
-    }
-
-    /// Whether holding `bytes` in place of what it holds would stay within
-    /// the limit.
-    pub fn can_resize(&self, bytes: usize) -> bool {
-        self.budget.can_charge(bytes.saturating_sub(self.bytes))
-    }
-
-    /// Hold `bytes` in place of what it held, charging the growth even past
-    /// the limit, as `sk_forced_mem_schedule` charges what a socket must hold
-    /// to move on.
-    pub fn force_resize(&mut self, bytes: usize) {
-        match bytes.checked_sub(self.bytes) {
-            Some(growth) => self.budget.force_charge(growth),
-            None => self.budget.uncharge(self.bytes - bytes),
-        }
-        self.bytes = bytes;
-    }
-}
-
-impl Drop for MemoryCharge {
-    fn drop(&mut self) {
-        self.budget.uncharge(self.bytes);
-    }
 }
 
 /// A growth past the per-invocation memory budget. An Engine ends the
@@ -267,10 +144,8 @@ impl std::error::Error for MemoryLimitExceeded {}
 mod tests {
     //! The arithmetic of one budget, so a regression that breaks the baseline
     //! (dropping its subtraction, or letting `arm` carry stale state across
-    //! invocations) or counts the guest and the host apart is caught without
-    //! an Engine.
+    //! invocations) is caught without an Engine.
     use super::MemoryBudget;
-    use crate::Errno;
 
     fn assert_charged(budget: &MemoryBudget, bytes: usize, what: &str) {
         assert!(
@@ -337,60 +212,6 @@ mod tests {
         );
     }
 
-    // @behavior S-209
-    #[test]
-    fn a_growth_past_what_the_host_left_of_the_limit_is_refused() {
-        let budget = MemoryBudget::new(Some(1 << 20));
-        budget.arm(2 << 20);
-        budget
-            .try_charge(3 << 18)
-            .expect("768 KiB of socket buffers under a 1 MiB limit must be charged");
-        assert_refused(
-            &budget,
-            (2 << 20) + (1 << 19),
-            "a 512 KiB growth beside 768 KiB the host holds under a 1 MiB limit",
-        );
-    }
-
-    // @behavior S-209
-    #[test]
-    fn a_host_charge_past_what_the_guest_left_of_the_limit_is_refused() {
-        let budget = MemoryBudget::new(Some(1 << 20));
-        budget.arm(2 << 20);
-        assert_charged(&budget, (2 << 20) + (3 << 18), "a 768 KiB growth");
-        assert_eq!(
-            budget.try_charge(1 << 19),
-            Err(Errno::OutOfMemory),
-            "512 KiB of host buffers beside a 768 KiB growth under a 1 MiB limit must answer ENOMEM"
-        );
-    }
-
-    // @behavior S-062
-    #[test]
-    fn a_forced_charge_passes_the_limit_until_it_is_given_back() {
-        let budget = MemoryBudget::new(Some(1 << 20));
-        budget.arm(2 << 20);
-        assert_charged(&budget, (2 << 20) + (3 << 18), "a 768 KiB growth");
-        let budget = std::sync::Arc::new(budget);
-        let mut charge = super::MemoryCharge::empty(&budget);
-        charge.force_resize(1 << 19);
-        let while_past = (
-            budget.peak(),
-            budget.try_charge(1),
-            budget.charge_growth(1).is_err(),
-        );
-        charge.force_resize(0);
-        assert_eq!(
-            (while_past, budget.try_charge(1 << 17)),
-            (
-                ((3 << 18) + (1 << 19), Err(Errno::OutOfMemory), true),
-                Ok(())
-            ),
-            "512 KiB forced beside a 768 KiB growth under a 1 MiB limit must raise the peak to \
-             1.25 MiB and refuse every other charge and growth, until it is given back"
-        );
-    }
-
     // @behavior S-008
     #[test]
     fn each_arming_charges_from_its_own_baseline() {
@@ -430,16 +251,15 @@ mod tests {
         let budget = MemoryBudget::new(Some(1 << 20));
         budget.arm(2 << 20);
         assert_charged(&budget, (2 << 20) + (1 << 18), "a 256 KiB growth");
-        assert_charged(&budget, 1 << 18, "another 256 KiB growth");
-        budget
-            .try_charge(1 << 17)
-            .expect("128 KiB of host buffers must be charged");
-        budget.uncharge(1 << 17);
+        let failed = budget
+            .charge_growth(1 << 18)
+            .expect("another 256 KiB growth within the limit must be allowed");
+        budget.cancel_growth(failed);
         assert_eq!(
             budget.peak(),
-            (1 << 19) + (1 << 17),
-            "a 512 KiB growth beside 128 KiB the host held for a while through \
-             MemoryBudget::peak must report 640 KiB"
+            1 << 19,
+            "a 256 KiB growth, then one the Engine failed to make, through MemoryBudget::peak \
+             must report the 512 KiB the watermark reached"
         );
     }
 

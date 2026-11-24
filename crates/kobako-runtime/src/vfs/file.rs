@@ -1382,16 +1382,6 @@ mod tests {
         );
     }
 
-    /// A listing of `file` from the start, its actor stopping after `room`
-    /// entries.
-    fn begin_listing(file: &mut File, room: usize) -> Result<(), Errno> {
-        let mut seen = 0;
-        file.iterate_dir(&mut DirContext::new(0, &mut |_| {
-            seen += 1;
-            seen < room
-        }))
-    }
-
     /// A security module refusing to open any directory.
     struct RefusesDirectories;
 
@@ -1427,48 +1417,6 @@ mod tests {
             Some(Errno::PermissionDenied),
             "File::root under a security module refusing to open a directory must answer as \
              the module refuses, as dentry_open asks security_file_open"
-        );
-    }
-
-    // Every descriptor holds a listing of its own, so only counting them together
-    // keeps a guest from multiplying a directory by its open files.
-    // @behavior RT-237
-    #[test]
-    fn listings_held_between_calls_count_against_their_limit() {
-        let mount = Mount::new(
-            "/data",
-            Filesystem::new(ReadsWhole).expect("the instance must stand"),
-            Access::Read,
-        )
-        .expect("/data is a guest path");
-        // `.`, `..`, and two one-letter names.
-        let one_listing = 4 * size_of::<DirEntry>() + 1 + 2 + 2;
-        let cred = crate::security::prepare_creds(&[], Some(one_listing));
-        // A Wasm Driver opens the root before the Policies apply and lists through
-        // the Cred they were added to, so both must count against one limit.
-        let restricted =
-            crate::security::restrict_self(&cred, [&crate::grant::Grant::Mount(mount.clone())])
-                .expect("every Mount stands");
-        let open = |cred: &Arc<Cred>| {
-            File::root(mount.mnt(), cred).unwrap_or_else(|_| panic!("the root must open"))
-        };
-        let (mut first, mut second, mut whole) = (open(&cred), open(&restricted), open(&cred));
-        let held = begin_listing(&mut first, 1);
-        let refused = begin_listing(&mut second, 1);
-        let read_whole = begin_listing(&mut whole, usize::MAX);
-        drop(first);
-        let after_close = begin_listing(&mut second, 1);
-        assert_eq!(
-            (held, refused, read_whole, after_close),
-            (
-                Ok(()),
-                Err(Errno::OutOfMemory),
-                Err(Errno::OutOfMemory),
-                Ok(())
-            ),
-            "File::iterate_dir of a second listing past its caller's memory limit, stopped part \
-             way or read whole, must answer ENOMEM, as ovl_cache_get allocates before dir_emit, \
-             and closing the first must give its bytes back"
         );
     }
 

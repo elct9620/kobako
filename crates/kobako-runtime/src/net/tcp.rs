@@ -16,13 +16,11 @@ use super::connections::{OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::namespace::Namespace;
 use super::reactor::{Reactor, Ready, Registration};
-use super::skbuff::{truesize_of, SkBuffHead};
+use super::skbuff::SkBuffHead;
 use super::socket::{
     connect4, ensure_within, filter, filter_with, set_hop_limit, take_connect_outcome, BindHash,
     Buffers, Destination, InetSock, ProtoOps, SkState, SockOpt,
 };
-use crate::cred::Cred;
-use crate::memcg::MemoryCharge;
 use crate::network::{Protocol, Ruleset};
 use crate::vfs::PollMask;
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
@@ -30,10 +28,6 @@ use crate::Errno;
 
 /// The most one host read moves at once.
 const MAX_HOST_READ: usize = 16 * 1024;
-
-/// What a socket may queue to send past the memory limit, so a write always
-/// moves on, Linux's `tcp_wmem[0]`.
-const TCP_WMEM_MIN: usize = 4096;
 
 /// Linux's keepalive defaults, `TCP_KEEPALIVE_TIME`, `TCP_KEEPALIVE_INTVL`,
 /// and `TCP_KEEPALIVE_PROBES`, in seconds and probes.
@@ -132,66 +126,6 @@ impl State {
             .saturating_sub(self.write_queue.len())
     }
 
-    /// What both queues' buffers cost, as `sk_rmem_alloc` and
-    /// `sk_wmem_queued` count them against the socket's charge.
-    fn truesize(&self) -> usize {
-        self.receive_queue.truesize() + self.write_queue.truesize()
-    }
-
-    /// Charge only what the queues hold, giving back what they no longer do.
-    fn reclaim(&mut self) {
-        let truesize = self.truesize();
-        self.inet.schedule(truesize);
-    }
-
-    /// How much of `copy` bytes the socket's memory takes, as
-    /// `tcp_wmem_schedule` answers: all of it within the limit; past it, up
-    /// to `tcp_wmem[0]` while little is queued, so the stream moves on, else
-    /// what the pages already charged leave. Taking nothing shrinks the send
-    /// buffer, as `sk_stream_moderate_sndbuf` does, so the socket polls
-    /// unwritable until what is queued leaves.
-    fn wmem_schedule(&mut self, copy: usize) -> usize {
-        if copy == 0 {
-            return 0;
-        }
-        let held = self.truesize();
-        if self.inet.schedule(held + truesize_of(copy)) {
-            return copy;
-        }
-        let take = self.wmem_past_limit(copy);
-        if take > 0 {
-            self.inet.force_schedule(held + truesize_of(take));
-        } else {
-            let queued = self.write_queue.truesize();
-            self.inet.buffers.moderate_sndbuf(queued);
-        }
-        take
-    }
-
-    /// How much of `copy` bytes the socket takes past the limit: up to
-    /// `tcp_wmem[0]` while little is queued, else what the pages already
-    /// charged leave.
-    fn wmem_past_limit(&self, copy: usize) -> usize {
-        match TCP_WMEM_MIN.saturating_sub(self.write_queue.truesize()) {
-            0 => {
-                let room = self.inet.forward_alloc(self.truesize());
-                copy.min(room.saturating_sub(truesize_of(0)))
-            }
-            left => copy.min(left),
-        }
-    }
-
-    /// How many bytes a send takes now, the send buffer and the memory both
-    /// counted, charging nothing, so a promise of room is one the memory
-    /// keeps.
-    fn wmem_room(&self) -> usize {
-        let copy = self.stream_wspace();
-        if copy == 0 || self.inet.can_schedule(self.truesize() + truesize_of(copy)) {
-            return copy;
-        }
-        self.wmem_past_limit(copy)
-    }
-
     /// Whether a send may queue, as `sk_stream_wait_connect` answers one not
     /// connected: EAGAIN while it connects, a pending failure once, then
     /// EPIPE; and as `sk_stream_error` answers one past its failure or its
@@ -216,10 +150,8 @@ pub struct TcpSock {
 
 impl TcpSock {
     /// A socket connected to nothing, which connects through `family`, as
-    /// `inet_create` makes one; what its queues hold counts against `cred`'s
-    /// memory as it arrives.
-    pub(crate) fn new(family: Arc<dyn ProtocolFamily>, cred: &Arc<Cred>) -> Arc<Self> {
-        let memory = MemoryCharge::empty(cred.memory_budget());
+    /// `inet_create` makes one; its queues hold what their buffers allow.
+    pub(crate) fn new(family: Arc<dyn ProtocolFamily>) -> Arc<Self> {
         Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 phase: Phase::Unconnected,
@@ -228,7 +160,7 @@ impl TcpSock {
                 received_end: false,
                 write_queue: SkBuffHead::default(),
                 fin_sent: false,
-                inet: InetSock::new(memory, Buffers::tcp()),
+                inet: InetSock::new(Buffers::tcp()),
                 keepalive: KeepAlive {
                     on: false,
                     idle: TCP_KEEPALIVE_TIME,
@@ -398,7 +330,6 @@ impl TcpSock {
         state.received_end = false;
         state.inet.rcv_shutdown = false;
         state.write_queue.purge();
-        state.reclaim();
         state.inet.send_shutdown = false;
         state.fin_sent = false;
         state.inet.err = None;
@@ -430,19 +361,10 @@ impl TcpSock {
     }
 
     /// Read what arrived and write what is queued, until the host socket
-    /// would block; a failure either way is the connection's end. Each read
-    /// is charged as it queues, as `tcp_try_rmem_schedule` charges a segment:
-    /// a queue holding bytes takes no read the limit cannot hold, so the host
-    /// socket keeps the rest and pushes back on the peer, while an empty
-    /// queue takes the read even past the limit, as `sk_forced_mem_schedule`
-    /// does, so the stream moves on.
+    /// would block; a failure either way is the connection's end. The
+    /// receive queue takes no more than its buffer, so the host socket keeps
+    /// the rest and pushes back on the peer.
     fn move_bytes(state: &mut State) -> Result<(), Errno> {
-        let result = Self::move_host_bytes(state);
-        state.reclaim();
-        result
-    }
-
-    fn move_host_bytes(state: &mut State) -> Result<(), Errno> {
         let Some((stream, _)) = state.host.as_mut() else {
             return Ok(());
         };
@@ -450,20 +372,9 @@ impl TcpSock {
         let rcvbuf = state.inet.buffers.rcvbuf;
         while state.receive_queue.len() < rcvbuf && !state.received_end {
             let room = (rcvbuf - state.receive_queue.len()).min(MAX_HOST_READ);
-            let held = state.receive_queue.truesize() + state.write_queue.truesize();
-            if !state.receive_queue.is_empty() && !state.inet.can_schedule(held + truesize_of(room))
-            {
-                break;
-            }
             match stream.read(&mut chunk[..room]) {
                 Ok(0) => state.received_end = true,
-                Ok(n) => {
-                    let truesize = held + truesize_of(n);
-                    if !state.inet.schedule(truesize) {
-                        state.inet.force_schedule(truesize);
-                    }
-                    state.receive_queue.push(&chunk[..n]);
-                }
+                Ok(n) => state.receive_queue.push(&chunk[..n]),
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
                 Err(err) => return Err(Errno::from_io_error(&err)),
@@ -478,7 +389,7 @@ impl TcpSock {
                 Err(err) => return Err(Errno::from_io_error(&err)),
             }
         }
-        if state.write_queue.len() < queued && !state.inet.under_memory_pressure() {
+        if state.write_queue.len() < queued {
             state.inet.buffers.sndbuf_expand();
         }
         if state.inet.send_shutdown && state.write_queue.is_empty() && !state.fin_sent {
@@ -591,16 +502,14 @@ impl TcpSock {
         self.state().phase == Phase::Connecting
     }
 
-    /// How many bytes a send would take now, within both the send buffer and
-    /// the Invocation's memory.
+    /// How many bytes a send would take now: what the send buffer has left.
     pub fn send_room(&self) -> usize {
-        self.state().wmem_room()
+        self.state().stream_wspace()
     }
 
-    /// Queue all of `buf`, charged past the limit should the memory have
-    /// filled since its room was asked, so the room promised stays
-    /// promised. A send buffer that shrank since takes none of it, failing
-    /// whole with ENOBUFS rather than leave the peer a stream with a gap.
+    /// Queue all of `buf`, which the room asked before promised. A send
+    /// buffer that shrank since takes none of it, failing whole with ENOBUFS
+    /// rather than leave the peer a stream with a gap.
     pub fn send_whole(&self, buf: &[u8]) -> Result<(), Errno> {
         let mut state = self.state();
         state.sendable()?;
@@ -609,10 +518,6 @@ impl TcpSock {
         }
         if state.stream_wspace() < buf.len() {
             return Err(Errno::NoBufferSpace);
-        }
-        let truesize = state.truesize() + truesize_of(buf.len());
-        if !state.inet.schedule(truesize) {
-            state.inet.force_schedule(truesize);
         }
         state.write_queue.push(buf);
         self.pump_and_wake(state);
@@ -692,7 +597,6 @@ impl ProtoOps for TcpSock {
         let mut state = self.state();
         if !state.receive_queue.is_empty() {
             let take = state.receive_queue.read_into(buf);
-            state.reclaim();
             self.pump_and_wake(state);
             return Ok((take, None));
         }
@@ -716,7 +620,7 @@ impl ProtoOps for TcpSock {
         let mut state = self.state();
         state.sendable()?;
         let copy = buf.len().min(state.stream_wspace());
-        let take = state.wmem_schedule(copy);
+        let take = copy;
         if take == 0 && !buf.is_empty() {
             return Err(Errno::WouldBlock);
         }
@@ -745,7 +649,7 @@ impl ProtoOps for TcpSock {
             mask = mask | PollMask::IN;
         }
         let writable =
-            state.stream_wspace() >= state.write_queue.len() / 2 && state.wmem_room() > 0;
+            state.stream_wspace() >= state.write_queue.len() / 2 && state.stream_wspace() > 0;
         if state.phase != Phase::Connecting && (send_shutdown || writable) {
             mask = mask | PollMask::OUT;
         }
@@ -859,16 +763,14 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::net::skbuff::sk_mem_pages;
     use crate::net::socket::testing::wait_for;
     use crate::net::MAX_SOCKET_BUFFER;
     use crate::net::{sock_alloc_file, HostInet};
-    use crate::security::prepare_creds;
     use crate::vfs::File;
 
     /// A socket connecting to `addr` through the host.
     fn dial(addr: SocketAddr) -> Arc<TcpSock> {
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds(&[], None));
+        let sock = TcpSock::new(Arc::new(HostInet));
         sock.dial(addr, addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
         sock
@@ -902,41 +804,26 @@ mod tests {
         (sock, file, peer)
     }
 
-    /// A socket connected to a loopback peer under a `memory_limit` of
-    /// `limit`, which something else already fills.
-    fn connected_within_full_memory(
-        limit: usize,
-    ) -> (
-        Arc<TcpSock>,
-        File,
-        std::net::TcpStream,
-        Arc<Cred>,
-        MemoryCharge,
-    ) {
-        let cred = prepare_creds(&[], Some(limit));
-        let full = MemoryCharge::new(cred.memory_budget(), limit).expect("the limit holds it");
-        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
-        let addr = listener.local_addr().unwrap();
-        let sock = TcpSock::new(Arc::new(HostInet), &cred);
-        sock.dial(addr, addr, &OpenConnections::new(None))
-            .expect("an uncapped socket connects");
-        let file = sock_alloc_file(sock.clone(), &Arc::default());
-        let (peer, _) = listener.accept().expect("the listener accepts");
-        wait_for(|table| file.poll(table), PollMask::OUT);
-        (sock, file, peer, cred, full)
-    }
-
     // @behavior NW-116
     #[test]
-    fn a_stream_past_the_invocations_memory_waits_for_the_guest_to_read() {
-        let limit = 16 * 1024;
-        let (sock, _file, mut peer, cred, _full) = connected_within_full_memory(limit);
-        let sent = (0..256 * 1024).map(|i| (i % 251) as u8).collect::<Vec<_>>();
+    fn a_stream_holds_its_receive_buffer_until_the_guest_reads() {
+        let (sock, file, mut peer) = connected_socket();
+        let sent = (0..1 << 20).map(|i| (i % 251) as u8).collect::<Vec<_>>();
         let expected = sent.clone();
         let writer = std::thread::spawn(move || peer.write_all(&sent));
+        // Each poll moves what the host socket holds into the queue.
+        let started = std::time::Instant::now();
+        let rcvbuf = sock.state().inet.buffers.rcvbuf;
+        while sock.state().receive_queue.len() < rcvbuf
+            && started.elapsed() < Duration::from_secs(10)
+        {
+            file.poll(None);
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        file.poll(None);
+        let held = sock.state().receive_queue.len();
         let mut got = Vec::new();
         let mut buf = [0; 4096];
-        let started = std::time::Instant::now();
         while got.len() < expected.len() && started.elapsed() < Duration::from_secs(10) {
             match sock.recvmsg(&mut buf) {
                 Ok((0, _)) => break,
@@ -945,21 +832,18 @@ mod tests {
             }
         }
         writer.join().unwrap().expect("the peer writes");
-        let past = cred.memory_budget().peak() - limit;
-        let one_read = sk_mem_pages(truesize_of(MAX_HOST_READ));
         assert!(
-            got == expected && past <= one_read,
-            "a 256 KiB stream to a guest whose memory_limit is full must reach it whole and in \
-             order, the socket taking past the limit only one read of {one_read} bytes; got {} \
-             bytes, {past} past the limit",
+            held == rcvbuf && got == expected,
+            "a 1 MiB stream the guest has not read must queue no more than its {rcvbuf}-byte \
+             receive buffer, then reach the guest whole and in order; held {held}, got {} bytes",
             got.len()
         );
     }
 
     // @behavior NW-239
     #[test]
-    fn a_write_past_the_invocations_memory_waits_for_the_queue_to_drain() {
-        let (sock, file, mut peer, cred, _full) = connected_within_full_memory(16 * 1024);
+    fn a_write_past_the_send_buffer_waits_for_the_queue_to_drain() {
+        let (sock, file, mut peer) = connected_socket();
         sock.lock_host_send_buffer(4096);
         let chunk = [7; 1024];
         let mut written = 0;
@@ -973,8 +857,8 @@ mod tests {
             }
         };
         let queued = sock.state().write_queue.len();
+        let sndbuf = sock.state().inet.buffers.sndbuf;
         let writable_while_full = file.poll(None).contains(PollMask::OUT);
-        let past = cred.memory_budget().peak() - 16 * 1024;
         let reader = std::thread::spawn(move || {
             peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
             let mut buf = [0; 64 * 1024];
@@ -989,16 +873,11 @@ mod tests {
         });
         wait_for(|table| file.poll(table), PollMask::OUT);
         drop(sock);
-        let page_past_the_floor = sk_mem_pages(truesize_of(TCP_WMEM_MIN));
         assert!(
-            refused == Errno::WouldBlock
-                && !writable_while_full
-                && queued <= page_past_the_floor
-                && past <= page_past_the_floor,
-            "writes to a socket whose memory_limit is full must queue no more than \
-             {page_past_the_floor} bytes past the limit, then answer EAGAIN and poll \
-             unwritable until the peer reads; refused {refused:?}, queued {queued}, \
-             writable {writable_while_full}, {past} past the limit"
+            refused == Errno::WouldBlock && !writable_while_full && queued <= sndbuf,
+            "writes to a socket whose peer does not read must queue no more than its \
+             {sndbuf}-byte send buffer, then answer EAGAIN and poll unwritable until the peer \
+             reads; refused {refused:?}, queued {queued}, writable {writable_while_full}"
         );
         reader.join().unwrap();
     }
@@ -1067,7 +946,7 @@ mod tests {
     fn a_socket_holds_its_options_and_gives_them_to_the_host_socket() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let addr = listener.local_addr().unwrap();
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds(&[], None));
+        let sock = TcpSock::new(Arc::new(HostInet));
         sock.setsockopt(SockOpt::KeepAlive, 1)
             .expect("an unconnected socket takes an option");
         let keepalive = |sock: &TcpSock| sock.getsockopt(SockOpt::KeepAlive).unwrap();
@@ -1095,7 +974,7 @@ mod tests {
     fn a_socket_bounds_its_keepalive_probes_as_linux_and_dials_with_them() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let addr = listener.local_addr().unwrap();
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds(&[], None));
+        let sock = TcpSock::new(Arc::new(HostInet));
         let get = |opt| sock.getsockopt(opt).unwrap();
         let defaults = (
             get(SockOpt::KeepIdle),
@@ -1142,7 +1021,7 @@ mod tests {
     fn a_socket_holds_its_hop_limit_for_the_host_socket() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let addr = listener.local_addr().unwrap();
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds(&[], None));
+        let sock = TcpSock::new(Arc::new(HostInet));
         let host_ttl = |sock: &TcpSock| {
             sock.state()
                 .host
@@ -1215,13 +1094,12 @@ mod tests {
     fn a_socket_binds_once_and_not_after_its_connect() {
         let any: SocketAddr = "0.0.0.0:0".parse().unwrap();
         let net = loopback(&[], OpenConnections::new(None));
-        let cred = prepare_creds(&[], None);
-        let fresh = TcpSock::new(Arc::new(HostInet), &cred);
+        let fresh = TcpSock::new(Arc::new(HostInet));
         let (first, second) = (fresh.bind(&net, any), fresh.bind(&net, any));
-        let ipv6 = TcpSock::new(Arc::new(HostInet), &cred).bind(&net, "[::]:0".parse().unwrap());
+        let ipv6 = TcpSock::new(Arc::new(HostInet)).bind(&net, "[::]:0".parse().unwrap());
         let (connected, _file, _peer) = connected_socket();
         let udp_peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        let udp = crate::net::UdpSock::new(&cred);
+        let udp = crate::net::UdpSock::new();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         let at = udp_peer.local_addr().unwrap();
         udp.dial(&family, at, at, &OpenConnections::new(None))
@@ -1253,10 +1131,9 @@ mod tests {
         // A privileged port no test can bind, so every connect to it is
         // refused and no other socket is handed it meanwhile.
         let closed = SocketAddr::from(([127, 0, 0, 1], 1));
-        let cred = prepare_creds(&[], None);
         let net = loopback(&[], OpenConnections::new(None));
         let failed_after = |own: &str| {
-            let sock = TcpSock::new(Arc::new(HostInet), &cred);
+            let sock = TcpSock::new(Arc::new(HostInet));
             sock.bind(&net, own.parse().unwrap())
                 .expect("a fresh socket binds");
             sock.dial(closed, closed, &OpenConnections::new(None))
@@ -1278,8 +1155,7 @@ mod tests {
     #[test]
     fn a_port_one_socket_holds_is_no_other_sockets() {
         let net = loopback(&[], OpenConnections::new(None));
-        let cred = prepare_creds(&[], None);
-        let socket = || TcpSock::new(Arc::new(HostInet), &cred);
+        let socket = || TcpSock::new(Arc::new(HostInet));
         let (named, free, again) = (socket(), socket(), socket());
         let answers = (
             named.bind(&net, "0.0.0.0:32768".parse().unwrap()),
@@ -1306,9 +1182,8 @@ mod tests {
     fn a_connect_refused_for_a_full_count_or_by_the_ruleset_gives_back_its_port() {
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
         let at = listener.local_addr().unwrap();
-        let cred = prepare_creds(&[], None);
         let refused_after = |net: &Namespace, to: SocketAddr| {
-            let sock = TcpSock::new(Arc::new(HostInet), &cred);
+            let sock = TcpSock::new(Arc::new(HostInet));
             let connected = ProtoOps::connect(&*sock, net, to);
             (connected, sock.bind(net, "0.0.0.0:0".parse().unwrap()))
         };
@@ -1409,7 +1284,7 @@ mod tests {
             &[refused_at.port(), open_at.port()],
             OpenConnections::new(Some(1)),
         );
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds(&[], None));
+        let sock = TcpSock::new(Arc::new(HostInet));
         ProtoOps::connect(&*sock, &net, refused_at).expect("a socket under a cap of one connects");
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         wait_for(|table| file.poll(table), PollMask::ERR);
@@ -1438,7 +1313,7 @@ mod tests {
     #[test]
     fn a_socket_whose_connect_failed_takes_a_fresh_virtual_port() {
         let closed = SocketAddr::from(([127, 0, 0, 1], 1));
-        let sock = TcpSock::new(Arc::new(HostInet), &prepare_creds(&[], None));
+        let sock = TcpSock::new(Arc::new(HostInet));
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         let ports = BindHash::new();
         // The port is held before the dial, as a connect holds it.

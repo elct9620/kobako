@@ -13,8 +13,6 @@ use super::http::{HyperOutbound, Outbound};
 use super::lookup::{LookupError, NameLookup, Resolver};
 use super::socket::{BindHash, LOCAL_ADDRESS, VIRTUAL_BASE, VIRTUAL_SIZE};
 use super::{Backends, OpenConnections, ProtocolFamily, TcpSock};
-use crate::cred::Cred;
-use crate::memcg::MemoryCharge;
 use crate::network::{EntryError, Name, Network, Protocol, Ruleset};
 use crate::policy::Policy;
 
@@ -49,12 +47,10 @@ pub struct Namespace {
 }
 
 /// Each real address a name looked up resolved to, with the name, at its
-/// virtual address's offset from the bottom of the range, and the memory
-/// they hold against the Invocation's, given back as the namespace goes.
+/// virtual address's offset from the bottom of the range.
 #[derive(Default)]
 struct Translations {
     entries: Vec<(String, IpAddr)>,
-    memory: Option<MemoryCharge>,
 }
 
 impl Translations {
@@ -225,12 +221,10 @@ impl Namespace {
     /// range and never reused; a name already handed them keeps them, as a
     /// fake-IP pool answers a known host; a lookup of an address keeps it as
     /// itself. `None` while the lookup is under way, its failure once it
-    /// failed, and `Again` once the range cannot hold them all or
-    /// `cred`'s memory cannot hold the entries, which the table keeps until
-    /// the Invocation ends.
+    /// failed, and `Again` once the range cannot hold them all. The table
+    /// keeps the entries until the Invocation ends.
     pub fn alloc_virtual_addresses(
         &self,
-        cred: &Arc<Cred>,
         lookup: &NameLookup,
     ) -> Option<Result<Vec<IpAddr>, LookupError>> {
         let real = match lookup.answer()? {
@@ -257,24 +251,9 @@ impl Namespace {
         else {
             return Some(Err(LookupError::Again));
         };
-        let entries = real
-            .into_iter()
-            .map(|ip| (lookup.name().to_string(), ip))
-            .collect::<Vec<_>>();
-        let held = entries
-            .iter()
-            .map(|entry| std::mem::size_of_val(entry) + entry.0.len())
-            .sum::<usize>();
-        let charged = match &mut translations.memory {
-            Some(memory) => memory.resize(memory.bytes() + held),
-            None => MemoryCharge::new(cred.memory_budget(), held).map(|memory| {
-                translations.memory = Some(memory);
-            }),
-        };
-        if charged.is_err() {
-            return Some(Err(LookupError::Again));
-        }
-        translations.entries.extend(entries);
+        translations
+            .entries
+            .extend(real.into_iter().map(|ip| (lookup.name().to_string(), ip)));
         let first = u32::try_from(first).expect("below the end of the range");
         Some(Ok((first..end).map(to_virtual).collect()))
     }
@@ -364,6 +343,7 @@ mod tests {
     use super::super::socket::{sys_bind, sys_connect, AddressFamily};
     use super::super::UdpSock;
     use super::*;
+    use crate::cred::Cred;
     use crate::grant::Grant;
     use crate::network::Connection;
     use crate::network::{Addresses, Endpoint, Entry, Policies};
@@ -740,7 +720,7 @@ mod tests {
         cred: &Arc<Cred>,
         addr: SocketAddr,
     ) -> Result<Arc<TcpSock>, Errno> {
-        let sock = TcpSock::create(namespace, cred, AddressFamily::Inet)?;
+        let sock = TcpSock::create(namespace, AddressFamily::Inet)?;
         sys_connect(namespace, cred, sock.as_ref(), Some(addr)).map(|()| sock)
     }
 
@@ -750,7 +730,7 @@ mod tests {
         cred: &Arc<Cred>,
         addr: Option<SocketAddr>,
     ) -> Result<Arc<UdpSock>, Errno> {
-        let sock = UdpSock::create(namespace, cred, AddressFamily::Inet)?;
+        let sock = UdpSock::create(namespace, AddressFamily::Inet)?;
         sys_connect(namespace, cred, sock.as_ref(), addr).map(|()| sock)
     }
 
@@ -805,7 +785,7 @@ mod tests {
         let (namespace, cred, family, seen) = namespace(&[true]);
         let ipv6 = dial(&namespace, &cred, "[::1]:4567".parse().unwrap()).err();
         let unmapped = dial(&namespace, &cred, "198.18.5.5:4567".parse().unwrap()).err();
-        let sock = UdpSock::new(&cred);
+        let sock = UdpSock::new();
         let bound = sys_bind(&namespace, &cred, sock.as_ref(), "[::]:0".parse().unwrap()).err();
         let judged = seen
             .lock()
@@ -948,7 +928,7 @@ mod tests {
         let lookup = resolve(namespace, name).expect("the lookup starts");
         wait_for_answer(&lookup).expect("the name resolves");
         namespace
-            .alloc_virtual_addresses(&prepare_creds(&[], None), &lookup)
+            .alloc_virtual_addresses(&lookup)
             .expect("the lookup settled")
             .expect("the range has room")
             .into_iter()
@@ -1155,24 +1135,37 @@ mod tests {
 
     // @behavior NW-149
     #[test]
-    fn a_virtual_address_is_held_against_the_invocations_memory() {
+    fn a_names_virtual_addresses_run_out_at_the_ranges_end() {
+        let every = (0..MAX_NAMED_ADDRESSES)
+            .map(|offset| IpAddr::V4(Ipv4Addr::from(0x0A00_0000 + offset)))
+            .collect::<Vec<_>>();
         let family = Arc::new(ResolvesNames {
-            answers: Mutex::new(vec!["127.0.0.1".parse().unwrap()]),
+            answers: Mutex::new(every),
             ..ResolvesNames::default()
         });
-        let namespace = resolving_namespace(vec![tcp("cache.internal", 6379)], "", family);
-        let lookup = resolve(&namespace, "cache.internal").expect("the lookup starts");
-        wait_for_answer(&lookup).expect("the name resolves");
-        let full = namespace.alloc_virtual_addresses(&prepare_creds(&[], Some(0)), &lookup);
-        let roomy = namespace.alloc_virtual_addresses(&prepare_creds(&[], None), &lookup);
+        let namespace = resolving_namespace(
+            vec![tcp("cache.internal", 6379), tcp("db.internal", 5432)],
+            "",
+            family.clone(),
+        );
+        let handed = |name: &str| {
+            let lookup = resolve(&namespace, name).expect("the lookup starts");
+            wait_for_answer(&lookup).expect("the name resolves");
+            namespace
+                .alloc_virtual_addresses(&lookup)
+                .expect("the lookup answered")
+                .map(|addresses| addresses.len())
+        };
+        let filled = handed("cache.internal");
+        *family.answers.lock().unwrap() = vec!["127.0.0.1".parse().unwrap()];
+        let past = handed("db.internal");
+        let kept = handed("cache.internal");
+        let every = MAX_NAMED_ADDRESSES as usize;
         assert_eq!(
-            (full, roomy),
-            (
-                Some(Err(LookupError::Again)),
-                Some(Ok(vec!["198.18.0.0".parse().unwrap()]))
-            ),
-            "a lookup must answer temporary-failure when the Invocation's memory cannot hold \
-             the name's entry, and hand out the bottom of the range once it can"
+            (filled, past, kept),
+            (Ok(every), Err(LookupError::Again), Ok(every)),
+            "a lookup must answer temporary-failure once the names took every virtual address \
+             below the local one, and a name already handed its addresses must keep them"
         );
     }
 

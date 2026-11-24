@@ -20,8 +20,6 @@ use socket2::SockRef;
 use super::socket::{
     connect4, filter, set_hop_limit, BindHash, Buffers, InetSock, ProtoOps, SkState, SockOpt,
 };
-use crate::cred::Cred;
-use crate::memcg::MemoryCharge;
 use crate::vfs::PollMask;
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 use crate::Errno;
@@ -80,17 +78,16 @@ pub struct UdpSock {
 }
 
 impl UdpSock {
-    /// A socket connected to nothing, as `inet_create` makes one; each
-    /// datagram it queues counts against `cred`'s memory as it arrives.
-    pub(crate) fn new(cred: &Arc<Cred>) -> Arc<Self> {
-        let memory = MemoryCharge::empty(cred.memory_budget());
+    /// A socket connected to nothing, as `inet_create` makes one; its queue
+    /// holds what its receive buffer allows.
+    pub(crate) fn new() -> Arc<Self> {
         Arc::new_cyclic(|this| Self {
             state: Mutex::new(State {
                 host: None,
                 receive_queue: VecDeque::new(),
                 rmem_alloc: 0,
                 writable: true,
-                inet: InetSock::new(memory, Buffers::default()),
+                inet: InetSock::new(Buffers::default()),
             }),
             wait: Arc::default(),
             this: this.clone(),
@@ -203,12 +200,10 @@ impl UdpSock {
                         continue;
                     };
                     // A full buffer drops it, but an empty queue takes one
-                    // past the buffer, as `__udp_enqueue_schedule_skb` does;
-                    // one the Invocation's memory cannot hold is dropped
-                    // either way, as a failed `udp_rmem_schedule` drops it.
+                    // past the buffer, as `__udp_enqueue_schedule_skb` does.
                     let truesize = state.rmem_alloc + truesize_of(n);
                     let room = truesize <= state.inet.buffers.rcvbuf;
-                    if (room || state.rmem_alloc == 0) && state.inet.schedule(truesize) {
+                    if room || state.rmem_alloc == 0 {
                         state
                             .receive_queue
                             .push_back((datagram[..n].to_vec(), peer));
@@ -305,8 +300,6 @@ impl ProtoOps for UdpSock {
             return Err(Errno::WouldBlock);
         };
         state.rmem_alloc -= truesize_of(datagram.len());
-        let rmem_alloc = state.rmem_alloc;
-        state.inet.schedule(rmem_alloc);
         let n = buf.len().min(datagram.len());
         buf[..n].copy_from_slice(&datagram[..n]);
         Ok((n, Some(from)))
@@ -445,11 +438,10 @@ mod tests {
     use crate::net::socket::testing::wait_for;
     use crate::net::MAX_SOCKET_BUFFER;
     use crate::net::{HostInet, IpProtocol};
-    use crate::security::prepare_creds;
 
     /// A socket connected to `addr` through the host.
     fn connected_socket(addr: SocketAddr) -> Arc<UdpSock> {
-        let sock = UdpSock::new(&prepare_creds(&[], None));
+        let sock = UdpSock::new();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         sock.dial(&family, addr, addr, &OpenConnections::new(None))
             .expect("an uncapped socket connects");
@@ -470,48 +462,12 @@ mod tests {
         (sock, peer)
     }
 
-    // @behavior NW-116
-    #[test]
-    fn a_datagram_past_the_invocations_memory_is_dropped() {
-        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
-        let addr = peer.local_addr().unwrap();
-        let cred = prepare_creds(&[], Some(16 * 1024));
-        let full = crate::memcg::MemoryCharge::new(cred.memory_budget(), 16 * 1024)
-            .expect("the limit holds what fills it");
-        let sock = UdpSock::new(&cred);
-        let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
-        sock.dial(&family, addr, addr, &OpenConnections::new(None))
-            .expect("an uncapped socket connects");
-        let local = sock
-            .state()
-            .host
-            .as_ref()
-            .map(|(socket, _)| socket.local_addr().unwrap())
-            .expect("the socket holds its host socket");
-        let mut buf = [0; 16];
-        let mut receive = |payload: &[u8]| {
-            peer.send_to(payload, local).unwrap();
-            thread::sleep(Duration::from_millis(50));
-            sock.on_event();
-            sock.recvmsg(&mut buf).map(|(n, _)| n)
-        };
-        let while_full = receive(b"dropped");
-        drop(full);
-        let with_room = receive(b"held");
-        assert_eq!(
-            (while_full, with_room),
-            (Err(Errno::WouldBlock), Ok(4)),
-            "a datagram arriving while the Invocation's memory_limit is full must be dropped, \
-             as Linux drops one udp_rmem_schedule refuses, and one arriving with room read"
-        );
-    }
-
     // @behavior NW-125
     #[test]
     fn a_udp_socket_holds_its_hop_limit_and_receive_buffer() {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         let addr = peer.local_addr().unwrap();
-        let sock = UdpSock::new(&prepare_creds(&[], None));
+        let sock = UdpSock::new();
         let get = |opt| sock.getsockopt(opt).unwrap() as usize;
         let defaults = (
             get(SockOpt::Ttl),
@@ -573,7 +529,7 @@ mod tests {
     fn empty_datagrams_fill_the_receive_buffer_too() {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         let addr = peer.local_addr().unwrap();
-        let sock = UdpSock::new(&prepare_creds(&[], None));
+        let sock = UdpSock::new();
         sock.setsockopt(SockOpt::RcvBuf, 1000).unwrap();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         sock.dial(&family, addr, addr, &OpenConnections::new(None))
@@ -608,7 +564,7 @@ mod tests {
     fn an_empty_queue_takes_a_datagram_past_the_receive_buffer() {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         let addr = peer.local_addr().unwrap();
-        let sock = UdpSock::new(&prepare_creds(&[], None));
+        let sock = UdpSock::new();
         sock.setsockopt(SockOpt::RcvBuf, 1000).unwrap();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         sock.dial(&family, addr, addr, &OpenConnections::new(None))
@@ -649,7 +605,7 @@ mod tests {
     fn a_udp_shutdown_keeps_reads_nonblocking_and_refuses_sends_as_linux() {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         let sock = connected_socket(peer.local_addr().unwrap());
-        let unconnected = UdpSock::new(&prepare_creds(&[], None));
+        let unconnected = UdpSock::new();
         let before = sock.recvmsg(&mut [0; 4]);
         sock.shutdown(Shutdown::Read)
             .expect("a connected socket shuts down");
@@ -880,7 +836,7 @@ mod tests {
         mock.route(IpProtocol::Udp, to_first, first.local_addr().unwrap());
         mock.route(IpProtocol::Udp, to_second, second.local_addr().unwrap());
         let family: Arc<dyn ProtocolFamily> = mock.clone();
-        let sock = UdpSock::new(&prepare_creds(&[], None));
+        let sock = UdpSock::new();
         let cap = OpenConnections::new(None);
         sock.dial(&family, to_first, to_first, &cap)
             .expect("a routed socket connects");
@@ -916,7 +872,7 @@ mod tests {
         mock.refuse(IpProtocol::Udp, to_z, Errno::AddressNotAvailable);
         let family: Arc<dyn ProtocolFamily> = mock.clone();
         let cap = OpenConnections::new(None);
-        let socket = || UdpSock::new(&prepare_creds(&[], None));
+        let socket = || UdpSock::new();
         let (first, second, third) = (socket(), socket(), socket());
         let answers = [
             first.dial(&family, to_x, to_x, &cap),
@@ -953,7 +909,7 @@ mod tests {
         let second = UdpSocket::bind("127.0.0.1:0").unwrap();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         let cap = OpenConnections::new(Some(1));
-        let sock = UdpSock::new(&prepare_creds(&[], None));
+        let sock = UdpSock::new();
         let at = |peer: &UdpSocket| peer.local_addr().unwrap();
         let heard_by = |peer: &UdpSocket| {
             wait_for(|table| sock.poll(table), PollMask::OUT);

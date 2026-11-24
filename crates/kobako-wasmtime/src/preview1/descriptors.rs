@@ -183,7 +183,7 @@ impl Descriptors {
     /// Invocation holds as many files as it may.
     #[cfg(test)]
     pub(crate) fn push_file(&mut self, file: File, table: &mut Table) -> Option<u32> {
-        let room = table.reserve_file::<FileHandle>().ok()?;
+        let room = table.reserve_file().ok()?;
         let fd = self.lowest_unused()?;
         let handle = table.install(room, file);
         self.place(fd, Descriptor::for_file(handle));
@@ -194,7 +194,7 @@ impl Descriptors {
 /// The handle `resource`, opened before the guest runs, takes in `table`;
 /// refused past the open file limit.
 fn install_inherited<H: Handle>(table: &mut Table, resource: H::Host) -> Result<H, Errno> {
-    let room = table.reserve_inherited_file()?;
+    let room = table.reserve_file()?;
     Ok(table.install(room, resource))
 }
 
@@ -255,7 +255,6 @@ impl DerefMut for FileRefMut<'_> {
 mod tests {
     use super::*;
     use kobako_runtime::filesystem::{create_pipe_files, PipeInodeInfo};
-    use kobako_runtime::memcg::MemoryBudget;
     use kobako_runtime::security::prepare_creds;
     use kobako_runtime::vfs::OpenFiles;
 
@@ -266,7 +265,7 @@ mod tests {
     // @behavior RT-189
     #[test]
     fn a_new_descriptor_takes_the_lowest_closed_number() {
-        let mut table = Table::new(OpenFiles::new(None), MemoryBudget::new(None));
+        let mut table = Table::new(OpenFiles::new(None));
         let mut descriptors = Descriptors::new(
             pipe_end(),
             pipe_end(),

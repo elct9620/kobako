@@ -11,7 +11,6 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use kobako_runtime::cred::Cred;
 use kobako_runtime::net::{
     resolve, sock_alloc_file, sys_bind, sys_connect, AddressFamily, Namespace, ProtoOps, SockOpt,
     TcpSock, UdpSock, MAX_DATAGRAM, MAX_TCP_KEEPCNT, MAX_TCP_KEEPIDLE, MAX_TCP_KEEPINTVL,
@@ -199,7 +198,7 @@ impl Invocation {
     fn create_socket<S: ProtoOps + 'static, H: table::Handle>(
         &mut self,
         family: IpAddressFamily,
-        create: impl FnOnce(&Namespace, &Arc<Cred>, AddressFamily) -> Result<Arc<S>, Errno>,
+        create: impl FnOnce(&Namespace, AddressFamily) -> Result<Arc<S>, Errno>,
         resource: impl FnOnce(SocketFile<S>) -> H::Host,
     ) -> Result<H, SocketError> {
         if self.wasi().network().is_none() {
@@ -210,8 +209,8 @@ impl Invocation {
             IpAddressFamily::Ipv4 => AddressFamily::Inet,
             IpAddressFamily::Ipv6 => AddressFamily::Inet6,
         };
-        let sock = create(self.network(), &cred, address_family)?;
-        let Some(room) = self.wasi().table().reserve_producer::<H>()? else {
+        let sock = create(self.network(), address_family)?;
+        let Some(room) = self.wasi().table().reserve_producer() else {
             return Err(ErrorCode::NewSocketLimit.into());
         };
         let socket = SocketFile::new(sock.clone(), family, sock_alloc_file(sock, &cred));
@@ -332,11 +331,7 @@ impl SocketsHost for Invocation {
         let Some(namespace) = self.wasi().network() else {
             return Err(ErrorCode::PermanentResolverFailure.into());
         };
-        let Some(room) = self
-            .wasi()
-            .table()
-            .reserve_producer::<ResolveAddressStream>()?
-        else {
+        let Some(room) = self.wasi().table().reserve_producer() else {
             return Err(ErrorCode::NewSocketLimit.into());
         };
         let lookup = resolve(namespace, &name).map_err(to_lookup_error_code)?;
@@ -360,8 +355,7 @@ impl SocketsHost for Invocation {
     ) -> Result<Option<IpAddress>, SocketError> {
         let stream = self.table_mut().get(this)?;
         let (lookup, handed) = (stream.lookup.clone(), stream.handed);
-        let cred = self.wasi().cred();
-        let all = match self.network().alloc_virtual_addresses(cred, &lookup) {
+        let all = match self.network().alloc_virtual_addresses(&lookup) {
             None => return Err(ErrorCode::WouldBlock.into()),
             Some(answer) => answer.map_err(to_lookup_error_code)?,
         };
@@ -1229,7 +1223,6 @@ mod tests {
     use super::super::error::IntoAnswer;
     use super::*;
     use crate::wasi::Wasi;
-    use kobako_runtime::memcg::MemoryCharge;
     use kobako_runtime::network;
     use kobako_runtime::profile::Profile;
     use kobako_runtime::sched::run_task;
@@ -3221,25 +3214,47 @@ mod tests {
         (from..from + len).map(|i| (i % 251) as u8).collect()
     }
 
-    /// Charges taking all of `guest`'s `memory_limit` that what it holds
-    /// leaves, down to the last byte, so a test never passes on memory it did
-    /// not fill.
-    fn fill_memory(guest: &Invocation) -> Vec<MemoryCharge> {
-        let budget = guest.wasi().cred().memory_budget();
-        let mut charges = Vec::new();
-        let mut unit = 1 << 20;
-        while unit > 0 {
-            match MemoryCharge::new(budget, unit) {
-                Ok(charge) => charges.push(charge),
-                Err(_) => unit /= 2,
-            }
-        }
-        charges
-    }
-
-    /// How many bytes `charges` hold.
-    fn charged(charges: &[MemoryCharge]) -> usize {
-        charges.iter().map(MemoryCharge::bytes).sum()
+    // @behavior S-209
+    #[test]
+    fn a_socket_queue_takes_none_of_the_memory_budget() {
+        let limit = 1 << 20;
+        let (guest, listener) = guest_and_listener_within(limit);
+        let port = listener.local_addr().unwrap().port();
+        let (mut store, instance) = instantiate(guest);
+        store.limiter(
+            |state: &mut Invocation| -> &mut dyn wasmtime::ResourceLimiter { state.limiter_mut() },
+        );
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let input = run_task(Some(deadline), || {
+            let guest = store.data_mut();
+            let network = guest.instance_network_instance_network()?;
+            let (_, input, _) = connect_loopback(guest, network, port)?;
+            Ok::<_, wasmtime::Error>(input)
+        })
+        .expect("the socket connects");
+        let (mut peer, _) = listener.accept().expect("the listener accepts");
+        std::io::Write::write_all(&mut peer, &offset_pattern(0, 64 * 1024)).unwrap();
+        run_task(Some(deadline), || {
+            let guest = store.data_mut();
+            let readable = guest.streams_input_stream_subscribe(input)?;
+            guest.poll_pollable_block(readable)?;
+            guest.poll_pollable_drop(readable)
+        })
+        .expect("the bytes arrive");
+        store.data_mut().arm_memory_budget(0);
+        let memory = instance.get_memory(&mut store, "memory").expect("memory");
+        let grown = memory.grow(&mut store, (limit / 65536) as u64).is_ok();
+        let held = store
+            .data_mut()
+            .streams_input_stream_read(input, 64 * 1024)
+            .into_answer()
+            .unwrap()
+            .map_or(0, |bytes| bytes.len());
+        assert!(
+            grown && held > 0,
+            "a guest whose socket queue holds bytes its peer sent must still grow its memory by \
+             its whole 1 MiB memory_limit; grown {grown}, the queue held {held} bytes"
+        );
     }
 
     /// What `peer` reads up to its end, failing past ten seconds, so a stream
@@ -3255,93 +3270,55 @@ mod tests {
 
     // @behavior NW-245
     #[test]
-    fn an_output_stream_permits_what_the_invocations_memory_takes() {
-        let limit = 1 << 20;
-        let (mut guest, listener) = guest_and_listener_within(limit);
+    fn an_output_stream_permits_what_the_send_buffer_has_left() {
+        let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
-        let (sent, _full) = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+        let sndbuf = kobako_runtime::net::MAX_SOCKET_BUFFER as u64;
+        let sent = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
             let network = guest.instance_network_instance_network()?;
             let (socket, _, output) = connect_loopback(&mut guest, network, port)?;
-            let full = fill_memory(&guest);
+            let first = offset_pattern(0, 1024);
+            guest
+                .streams_output_stream_write(output, Vec::new())
+                .into_answer()?
+                .expect("an empty write succeeds");
             let permit = guest
                 .streams_output_stream_check_write(output)
                 .into_answer()?
                 .expect("a connected stream permits");
-            let sent = offset_pattern(0, permit as usize);
+            let mut sent = first.clone();
             guest
-                .streams_output_stream_write(output, sent.clone())
+                .streams_output_stream_write(output, first)
+                .into_answer()?
+                .expect("a write within the permit succeeds");
+            let rest = guest
+                .streams_output_stream_check_write(output)
+                .into_answer()?
+                .expect("a connected stream permits");
+            let more = offset_pattern(sent.len(), rest as usize);
+            sent.extend_from_slice(&more);
+            guest
+                .streams_output_stream_write(output, more)
                 .into_answer()?
                 .expect("a write of the permit succeeds");
             guest
                 .tcp_tcp_socket_shutdown(socket, ShutdownType::Send)
                 .into_answer()?
                 .expect("a connected socket shuts its send side");
-            Ok::<_, wasmtime::Error>((sent, full))
-        })
-        .expect("the calls answer");
-        let (mut peer, _) = listener.accept().expect("the listener accepts");
-        let got = read_to_end(&mut peer);
-        assert!(
-            !sent.is_empty() && sent.len() <= 4096 && got == sent,
-            "check-write on a TCP output stream whose memory_limit is full must permit at most \
-             4 KiB, and writing the whole permit must reach the peer whole and in order; \
-             permitted {}, the peer read {}",
-            sent.len(),
-            got.len()
-        );
-    }
-
-    // @behavior NW-246
-    #[test]
-    fn a_write_takes_its_whole_permit_after_the_memory_fills() {
-        let limit = 1 << 20;
-        let (mut guest, listener) = guest_and_listener_within(limit);
-        let port = listener.local_addr().unwrap().port();
-        let budget = guest.wasi().cred().memory_budget().clone();
-        let deadline = Instant::now() + Duration::from_secs(10);
-        let (socket, sent, full) = run_task(Some(deadline), || {
-            let network = guest.instance_network_instance_network()?;
-            let (socket, _, output) = connect_loopback(&mut guest, network, port)?;
-            let permit = guest
-                .streams_output_stream_check_write(output)
-                .into_answer()?
-                .expect("a connected stream permits");
             assert!(
-                permit > 4096,
-                "check-write on a connected stream with memory to spare must permit more than \
-                 the 4 KiB a full memory_limit allows; permitted {permit}"
+                permit > 1024 && permit <= sndbuf,
+                "check-write on a connected TCP output stream must permit what its {sndbuf}-byte \
+                 send buffer has left; permitted {permit}"
             );
-            let full = fill_memory(&guest);
-            let sent = offset_pattern(0, permit as usize);
-            guest
-                .streams_output_stream_write(output, sent.clone())
-                .into_answer()?
-                .expect("a write of the permit succeeds");
-            guest
-                .tcp_tcp_socket_shutdown(socket, ShutdownType::Send)
-                .into_answer()?
-                .expect("a connected socket shuts its send side");
-            Ok::<_, wasmtime::Error>((socket, sent, full))
+            Ok::<_, wasmtime::Error>(sent)
         })
         .expect("the calls answer");
         let (mut peer, _) = listener.accept().expect("the listener accepts");
         let got = read_to_end(&mut peer);
-        let past = budget.peak() - limit;
-        let filled = charged(&full);
-        drop(full);
-        // A call on the socket waits out the reactor's last turn, which gives
-        // the drained queue's charge back.
-        run_task(Some(deadline), || {
-            guest.tcp_tcp_socket_send_buffer_size(socket)
-        })
-        .expect("a connected socket answers its send buffer size");
-        let returned = charged(&fill_memory(&guest)) == filled;
         assert!(
-            got == sent && past <= sent.len() + 4096 && returned,
-            "a write of a TCP output stream's whole permit after its memory_limit filled must \
-             reach the peer whole and in order, past the limit by at most the permit and 4 KiB, \
-             and give that back once sent; the peer read {} of {}, {past} past the limit, \
-             returned {returned}",
+            got == sent,
+            "writing every byte check-write permits on a TCP output stream with a {sndbuf}-byte \
+             send buffer must reach the peer whole and in order; the peer read {} of {}",
             got.len(),
             sent.len()
         );
@@ -3350,18 +3327,14 @@ mod tests {
     // @behavior NW-247
     #[test]
     fn an_output_stream_polls_unready_while_it_permits_nothing() {
-        let limit = 1 << 20;
-        let (mut guest, listener) = guest_and_listener_within(limit);
+        let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
-        let budget = guest.wasi().cred().memory_budget().clone();
         let deadline = Instant::now() + Duration::from_secs(20);
-        let (socket, output, writable, full, mut written) = run_task(Some(deadline), || {
+        let (socket, output, writable, mut written) = run_task(Some(deadline), || {
             let network = guest.instance_network_instance_network()?;
             let (socket, _, output) = connect_loopback(&mut guest, network, port)?;
-            // A pollable takes a table slot, which a full memory refuses.
             let writable = guest.streams_output_stream_subscribe(output)?;
             let now = guest.monotonic_clock_subscribe_duration(0)?;
-            let full = fill_memory(&guest);
             let mut written = 0;
             while Instant::now() < deadline {
                 let permit = guest
@@ -3378,22 +3351,15 @@ mod tests {
                 }
                 let ready = guest.poll_poll(vec![writable, now])?;
                 if !ready.contains(&0) {
-                    return Ok::<_, wasmtime::Error>((socket, output, writable, full, written));
+                    return Ok::<_, wasmtime::Error>((socket, output, writable, written));
                 }
             }
             panic!(
-                "a TCP output stream whose memory_limit is full and whose peer never reads must \
-                 come to permit nothing and poll unready within twenty seconds; wrote {written}"
+                "a TCP output stream whose peer never reads must come to permit nothing and poll \
+                 unready within twenty seconds; wrote {written}"
             );
         })
         .expect("the calls answer");
-        let past = budget.peak() - limit;
-        assert!(
-            past <= 8192,
-            "a TCP output stream whose memory_limit is full must permit nothing for want of \
-             memory, holding at most 8 KiB past the limit, rather than for want of send buffer; \
-             {past} past the limit"
-        );
         let reader = std::thread::spawn(move || {
             let (mut peer, _) = listener.accept().expect("the listener accepts");
             read_to_end(&mut peer)
@@ -3429,10 +3395,9 @@ mod tests {
         })
         .expect("the calls answer");
         let got = reader.join().expect("the peer reads");
-        drop(full);
         assert!(
             resumed > 0 && got == offset_pattern(0, written),
-            "a TCP output stream that polled unready for want of memory must become ready once \
+            "a TCP output stream that polled unready for want of send buffer must become ready once \
              the peer reads, then permit again, and every byte written must reach the peer in \
              order; permitted {resumed} once ready, the peer read {} of {written}",
             got.len()
@@ -3926,26 +3891,6 @@ mod tests {
         );
     }
 
-    // @behavior RT-394
-    #[test]
-    fn each_handle_takes_its_room_from_the_memory_limit() {
-        let mut guest =
-            Invocation::hermetic(None, |config| config.limits.memory_limit = Some(64 << 10));
-        let held = (0..crate::preview2::table::MAX_TABLE_ENTRIES)
-            .map_while(|_| guest.monotonic_clock_subscribe_duration(0).ok())
-            .collect::<Vec<_>>();
-        let filled = held.len();
-        let last = *held.last().expect("a 64 KiB limit must hold a handle");
-        let dropped = guest.poll_pollable_drop(last).is_ok();
-        let again = guest.monotonic_clock_subscribe_duration(0).is_ok();
-        assert_eq!(
-            (filled > 0 && filled < 64 << 10, dropped, again),
-            (true, true, true),
-            "subscribe-duration under a 64 KiB memory limit must trap once its handles fill the \
-             limit, short of the table's capacity, and hand one out again once a handle drops"
-        );
-    }
-
     // @behavior NW-069
     #[test]
     fn a_socket_past_the_open_file_limit_answers_new_socket_limit() {
@@ -3977,9 +3922,7 @@ mod tests {
 
     // @behavior NW-146
     #[test]
-    fn a_lookup_or_a_request_past_the_open_file_limit_answers_an_error() {
-        use super::super::bindings::wasi_http_types_0_2_12::{ErrorCode as HttpErrorCode, Scheme};
-        use super::super::bindings::HttpHost;
+    fn a_lookup_past_the_open_file_limit_answers_an_error() {
         let endpoint = network::Endpoint::new("example.com", 80).unwrap();
         let mut guest = limited_network_guest([endpoint], Some(3));
         let network = guest.instance_network_instance_network().unwrap();
@@ -3988,9 +3931,36 @@ mod tests {
             .into_answer()
             .ok()
             .and_then(|answer| answer.err());
-        let headers = guest.types_fields_new().unwrap();
+        assert_eq!(
+            lookup,
+            Some(ErrorCode::NewSocketLimit),
+            "resolve-addresses with the open file limit filled by the standard streams must \
+             answer new-socket-limit, not trap"
+        );
+    }
+
+    // @behavior NW-252
+    #[test]
+    fn a_header_list_and_an_unsent_request_each_take_an_open_file() {
+        use super::super::bindings::wasi_http_types_0_2_12::Scheme;
+        use super::super::bindings::HttpHost;
+        let endpoint = network::Endpoint::new("example.com", 80).unwrap();
+        let mut guest = limited_network_guest([endpoint], Some(4));
+        let headers = guest
+            .types_fields_new()
+            .expect("one file is left for a list");
+        let full = guest
+            .types_fields_new()
+            .map(drop)
+            .map_err(|trap| trap.to_string());
         let headers = guest.take_handle(headers).unwrap();
-        let request = guest.types_outgoing_request_new(headers).unwrap();
+        let request = guest
+            .types_outgoing_request_new(headers)
+            .expect("the list's place");
+        let still_full = guest
+            .types_fields_new()
+            .map(drop)
+            .map_err(|trap| trap.to_string());
         guest
             .types_outgoing_request_set_scheme(request, Some(Scheme::HTTP))
             .unwrap()
@@ -4000,20 +3970,21 @@ mod tests {
             .unwrap()
             .unwrap();
         let request = guest.take_handle(request).unwrap();
-        let sent = guest
+        let handed = guest
             .outgoing_handler_handle(request, None)
             .into_answer()
-            .ok()
-            .and_then(|answer| answer.err());
+            .map(|answer| answer.is_ok());
+        let after_handle = guest
+            .types_fields_new()
+            .map(drop)
+            .map_err(|trap| trap.to_string());
+        let trap = Err("the guest's open files leave no room for what the host holds".to_string());
         assert_eq!(
-            (lookup, sent),
-            (
-                Some(ErrorCode::NewSocketLimit),
-                Some(HttpErrorCode::ConnectionLimitReached)
-            ),
-            "resolve-addresses and outgoing-handler.handle with the open file limit filled by \
-             the standard streams must answer new-socket-limit and connection-limit-reached, \
-             not trap"
+            (full, still_full, handed.ok(), after_handle),
+            (trap.clone(), trap.clone(), Some(true), trap),
+            "with one file left past the standard streams, fields.constructor must take it and \
+             trap past it, outgoing-request.constructor must take the list's place, and \
+             outgoing-handler.handle must hand the request's place to its future"
         );
     }
 

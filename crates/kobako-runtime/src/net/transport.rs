@@ -2,8 +2,8 @@
 //! authority a request named, and the connection it opened. The connector
 //! dials through a TCP socket of the Invocation's own, as an egress proxy
 //! dials through the kernel, so its upstream passes the socket layer's
-//! filter, holds a virtual port, and counts its buffers against the
-//! Invocation's memory, as a guest's socket does.
+//! filter, holds a virtual port, and queues within its buffers, as a guest's
+//! socket does.
 
 use std::fmt;
 use std::future::poll_fn;
@@ -22,7 +22,6 @@ use super::lookup::NameLookup;
 use super::namespace::TcpSockets;
 use super::socket::{BindHash, Destination};
 use super::{Namespace, ProtoOps, ProtocolFamily, SockOpt, TcpSock};
-use crate::cred::Cred;
 use crate::errno::CarriedErrno;
 use crate::network::{Host, Protocol, Ruleset};
 use crate::wait::WaitQueueHead;
@@ -39,7 +38,6 @@ pub struct Connector {
     target: Target,
     ports: Arc<BindHash>,
     tcp_sockets: Arc<TcpSockets>,
-    cred: Arc<Cred>,
     /// The request's place, which a lookup of the authority holds too.
     place: Arc<Place>,
     /// When a connect opened, which its exchange's wait for the head starts
@@ -51,16 +49,9 @@ pub struct Connector {
 }
 
 impl Connector {
-    /// The connector for `host` at `port` in `net`, dialing as `cred` and
-    /// holding the request's `place`, which a lookup of a named host holds
-    /// too.
-    pub(crate) fn new(
-        net: &Namespace,
-        cred: &Arc<Cred>,
-        host: Host,
-        port: u16,
-        place: Arc<Place>,
-    ) -> Self {
+    /// The connector for `host` at `port` in `net`, holding the request's
+    /// `place`, which a lookup of a named host holds too.
+    pub(crate) fn new(net: &Namespace, host: Host, port: u16, place: Arc<Place>) -> Self {
         let target = match host {
             Host::Address(ip) => Target::Address(ip),
             Host::Name(name) => Target::Named {
@@ -79,7 +70,6 @@ impl Connector {
             target,
             ports: net.ports_of(Protocol::Http).clone(),
             tcp_sockets: net.tcp_sockets().clone(),
-            cred: cred.clone(),
             place,
             connected: Arc::default(),
             wait: None,
@@ -116,7 +106,7 @@ impl Connector {
         };
         let mut last = HttpError::Denied;
         for dest in &dests {
-            let sock = TcpSock::create_kern(&self.family, &self.tcp_sockets, &self.cred);
+            let sock = TcpSock::create_kern(&self.family, &self.tcp_sockets);
             // Set before the dial, so the host socket takes it as it is
             // made, as an HTTP client writes each request whole; a guest's
             // own socket keeps Linux's default.
