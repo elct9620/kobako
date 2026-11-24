@@ -26,7 +26,7 @@ use super::path::OverlayPath;
 
 use super::super::{Errno, FileOperations, FileType, Filesystem, Kiocb};
 use crate::cred::Cred;
-use crate::sched::fatal_signal_pending;
+use crate::sched::stop_if_fatal;
 use crate::vfs::{Dentry, Identity};
 
 /// The directories of the upper Tmpfs holding the view's changes and the
@@ -124,8 +124,9 @@ fn ovl_lower_positive(level: &Level, name: &str) -> bool {
 }
 
 /// Copy the `len` bytes the lower file held when asked, a chunk at a time, as
-/// `ovl_copy_up_file` does: a run past its deadline or interrupted stops
-/// between chunks with EINTR, and a file that ended sooner stops the copy.
+/// `ovl_copy_up_file` does: a signal is handled between chunks, a run past its
+/// deadline or interrupted stops there with EINTR, and a file that ended
+/// sooner stops the copy.
 fn copy_whole(
     source: &mut dyn FileOperations,
     target: &mut dyn FileOperations,
@@ -135,9 +136,7 @@ fn copy_whole(
     let (mut from, mut to) = (Kiocb::new(0), Kiocb::new(0));
     let mut left = len;
     while left > 0 {
-        if fatal_signal_pending() {
-            return Err(Errno::Interrupted);
-        }
+        stop_if_fatal()?;
         let chunk = buf.len().min(usize::try_from(left).unwrap_or(usize::MAX));
         let read = source.read_iter(&mut from, &mut buf[..chunk])?;
         if read == 0 {

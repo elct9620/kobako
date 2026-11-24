@@ -287,6 +287,7 @@ impl RubyFilesystem {
         names.iter().try_for_each(|name| verify_dirent_name(name))?;
         let mut entries = Vec::with_capacity(names.len());
         for name in names {
+            kobako_runtime::sched::stop_if_fatal()?;
             match self.stat(join(&at, &name)) {
                 Ok(stat) => entries
                     .push(DirEntry::new(name, stat.file_type).with_identity(stat.dev, stat.ino)),

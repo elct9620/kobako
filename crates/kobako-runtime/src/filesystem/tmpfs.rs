@@ -773,6 +773,7 @@ impl FileOperations for TmpfsDir {
             return Ok(());
         }
         loop {
+            crate::sched::stop_if_fatal()?;
             let found = {
                 let state = self.dir.state();
                 state

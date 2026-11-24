@@ -21,11 +21,13 @@ pub(super) fn walk(dir: &Dir, names: &[String]) -> Result<Dir, Errno> {
     })
 }
 
-/// Each name opened in turn, the way every host can.
+/// Each name opened in turn, the way every host can, a run that is to stop
+/// stopping between two.
 fn by_name(dir: &Dir, names: &[String]) -> Result<Dir, Errno> {
     let (first, rest) = names.split_first().ok_or(Errno::InvalidInput)?;
     rest.iter()
         .try_fold(open_dir_nofollow(dir, first)?, |dir, name| {
+            crate::sched::stop_if_fatal()?;
             open_dir_nofollow(&dir, name)
         })
 }
@@ -203,6 +205,22 @@ mod tests {
         path: &str,
     ) -> Result<(), Errno> {
         open(dir, &names(path)).map(drop)
+    }
+
+    // @behavior FS-236
+    #[test]
+    fn a_walk_by_name_past_its_runs_deadline_answers_eintr() {
+        let tree = Tree::new("by-name-deadline");
+        let dir = tree.dir();
+        let walked = crate::sched::run_task(Some(std::time::Instant::now()), || {
+            answer(by_name, &dir, "a/b/c")
+        });
+        assert_eq!(
+            walked,
+            Err(Errno::Interrupted),
+            "a Bind walking a/b/c a name at a time in a run past its deadline must answer EINTR \
+             before it opens the next name"
+        );
     }
 
     // The host's kernel path and the one-name-at-a-time path must answer

@@ -46,6 +46,7 @@ fn lookup_by_listing(parent: &Dir, name: &str) -> Result<String, Errno> {
     };
     let mut names = Vec::new();
     for entry in parent.entries().map_err(to_error)? {
+        crate::sched::stop_if_fatal()?;
         let entry = entry.map_err(to_error)?;
         if entry.file_name() == name {
             return Ok(name.to_string());
@@ -219,6 +220,27 @@ mod linux {
                 Err(Errno::IllegalSequence),
                 "a host name that is not UTF-8, spelled by a Bind's lookup of another spelling, \
                  must fail as an illegal byte sequence, as a listing of it does"
+            );
+        }
+
+        // @behavior FS-237
+        #[test]
+        fn a_search_for_a_spelling_past_its_runs_deadline_answers_eintr() {
+            let path = std::env::temp_dir().join(format!("kobako-spell-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(&path).expect("the host directory must be created");
+            std::fs::write(path.join("a"), "x").expect("the host file must be written");
+            let dir = Dir::open_ambient_dir(&path, ambient_authority())
+                .expect("the host directory must open");
+            let found = crate::sched::run_task(Some(std::time::Instant::now()), || {
+                lookup_by_listing(&dir, "a")
+            });
+            let _ = std::fs::remove_dir_all(&path);
+            assert_eq!(
+                found,
+                Err(Errno::Interrupted),
+                "a Bind listing a host directory for how it spells a in a run past its deadline \
+                 must answer EINTR before its next entry"
             );
         }
 

@@ -2244,6 +2244,184 @@ mod tests {
         );
     }
 
+    /// A host directory holding `dir/a`, `dir/b`, and `dir/c`, removed when it
+    /// drops.
+    struct HostDir(std::path::PathBuf);
+
+    impl HostDir {
+        fn new(name: &str) -> Self {
+            let path =
+                std::env::temp_dir().join(format!("kobako-overlay-{name}-{}", std::process::id()));
+            let _ = std::fs::remove_dir_all(&path);
+            std::fs::create_dir_all(path.join("dir")).expect("the host directory must be made");
+            for file in ["a", "b", "c"] {
+                std::fs::write(path.join("dir").join(file), "x").expect("the file must be made");
+            }
+            Self(path)
+        }
+    }
+
+    impl Drop for HostDir {
+        fn drop(&mut self) {
+            let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// `dir` of a Tmpfs, of a Bind of `host`, and of an Overlay, each holding
+    /// `a`, `b`, and `c`, opened to list.
+    fn listed_kinds(host: &HostDir) -> Vec<(&'static str, KernPath)> {
+        let files = || -> Tmpfs {
+            ["dir/a", "dir/b", "dir/c"]
+                .map(|path| (path, "x"))
+                .into_iter()
+                .collect()
+        };
+        let bind = super::super::Bind::new(&host.0).expect("the host directory must open");
+        [
+            ("Tmpfs", at(files())),
+            ("Bind", at(bind)),
+            (
+                "Overlay",
+                at(over(Arc::new(files()), Arc::new(Tmpfs::new()))),
+            ),
+        ]
+        .map(|(kind, fs)| (kind, fs.open_dir("dir").expect("dir must open")))
+        .into()
+    }
+
+    // @behavior FS-232
+    #[test]
+    fn a_listing_past_its_runs_deadline_answers_eintr() {
+        let host = HostDir::new("listing-deadline");
+        let answers: Vec<_> = listed_kinds(&host)
+            .iter()
+            .map(|(kind, dir)| {
+                let listed = crate::sched::run_task(Some(Instant::now()), || dir.iterate_dir());
+                (*kind, listed.err())
+            })
+            .collect();
+        assert_eq!(
+            answers,
+            ["Tmpfs", "Bind", "Overlay"].map(|kind| (kind, Some(Errno::Interrupted))),
+            "iterate_shared of each built-in Filesystem in a run past its deadline must answer \
+             EINTR before its next entry"
+        );
+    }
+
+    // @behavior FS-233
+    #[test]
+    fn a_listing_hands_a_pending_signal_over_once() {
+        let host = HostDir::new("listing-signal");
+        let answers: Vec<_> = listed_kinds(&host)
+            .iter()
+            .map(|(kind, dir)| {
+                let handled = crate::sched::testing::count_signals();
+                let names = crate::sched::run_task(None, || {
+                    crate::sched::Task::current().signal();
+                    dir.iterate_dir()
+                })
+                .map(|entries| {
+                    let mut names: Vec<_> = entries.into_iter().map(|entry| entry.name).collect();
+                    names.sort();
+                    names
+                });
+                (*kind, handled.load(Ordering::SeqCst), names)
+            })
+            .collect();
+        let all = || Ok(vec!["a".to_string(), "b".to_string(), "c".to_string()]);
+        assert_eq!(
+            answers,
+            vec![
+                ("Tmpfs", 1, all()),
+                ("Bind", 1, all()),
+                ("Overlay", 1, all())
+            ],
+            "iterate_shared of each built-in Filesystem with a signal pending must hand it to the \
+             Blocking once and list every entry"
+        );
+    }
+
+    // @behavior FS-234
+    #[test]
+    fn a_copy_up_of_ancestors_past_its_runs_deadline_answers_eintr() {
+        let upper = Arc::new(Tmpfs::new());
+        let overlay = at(over(tmpfs_with("a/b/f", "lower"), upper.clone()));
+        let made =
+            crate::sched::run_task(Some(Instant::now()), || write(&overlay, "a/b/new", b"x"));
+        assert_eq!(
+            (made, on(&upper).vfs_lstat("upper/a").err()),
+            (Err(Errno::Interrupted), Some(Errno::NotFound)),
+            "a create through an Overlay whose run's deadline passed must answer EINTR before it \
+             copies up the first ancestor, as ovl_copy_up_flags climbs them one at a time"
+        );
+    }
+
+    /// A Layer whose files signal the run reading them as they hand over their
+    /// first chunk.
+    struct SignalsOnRead(Arc<AtomicUsize>);
+
+    impl Hook for SignalsOnRead {
+        fn open(
+            &self,
+            inner: &dyn InodeOperations,
+            dentry: &Dentry,
+            how: &OpenHow,
+        ) -> Result<Box<dyn FileOperations>, Errno> {
+            Ok(Box::new(SignalsFirstRead(
+                inner.open(dentry, how)?,
+                self.0.clone(),
+            )))
+        }
+    }
+
+    /// A file signalling its reader on the first read, counting the reads.
+    struct SignalsFirstRead(Box<dyn FileOperations>, Arc<AtomicUsize>);
+
+    impl FileOperations for SignalsFirstRead {
+        fn read_iter(&mut self, iocb: &mut Kiocb, buf: &mut [u8]) -> Result<usize, Errno> {
+            if self.1.fetch_add(1, Ordering::SeqCst) == 0 {
+                crate::sched::Task::current().signal();
+            }
+            self.0.read_iter(iocb, buf)
+        }
+    }
+
+    // The signal arrives as the copy reads, since every walk to the file hands
+    // one over first.
+    // @behavior FS-235
+    #[test]
+    fn a_copy_up_hands_a_pending_signal_over_between_chunks() {
+        let upper = Arc::new(Tmpfs::new());
+        let contents = "x".repeat(3 * 64 * 1024);
+        let reads = Arc::new(AtomicUsize::new(0));
+        let lower = Wrap::new(
+            tmpfs_with("big", &contents),
+            Arc::new(SignalsOnRead(reads.clone())),
+        );
+        let overlay = at(over(Arc::new(lower), upper.clone()));
+        let read_when_handled = Arc::new(Mutex::new(Vec::new()));
+        crate::sched::testing::on_signal({
+            let (reads, seen) = (reads.clone(), read_when_handled.clone());
+            move || {
+                seen.lock()
+                    .expect("never poisoned")
+                    .push(reads.load(Ordering::SeqCst))
+            }
+        });
+        let written = crate::sched::run_task(None, || write_over(&overlay, "big", b"y"));
+        crate::sched::testing::on_signal(|| {});
+        assert_eq!(
+            (
+                written,
+                read_when_handled.lock().expect("never poisoned").clone(),
+                on(&upper).vfs_lstat("upper/big").map(|stat| stat.size)
+            ),
+            (Ok(()), vec![1], Ok(contents.len() as u64)),
+            "a copy up whose run is signalled as it reads must hand the signal to the Blocking \
+             before its next chunk and copy the whole file"
+        );
+    }
+
     /// A Tmpfs reporting `file` two bytes long, though it holds more.
     struct ReportsTwoBytes;
 

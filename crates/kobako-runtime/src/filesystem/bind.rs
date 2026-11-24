@@ -222,6 +222,7 @@ fn entries_of(dir: &Dir) -> Result<Vec<DirEntry>, Errno> {
     };
     FIDS.open(|| dir.entries().map_err(to_error))?
         .map(|entry| {
+            crate::sched::stop_if_fatal()?;
             let entry = entry.map_err(to_error)?;
             let name = entry
                 .file_name()

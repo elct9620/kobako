@@ -9,6 +9,7 @@ use super::super::super::{Errno, FileType, OpenHow};
 use super::super::inode::OverlayFileInode;
 use super::super::path::{timestamps, OverlayPath};
 use super::{copy_whole, OverlayFs, ViewDir, UPPER};
+use crate::sched;
 use crate::vfs::{Dentry, RenameFlag};
 
 impl OverlayFs {
@@ -28,6 +29,7 @@ impl OverlayFs {
             at = next;
         };
         while let Some(dir) = unmade.pop() {
+            sched::stop_if_fatal()?;
             made = self.copy_up_dir(&dir, &made)?;
         }
         Ok(made)

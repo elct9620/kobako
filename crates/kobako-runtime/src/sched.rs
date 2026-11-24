@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, PoisonError};
 use std::time::{Duration, Instant};
 
 use crate::wait::Waiter;
+use crate::Errno;
 
 /// How a thread waits for a lock another thread holds, or for what another
 /// thread brings. A frontend whose threads share a lock of their own, as
@@ -314,6 +315,18 @@ pub fn exit_to_user_mode() -> Option<FatalSignal> {
         handle_signal();
     }
     pending_fatal_signal()
+}
+
+/// Answer EINTR where the calling thread's run is to stop, its pending signal
+/// handled first, as a long loop of Linux's looks at `fatal_signal_pending`
+/// between its steps. A loop beneath a sleeping lock calls it each step, so a
+/// deadline or an interrupt ends the operation holding the lock; it must hold
+/// no lock that never waits through the `Blocking`, as `handle_signal` asks.
+pub fn stop_if_fatal() -> Result<(), Errno> {
+    match exit_to_user_mode() {
+        Some(_) => Err(Errno::Interrupted),
+        None => Ok(()),
+    }
 }
 
 /// When the calling thread's run is to stop, once it has a deadline.
