@@ -6,8 +6,7 @@ module Kobako
   class Handle < Data.define(:id)
     # The smallest id; 0 never names a Handle.
     MIN_ID = 1
-    # The largest id, the bound the wire's Envelope holds every side to; an
-    # invocation needing more raises HandleExhaustedError.
+    # The largest id, the bound the wire's Envelope holds every side to.
     MAX_ID = Kobako.max_handle_id
 
     def initialize(id:) # :nodoc:

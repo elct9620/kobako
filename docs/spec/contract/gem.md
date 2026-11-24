@@ -800,7 +800,7 @@ end
 
 ## `Kobako::HandleExhaustedError`
 
-An invocation that ran out of Handle ids.
+An invocation that issued more Handles than its table holds.
 
 ```ruby
 module Kobako

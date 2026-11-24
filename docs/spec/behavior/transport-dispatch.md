@@ -141,17 +141,17 @@ Everything that answers on the fault arm rather than raising is here, since the 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Handle table filled to its highest id |
+| Given | a Handle table holding 1,000,000 references, one invocation's ceiling |
 | When | one more allocation is attempted |
-| Then | it raises a Sandbox failure |
+| Then | it raises a Sandbox failure, `HandleExhaustedError` in Ruby |
 
-## `T-013` The ceiling is a property of the wire, not of the table
+## `T-013` The ceiling sits below what the wire can number
 
 | Step | Statement |
 | --- | --- |
-| Given | the Handle table's ceiling constant |
-| When | it is read |
-| Then | it is the value the wire format fixes |
+| Given | the Handle table's ceiling, and the highest id the wire format fixes |
+| When | both are read |
+| Then | the ceiling is 1,000,000 and the wire's id is `0x7fff_ffff`. The table bounds what kobako holds, as wasmtime's `ResourceTable` does |
 
 ## `T-014` A reflective object is never given a reference
 
@@ -953,13 +953,13 @@ Everything that answers on the fault arm rather than raising is here, since the 
 | When | a yield reaches it |
 | Then | it answers that it does not serve the operation |
 
-## `T-185` The highest id is itself issued
+## `T-185` The last reference under the ceiling is itself issued
 
 | Step | Statement |
 | --- | --- |
-| Given | a Handle table whose next allocation is its highest id |
+| Given | a Handle table whose next allocation is its 1,000,000th |
 | When | one more reference is allocated |
-| Then | it is issued the highest id |
+| Then | it is issued, and its id is 1,000,000 |
 
 ## `T-186` A trailing explicit Hash leaves the keywords empty
 

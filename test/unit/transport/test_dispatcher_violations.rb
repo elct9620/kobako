@@ -184,10 +184,10 @@ class TestTransportDispatchViolations < Minitest::Test
     Kobako::Catalog::Services.new.tap { |registry| registry.bind("Factory::Make", object_factory) }
   end
 
-  # Test seam: Catalog::Handles.new(next_id:) pins the counter at
-  # MAX_ID + 1 without 2^31 allocations. Catalog::Handles documents the
+  # Test seam: Catalog::Handles.new(next_id:) pins the counter past
+  # MAX_HANDLES without a million allocations. Catalog::Handles documents the
   # parameter as intended for cap-exhaustion testing.
   def exhausted_handles
-    Kobako::Catalog::Handles.new(next_id: Kobako::Handle::MAX_ID + 1)
+    Kobako::Catalog::Handles.new(next_id: Kobako::Catalog::Handles::MAX_HANDLES + 1)
   end
 end

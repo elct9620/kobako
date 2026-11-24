@@ -1,6 +1,8 @@
 module Kobako
   module Catalog
     class Handles
+      MAX_HANDLES: Integer
+
       def initialize: (?next_id: Integer) -> void
 
       def alloc: (untyped object) -> Kobako::Handle

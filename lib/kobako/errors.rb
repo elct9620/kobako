@@ -96,7 +96,7 @@ module Kobako
   # block never ran. Left unrescued, the Service call fails.
   class UnsupportedError < Error; end
 
-  # One invocation issued more Handles than an id can number (2**31 - 1).
+  # One invocation issued more than the 1,000,000 Handles it may hold.
   class HandleExhaustedError < SandboxError; end
 
   # A <tt>preload(binary:)</tt> snippet failed to load. Bytecode that loads

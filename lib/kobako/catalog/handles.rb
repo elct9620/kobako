@@ -8,8 +8,13 @@ module Kobako
     # One invocation's Handle table, mapping opaque ids to host objects. Each
     # invocation mints its own, so a Handle resolves only where it was issued.
     class Handles # :nodoc:
-      # +next_id+ lets tests start near +Kobako::Handle::MAX_ID+ to reach
-      # exhaustion without 2³¹ allocations.
+      # The most Handles one invocation issues, as wasmtime's ResourceTable
+      # holds at most 1,000,000 of what a host hands its guest: the table is
+      # kobako's own, so it stays bounded whatever a Service returns.
+      MAX_HANDLES = 1_000_000
+
+      # +next_id+ lets tests start near MAX_HANDLES to reach exhaustion
+      # without a million allocations.
       def initialize(next_id: 1)
         @entries = {} # : Hash[Integer, Kobako::Transport::Exposure]
         surfaces = {} # : Hash[Module, Set[Symbol]]
@@ -50,12 +55,11 @@ module Kobako
       private
 
       def ensure_capacity
-        cap = Kobako::Handle::MAX_ID
-        return unless @next_id > cap
+        return unless @next_id > MAX_HANDLES
 
         raise HandleExhaustedError,
               "Out of handle allocations: too many host objects were referenced " \
-              "in a single invocation (limit #{cap})"
+              "in a single invocation (limit #{MAX_HANDLES})"
       end
 
       def require_bound(id)

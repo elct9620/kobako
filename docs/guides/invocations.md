@@ -94,7 +94,7 @@ Each subclass narrows one of the three roots.
 | `MemoryLimitError` | `TrapError` | `memory_limit` ran out |
 | `NoServiceError` | `ServiceError` | nothing callable is bound there |
 | `ServiceArgumentError` | `ServiceError` | the call would not bind |
-| `HandleExhaustedError` | `SandboxError` | Handles reached 2^31 - 1 |
+| `HandleExhaustedError` | `SandboxError` | One invocation issued 1,000,000 Handles |
 | `BytecodeError` | `SandboxError` | preloaded bytecode failed validation |
 | `UnsupportedFlagError` | `SandboxError` | a critical flag is unrecognised |
 | `UndefinedEntrypointError` | `SandboxError` | `#run` named no snippet's constant |

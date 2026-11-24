@@ -69,28 +69,28 @@ module Kobako
       assert_raises(Kobako::SandboxError) { table.fetch(0) }
     end
 
-    # ---------- Cap exhaustion: alloc beyond Kobako::Handle::MAX_ID raises ----------
+    # ---------- Cap exhaustion: alloc beyond one invocation's 1,000,000 raises ----------
 
-    # next_id: reaches the cap without 2³¹ allocations. Callers rescuing
+    # next_id: reaches the cap without a million allocations. Callers rescuing
     # SandboxError must catch the exhaustion, so its class matters even though
     # the dispatcher turns the raise into a fault the guest observes.
     # @behavior T-012 T-185
-    def test_alloc_at_max_id_succeeds_then_next_alloc_raises
-      table = Table.new(next_id: Kobako::Handle::MAX_ID)
+    def test_the_millionth_alloc_succeeds_then_next_alloc_raises
+      table = Table.new(next_id: 1_000_000)
 
-      assert_equal 0x7fff_ffff, table.alloc(Object.new).id,
-                   "an allocation at the highest id through Handles#alloc must issue that id"
+      assert_equal 1_000_000, table.alloc(Object.new).id,
+                   "the 1,000,000th allocation through Handles#alloc must be issued id 1,000,000"
       err = assert_raises(Kobako::HandleExhaustedError) { table.alloc(Object.new) }
       assert_kind_of Kobako::SandboxError, err,
-                     "an allocation past the highest id through Handles#alloc must raise a SandboxError"
+                     "an allocation past 1,000,000 through Handles#alloc must raise a SandboxError"
     end
 
     # @behavior T-013
-    def test_max_id_constant_is_wire_invariant
-      # Wire Contract: Handle ext 0x01 carries a 4-byte signed int;
-      # 0x7fff_ffff is the maximum valid Handle ID.
-      assert_equal 0x7fff_ffff, Kobako::Handle::MAX_ID
-      assert_equal (2**31) - 1, Kobako::Handle::MAX_ID
+    def test_the_ceiling_sits_below_what_the_wire_numbers
+      # Wire Contract: Handle ext 0x01 carries a 4-byte signed int, so
+      # 0x7fff_ffff is the highest id the wire can carry.
+      assert_equal [1_000_000, 0x7fff_ffff], [Table::MAX_HANDLES, Kobako::Handle::MAX_ID],
+                   "the Handle table's ceiling must be 1,000,000, below the wire's highest id 0x7fff_ffff"
     end
 
     # ---------- Reflective gadget refusal ----------
