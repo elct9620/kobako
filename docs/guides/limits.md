@@ -25,7 +25,7 @@ Each cap has a default and its own way to end a run.
 |---|---|---|
 | `timeout` | 60.0 s | `Kobako::TimeoutError` |
 | `setup_timeout` | 10.0 s | `Kobako::SetupError` at `new` |
-| `memory_limit` | 4 MiB | `Kobako::MemoryLimitError`; a host buffer past it is `Errno::ENOMEM` in the guest |
+| `memory_limit` | 4 MiB | `Kobako::MemoryLimitError` |
 | `stdout_limit`, `stderr_limit` | 1 MiB each | output clipped, no raise |
 | `open_file_limit` | 16 | `Errno::EMFILE` in the guest |
 | `open_connection_limit` | 6 | `Errno::EAGAIN` in the guest |
@@ -40,18 +40,33 @@ global budget.
 |---|---|
 | `timeout` | wall time inside the guest, Service calls included |
 | `setup_timeout` | instantiating a Guest Binary and reading its ABI version, not compiling it |
-| `memory_limit` | every memory, table, and GC heap growth past what the Guest Binary declares, from instantiation on, and what the host holds for the run |
-| `open_file_limit` | every descriptor one run holds: the standard three, the root, sockets, lookups, HTTP requests |
-
-The socket buffers, listings, lookups, and handles the host holds for a run take
-from the same `memory_limit` as the guest's growth. A socket buffer takes only
-what it holds. An empty one still takes one read past the limit so its stream
-moves on, as Linux does. A write still takes the room the guest was promised
-before the memory filled, at most 68 KiB. At most that is one read and one
-write per open connection, and the run's next growth then traps.
+| `memory_limit` | memory, table, and GC heap growth past what the Guest Binary declares |
+| `open_file_limit` | each descriptor, socket, lookup, HTTP request, and header list one run holds |
 
 `setup_timeout` applies the first time a path is loaded, and later Sandboxes on
 that path skip the check.
+
+## Host Overhead
+
+What the host holds for a run sits outside `memory_limit`, as a virtual
+machine's runtime sits outside its RAM. Each kind is a count the run already has
+times a fixed size. A Host App adds them up for one run's worst case.
+
+| Held for the run | Count | Each at most |
+|---|---|---|
+| a socket's queues | `open_connection_limit` | 64 KiB each way |
+| an HTTP request body | `open_connection_limit` | 64 KiB |
+| an HTTP response body | `open_connection_limit` | 64 KiB and one 128 KiB read |
+| an HTTP response's head | `open_connection_limit` | 128 KiB |
+| a header list, an unsent request | `open_file_limit` | 128 KiB |
+| a TLS session | `open_connection_limit` | rustls's bounded buffers |
+| a listing | `open_file_limit` | the directory's names |
+| a name's virtual addresses | the run | 131070 addresses |
+| one host call's copy of guest data | one at a time | `memory_limit`, or 128 MiB with none |
+
+A nested run from a Service is a run of its own, counted apart. The host
+kernel's socket buffers grow as the host's `tcp_rmem` and `tcp_wmem` allow, up
+to about 10 MiB per connection on Linux.
 
 ## Host Descriptors
 
@@ -109,7 +124,7 @@ rescued trap reports it just as a completed run does.
 ```ruby
 usage = sandbox.eval(script).usage
 usage.wall_time   # => Float seconds inside the guest
-usage.memory_peak # => Integer bytes grown, past memory_limit only by a network queue
+usage.memory_peak # => Integer bytes grown, never past memory_limit
 ```
 
 ## Isolation Profile
