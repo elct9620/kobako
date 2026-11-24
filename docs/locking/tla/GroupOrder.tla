@@ -93,6 +93,9 @@ Edges ==
   \cup E("GVL", {"SharedFile", "connection_budget", "translations", "fields_list",
                  "request_body", "exchange_task", "task_future", "exchange_state",
                  "exchange_place", "exchange_memory", "mock_state"})
+  \* ruby: a guest under :hold grows its Store with the GVL held, as one run
+  \* counts as one thread
+  \cup E("GVL", {"memcg"})
   \* dcache: d_move, __d_unalias, d_lookup_done, retain_dentry
   \cup E("dentry_hashtable", {"rename_lock", "in_lookup_hashtable", "dentry_state"})
   \cup E("rename_lock", {"dentry_state", "rwsem_holders"})
