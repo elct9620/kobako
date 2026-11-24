@@ -1527,7 +1527,7 @@ pub struct Rdir {}
 
 ## `Rdir::iterate_shared`
 
-Hand a listing the directory from its position, counting what it holds until it
+Hand a listing the directory from its position, holding what it read until it
 ends. A fresh listing reads it, then stats it and its parent for `.` and `..`.
 
 Either failure answers before any entry. A listing going on reads what it began
