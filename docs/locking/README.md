@@ -228,6 +228,7 @@ The order keeps threads from waiting on each other; a lifecycle keeps every wait
 | Owner | Ends | Wakes its waiters by |
 |---|---|---|
 | a `RwSemaphoreGuard` | its hold | releasing on drop |
+| a waiter leaving a `RwSemaphore`'s line | its place | passing the handoff to whoever still waits, as `rwsem_del_waiter` |
 | a walk holding a dentry in lookup | the lookup | `lookup_done` on drop, as Linux's `d_lookup_done` |
 | a `SeqLock` write | the write | ending its count on drop, as `write_sequnlock` |
 | the `Namespace` | every TCP socket left | aborting it, as `tcp_abort` |

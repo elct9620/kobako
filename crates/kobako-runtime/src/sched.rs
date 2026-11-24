@@ -386,6 +386,7 @@ pub(crate) mod testing {
     thread_local! {
         static COUNTS: RefCell<Option<Arc<AtomicUsize>>> = const { RefCell::new(None) };
         static SIGNALS: RefCell<Option<Arc<AtomicUsize>>> = const { RefCell::new(None) };
+        static ON_SIGNAL: RefCell<Option<Box<dyn Fn()>>> = const { RefCell::new(None) };
     }
 
     struct CountsWaits;
@@ -406,6 +407,11 @@ pub(crate) mod testing {
                     signals.fetch_add(1, Ordering::SeqCst);
                 }
             });
+            ON_SIGNAL.with(|stop| {
+                if let Some(stop) = stop.borrow().as_ref() {
+                    stop();
+                }
+            });
         }
     }
 
@@ -424,6 +430,13 @@ pub(crate) mod testing {
         let signals = Arc::<AtomicUsize>::default();
         SIGNALS.with(|held| *held.borrow_mut() = Some(signals.clone()));
         signals
+    }
+
+    /// Runs `stop` each time the registered Blocking handles a signal for this
+    /// thread, so a test holds a waiter where it handles one.
+    pub(crate) fn on_signal(stop: impl Fn() + 'static) {
+        BLOCKING.get_or_init(|| Box::new(CountsWaits));
+        ON_SIGNAL.with(|held| *held.borrow_mut() = Some(Box::new(stop)));
     }
 }
 
