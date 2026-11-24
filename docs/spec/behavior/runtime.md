@@ -57,6 +57,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-runtime/src/vfs/utimes.rs`
 - `crates/kobako-runtime/src/wait.rs`
 - `crates/kobako-runtime/src/sched.rs`
+- `crates/kobako-runtime/src/locking.rs`
 - `crates/kobako-runtime/src/net/tcp.rs`
 - `crates/kobako-runtime/src/endpoint.rs`
 - `crates/kobako-wasmtime/src/ambient.rs`
@@ -2751,7 +2752,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a call reads or writes that buffer |
 | Then | the file is handed 2 GiB less a page, as a short count the caller reads on from |
 
-## `RT-253` A writer waiting for a directory goes ahead of readers arriving after it
+## `RT-253` A writer waiting for a held directory goes ahead of readers arriving after it
 
 | Attribute | Value |
 | --- | --- |
@@ -4598,3 +4599,64 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a neighbour run on another Thread, under either `gvl:` mode |
 | When | the neighbour evaluates a short script |
 | Then | it answers within a second |
+
+## `RT-420` A reader takes a directory nobody holds past the writers waiting for it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-253` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a directory nobody holds, and a writer waiting for it that was never handed it |
+| When | another thread asks for it shared |
+| Then | that thread holds it at once |
+
+## `RT-421` A release with a reader first in line lets every waiting reader in
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-253` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a writer holding a directory, and a reader, a writer, and a reader waiting in that order |
+| When | the holder lets go |
+| Then | both readers hold it before the waiting writer does |
+
+## `RT-422` A waiter past 4 ms is handed the directory ahead of threads arriving later
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-420` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a writer that waited past 4 ms for a held directory, stopped as it handles a signal |
+| When | the holder lets go, and another thread asks for it, both waiting and by trylock |
+| Then | the other waits and its trylock fails, until the first waiter held it |
+
+## `RT-423` A waiter leaving with the handoff passes it to the one behind
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-422` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a held directory handed off to its first waiter, with another waiter behind it |
+| When | the first waiter is interrupted, and the holder lets go |
+| Then | the waiter behind holds it before a thread arriving later does |
+
+## `RT-424` A waiter granted a directory as it is interrupted lets it go
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-421` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a reader waiting behind another reader for a held directory, stopped as it handles a signal |
+| Given | the holder letting go, so the first reader lets it in, and the stopped reader interrupted |
+| When | a writer asks for the directory once the reader's call returns |
+| Then | the writer holds it |
