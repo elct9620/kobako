@@ -3765,7 +3765,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a guest's wait finds nothing ready and sleeps on the host |
 | Then | it sleeps through that Blocking, as a call waiting for a lock does |
 
-## `RT-337` A clock wait ends with EINTR once its thread is interrupted
+## `RT-337` A clock wait ends its run at once when its thread is interrupted
 
 | Attribute | Value |
 | --- | --- |
@@ -3775,7 +3775,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a guest at the weaker profile waiting ten seconds on a clock |
 | When | its thread is interrupted |
-| Then | the wait answers EINTR at once, as a signal ends Linux's `poll` |
+| Then | the run ends at once as interrupted, as a fatal signal ends a task waiting in Linux's `poll` |
 
 ## `RT-338` A preview2 clock wait on the strongest profile ends at once
 
@@ -4672,3 +4672,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a Ruby Filesystem listing three files, whose first stat outlasts the run's `timeout:` |
 | When | the guest lists that directory |
 | Then | the Filesystem was asked that one stat alone |
+
+## `RT-426` A host call returning once its run is to stop ends the run before the guest reads it
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-253` |
+
+| Step | Statement |
+| --- | --- |
+| Given | four runs moving files between two directories of one Tmpfs, each rescuing nothing |
+| When | their `timeout:` passes as a move waits for its directory |
+| Then | each raises `Kobako::TimeoutError`, as Linux's `exit_to_user_mode` ends a task before it reads `EINTR` |
