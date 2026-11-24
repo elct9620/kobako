@@ -987,6 +987,34 @@ mod tests {
         );
     }
 
+    // @behavior NW-250
+    #[test]
+    fn a_name_no_dns_query_carries_answers_nxdomain_unasked() {
+        let family = Arc::new(ResolvesNames {
+            answers: Mutex::new(vec!["127.0.0.1".parse().unwrap()]),
+            ..ResolvesNames::default()
+        });
+        let namespace = resolving_namespace(vec![tcp("*.example.com", 443)], "", family.clone());
+        let name_of = |len: usize| {
+            let prefix = vec!["a".repeat(60); 5].join(".");
+            format!("{}.example.com", &prefix[..len - ".example.com".len()])
+        };
+        let answers =
+            [254, 253].map(|len| wait_for_answer(&resolve(&namespace, &name_of(len)).unwrap()));
+        assert_eq!(
+            (answers, family.lookups.load(Ordering::SeqCst)),
+            (
+                [
+                    Err(LookupError::NoName),
+                    Ok(vec!["127.0.0.1".parse().unwrap()])
+                ],
+                1
+            ),
+            "a lookup of a 254-byte name, past the 255 bytes a DNS query carries, must answer \
+             name-unresolvable without asking the resolver, while a 253-byte one is asked"
+        );
+    }
+
     /// A resolver failing each name by the kind its first label spells.
     struct FailsByKind;
 

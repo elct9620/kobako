@@ -21,6 +21,10 @@ use crate::network::{Host, Name};
 use crate::vfs::{FMode, File, FileOperations, OpenHow, PollMask};
 use crate::wait::{poll_wait, PollTable, WaitQueueHead};
 
+/// glibc's `NS_MAXCDNAME`: the most bytes a name takes on the wire, its
+/// length bytes and root label counted.
+pub(crate) const NS_MAXCDNAME: usize = 255;
+
 /// A name's addresses still coming, which the asking thread polls as it
 /// waits, as reqwest's `Resolving` is.
 pub type Resolving = Pin<Box<dyn Future<Output = Result<Vec<IpAddr>, LookupError>> + Send>>;
@@ -228,6 +232,8 @@ impl FileOperations for LookupFile {
 /// mapped one. Each entry's `resolve` policy and the endpoints judge any
 /// other, as a DNS proxy judges a query before it forwards one; a refused or
 /// unmatched name answers as NXDOMAIN before any query, as a real one would.
+/// A name no DNS query can carry answers NXDOMAIN too, the lookup keeping
+/// none of it, as glibc's `res_hnok` refuses it whatever the Resolver.
 /// A name the Invocation already translated answers its first real addresses
 /// again, with no query, so a resolver cannot rebind it.
 pub fn resolve(net: &Namespace, name: &str) -> Result<Arc<NameLookup>, LookupError> {
@@ -235,6 +241,12 @@ pub fn resolve(net: &Namespace, name: &str) -> Result<Arc<NameLookup>, LookupErr
         Host::Address(ip) => return Ok(NameLookup::from_address(ip.to_canonical())),
         Host::Name(name) => name,
     };
+    if name.len() + 2 > NS_MAXCDNAME {
+        return Ok(NameLookup::with_answer(
+            String::new(),
+            Err(LookupError::NoName),
+        ));
+    }
     if !allows_lookup(net, &name) || !net.ruleset().admits_name(&name) {
         return Ok(NameLookup::with_answer(name, Err(LookupError::NoName)));
     }

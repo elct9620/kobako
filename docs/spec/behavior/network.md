@@ -3129,7 +3129,7 @@ endpoint "api.example.com", port: 443
 | When | a guest connects a UDP socket |
 | Then | the connect answers `EAGAIN`, never a Trap. A connect once threads are free succeeds |
 
-## `NW-250` A name past 255 bytes answers no name before it is held
+## `NW-250` A name no DNS query carries answers no name before it is held
 
 | Attribute | Value |
 | --- | --- |
@@ -3137,7 +3137,7 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest naming a host past 255 bytes, through the system resolver or a Mock |
+| Given | a guest naming a host past the 255 bytes a DNS query carries, through the system resolver or a Mock |
 | When | it looks the name up |
 | Then | the lookup answers `name-unresolvable` at once, as glibc's `res_hnok` refuses it. No query is sent, and the lookup takes no place of the open connection limit |
 

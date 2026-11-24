@@ -18,7 +18,7 @@ use simple_dns::rdata::RData;
 use simple_dns::{Name, Packet, PacketFlag, Question, CLASS, QCLASS, QTYPE, RCODE, TYPE};
 
 use super::ReadyWaker;
-use crate::net::lookup::{LookupError, Resolving};
+use crate::net::lookup::{LookupError, Resolving, NS_MAXCDNAME};
 use crate::net::reactor::{Reactor, Ready, Registration};
 
 /// glibc's `RES_TIMEOUT`, `RES_DFLRETRY`, `RES_MAXRETRANS`, `RES_MAXRETRY`,
@@ -36,9 +36,7 @@ const NAMESERVER_PORT: u16 = 53;
 /// server truncates.
 const PACKETSZ: usize = 512;
 
-/// glibc's `NS_MAXCDNAME` and `NS_MAXLABEL`: the most bytes a name takes on
-/// the wire, and a label holds.
-const NS_MAXCDNAME: usize = 255;
+/// glibc's `NS_MAXLABEL`: the most bytes a label holds.
 const NS_MAXLABEL: usize = 63;
 
 pub(super) fn resolve(name: &str) -> Resolving {
