@@ -22,7 +22,7 @@ how the Filesystems are built is in [Filesystem](../filesystem/README.md).
 ```ruby
 sandbox.mount("/config", Kobako::Filesystem::Tmpfs.new("app.yml" => yaml))
 sandbox.mount("/data", Kobako::Filesystem::Bind.new("var/data"))
-sandbox.mount("/tmp", Kobako::Filesystem::Tmpfs.new, access: :read_write)
+sandbox.mount("/tmp", Kobako::Filesystem::Tmpfs.new)
 sandbox.eval('File.write("/tmp/x", "1")') do |ctx|
   ctx.mount("/tmp", Kobako::Filesystem::Tmpfs.new, access: :read_write)
 end
@@ -34,9 +34,9 @@ end
 | `Bind.new(path)` | a host directory; nothing outside it is reachable |
 | `Overlay.new(lower: [fs, ...], upper: tmpfs)` | read-only Layers under a Tmpfs that takes every change |
 
-Every Invocation reaches the same Filesystem, so a run that must start empty
-replaces the mount with its own Tmpfs through `ctx.mount`. `ctx.mount` replaces
-only a path already mounted. Mounts seal with the Sandbox, and a mount may sit
+Every Invocation reaches the same Filesystem, its space included. So `/tmp`
+above stays read-only, and each run writes to a Tmpfs of its own through
+`ctx.mount`. `ctx.mount` replaces only a path already mounted. Mounts seal with the Sandbox, and a mount may sit
 inside another.
 
 ### The Root
@@ -300,6 +300,7 @@ A Bind is a live host directory, and an Overlay's Layers may be too.
 | a time a guest sets on a Bind's entry, third-party | it stands on the host; a hermetic guest still reads the epoch |
 | a device swapped into a Bind as the guest opens a file | never opened on Linux; elsewhere opened once before its refusal |
 | a directory the guest lists in steps | a Tmpfs lists as it stands; others hold entries |
+| a host call into a Bind that never returns, as a hung network share's | runs waiting beside it leave at their `timeout:`; that call is the host's |
 | a directory the host swaps in just as a Policy judges an opened one, third-party | the host's race |
 
 A Filesystem holding a listing's entries raises `Errno::ENOMEM` once they pass
@@ -353,6 +354,7 @@ state.
 | one Overlay's upper shared by another, or mounted on its own | undefined, as overlayfs leaves it; no crash or deadlock |
 | one Tmpfs handed to two Filesystem instances in the Rust SDK | undefined under concurrent moves, as each instance has its own locks |
 | one Filesystem mounted in Invocations that run at once | a change to one entry waits for the other, until `timeout:` or an interrupt |
+| one writable Filesystem every Invocation shares | its space too; one filling it leaves the rest `Errno::ENOSPC` |
 | a path whose `..` meets a move landing during its walk | reaches where the directory stands now, or `Errno::EAGAIN` while moves keep landing |
 
 The Wasm Driver makes such a call again a few times before the guest sees

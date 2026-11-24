@@ -135,8 +135,32 @@ Overlay's Layer is built once with the Overlay and shared by every run.
 A run marks each Fiber it starts through Fiber storage, under `:kobako_run`. A
 Fiber inheriting the mark holds locks as that run.
 
-Only the run waiting for the directory lock can end it, at its `timeout` or an
-interrupt of its Thread. The callback's own wait never ends alone.
+Either side ends such a wait: the waiting run at its `timeout`, or an interrupt
+of either Thread. The callback's own wait never ends alone.
+
+### Wait Conditions
+
+Two Threads wait on each other only while all four hold. Taking any one away
+lets both finish.
+
+| Condition | Taken away by |
+|---|---|
+| the runs share one Filesystem instance | each run mounting its own |
+| the callback waits as it changes a directory | a callback that never waits |
+| a Thread runs a Sandbox holding what the callback waits for | holding nothing, or every run taking it first |
+| that run reaches the directory being changed | a sibling or parent directory |
+
+A Ruby Filesystem's callback runs under the lock even to look a name up, so
+there the second condition is wider.
+
+### Safe Callbacks
+
+Each way takes one condition, or its wait, away.
+
+| Way | Cost |
+|---|---|
+| run no Sandbox while holding a lock the callback takes | the Host App shapes its own critical section |
+| give the callback's wait a deadline of its own | that change is refused once it passes |
 
 ## Forking
 
