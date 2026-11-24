@@ -4608,3 +4608,30 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a guest that reads 64 MiB of entropy over and over, under a deadline of a fifth of a second |
 | When | it runs |
 | Then | it raises `Kobako::TimeoutError` within a second, as Linux's `getrandom` looks for a fatal signal between pages |
+
+## `RT-418` A run filling its memory leaves a neighbour its own
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-008` |
+| relates | `S-257` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a run that fills its `memory_limit`, rescues an exception, and is refused more growth |
+| Given | a neighbour run on another Thread, under either `gvl:` mode |
+| When | the neighbour grows to near its own `memory_limit` |
+| Then | the neighbour answers what it holds |
+
+## `RT-419` A run filling entropy delays a neighbour less than its deadline
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-417` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a run reading 64 MiB of entropy over and over under a 2 s timeout |
+| Given | a neighbour run on another Thread, under either `gvl:` mode |
+| When | the neighbour evaluates a short script |
+| Then | it answers within a second |

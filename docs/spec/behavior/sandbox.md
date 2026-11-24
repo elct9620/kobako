@@ -2413,18 +2413,18 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | the guest grows each memory by 768 KiB |
 | Then | the run raises `Kobako::MemoryLimitError` |
 
-## `S-257` The heap an exception lives in counts beside the guest's memory
+## `S-257` A rescued exception leaves the memory budget as full
 
 | Attribute | Value |
 | --- | --- |
-| refines | `S-209` |
-| relates | `S-256`, `RT-237` |
+| refines | `S-121` |
+| relates | `S-256` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a run that grew its memory close to its cap and then rescued an exception |
-| When | it lists a directory larger than what is left |
-| Then | the listing raises `Errno::ENOMEM` in the guest |
+| When | it grows its memory past what is left |
+| Then | it raises `Kobako::MemoryLimitError` |
 
 ## `S-258` A table's growth counts against the memory budget
 
