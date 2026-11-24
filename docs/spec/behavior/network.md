@@ -1048,8 +1048,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | a guest building headers through `wasi:http` |
-| When | it appends past 128 KiB of names and values, or past its `memory_limit` |
-| Then | the call traps, as wasmtime's field limit traps, since `header-error` has no case for it. A list holds its room against the Invocation's memory until it drops |
+| When | it appends past 128 KiB of names and values |
+| Then | the call traps, as wasmtime's field limit traps, since `header-error` has no case for it |
 
 ## `NW-082` An HTTP exchange the guest no longer holds closes its connection
 
@@ -1466,18 +1466,18 @@ endpoint "api.example.com", port: 443
 | When | the guest receives with a `max-results` past twenty |
 | Then | the call answers sixteen datagrams, and the next answers the rest, as wasmtime-wasi bounds one receive |
 
-## `NW-116` A socket and an exchange charge what they hold against the Invocation's memory
+## `NW-116` A socket's and an exchange's queues hold what their buffers allow
 
 | Attribute | Value |
 | --- | --- |
 | refines | `NW-022` |
-| relates | `NW-081` |
+| relates | `NW-058`, `NW-185` |
 
 | Step | Statement |
 | --- | --- |
-| Given | an Invocation whose `memory_limit` leaves little room, and peers sending a TCP stream, an HTTP body, and datagrams past it |
+| Given | an Invocation under any `memory_limit`, and peers sending a TCP stream, an HTTP body, and datagrams past each buffer |
 | When | the guest opens each, then reads them slowly |
-| Then | each opens, holding only what its queue holds, as Linux charges each `sk_buff` to its memory cgroup. A stream with bytes queued takes no more until the guest reads. An empty queue takes one read past the limit, as `sk_forced_mem_schedule` does. A datagram past the limit is dropped |
+| Then | a stream takes no more past its receive buffer until the guest reads. An HTTP body holds at most one socket buffer. A datagram past the buffer is dropped unless the queue is empty. None of them counts against the `memory_limit` |
 
 ## `NW-117` A script's socket binds the local end the host allows
 
@@ -1876,18 +1876,17 @@ endpoint "api.example.com", port: 443
 | When | the peer sends it many empty datagrams |
 | Then | the socket queues only as many as the buffer holds. Each spends its queue entry, as Linux's `truesize` counts the `sk_buff` |
 
-## `NW-149` A virtual address is held against the Invocation's memory
+## `NW-149` A name's virtual addresses run out at the range's end
 
 | Attribute | Value |
 | --- | --- |
-| refines | `NW-116` |
-| relates | `NW-025` |
+| refines | `NW-025` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a lookup that resolved, and an Invocation whose `memory_limit` holds nothing more |
-| When | a Wasm Driver hands out the name's virtual address, then hands it out with room |
-| Then | the full memory answers `temporary-failure`. With room, the name takes the bottom of the range |
+| Given | an Invocation whose names took every virtual address below the local one |
+| When | a Wasm Driver hands out an address for another name |
+| Then | the lookup answers `temporary-failure`. The names already handed out keep their addresses |
 
 ## `NW-150` An endpoint's address prefix past its family is refused
 
@@ -1963,18 +1962,17 @@ endpoint "api.example.com", port: 443
 | When | the guest flushes the output stream and polls its pollable beside a zero-length clock, then the peer reads |
 | Then | only the clock is ready while the flush is held. Once the peer reads, the pollable is ready and `check-write` offers bytes, as `io.wit` says |
 
-## `NW-156` A request's parts and a response's head hold against the Invocation's memory
+## `NW-156` A request's method, authority, and path share its headers' room
 
 | Attribute | Value |
 | --- | --- |
-| refines | `NW-116` |
-| relates | `NW-081` |
+| refines | `NW-081` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest under a `memory_limit` |
-| When | the paths its requests hold, or a response's head, run past that memory |
-| Then | setting the path traps, as a header list does. The response answers `internal-error`. A request keeps its room while it is sent, and gives it back once dropped or released. A response keeps its head's room while the guest holds it, even once its body is finished |
+| Given | a guest building a request through `wasi:http` |
+| When | its method, authority, path, and headers together pass 128 KiB |
+| Then | the call that passes it traps, as a header list's append does. A server's header buffer holds the request line beside the headers, as hyper's `max_buf_size` does |
 
 ## `NW-157` A path rule judges a long path in bounded work
 
@@ -2571,8 +2569,8 @@ endpoint "api.example.com", port: 443
 | Step | Statement |
 | --- | --- |
 | Given | an `http` endpoint naming a server whose response head runs past 128 KiB, the most a header list holds |
-| When | the guest sends a request, and sends one under a `memory_limit` holding the request but not that buffer |
-| Then | the first answers `HTTP-protocol-error` once its head passes the buffer. The second fails before it is sent, as each request holds the buffer against the Invocation's memory |
+| When | the guest sends a request |
+| Then | it answers `HTTP-protocol-error` once its head passes the buffer |
 
 ## `NW-205` A request's timeouts end each wait they bound
 
@@ -2992,7 +2990,7 @@ endpoint "api.example.com", port: 443
 | When | the child's guest connects and exchanges data again |
 | Then | the exchange answers as in the parent. A forked child inherits no thread, so what watches its sockets is its own |
 
-## `NW-238` A script's Net::HTTP sends its request body within its read timeout
+## `NW-238` A script's Net::HTTP raises WriteTimeout once its body is not taken
 
 | Attribute | Value |
 | --- | --- |
@@ -3002,9 +3000,9 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | an `http` endpoint naming a loopback server that never reads the request body |
 | When | the script posts a megabyte body, its `write_timeout` a hundredth of a second |
-| Then | it raises `Net::ReadTimeout` once `read_timeout` passes from the connect. `write_timeout` bounds no wait, since the host holds the whole body before the request leaves. CRuby's raises `Net::WriteTimeout` once the body fills the socket buffers, and starts `read_timeout` once it is written |
+| Then | it raises `Net::WriteTimeout` once the body fills the buffers, as CRuby's does. `read_timeout` runs from the connect, as wasi-http's first-byte timeout does. CRuby's starts once the body is written |
 
-## `NW-239` A write past the Invocation's memory waits for the queue to drain
+## `NW-239` A write past the send buffer waits for the queue to drain
 
 | Attribute | Value |
 | --- | --- |
@@ -3012,9 +3010,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a connected TCP socket under a `memory_limit` that leaves little room |
-| When | the guest writes more than the room holds |
-| Then | the socket takes up to 4 KiB past the limit while little is queued, as `tcp_wmem_schedule` forces. Past that a write answers `EAGAIN` and the socket polls unwritable. It polls writable again once the host takes the queue |
+| Given | a connected TCP socket whose peer does not read |
+| When | the guest writes more than its send buffer holds |
+| Then | the socket takes what the send buffer has left. Past that a write answers `EAGAIN` and the socket polls unwritable. It polls writable again once the host takes the queue |
 
 ## `NW-240` An exchange let go shuts its connection down before closing it
 
@@ -3081,32 +3079,18 @@ endpoint "api.example.com", port: 443
 | When | the guest sends a TRACE with a body, its method in any case |
 | Then | it answers `Denied`, dialing nothing and asking no credential. RFC 9110 § 9.3.8 lets a client send no content in one. CRuby sends it |
 
-## `NW-245` An output stream permits what the Invocation's memory takes
+## `NW-245` An output stream permits what the send buffer has left
 
 | Attribute | Value |
 | --- | --- |
 | refines | `NW-239` |
-| relates | `NW-159` |
+| relates | `NW-159`, `NW-171` |
 
 | Step | Statement |
 | --- | --- |
-| Given | a connected TCP socket's output stream under a `memory_limit` already full |
+| Given | a connected TCP socket's output stream, part of its send buffer queued |
 | When | the guest writes every byte `check-write` permits, then shuts the stream's sending side |
-| Then | the permit is at most 4 KiB, and the peer reads every byte of it in order |
-
-## `NW-246` A write takes its whole permit after the memory fills
-
-| Attribute | Value |
-| --- | --- |
-| refines | `NW-239` |
-| relates | `NW-171` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a connected TCP socket's output stream, whose `check-write` permitted more than 4 KiB |
-| Given | the Invocation's memory then filling to its `memory_limit` |
-| When | the guest writes every permitted byte, then shuts the stream's sending side |
-| Then | the write answers success, and the peer reads every byte in order. The charge passes the limit by at most the permit and 4 KiB, and returns once the queue drains |
+| Then | the permit is what the send buffer has left. The write answers success, and the peer reads every byte in order |
 
 ## `NW-247` An output stream polls unready while it permits nothing
 
@@ -3117,7 +3101,7 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a connected TCP socket's output stream under a `memory_limit` already full, its peer not reading |
+| Given | a connected TCP socket's output stream, its peer not reading |
 | When | the guest writes each permit until `check-write` answers zero, then polls the stream |
 | Then | the pollable is not ready. Once the peer reads, it becomes ready, and `check-write` permits again. The peer reads every byte written, in order |
 
@@ -3144,3 +3128,40 @@ endpoint "api.example.com", port: 443
 | Given | a process that can start no more threads, before any guest socket was watched |
 | When | a guest connects a UDP socket |
 | Then | the connect answers `EAGAIN`, never a Trap. A connect once threads are free succeeds |
+
+## `NW-250` A name past 255 bytes answers no name before it is held
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-024` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest naming a host past 255 bytes, through the system resolver or a Mock |
+| When | it looks the name up |
+| Then | the lookup answers `name-unresolvable` at once, as glibc's `res_hnok` refuses it. No query is sent, and the lookup takes no place of the open connection limit |
+
+## `NW-251` A request body holds one socket buffer on the host
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+| relates | `NW-238` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a request handed to `handle`, its server reading the body slowly |
+| When | the guest writes a body larger than a socket buffer |
+| Then | `check-write` permits what one socket buffer has left. The output stream polls unready until the server takes what is held. The server reads every byte in order |
+
+## `NW-252` A header list and an unsent request each take an open file
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-146` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a guest whose open files fill its open file limit |
+| When | it builds a header list, or reads a response's headers as a copy |
+| Then | the call traps, since it has no error for it. A request built from a list takes the list's place. `handle` hands the request's place to the response's future |

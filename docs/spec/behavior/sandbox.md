@@ -586,13 +586,13 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Attribute | Value |
 | --- | --- |
-| relates | `NW-116`, `NW-246` |
+| relates | `S-209` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox whose invocation exceeded its memory budget |
 | When | the usage is read off the raised error's Execution |
-| Then | the memory peak is at or below the configured budget. Only a network queue's forced charge passes it, as `NW-116` and `NW-246` state |
+| Then | the memory peak is at or below the configured budget |
 
 ## `S-063` Both frontends report usage after a run that succeeded
 
@@ -1863,7 +1863,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | a Timeout fires during the wait |
 | Then | the run raises `Timeout::Error` in the Host App |
 
-## `S-209` The guest's memory and what the host holds for it share one budget
+## `S-209` The memory budget counts the guest's own memory alone
 
 | Attribute | Value |
 | --- | --- |
@@ -1872,9 +1872,9 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | an invocation whose memory budget is partly taken by buffers the host holds for the guest's socket |
-| When | the guest grows its memory past what is left |
-| Then | the growth is refused as the budget's own failure. Linux's memory cgroup counts a task's pages and its socket buffers in one `memory.current` |
+| Given | an invocation whose socket queue holds bytes its peer sent, the guest not reading them |
+| When | the guest grows its memory up to its budget |
+| Then | the growth is allowed. What the host holds for the guest's sockets, requests, and files counts against no budget. A virtual machine's overhead sits outside its RAM likewise |
 
 ## `S-210` Source whose bytes are not UTF-8 is refused before the guest runs
 

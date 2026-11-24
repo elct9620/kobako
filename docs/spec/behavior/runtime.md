@@ -2595,18 +2595,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the thread sets the entry's times |
 | Then | the call answers EDEADLK |
 
-## `RT-237` A listing that cannot be held within a guest's memory limit answers ENOMEM
-
-| Attribute | Value |
-| --- | --- |
-| refines | `RT-107` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a guest with a memory limit, its descriptors on a Bind holding listings up to that limit |
-| When | the guest begins another listing, to read it whole or part way |
-| Then | the call answers ENOMEM before it hands any entry, and closing a descriptor gives back what it held |
-
 ## `RT-238` An allocation past a Tmpfs's size answers ENOSPC
 
 | Attribute | Value |
@@ -3346,7 +3334,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Attribute | Value |
 | --- | --- |
-| relates | `RT-182`, `RT-237` |
+| relates | `RT-182` |
 
 | Step | Statement |
 | --- | --- |
@@ -3382,7 +3370,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Attribute | Value |
 | --- | --- |
-| relates | `RT-182`, `RT-237` |
+| relates | `RT-182` |
 
 | Step | Statement |
 | --- | --- |
@@ -4118,9 +4106,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest calling a preview2 import that takes lists |
-| When | its lists add up past the call's 128 MiB of hostcall fuel, each inside its memory, then stay within it |
-| Then | the first call traps before the host answers it, as wasmtime's lift traps. The second reaches the host |
+| Given | a guest under a `memory_limit`, calling a preview2 import that takes lists |
+| When | its lists add up past that limit, each inside its memory, then stay within it |
+| Then | the first call traps before the host answers it, as wasmtime's lift traps. The second reaches the host. With no `memory_limit`, each call's fuel is wasmtime's 128 MiB |
 
 ## `RT-375` The Guest Binary hands room for an empty list without taking any
 
@@ -4340,19 +4328,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a walk reaches the directory again after its held dentry left the name table |
 | Then | the walk finds the dentry it held, as `iget5_locked` finds the directory's live inode by its number |
 
-## `RT-394` Each preview2 handle takes its room from the memory limit
-
-| Attribute | Value |
-| --- | --- |
-| refines | `S-209` |
-| relates | `RT-341` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a guest under a `memory_limit` |
-| When | it keeps subscribing to a clock through `wasi:clocks` |
-| Then | each handle holds its room against the limit, as Linux's `filp` cache is accounted to the memory cgroup. Past the limit the call traps, since a constructor has no error for it. A dropped handle gives its room back |
-
 ## `RT-395` A wait sleeps only to its soonest due as that due moves
 
 | Attribute | Value |
@@ -4413,18 +4388,6 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | an invocation calling `poll_oneoff` with more subscriptions than its memory holds |
 | When | their subscriptions and events fit the hostcall fuel by the host's size of each, as wasmtime-wasi counts them |
 | Then | the call goes on to read them, and only one more subscription answers NOMEM before anything is read |
-
-## `RT-400` An open the memory limit cannot hold answers ENOMEM whatever the path names
-
-| Attribute | Value |
-| --- | --- |
-| relates | `RT-190`, `RT-394` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a guest under a `memory_limit` that holds no more open files |
-| When | it opens a path through preview1, one that names nothing included |
-| Then | the open answers ENOMEM, as Linux's `path_openat` allocates the file before the walk. Closing a file gives its room back, and the next open succeeds |
 
 ## `RT-401` A standard stream's handle is lent to its descriptor
 
