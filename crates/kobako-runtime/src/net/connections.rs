@@ -2,11 +2,14 @@
 //! process, as a cgroup's `pids.max` bounds the tasks beneath it. A socket
 //! and an HTTP request each hold one place until released, and a request's
 //! connection still sending holds it until it closes; a name lookup holds one
-//! until it answers or is dropped, which cancels its query.
+//! until it answers or is dropped, which cancels its query. A budget bounds
+//! how many one Invocation makes in all.
 
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use crate::fork::{Pid, ProcessLocal};
+use crate::Errno;
 
 /// The process's own count, which bounds nothing until a Host App sets a
 /// limit: what its Sandboxes hold together is the Host App's to size, as the
@@ -107,6 +110,33 @@ pub(super) fn open_within(
         owners: [sandbox.clone(), process.clone()],
         pid,
     })
+}
+
+/// The connections one Invocation may still make, as a Worker spends its
+/// subrequests: one is spent as a lookup or a dial is about to leave the host,
+/// and none comes back, whether that attempt fails or the connection closes.
+pub(crate) struct ConnectionBudget {
+    /// What is left; `None` lifts the budget.
+    left: Option<AtomicUsize>,
+}
+
+impl ConnectionBudget {
+    /// A budget of `limit` connections; `None` lifts it.
+    pub(crate) fn new(limit: Option<usize>) -> Arc<Self> {
+        Arc::new(Self {
+            left: limit.map(AtomicUsize::new),
+        })
+    }
+
+    /// Spend one, or answer `WouldBlock`, spending nothing, once none is left.
+    pub(crate) fn spend(&self) -> Result<(), Errno> {
+        let Some(left) = &self.left else {
+            return Ok(());
+        };
+        left.fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| n.checked_sub(1))
+            .map(drop)
+            .map_err(|_| Errno::WouldBlock)
+    }
 }
 
 #[cfg(test)]

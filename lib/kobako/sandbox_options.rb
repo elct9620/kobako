@@ -24,7 +24,8 @@ module Kobako
   #                   flight one; 6.
   # [+connection_limit+]
   #                   Integer connections one invocation makes in all, each
-  #                   socket's dial and HTTP request one; 50.
+  #                   lookup, dial, and HTTP request one, failed ones too,
+  #                   as a Worker counts its subrequests; 50.
   # [+profile+]       The isolation the runtime must provide at least:
   #                   +:hermetic+, which denies the guest the clock and
   #                   entropy, or the weaker +:permissive+, which leaves them

@@ -88,7 +88,7 @@ leaves the host exposed in its own way.
 | `open_file_limit` | host descriptors for each file or directory open beneath a Bind |
 | `open_file_limit`, with a network | sockets bounded only by `open_connection_limit` |
 | `open_connection_limit` | host sockets bounded only by the process's limit, none by default |
-| `connection_limit` | a run dialing again and again, each closed connection making room |
+| `connection_limit` | a run dialing and looking names up again and again, each closed connection making room |
 | a Tmpfs's `size:` | host memory without bound; one write far past a file's end fills the gap |
 | a Tmpfs's `nr_inodes:` | an entry for every file and directory it makes |
 
@@ -110,7 +110,7 @@ guest name --> endpoint names it? --> host resolver --> address in its sets?
 
 ### Names and Lookups
 
-A name an endpoint names goes to the host's resolver, so each lookup is egress.
+A name an endpoint names goes to the host's resolver, so each lookup is egress and spends `connection_limit`.
 
 | Endpoint | What the guest can still do |
 |---|---|
@@ -380,8 +380,10 @@ stay out of the message.
 The timeout bounds an Invocation's time, Service time included, but not the host
 memory and work each call costs. A Handle costs the guest only its reference, while
 its object stays in host memory until the Invocation ends
-([transport-dispatch](../spec/behavior/transport-dispatch.md)). For hostile input,
-bound the calls and Handles a single Invocation can create.
+([transport-dispatch](../spec/behavior/transport-dispatch.md)). kobako's table stops
+at 1,000,000 Handles, but the objects behind them are yours. For hostile input,
+bound the calls and Handles a single Invocation can create, since kobako counts
+no call into your Services, Filesystems, or policies.
 
 Each payload the guest sends holds at most 262144 values, whatever `memory_limit` is
 ([payload-msgpack](../wire/payload-msgpack.md)). What one call makes the host build

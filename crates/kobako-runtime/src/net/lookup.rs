@@ -12,7 +12,7 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, PoisonError};
 use std::task::{Context, Poll};
 
-use super::connections::{open, OpenConnections, Place};
+use super::connections::{open, ConnectionBudget, OpenConnections, Place};
 use super::task::Task;
 use super::Namespace;
 use crate::cred::Cred;
@@ -79,14 +79,17 @@ pub struct NameLookup {
 
 impl NameLookup {
     /// A lookup of `name` through `resolver` holding one of
-    /// `open_connections`' places; a full count answers at once as a temporary
-    /// failure.
+    /// `open_connections`' places and spending one of `budget` before the
+    /// query leaves; a full count or a spent budget answers at once as a
+    /// temporary failure, asking no resolver.
     pub(crate) fn start(
         resolver: Arc<dyn Resolver>,
         name: String,
         open_connections: &Arc<OpenConnections>,
+        budget: &ConnectionBudget,
     ) -> Result<Arc<Self>, LookupError> {
         let place = open(open_connections).ok_or(LookupError::Again)?;
+        budget.spend().map_err(|_| LookupError::Again)?;
         Ok(Self::start_holding(resolver, name, Arc::new(place)))
     }
 
@@ -235,7 +238,8 @@ impl FileOperations for LookupFile {
 /// A name no DNS query can carry answers NXDOMAIN too, the lookup keeping
 /// none of it, as glibc's `res_hnok` refuses it whatever the Resolver.
 /// A name the Invocation already translated answers its first real addresses
-/// again, with no query, so a resolver cannot rebind it.
+/// again, with no query, so a resolver cannot rebind it. Only a query spends
+/// the connection budget.
 pub fn resolve(net: &Namespace, name: &str) -> Result<Arc<NameLookup>, LookupError> {
     let name = match Host::parse(name).ok_or(LookupError::InvalidName)? {
         Host::Address(ip) => return Ok(NameLookup::from_address(ip.to_canonical())),
@@ -253,7 +257,12 @@ pub fn resolve(net: &Namespace, name: &str) -> Result<Arc<NameLookup>, LookupErr
     let translated = net.real_addresses_of(&name);
     match translated.is_empty() {
         false => Ok(NameLookup::with_answer(name, Ok(translated))),
-        true => NameLookup::start(net.resolver().clone(), name, net.open_connections()),
+        true => NameLookup::start(
+            net.resolver().clone(),
+            name,
+            net.open_connections(),
+            net.connection_budget(),
+        ),
     }
 }
 

@@ -10,7 +10,7 @@ use std::io;
 use std::net::{Shutdown, SocketAddr};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
-use super::connections::OpenConnections;
+use super::connections::{ConnectionBudget, OpenConnections};
 use super::family::ProtocolFamily;
 use super::namespace::Namespace;
 use super::reactor::{Reactor, Ready, Registration};
@@ -96,17 +96,21 @@ impl UdpSock {
 
     /// Point the host socket at `addr` through `family`, the guest having
     /// named `peer`, the host socket watched by the reactor; it counts against
-    /// `open_connections` and the process until released, and a full count
-    /// answers `EAGAIN`. Connecting again moves the peer and keeps the place,
-    /// and within one family the host socket and its port, as
-    /// `__ip4_datagram_connect` repoints a socket.
+    /// `open_connections` and the process until released, and each dial
+    /// spends one of `budget` before it reaches the family; a full count or a
+    /// spent budget answers `EAGAIN`. Connecting again moves the peer and
+    /// keeps the place, and within one family the host socket and its port,
+    /// as `__ip4_datagram_connect` repoints a socket.
     pub(crate) fn dial(
         &self,
         family: &Arc<dyn ProtocolFamily>,
         addr: SocketAddr,
         peer: SocketAddr,
         open_connections: &Arc<OpenConnections>,
+        budget: &ConnectionBudget,
     ) -> Result<(), Errno> {
+        let place = self.state().inet.open_place(open_connections)?;
+        budget.spend()?;
         {
             let mut state = self.state();
             // The host socket repoints within its family, where the family
@@ -136,7 +140,6 @@ impl UdpSock {
                 return Ok(());
             }
         }
-        let place = self.state().inet.open_place(open_connections)?;
         let reactor = Reactor::current().map_err(|err| Errno::from_io_error(&err))?;
         let host = family
             .connect_datagram(addr)
@@ -266,12 +269,16 @@ impl ProtoOps for UdpSock {
     /// the connect answers, as an autobind does.
     fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), Errno> {
         let dest = connect4(net, addr)?;
-        net.within_connection_budget(Errno::WouldBlock, || {
-            self.autobind(net.ports_of(Protocol::Udp))
-                .map_err(|_| Errno::WouldBlock)?;
-            let real = filter(net, &dest, Protocol::Udp)?;
-            self.dial(net.family(), real, addr, net.open_connections())
-        })
+        self.autobind(net.ports_of(Protocol::Udp))
+            .map_err(|_| Errno::WouldBlock)?;
+        let real = filter(net, &dest, Protocol::Udp)?;
+        self.dial(
+            net.family(),
+            real,
+            addr,
+            net.open_connections(),
+            net.connection_budget(),
+        )
     }
 
     /// A socket connected to a peer holds its own end already, as
@@ -443,8 +450,14 @@ mod tests {
     fn connected_socket(addr: SocketAddr) -> Arc<UdpSock> {
         let sock = UdpSock::new();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
-        sock.dial(&family, addr, addr, &OpenConnections::new(None))
-            .expect("an uncapped socket connects");
+        sock.dial(
+            &family,
+            addr,
+            addr,
+            &OpenConnections::new(None),
+            &ConnectionBudget::new(None),
+        )
+        .expect("an uncapped socket connects");
         sock
     }
 
@@ -480,8 +493,14 @@ mod tests {
         sock.setsockopt(SockOpt::RcvBuf, 1000).unwrap();
         sock.setsockopt(SockOpt::SndBuf, 1000).unwrap();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
-        sock.dial(&family, addr, addr, &OpenConnections::new(None))
-            .expect("an uncapped socket connects");
+        sock.dial(
+            &family,
+            addr,
+            addr,
+            &OpenConnections::new(None),
+            &ConnectionBudget::new(None),
+        )
+        .expect("an uncapped socket connects");
         let host = sock
             .state()
             .host
@@ -532,8 +551,14 @@ mod tests {
         let sock = UdpSock::new();
         sock.setsockopt(SockOpt::RcvBuf, 1000).unwrap();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
-        sock.dial(&family, addr, addr, &OpenConnections::new(None))
-            .expect("an uncapped socket connects");
+        sock.dial(
+            &family,
+            addr,
+            addr,
+            &OpenConnections::new(None),
+            &ConnectionBudget::new(None),
+        )
+        .expect("an uncapped socket connects");
         let local = sock
             .state()
             .host
@@ -567,8 +592,14 @@ mod tests {
         let sock = UdpSock::new();
         sock.setsockopt(SockOpt::RcvBuf, 1000).unwrap();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
-        sock.dial(&family, addr, addr, &OpenConnections::new(None))
-            .expect("an uncapped socket connects");
+        sock.dial(
+            &family,
+            addr,
+            addr,
+            &OpenConnections::new(None),
+            &ConnectionBudget::new(None),
+        )
+        .expect("an uncapped socket connects");
         let local = sock
             .state()
             .host
@@ -775,8 +806,14 @@ mod tests {
         first.send_to(b"one", local).unwrap();
         wait_until_queued(&sock);
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
-        sock.dial(&family, at_second, at_second, &OpenConnections::new(None))
-            .expect("an uncapped socket connects again");
+        sock.dial(
+            &family,
+            at_second,
+            at_second,
+            &OpenConnections::new(None),
+            &ConnectionBudget::new(None),
+        )
+        .expect("an uncapped socket connects again");
         second.send_to(b"two", local).unwrap();
         wait_until_queued(&sock);
         sock.pump(&mut sock.state());
@@ -808,8 +845,14 @@ mod tests {
         first.send_to(b"one", local).unwrap();
         wait_until_queued(&sock);
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
-        sock.dial(&family, at_second, at_second, &OpenConnections::new(None))
-            .expect("an uncapped socket connects to an IPv6 peer");
+        sock.dial(
+            &family,
+            at_second,
+            at_second,
+            &OpenConnections::new(None),
+            &ConnectionBudget::new(None),
+        )
+        .expect("an uncapped socket connects to an IPv6 peer");
         let mut buf = [0; 8];
         let read = sock
             .recvmsg(&mut buf)
@@ -837,10 +880,10 @@ mod tests {
         mock.route(IpProtocol::Udp, to_second, second.local_addr().unwrap());
         let family: Arc<dyn ProtocolFamily> = mock.clone();
         let sock = UdpSock::new();
-        let cap = OpenConnections::new(None);
-        sock.dial(&family, to_first, to_first, &cap)
+        let (cap, budget) = (OpenConnections::new(None), ConnectionBudget::new(None));
+        sock.dial(&family, to_first, to_first, &cap, &budget)
             .expect("a routed socket connects");
-        let again = sock.dial(&family, to_second, to_second, &cap);
+        let again = sock.dial(&family, to_second, to_second, &cap, &budget);
         wait_for(|table| sock.poll(table), PollMask::OUT);
         let sent = sock.sendmsg(b"ping");
         second
@@ -871,15 +914,15 @@ mod tests {
         mock.route(IpProtocol::Udp, to_y, peer.local_addr().unwrap());
         mock.refuse(IpProtocol::Udp, to_z, Errno::AddressNotAvailable);
         let family: Arc<dyn ProtocolFamily> = mock.clone();
-        let cap = OpenConnections::new(None);
+        let (cap, budget) = (OpenConnections::new(None), ConnectionBudget::new(None));
         let socket = || UdpSock::new();
         let (first, second, third) = (socket(), socket(), socket());
         let answers = [
-            first.dial(&family, to_x, to_x, &cap),
-            first.dial(&family, to_y, to_y, &cap),
-            second.dial(&family, to_y, to_y, &cap),
-            first.dial(&family, to_z, to_z, &cap),
-            third.dial(&family, to_z, to_z, &cap),
+            first.dial(&family, to_x, to_x, &cap, &budget),
+            first.dial(&family, to_y, to_y, &cap, &budget),
+            second.dial(&family, to_y, to_y, &cap, &budget),
+            first.dial(&family, to_z, to_z, &cap, &budget),
+            third.dial(&family, to_z, to_z, &cap, &budget),
         ];
         for sock in [first, second, third] {
             sock.release();
@@ -919,9 +962,10 @@ mod tests {
                 .map(|(_, from)| from.port())
                 .ok()
         };
-        let once = sock.dial(&family, at(&first), at(&first), &cap);
+        let budget = ConnectionBudget::new(None);
+        let once = sock.dial(&family, at(&first), at(&first), &cap, &budget);
         let first_heard = heard_by(&first);
-        let again = sock.dial(&family, at(&second), at(&second), &cap);
+        let again = sock.dial(&family, at(&second), at(&second), &cap, &budget);
         let second_heard = heard_by(&second);
         sock.release();
         assert_eq!(

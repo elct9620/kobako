@@ -85,6 +85,7 @@ A Codec and a Service live outside the machine, as a host daemon behind a virtua
 | Part | Bounded by |
 |---|---|
 | what a payload makes a Codec build | the Codec, which alone knows its amplification |
+| the Handles one invocation is issued | a table of 1,000,000, as wasmtime's `ResourceTable` |
 | what a Service builds or keeps | the host app |
 
 ## Five Tiers
@@ -259,7 +260,7 @@ An account answers a charge at once, so nobody waits on one for room. These lock
 | starvation freedom | no wait for room |
 | forward progress | each charge is one step |
 
-Each invocation's account is its own, and nothing another holds is charged to it. A count is taken before the effect leaves the host, and is never given back.
+Each invocation's account is its own, and nothing another holds is charged to it. A count is taken before the effect leaves the host, and is never given back. A count covers only what leaves the host, such as a lookup or a dial, as a Worker counts its subrequests. A check refusing an attempt first spends nothing.
 
 ## Host App Code
 
@@ -268,6 +269,7 @@ The host app's code is outside the order, as `HostMutex.tla` shows for locking. 
 | Boundary | Whose cost |
 |---|---|
 | a callback that never returns | the host app's |
+| how often a Service, a filesystem, or a policy is called | the host app's |
 | a lock a callback needs, held around a run | the host app's |
 | host I/O that never returns | the host's |
 | time in the host that a timeout does not count | the host app's |

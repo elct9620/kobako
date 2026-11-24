@@ -12,7 +12,7 @@ use std::time::Duration;
 
 use socket2::{SockRef, TcpKeepalive};
 
-use super::connections::{OpenConnections, Place};
+use super::connections::{ConnectionBudget, OpenConnections, Place};
 use super::family::ProtocolFamily;
 use super::namespace::Namespace;
 use super::reactor::{Reactor, Ready, Registration};
@@ -198,16 +198,20 @@ impl TcpSock {
     /// the SYN to one destination; the connect goes on without blocking, so
     /// this returns at once and a poll finds the socket writable once it
     /// settles. The socket counts against `open_connections` and the process
-    /// until released, and a full count answers `EAGAIN`, never a Trap, so one
-    /// Sandbox cannot end another's run.
+    /// until released, and spends one of `budget` as the SYN is about to
+    /// leave; a full count or a spent budget answers `EAGAIN`, never a Trap,
+    /// so one Sandbox cannot end another's run.
     pub(crate) fn dial(
         &self,
         addr: SocketAddr,
         peer: SocketAddr,
         open_connections: &Arc<OpenConnections>,
+        budget: &ConnectionBudget,
     ) -> Result<(), Errno> {
         let mut state = self.state();
-        if let Some(place) = state.inet.open_place(open_connections)? {
+        let place = state.inet.open_place(open_connections)?;
+        budget.spend()?;
+        if let Some(place) = place {
             state.inet.place = Some(place);
         }
         self.start_connect(&mut state, addr, peer);
@@ -220,18 +224,21 @@ impl TcpSock {
     /// already judged the name the guest asked for, so they see no real
     /// address. The socket holds `place`, the request's own, so a socket
     /// still sending once the request is released counts against the caps
-    /// until it closes, as a guest's socket keeps its place.
+    /// until it closes, as a guest's socket keeps its place. `spend` is asked
+    /// once the filter admits the address, before the SYN leaves.
     pub(crate) fn connect_upstream(
         &self,
         ports: &Arc<BindHash>,
         ruleset: &Ruleset,
         dest: &Destination,
         place: &Arc<Place>,
+        spend: impl FnOnce() -> Result<(), Errno>,
     ) -> Result<(), Errno> {
         self.check_state()?;
         self.state().inet.place = Some(place.clone());
         self.connect_from_port(ports, || {
             let real = filter_with(ruleset, &*self.family, dest, Protocol::Http)?;
+            spend()?;
             self.start_connect(&mut self.state(), real, real);
             Ok(())
         })
@@ -562,8 +569,8 @@ impl Ready for TcpSock {
 /// TCP's answers for its socket file, as `inet_stream_ops` hands each call to
 /// `tcp_prot`.
 impl ProtoOps for TcpSock {
-    /// The socket's state first, then `net`'s `connect4`, then within the
-    /// connection caps a port, the ruleset, and the dial, as
+    /// The socket's state first, then `net`'s `connect4`, then a port, the
+    /// ruleset, and the dial within the connection caps, as
     /// `inet_stream_connect` runs `connect4` only on a socket connected to
     /// nothing and `tcp_v4_connect` hashes a port before the SYN meets the
     /// filter. A refused destination puts the port back, as that failure
@@ -571,11 +578,9 @@ impl ProtoOps for TcpSock {
     fn connect(&self, net: &Namespace, addr: SocketAddr) -> Result<(), Errno> {
         self.check_state()?;
         let dest = connect4(net, addr)?;
-        net.within_connection_budget(Errno::WouldBlock, || {
-            self.connect_from_port(net.ports_of(Protocol::Tcp), || {
-                let real = filter(net, &dest, Protocol::Tcp)?;
-                self.dial(real, addr, net.open_connections())
-            })
+        self.connect_from_port(net.ports_of(Protocol::Tcp), || {
+            let real = filter(net, &dest, Protocol::Tcp)?;
+            self.dial(real, addr, net.open_connections(), net.connection_budget())
         })
     }
 
@@ -771,8 +776,13 @@ mod tests {
     /// A socket connecting to `addr` through the host.
     fn dial(addr: SocketAddr) -> Arc<TcpSock> {
         let sock = TcpSock::new(Arc::new(HostInet));
-        sock.dial(addr, addr, &OpenConnections::new(None))
-            .expect("an uncapped socket connects");
+        sock.dial(
+            addr,
+            addr,
+            &OpenConnections::new(None),
+            &ConnectionBudget::new(None),
+        )
+        .expect("an uncapped socket connects");
         sock
     }
 
@@ -951,8 +961,13 @@ mod tests {
             .expect("an unconnected socket takes an option");
         let keepalive = |sock: &TcpSock| sock.getsockopt(SockOpt::KeepAlive).unwrap();
         let before = (keepalive(&sock), host_keepalive(&sock));
-        sock.dial(addr, addr, &OpenConnections::new(None))
-            .expect("an uncapped socket connects");
+        sock.dial(
+            addr,
+            addr,
+            &OpenConnections::new(None),
+            &ConnectionBudget::new(None),
+        )
+        .expect("an uncapped socket connects");
         let dialed = host_keepalive(&sock);
         sock.setsockopt(SockOpt::KeepAlive, 0)
             .expect("a connected socket takes an option");
@@ -993,8 +1008,13 @@ mod tests {
             .expect("an interval Linux takes");
         sock.setsockopt(SockOpt::KeepCnt, 3)
             .expect("a count Linux takes");
-        sock.dial(addr, addr, &OpenConnections::new(None))
-            .expect("an uncapped socket connects");
+        sock.dial(
+            addr,
+            addr,
+            &OpenConnections::new(None),
+            &ConnectionBudget::new(None),
+        )
+        .expect("an uncapped socket connects");
         let host = sock.state().host.as_ref().map(|(stream, _)| {
             let host = SockRef::from(stream);
             (
@@ -1035,8 +1055,13 @@ mod tests {
         ];
         sock.setsockopt(SockOpt::Ttl, 7)
             .expect("a hop limit Linux takes");
-        sock.dial(addr, addr, &OpenConnections::new(None))
-            .expect("an uncapped socket connects");
+        sock.dial(
+            addr,
+            addr,
+            &OpenConnections::new(None),
+            &ConnectionBudget::new(None),
+        )
+        .expect("an uncapped socket connects");
         let dialed = host_ttl(&sock);
         sock.setsockopt(SockOpt::Ttl, 9)
             .expect("a connected socket takes a hop limit");
@@ -1102,8 +1127,14 @@ mod tests {
         let udp = crate::net::UdpSock::new();
         let family: Arc<dyn ProtocolFamily> = Arc::new(HostInet);
         let at = udp_peer.local_addr().unwrap();
-        udp.dial(&family, at, at, &OpenConnections::new(None))
-            .expect("an uncapped socket connects");
+        udp.dial(
+            &family,
+            at,
+            at,
+            &OpenConnections::new(None),
+            &ConnectionBudget::new(None),
+        )
+        .expect("an uncapped socket connects");
         assert_eq!(
             (
                 first,
@@ -1136,8 +1167,13 @@ mod tests {
             let sock = TcpSock::new(Arc::new(HostInet));
             sock.bind(&net, own.parse().unwrap())
                 .expect("a fresh socket binds");
-            sock.dial(closed, closed, &OpenConnections::new(None))
-                .expect("an uncapped socket connects");
+            sock.dial(
+                closed,
+                closed,
+                &OpenConnections::new(None),
+                &ConnectionBudget::new(None),
+            )
+            .expect("an uncapped socket connects");
             let file = sock_alloc_file(sock.clone(), &Arc::default());
             wait_for(|table| file.poll(table), PollMask::ERR);
             sock.bind(&net, "0.0.0.0:0".parse().unwrap())
@@ -1319,8 +1355,13 @@ mod tests {
         // The port is held before the dial, as a connect holds it.
         sock.hash_connect(&ports).expect("a port is free");
         let before = sock.getname(false).unwrap().port();
-        sock.dial(closed, closed, &OpenConnections::new(None))
-            .expect("an uncapped socket connects");
+        sock.dial(
+            closed,
+            closed,
+            &OpenConnections::new(None),
+            &ConnectionBudget::new(None),
+        )
+        .expect("an uncapped socket connects");
         wait_for(|table| file.poll(table), PollMask::ERR);
         let failed = sock.take_connect_outcome();
         let kept = sock.getname(false).unwrap().port();

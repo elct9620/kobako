@@ -31,9 +31,9 @@ pub struct Limits {
     /// Connections one invocation holds open at once, each socket, HTTP request,
     /// and name lookup in flight one; one past it answers `EAGAIN`.
     pub open_connection_limit: Option<usize>,
-    /// Connections one invocation makes in all, each socket and HTTP request
-    /// one, as a budget of subrequests is counted; one past it answers
-    /// `EAGAIN`.
+    /// Connections one invocation makes in all, each lookup, dial, and HTTP
+    /// request one, spent before it leaves the host and never given back, as a
+    /// budget of subrequests is counted; one past it answers `EAGAIN`.
     pub connection_limit: Option<usize>,
 }
 

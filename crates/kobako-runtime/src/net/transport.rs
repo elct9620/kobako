@@ -5,6 +5,7 @@
 //! filter, holds a virtual port, and queues within its buffers, as a guest's
 //! socket does.
 
+use std::cell::Cell;
 use std::fmt;
 use std::future::poll_fn;
 use std::io;
@@ -16,7 +17,7 @@ use std::time::Instant;
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 
-use super::connections::Place;
+use super::connections::{ConnectionBudget, Place};
 use super::http::HttpError;
 use super::lookup::NameLookup;
 use super::namespace::TcpSockets;
@@ -40,6 +41,9 @@ pub struct Connector {
     tcp_sockets: Arc<TcpSockets>,
     /// The request's place, which a lookup of the authority holds too.
     place: Arc<Place>,
+    /// The Invocation's connection budget, which each address past the
+    /// first spends.
+    budget: Arc<ConnectionBudget>,
     /// When a connect opened, which its exchange's wait for the head starts
     /// from.
     pub(crate) connected: Arc<OnceLock<Instant>>,
@@ -50,8 +54,19 @@ pub struct Connector {
 
 impl Connector {
     /// The connector for `host` at `port` in `net`, holding the request's
-    /// `place`, which a lookup of a named host holds too.
-    pub(crate) fn new(net: &Namespace, host: Host, port: u16, place: Arc<Place>) -> Self {
+    /// `place`, which a lookup of a named host holds too. It spends one of the
+    /// connection budget before its lookup or first dial leaves, as a Worker
+    /// counts a `fetch` once; a spent budget answers `ConnectionLimitReached`.
+    pub(crate) fn new(
+        net: &Namespace,
+        host: Host,
+        port: u16,
+        place: Arc<Place>,
+    ) -> Result<Self, HttpError> {
+        let budget = net.connection_budget().clone();
+        budget
+            .spend()
+            .map_err(|_| HttpError::ConnectionLimitReached)?;
         let target = match host {
             Host::Address(ip) => Target::Address(ip),
             Host::Name(name) => Target::Named {
@@ -63,7 +78,7 @@ impl Connector {
                 name,
             },
         };
-        Self {
+        Ok(Self {
             port,
             ruleset: net.ruleset().clone(),
             family: net.family().clone(),
@@ -71,9 +86,10 @@ impl Connector {
             ports: net.ports_of(Protocol::Http).clone(),
             tcp_sockets: net.tcp_sockets().clone(),
             place,
+            budget,
             connected: Arc::default(),
             wait: None,
-        }
+        })
     }
 
     /// The host and port the request named.
@@ -89,7 +105,9 @@ impl Connector {
     /// connector tries each real address in turn, as an HTTP client's
     /// connector does, while a guest's TCP socket keeps a loop of its own; an
     /// address the filter refuses is passed over, and none admitted is
-    /// denied.
+    /// denied. Each address dialed past the first spends one of the
+    /// connection budget as it is about to leave, and a spent budget ends the
+    /// dial with `ConnectionLimitReached`.
     pub async fn dial(&self) -> Result<Transport, HttpError> {
         let dests = match &self.target {
             Target::Address(ip) => vec![Destination::Literal(SocketAddr::new(*ip, self.port))],
@@ -105,6 +123,8 @@ impl Connector {
                 .collect(),
         };
         let mut last = HttpError::Denied;
+        // The request spent one already, which its first dial takes.
+        let prepaid = Cell::new(true);
         for dest in &dests {
             let sock = TcpSock::create_kern(&self.family, &self.tcp_sockets);
             // Set before the dial, so the host socket takes it as it is
@@ -112,7 +132,13 @@ impl Connector {
             // own socket keeps Linux's default.
             sock.setsockopt(SockOpt::NoDelay, 1)
                 .map_err(|err| HttpError::from_errno(&err))?;
-            match sock.connect_upstream(&self.ports, &self.ruleset, dest, &self.place) {
+            let exhausted = Cell::new(false);
+            let spend = || match prepaid.replace(false) {
+                true => Ok(()),
+                false => self.budget.spend().inspect_err(|_| exhausted.set(true)),
+            };
+            match sock.connect_upstream(&self.ports, &self.ruleset, dest, &self.place, spend) {
+                Err(_) if exhausted.get() => return Err(HttpError::ConnectionLimitReached),
                 Err(Errno::PermissionDenied) => continue,
                 Err(err) => {
                     last = HttpError::from_errno(&err);

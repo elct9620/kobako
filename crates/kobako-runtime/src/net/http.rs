@@ -697,11 +697,11 @@ impl Exchange {
     pub(crate) fn start(
         seam: Arc<dyn Outbound>,
         request: OutgoingRequest,
-        connector_for: impl FnOnce(Arc<Place>) -> Connector,
+        connector_for: impl FnOnce(Arc<Place>) -> Result<Connector, HttpError>,
         open_connections: &Arc<OpenConnections>,
     ) -> Result<Arc<Self>, HttpError> {
         let place = Arc::new(open(open_connections).ok_or(HttpError::ConnectionLimitReached)?);
-        let mut connector = connector_for(place.clone());
+        let mut connector = connector_for(place.clone())?;
         let place = Some(place);
         let exchange = Arc::new(Self {
             state: Arc::new(Mutex::new(State {

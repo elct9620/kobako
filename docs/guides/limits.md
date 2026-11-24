@@ -104,8 +104,20 @@ connection past any of them raises `Errno::EAGAIN` in the guest, a lookup
 | Limit | Measures |
 |---|---|
 | `open_connection_limit` | each dialed socket, request, and lookup one run holds open at once |
-| `connection_limit` | each socket dial and request one run makes, closed ones included |
+| `connection_limit` | each lookup, dial, and request one run makes, failed ones included |
 | the process's | every Sandbox's open connections together, none by default |
+
+`connection_limit` counts what leaves the host, as a Worker counts its
+subrequests. A request spends one for its lookup and first address, and one more
+for each further address. An attempt a policy or the endpoints refuse spends
+nothing.
+
+| Use | Spends | Fits in 50 |
+|---|---|---|
+| a request to a name | 1 | 50 requests |
+| a request whose kth address answers | k | 50 / k requests |
+| a socket to a new name | 2, its lookup and dial | 25 sockets |
+| a socket to a name already looked up | 1 | 49 sockets after the first |
 
 What every Sandbox holds together is the Host App's to size, through how many
 runs it lets in at once times `open_connection_limit`. Only a Rust Host App sets

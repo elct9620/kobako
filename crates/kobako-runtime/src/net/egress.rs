@@ -106,14 +106,12 @@ pub fn send(
         request.body.refuse_content();
     }
 
-    net.within_connection_budget(HttpError::ConnectionLimitReached, || {
-        Exchange::start(
-            net.outbound().clone(),
-            request,
-            |place| Connector::new(net, judged, port, place),
-            net.open_connections(),
-        )
-    })
+    Exchange::start(
+        net.outbound().clone(),
+        request,
+        |place| Connector::new(net, judged, port, place),
+        net.open_connections(),
+    )
 }
 
 /// Whether a lenient server reads `method` as `name`, ignoring case as a deny

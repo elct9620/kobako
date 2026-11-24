@@ -263,12 +263,11 @@ The next socket after a stopped reactor starts another.
 
 ## Lock Order
 
-The network takes no sleeping lock and holds none across a wait through the `Blocking`. This sets the netg, request, and sock lock groups' own order; [`locking/`](../locking/README.md) holds the edges between groups.
+The network takes no sleeping lock and holds none across a wait through the `Blocking`. The connection budget is an atomic count, so spending it holds nothing. This sets the netg, request, and sock lock groups' own order; [`locking/`](../locking/README.md) holds the edges between groups.
 
 | Holding | Takes |
 |---|---|
 | the guest's open file | a socket's state, an exchange's task, a request's future |
-| the connection budget | a socket's state, the reactor's queues |
 | a request's future | an exchange's or lookup's state, a socket's state, the reactor's queues |
 | a socket's state | the reactor's queues, the Mock, a bound port |
 

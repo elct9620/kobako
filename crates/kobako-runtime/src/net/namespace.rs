@@ -8,6 +8,7 @@
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
+use super::connections::ConnectionBudget;
 use super::egress::EgressProxy;
 use super::http::{HyperOutbound, Outbound};
 use super::lookup::{LookupError, NameLookup, Resolver};
@@ -34,8 +35,8 @@ pub struct Namespace {
     outbound: Arc<dyn Outbound>,
     open_connections: Arc<OpenConnections>,
     /// How many more connections this Invocation may make, worked out from
-    /// its connection limit; `None` makes no count.
-    connection_budget: Mutex<Option<usize>>,
+    /// its connection limit.
+    connection_budget: Arc<ConnectionBudget>,
     translations: Mutex<Translations>,
     /// The virtual ports TCP sockets hold, and those UDP sockets hold, as
     /// TCP keeps its `bhash` and UDP its `udp_table`.
@@ -146,7 +147,7 @@ impl Namespace {
             resolver: backends.resolver().clone(),
             outbound: Arc::new(HyperOutbound::new()),
             open_connections,
-            connection_budget: Mutex::new(connection_limit),
+            connection_budget: ConnectionBudget::new(connection_limit),
             translations: Mutex::default(),
             tcp_ports: BindHash::new(),
             udp_ports: BindHash::new(),
@@ -186,26 +187,10 @@ impl Namespace {
             .collect()
     }
 
-    /// `connect`, made only while the Invocation has a connection left and
-    /// counted once it is, as a budget of subrequests is spent;
-    /// `refused`, dialing nothing, once none is left.
-    pub(crate) fn within_connection_budget<T, E>(
-        &self,
-        refused: E,
-        connect: impl FnOnce() -> Result<T, E>,
-    ) -> Result<T, E> {
-        let mut left = self
-            .connection_budget
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
-        if *left == Some(0) {
-            return Err(refused);
-        }
-        let made = connect()?;
-        if let Some(n) = left.as_mut() {
-            *n -= 1;
-        }
-        Ok(made)
+    /// The connections this Invocation may still make, each spent as a lookup
+    /// or a dial is about to leave the host.
+    pub(crate) fn connection_budget(&self) -> &Arc<ConnectionBudget> {
+        &self.connection_budget
     }
 
     /// The virtual ports `protocol`'s sockets hold here.
