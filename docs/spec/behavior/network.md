@@ -1839,18 +1839,18 @@ endpoint "api.example.com", port: 443
 | When | the guest sets the path `/admin#x` on a request and sends it |
 | Then | the path reads back as `/admin`, since a request target carries no fragment, and the request answers `HTTP-request-denied` |
 
-## `NW-146` A lookup or a request past the open file limit answers an error
+## `NW-146` A lookup past the open file limit answers an error
 
 | Attribute | Value |
 | --- | --- |
 | refines | `NW-069` |
-| relates | `NW-085` |
+| relates | `NW-085`, `NW-252` |
 
 | Step | Statement |
 | --- | --- |
 | Given | a network entry, and a guest holding as many files as its open file limit allows |
-| When | it resolves a name, and sends an HTTP request |
-| Then | the lookup answers `new-socket-limit` and the request `connection-limit-reached`, as Linux's `anon_inode_getfd` answers EMFILE. Nothing traps |
+| When | it resolves a name |
+| Then | the lookup answers `new-socket-limit`, as Linux's `anon_inode_getfd` answers EMFILE. Nothing traps |
 
 ## `NW-147` A producer dropped while its pollable lives traps
 

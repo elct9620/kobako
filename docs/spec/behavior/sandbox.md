@@ -84,6 +84,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `crates/kobako-runtime/src/memcg.rs`
 - `crates/kobako-wasmtime/src/trap.rs`
 - `crates/kobako-wasmtime/src/limiter.rs`
+- `crates/kobako-wasmtime/src/preview2/host.rs`
 - `crates/kobako/src/sandbox.rs`
 - `crates/kobako/src/snippet.rs`
 - `crates/kobako/src/catalog.rs`
