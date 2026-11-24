@@ -108,7 +108,7 @@ connection past any of them raises `Errno::EAGAIN` in the guest, a lookup
 | the process's | every Sandbox's open connections together, none by default |
 
 What every Sandbox holds together is the Host App's to size, through how many
-runs its Pool lets in times `open_connection_limit`. Only a Rust Host App sets
+runs it lets in at once times `open_connection_limit`. Only a Rust Host App sets
 the process's limit. Lowering it closes nothing already open, and the next
 connection is refused.
 
