@@ -34,13 +34,7 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
 
   # @behavior RT-419
   def test_a_run_filling_entropy_delays_a_neighbour_less_than_its_deadline
-    spent = GVL_MODES.map do |mode|
-      flooding = Thread.new { flood(mode) }
-      sleep 0.05
-      elapsed = seconds_spent { Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode).eval("1") }
-      flooding.join
-      elapsed
-    end
+    spent = GVL_MODES.map { |mode| eval_beside_flood(mode) }
 
     assert spent.all? { |elapsed| elapsed < 1.0 },
            "a run beside one reading 64 MiB of entropy over and over under a 2 s timeout must answer " \
@@ -49,10 +43,21 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
 
   private
 
-  def seconds_spent
+  # The seconds from the flood's head start until a short script answers.
+  # Both Sandboxes are built first, so the first compile of the Guest Binary
+  # in a process with a cold artifact cache is not judged. The clock is read
+  # before the head start, so the wait for the GVL to come back is.
+  def eval_beside_flood(mode)
+    neighbour = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode)
+    flooder = Kobako::Sandbox.new(wasm_path: TestPaths.fixture("minimal_random_flood.wat"),
+                                  profile: :permissive, gvl: mode, timeout: 2, memory_limit: nil)
     started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    yield
-    Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+    flooding = Thread.new { flood(flooder) }
+    sleep 0.05
+    neighbour.eval("1")
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+    flooding.join
+    elapsed
   end
 
   def side_by_side(mode)
@@ -68,9 +73,8 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
     e.class
   end
 
-  def flood(mode)
-    Kobako::Sandbox.new(wasm_path: TestPaths.fixture("minimal_random_flood.wat"),
-                        profile: :permissive, gvl: mode, timeout: 2, memory_limit: nil).eval("nil")
+  def flood(sandbox)
+    sandbox.eval("nil")
   rescue Kobako::TimeoutError
     nil
   end
