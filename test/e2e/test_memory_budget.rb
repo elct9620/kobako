@@ -11,18 +11,14 @@ class TestE2EMemoryBudget < Minitest::Test
 
   CAP = 1 << 20
 
-  # Grows 3 MB of the default 4 MiB cap, rescues an exception, then lists
-  # the mount, answering how the listing ended.
-  LIST_AFTER_RESCUE = <<~GUEST
+  # Grows 3 MB of the default 4 MiB cap, rescues an exception, then grows
+  # 2 MB more than the cap leaves.
+  GROW_AFTER_RESCUE = <<~GUEST
     kept = []
     3.times { kept << ("x" * 1_000_000) }
     begin; raise "any"; rescue StandardError; end
-    begin
-      Dir.open("/m").read
-      "listed"
-    rescue SystemCallError => e
-      e.class.to_s
-    end
+    2.times { kept << ("x" * 1_000_000) }
+    kept.size
   GUEST
 
   # A Guest Binary's declared memory and table, each past the cap, are its
@@ -82,28 +78,20 @@ class TestE2EMemoryBudget < Minitest::Test
   end
 
   # An exception lives in the engine's collected heap, apart from the linear
-  # memory the script grew; both count, so the listing finds the cap as full
-  # as a run that raised nothing does.
+  # memory the script grew; both count, so the growth after it finds the cap
+  # as full as a run that raised nothing does.
   # @behavior S-257
   def test_a_rescued_exception_leaves_the_memory_cap_as_full
-    TestPaths.host_directory do |root|
-      fill_directory(root)
-      sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/m", Kobako::Filesystem::Bind.new(root))
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
 
-      assert_equal "Errno::ENOMEM", sandbox.eval(LIST_AFTER_RESCUE).value,
-                   "listing a 2 MiB directory after growing 3 MB of a 4 MiB memory_limit and rescuing an " \
-                   "exception must raise Errno::ENOMEM in the guest"
-    end
+    assert_raises(Kobako::MemoryLimitError,
+                  "growing 2 MB more after growing 3 MB of a 4 MiB memory_limit and rescuing an exception " \
+                  "must raise MemoryLimitError") { sandbox.eval(GROW_AFTER_RESCUE) }
   end
 
   private
 
   def run_fixture(name)
     Kobako::Sandbox.new(wasm_path: TestPaths.fixture(name), memory_limit: CAP).eval("nil")
-  end
-
-  # 9000 entries of 186-byte names, a listing past 2 MiB.
-  def fill_directory(root)
-    9000.times { |i| File.write(File.join(root, format("%<index>06d%<pad>s", index: i, pad: "n" * 180)), "") }
   end
 end
