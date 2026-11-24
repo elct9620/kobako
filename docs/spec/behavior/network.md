@@ -25,6 +25,8 @@ endpoint "api.example.com", port: 443
 - `test/e2e/test_network_builder.rb`
 - `test/e2e/test_network_entry_text.rb`
 - `test/e2e/test_network_tcp.rb`
+- `test/e2e/test_network_call_counts.rb`
+- `test/e2e/test_network_dial_counts.rb`
 - `test/e2e/test_network_tcp_cruby.rb`
 - `test/e2e/test_network_tcp_arguments.rb`
 - `test/e2e/test_network_tcp_send.rb`
@@ -782,9 +784,9 @@ endpoint "api.example.com", port: 443
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose `connection_limit` an invocation's sockets and requests already spent |
+| Given | a Sandbox whose `connection_limit` an invocation's lookups, dials, and requests already spent, the failed ones too |
 | When | the guest connects once more, though each earlier connection closed |
-| Then | the connect answers `EAGAIN`, never a Trap, and dials nothing |
+| Then | the connect answers `EAGAIN`, never a Trap, and dials nothing. Each attempt was counted before it left the host, as a Worker counts a subrequest |
 
 ## `NW-060` A Rust Host App moves the process's open connection limit
 
@@ -3165,3 +3167,39 @@ endpoint "api.example.com", port: 443
 | Given | a guest whose open files fill its open file limit |
 | When | it builds a header list, or reads a response's headers as a copy |
 | Then | the call traps, since it has no error for it. A request built from a list takes the list's place. `handle` hands the request's place to the response's future |
+
+## `NW-253` A lookup past the connection limit asks no resolver
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-059` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose `connection_limit` an invocation already spent |
+| When | the guest looks up a name it has not translated |
+| Then | the lookup answers `temporary-resolver-failure`, as `getaddrinfo` answers `EAI_AGAIN`. No resolver is asked |
+
+## `NW-254` Each address a request dials spends the connection limit
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-059` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose `connection_limit` is 1, and a name whose addresses each refuse a connection |
+| When | the guest sends a request to that name |
+| Then | the request dials one address and fails with `connection-limit-reached`. One request spends its lookup and first address together |
+
+## `NW-255` An attempt that never leaves the host spends nothing
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-059` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose `connection_limit` is 1 |
+| When | the guest makes attempts a policy or the endpoints refuse, and looks up an address or a name it translated |
+| Then | each answers as it would under no limit, and the next connect still dials. The host app's code it asks is the host app's to bound |
