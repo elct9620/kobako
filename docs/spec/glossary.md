@@ -215,7 +215,7 @@ How one endpoint's Codec speaks to that endpoint's own objects, a Handle include
 
 ### Value Budget
 
-The most values one guest payload may hold, worked out from the memory cap. Decoding spends it, so a short payload cannot make the host build a large value.
+The most values one guest payload may hold, a fixed amount of the Codec's own, whatever the memory cap. Decoding spends it, so a short payload cannot make the host build a large value.
 
 ### Fault
 

@@ -573,7 +573,7 @@ The last two exits have no parity scenario, because the frontends close them at 
 
 | Step | Statement |
 | --- | --- |
-| Given | a Service yielding to a block that answers more values than the memory cap allows |
+| Given | a Service yielding to a block that answers more values than one guest payload may hold |
 | When | the block answers |
 | Then | the yield raises instead of answering the Service |
 

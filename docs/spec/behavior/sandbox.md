@@ -1811,9 +1811,9 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose memory cap allows fewer values than the script answers |
+| Given | a script answering more values than one guest payload may hold |
 | When | the script is evaluated |
-| Then | it fails as a Sandbox failure |
+| Then | it fails as a Sandbox failure, whatever the memory cap |
 
 ## `S-205` A Guest Binary has 10 seconds to be set up by default
 
@@ -1996,8 +1996,8 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox whose memory cap allows more values than the script answers |
-| When | the script answers a Hash whose keys are thousands of NaNs |
+| Given | a Sandbox |
+| When | the script answers a Hash whose keys are a thousand NaNs, fewer values than one guest payload may hold |
 | Then | it fails as a Sandbox failure. A NaN key costs one value per NaN key before it, as a hash table compares them |
 
 ## `S-221` A Service's `throw` reaches its `catch` past a Ruby Filesystem's own

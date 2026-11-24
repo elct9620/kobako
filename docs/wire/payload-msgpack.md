@@ -108,13 +108,15 @@ A reference cycle counts as past the bound, and each case is a clean error, neve
 
 ## Value Budget
 
-A payload the guest sends holds at most one value for each 16 bytes of the Invocation's memory cap, the least one guest value occupies. Every array, map, key, and element counts as one value. With no memory cap there is no budget.
+A payload the guest sends holds at most 262144 values. Every array, map, key, and element counts as one value.
 
 ```
-values in a guest payload <= memory_limit / 16
+values in a guest payload <= 262144, whatever the memory cap
 ```
 
-The host refuses a payload past the budget as it refuses one nested too deep. What a guest makes the host build then stays in proportion to what the guest could hold, however it shares values. A payload the host sends needs no budget, since the guest pays for it in its own memory.
+The host refuses a payload past the budget as it refuses one nested too deep. The Codec runs outside the guest's memory, so its bound is its own, as msgpack-python's `Unpacker` bounds a read whoever calls it. The amount is what the default 4 MiB memory cap allowed before. A payload the host sends needs no budget, since the guest pays for it in its own memory.
+
+A fault's text quotes the method name a payload carried, and an error record holds the lines the guest sent. Both grow only with those bytes, held to the 16 MiB a message carries.
 
 ### NaN Keys
 

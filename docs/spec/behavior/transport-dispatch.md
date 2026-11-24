@@ -1203,7 +1203,7 @@ Everything that answers on the fault arm rather than raising is here, since the 
 
 | Step | Statement |
 | --- | --- |
-| Given | a dispatch to a public method of a bound Service, whose arguments hold more values than the memory cap allows |
+| Given | a dispatch to a bound Service's public method, its arguments holding more values than one guest payload may |
 | When | the host reads it |
 | Then | it answers on the fault arm as an internal failure |
 
