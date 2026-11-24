@@ -1,23 +1,20 @@
 //! The connections a guest holds open, counted against its Sandbox and the
-//! process, as a cgroup's `pids.max` bounds the tasks beneath it, so one
-//! tenant cannot starve another of host sockets. A socket and an HTTP request
-//! each hold one place until released, and a request's connection still
-//! sending holds it until it closes; a name lookup holds one until it answers
-//! or is dropped, which cancels its query.
+//! process, as a cgroup's `pids.max` bounds the tasks beneath it. A socket
+//! and an HTTP request each hold one place until released, and a request's
+//! connection still sending holds it until it closes; a name lookup holds one
+//! until it answers or is dropped, which cancels its query.
 
 use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use crate::fork::{Pid, ProcessLocal};
 
-/// The process's limit until a Host App sets its own, as tokio caps its
-/// blocking pool.
-const DEFAULT_PROCESS_LIMIT: usize = 512;
+/// The process's own count, which bounds nothing until a Host App sets a
+/// limit: what its Sandboxes hold together is the Host App's to size, as the
+/// host's descriptors are shared with every other program on it.
+static PROCESS: LazyLock<Arc<OpenConnections>> = LazyLock::new(|| OpenConnections::new(None));
 
-static PROCESS: LazyLock<Arc<OpenConnections>> =
-    LazyLock::new(|| OpenConnections::new(Some(DEFAULT_PROCESS_LIMIT)));
-
-/// Every connection the process's Sandboxes hold open together, 512 at most
-/// until `set_limit` moves it.
+/// Every connection the process's Sandboxes hold open together, unbounded
+/// until `set_limit` bounds it.
 pub fn process_connections() -> &'static Arc<OpenConnections> {
     &PROCESS
 }
@@ -174,6 +171,19 @@ mod tests {
             held.iter().all(Option::is_some) && refused && lifted,
             "OpenConnections::set_limit below what is open must keep each one open and refuse \
              the next, and None must lift the limit"
+        );
+    }
+
+    // @behavior NW-060
+    #[test]
+    fn the_processs_limit_starts_lifted() {
+        assert_eq!(
+            *process_connections()
+                .limit
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner),
+            None,
+            "process_connections must bound nothing until a Host App sets a limit"
         );
     }
 }

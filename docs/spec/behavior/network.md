@@ -796,7 +796,7 @@ endpoint "api.example.com", port: 443
 | --- | --- |
 | Given | the process's open connections, holding some open |
 | When | a Rust Host App lowers its limit below what is open, then lifts it |
-| Then | each open connection stays open and the next is refused, until the lifted limit admits it |
+| Then | each open connection stays open and the next is refused, until the lifted limit admits it. The limit starts lifted, so only the Host App bounds what its Sandboxes hold together |
 
 ## `NW-061` A script's Net::HTTP streams a body through a block
 

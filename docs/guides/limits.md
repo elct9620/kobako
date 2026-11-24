@@ -90,10 +90,12 @@ connection past any of them raises `Errno::EAGAIN` in the guest, a lookup
 |---|---|
 | `open_connection_limit` | each dialed socket, request, and lookup one run holds open at once |
 | `connection_limit` | each socket dial and request one run makes, closed ones included |
-| the process's | every Sandbox's open connections together, 512 by default |
+| the process's | every Sandbox's open connections together, none by default |
 
-Only a Rust Host App moves the process's limit. Lowering it closes nothing
-already open, and the next connection is refused.
+What every Sandbox holds together is the Host App's to size, through how many
+runs its Pool lets in times `open_connection_limit`. Only a Rust Host App sets
+the process's limit. Lowering it closes nothing already open, and the next
+connection is refused.
 
 ```rust
 kobako::network::process_connections().set_limit(Some(2048));
