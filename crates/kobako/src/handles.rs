@@ -10,9 +10,12 @@
 
 use std::sync::{Arc, Mutex};
 
-use kobako_transport::envelope::MAX_HANDLE_ID;
-
 use crate::receiver::{Fault, FaultKind, Receiver};
+
+/// The most Handles one invocation issues, as wasmtime's `ResourceTable`
+/// holds at most 1,000,000 of what a host hands its guest: the table is
+/// kobako's own, so it stays bounded whatever a Service returns.
+const MAX_HANDLES: u32 = 1_000_000;
 
 /// The Sandbox-owned table: live entries plus the per-invocation
 /// monotonic counter. Ids are `1..=entries.len()`, so the entry vector
@@ -23,13 +26,13 @@ pub(crate) struct HandleTable {
 }
 
 impl HandleTable {
-    /// Bind `object` and return its fresh id, or refuse at the id cap
+    /// Bind `object` and return its fresh id, or refuse past `MAX_HANDLES`
     /// with the message the Ruby allocator raises.
     pub(crate) fn alloc(&mut self, object: Arc<dyn Receiver>) -> Result<u32, String> {
-        if self.entries.len() as u32 >= MAX_HANDLE_ID {
+        if self.entries.len() as u32 >= MAX_HANDLES {
             return Err(format!(
                 "Out of handle allocations: too many host objects were \
-                 referenced in a single invocation (limit {MAX_HANDLE_ID})"
+                 referenced in a single invocation (limit {MAX_HANDLES})"
             ));
         }
         self.entries.push(object);
@@ -122,6 +125,21 @@ mod tests {
         let mut table = HandleTable::default();
         assert_eq!(table.alloc(Arc::new(Probe)), Ok(1));
         assert_eq!(table.alloc(Arc::new(Probe)), Ok(2));
+    }
+
+    // @behavior T-012 T-185
+    #[test]
+    fn the_millionth_handle_is_issued_and_the_next_is_refused() {
+        let mut table = HandleTable::default();
+        let object: Arc<dyn Receiver> = Arc::new(Probe);
+        let last = (0..1_000_000).map(|_| table.alloc(object.clone())).last();
+        let past = table.alloc(object);
+        assert_eq!(
+            (last, past.is_err()),
+            (Some(Ok(1_000_000)), true),
+            "1,000,000 allocations through HandleTable::alloc must issue the last as id \
+             1,000,000, and the next must be refused"
+        );
     }
 
     // @behavior T-017
