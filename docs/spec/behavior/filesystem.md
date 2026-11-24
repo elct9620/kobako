@@ -41,6 +41,7 @@ both live in the upper and never show, so no name is reserved
 - `crates/kobako-runtime/src/filesystem/*.rs`
 - `crates/kobako-runtime/src/filesystem/bind/fid.rs`
 - `crates/kobako-runtime/src/filesystem/bind/lookup.rs`
+- `crates/kobako-runtime/src/filesystem/bind/walk.rs`
 - `crates/kobako-runtime/src/filesystem/overlay/stack.rs`
 - `test/e2e/test_host_descriptors.rb`
 - `test/e2e/test_bind_made_out_of_descriptors.rb`
@@ -2522,3 +2523,75 @@ both live in the upper and never show, so no name is reserved
 | Given | a process whose Binds keep directories for walks, and no run in progress |
 | When | the process forks |
 | Then | the child holds none of those directories, as the process lets them go once it holds new runs back |
+
+## `FS-232` A listing stops before its next entry once its run is to stop
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-213` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs, a Bind, and an Overlay, each with a directory of three files, in a run past its deadline |
+| When | each directory is listed |
+| Then | the listing answers EINTR, as a filesystem's readdir looks at a fatal signal between entries |
+
+## `FS-233` A listing hands its run's pending signal over before its next entry
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-232` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs, a Bind, and an Overlay, each with a directory of three files, and a signal pending |
+| When | each directory is listed |
+| Then | the Blocking handles the signal once, and the listing holds all three files |
+
+## `FS-234` A copy up of a directory's ancestors stops between two once its run is to stop
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-213` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay whose lower Layer alone holds `a/b`, in a run past its deadline |
+| When | a file is made in `a/b` through the Overlay |
+| Then | the call answers EINTR, and the upper holds no `a` |
+
+## `FS-235` A copy up hands its run's pending signal over between chunks
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-213` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an Overlay over a lower file of three chunks, in a run with a signal pending |
+| When | the file is opened to write through the Overlay |
+| Then | the Blocking handles the signal once, and the upper holds the whole file |
+
+## `FS-236` A Bind's walk stops between two names once its run is to stop
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-232` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a host directory `a/b/c`, in a run past its deadline |
+| When | a Bind walks it a name at a time |
+| Then | the walk answers EINTR before it opens `b` |
+
+## `FS-237` A Bind's search for a spelling stops between entries once its run is to stop
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-232` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a host directory holding `a`, in a run past its deadline |
+| When | a Bind lists it for how it spells `a` |
+| Then | the search answers EINTR |

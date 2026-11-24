@@ -4660,3 +4660,15 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | the holder letting go, so the first reader lets it in, and the stopped reader interrupted |
 | When | a writer asks for the directory once the reader's call returns |
 | Then | the writer holds it |
+
+## `RT-425` A listing of a Ruby Filesystem asks no further stat once its run is past its timeout
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-232` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Ruby Filesystem listing three files, whose first stat outlasts the run's `timeout:` |
+| When | the guest lists that directory |
+| Then | the Filesystem was asked that one stat alone |
