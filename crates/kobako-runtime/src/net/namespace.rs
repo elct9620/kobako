@@ -559,9 +559,10 @@ mod tests {
         request.path_with_query = "/".to_string();
         let exchange =
             crate::net::send(&namespace, &cred, request).expect("the endpoint admits it");
-        while exchange.response().is_none() {
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        crate::sched::testing::wait_until(
+            "the request answering, so its dial never settled",
+            || exchange.response().is_some(),
+        );
         let dialed = family.dials();
         let socket = dial(&namespace, &cred, "127.0.0.1:4568".parse().unwrap());
         assert_eq!(
@@ -720,9 +721,10 @@ mod tests {
     }
 
     fn settle(sock: &TcpSock) {
-        while matches!(sock.take_connect_outcome(), Err(Errno::WouldBlock)) {
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        crate::sched::testing::wait_until(
+            "a connect settling, so the reactor never woke its socket",
+            || !matches!(sock.take_connect_outcome(), Err(Errno::WouldBlock)),
+        );
     }
 
     // @behavior NW-018
@@ -875,12 +877,15 @@ mod tests {
 
     /// The answer `lookup` settles on.
     fn wait_for_answer(lookup: &NameLookup) -> Result<Vec<IpAddr>, LookupError> {
-        loop {
-            if let Some(answer) = lookup.answer() {
-                return answer;
-            }
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        let mut answer = None;
+        crate::sched::testing::wait_until(
+            "a lookup answering, so its resolver never answered or never woke it",
+            || {
+                answer = lookup.answer();
+                answer.is_some()
+            },
+        );
+        answer.expect("the lookup answered")
     }
 
     #[test]
@@ -1182,9 +1187,7 @@ mod tests {
         let second = resolve_virtual_addresses(&namespace, "cache.internal");
         let cred = prepare_creds(&[], None);
         let sock = dial(&namespace, &cred, second[1]).expect("the endpoint leads there");
-        while matches!(sock.take_connect_outcome(), Err(Errno::WouldBlock)) {
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        settle(&sock);
         refusing.store(true, Ordering::SeqCst);
         let refused = wait_for_answer(&resolve(&namespace, "cache.internal").expect("it answers"));
         assert_eq!(
@@ -1239,9 +1242,7 @@ mod tests {
         let cred = prepare_creds(&[], None);
         let at = resolve_virtual_addresses(&namespace, "Cache.Internal.");
         let sock = dial(&namespace, &cred, at[0]).expect("the endpoint leads there");
-        while matches!(sock.take_connect_outcome(), Err(Errno::WouldBlock)) {
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        settle(&sock);
         let private = dial(&namespace, &cred, at[1]).err();
         let public_only = resolve_virtual_addresses(&namespace, "api.internal");
         let local_refused = dial(&namespace, &cred, public_only[0]).err();
@@ -1296,9 +1297,7 @@ mod tests {
         *family.answers.lock().unwrap() = vec!["127.0.0.1".parse().unwrap()];
         let cred = prepare_creds(&[], None);
         let sock = dial(&namespace, &cred, at).expect("the endpoint leads there");
-        while matches!(sock.take_connect_outcome(), Err(Errno::WouldBlock)) {
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        settle(&sock);
         assert_eq!(
             (
                 family.lookups.load(Ordering::SeqCst),

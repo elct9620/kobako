@@ -1437,22 +1437,29 @@ mod tests {
 
     /// The exchange's head, then its whole body.
     fn read_response(exchange: &Exchange) -> Result<(ResponseHead, Vec<u8>), HttpError> {
-        let head = loop {
-            match exchange.response() {
-                Some(answer) => break answer?,
-                None => thread::sleep(Duration::from_millis(1)),
-            }
-        };
+        let head = settled(exchange)?;
         let mut body = Vec::new();
         let mut buf = [0; 64];
-        loop {
-            match exchange.read(&mut buf) {
-                Ok(0) => return Ok((head, body)),
-                Ok(n) => body.extend_from_slice(&buf[..n]),
-                Err(Errno::WouldBlock) => thread::sleep(Duration::from_millis(1)),
-                Err(_) => return Err(HttpError::ConnectionTerminated),
-            }
-        }
+        let mut ended = None;
+        crate::sched::testing::wait_until(
+            "the response's body ending, so its server never closed it or its read never woke",
+            || match exchange.read(&mut buf) {
+                Ok(0) => {
+                    ended = Some(Ok(()));
+                    true
+                }
+                Ok(n) => {
+                    body.extend_from_slice(&buf[..n]);
+                    false
+                }
+                Err(Errno::WouldBlock) => false,
+                Err(_) => {
+                    ended = Some(Err(HttpError::ConnectionTerminated));
+                    true
+                }
+            },
+        );
+        ended.expect("the body ended").map(|()| (head, body))
     }
 
     // @behavior NW-225
@@ -1498,12 +1505,7 @@ mod tests {
         request.path_with_query = "/".to_string();
         let exchange =
             crate::net::send(&namespace, &cred, request).expect("the endpoint admits it");
-        let answer = loop {
-            match exchange.response() {
-                Some(answer) => break answer,
-                None => thread::sleep(Duration::from_millis(1)),
-            }
-        };
+        let answer = settled(&exchange);
         assert_eq!(
             (answer.err(), family.dials()),
             (Some(HttpError::TlsProtocol), 0),
