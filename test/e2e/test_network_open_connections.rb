@@ -7,6 +7,7 @@ require "test_helper"
 class TestE2ENetworkOpenConnections < Minitest::Test
   include E2eGuestHelper
   include NetworkSandboxes
+  include Handshake
 
   PUBLIC = "93.184.216.34"
 
@@ -35,7 +36,9 @@ class TestE2ENetworkOpenConnections < Minitest::Test
     held = nil
     beside = mock.hold("slow.test") do
       held = Thread.new { lookup(sandbox, "slow.test") }
-      Thread.pass until mock.lookups.include?("slow.test")
+      wait_until("the held lookup of slow.test never reached the Mock, so its run failed or never asked") do
+        mock.lookups.include?("slow.test") || !held.alive?
+      end
       lookup(sandbox, "next.test")
     end
     [beside, held.value]
