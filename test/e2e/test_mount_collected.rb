@@ -35,4 +35,21 @@ class TestE2EMountCollected < Minitest::Test
                       "must mostly be collected by Ruby on its own, with no GC.start"
     end
   end
+
+  # Ruby 3.4 collects on GC.start even while disabled, so an unchanged count
+  # shows the run never asked.
+  # @behavior MT-067
+  def test_a_tmpfs_that_fills_collects_no_garbage
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
+                             .mount("/t", Kobako::Filesystem::Tmpfs.new, access: :read_write)
+    GC.disable
+    before = GC.count
+    sandbox.eval(FILL)
+
+    assert_equal before, GC.count,
+                 "a Tmpfs filled to Errno::ENOSPC through Sandbox#eval with GC disabled must leave GC.count " \
+                 "as it was"
+  ensure
+    GC.enable
+  end
 end

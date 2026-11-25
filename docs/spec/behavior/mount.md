@@ -697,3 +697,15 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 | Given | the guest's thread holding the GVL or not |
 | When | forty runs each fill theirs and end, and nothing calls `GC.start` |
 | Then | fewer than half of the forty are still alive |
+
+## `MT-067` A Tmpfs that fills collects no garbage
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-013`, `MT-066` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox mounting a Tmpfs, garbage collection disabled |
+| When | the script writes until it raises `Errno::ENOSPC` |
+| Then | Ruby has collected garbage no more times than before the run |
