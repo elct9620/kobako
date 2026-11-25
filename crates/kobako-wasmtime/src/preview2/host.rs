@@ -2689,7 +2689,12 @@ mod tests {
                 .streams_output_stream_blocking_write_and_flush(output, b"unread".to_vec())
                 .into_answer()?
                 .expect("the bytes leave");
-            std::thread::sleep(Duration::from_millis(20));
+            peer.set_read_timeout(Some(Duration::from_secs(10)))?;
+            let arrived = peer.peek(&mut [0; 1]);
+            assert!(
+                arrived.as_ref().is_ok_and(|n| *n > 0),
+                "the bytes the guest wrote never reached its peer, got {arrived:?}"
+            );
             drop(peer);
             let failed = loop {
                 let readable = guest.streams_input_stream_subscribe(input)?;
@@ -3194,13 +3199,18 @@ mod tests {
             Ok::<_, wasmtime::Error>((written.is_ok(), matches!(after, Err(StreamError::Closed))))
         })
         .expect("the calls answer");
+        // The guest's end closes with it, so the peer reads every byte that
+        // left before its end arrives.
+        drop(guest);
         let (mut peer, _) = listener.accept().expect("the listener accepts");
-        peer.set_read_timeout(Some(Duration::from_millis(200)))
+        peer.set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
-        let heard = std::io::Read::read(&mut peer, &mut [0; 16]).ok();
+        let mut heard = Vec::new();
+        std::io::Read::read_to_end(&mut peer, &mut heard)
+            .expect("the peer must hear the guest's end once the guest is gone");
         assert_eq!(
-            (written, heard),
-            ((false, true), None),
+            (written, heard.len()),
+            ((false, true), 0),
             "output-stream.write of the whole check-write permit after the guest shrank the \
              socket's send buffer must fail before any byte leaves, rather than send the peer \
              part of it, and the next check-write must answer closed, as io.wit closes a stream \

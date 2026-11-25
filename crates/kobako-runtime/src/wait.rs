@@ -174,7 +174,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::sched::testing::{count_waits, join, within_max_wait};
+    use crate::sched::testing::{count_waits, join, wait_until, within_max_wait};
     use crate::sched::{run_task, Task};
 
     /// An end `after` from now, the same each time it is read.
@@ -188,38 +188,37 @@ mod tests {
     fn a_poll_looks_again_once_the_queue_it_registered_on_wakes() {
         let queue = Arc::new(WaitQueueHead::default());
         let ready = Arc::new(AtomicBool::new(false));
+        let waits = count_waits();
         let producer = {
-            let (queue, ready) = (queue.clone(), ready.clone());
+            let (queue, ready, waits) = (queue.clone(), ready.clone(), waits.clone());
             thread::spawn(move || {
-                while queue.waiters().is_empty() {
-                    thread::yield_now();
-                }
-                // The poller has asked once and gone to sleep by now, so only
-                // the wake makes it look again before its deadline.
-                thread::sleep(Duration::from_millis(50));
+                // The poller has asked once and waits through the Blocking, so
+                // only the wake makes it look again before its run's deadline.
+                wait_until("the poll waiting on its queue", || {
+                    !queue.waiters().is_empty() && waits.load(Ordering::SeqCst) > 0
+                });
                 ready.store(true, Ordering::SeqCst);
                 queue.wake_up();
             })
         };
-        let started = Instant::now();
         let answer = within_max_wait(|| {
             do_poll(
                 || None,
                 |table| {
                     poll_wait(&queue, table);
-                    ready.load(Ordering::SeqCst).then_some("ready")
+                    // What the poll finds once its run's deadline passed is
+                    // what the deadline woke it to, not the wake.
+                    let woken = !crate::sched::fatal_signal_pending();
+                    (woken && ready.load(Ordering::SeqCst)).then_some("ready")
                 },
             )
         });
-        let spent = started.elapsed();
         join("the producer", producer);
         assert!(
-            answer == Ok(Some("ready"))
-                && queue.waiters().is_empty()
-                && spent < Duration::from_secs(5),
+            answer == Ok(Some("ready")) && queue.waiters().is_empty(),
             "do_poll with no timeout over a queue another thread wakes once its event arrives \
-             must answer what the poll then finds at once, and leave the queue, got {answer:?} \
-             after {spent:?}"
+             must answer what the poll then finds before its run's deadline ends it with \
+             EINTR, and leave the queue, got {answer:?}"
         );
     }
 
@@ -292,18 +291,17 @@ mod tests {
         let queue = Arc::new(WaitQueueHead::default());
         let moved = Arc::new(Mutex::new(None::<Instant>));
         let far = Instant::now() + Duration::from_secs(30);
+        let waits = count_waits();
         let waker = {
-            let (queue, moved) = (queue.clone(), moved.clone());
+            let (queue, moved, waits) = (queue.clone(), moved.clone(), waits.clone());
             thread::spawn(move || {
-                while queue.waiters().is_empty() {
-                    thread::yield_now();
-                }
-                thread::sleep(Duration::from_millis(50));
+                wait_until("the poll waiting on its queue", || {
+                    !queue.waiters().is_empty() && waits.load(Ordering::SeqCst) > 0
+                });
                 *moved.lock().unwrap() = Some(Instant::now() + Duration::from_millis(20));
                 queue.wake_up();
             })
         };
-        let started = Instant::now();
         let answer = within_max_wait(|| {
             do_poll(
                 || Some(moved.lock().unwrap().unwrap_or(far)),
@@ -313,12 +311,12 @@ mod tests {
                 },
             )
         });
-        let spent = started.elapsed();
         join("the waker", waker);
-        assert!(
-            answer == Ok(None) && spent < Duration::from_secs(5),
+        assert_eq!(
+            answer,
+            Ok(None),
             "do_poll over nothing ready, its 30 s end moved to 20 ms after a wake, must answer \
-             None once the moved end passes, got {answer:?} after {spent:?}"
+             None once the moved end passes, before its run's deadline ends it with EINTR"
         );
     }
 
