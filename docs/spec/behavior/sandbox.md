@@ -2490,3 +2490,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox whose Service answers each Call and yields to each block it is given |
 | When | a run makes 20,000 Calls, or 60,000, each one yielding once |
 | Then | both runs report the same memory peak, as the host's Reply and the guest's answer are freed once read |
+
+## `S-263` A run that let go of what it built goes on past a refused growth
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-121` |
+| relates | `S-257` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose memory cap is 4 MiB |
+| When | a run builds and drops 64 KiB Strings until it has built 13 MB |
+| Then | it answers its count. The refused growth fails as `memory.grow` answering -1, and the guest collects and tries again |
