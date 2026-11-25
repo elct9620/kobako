@@ -36,8 +36,8 @@ class TestE2EInterruptedRun < Minitest::Test
                  "Sandbox#eval on that Thread must answer what its Service returned"
   end
 
-  # A Timeout::Error raised into a run's Thread as a Timeout raises, once
-  # the run waits on a directory another Sandbox holds until then.
+  # A Timeout::Error raised into a run's thread as a Timeout raises, once
+  # the run waits on a directory another sandbox holds until then.
   WAITING_CHILD = <<~RUBY
     require "kobako"
     require "timeout"

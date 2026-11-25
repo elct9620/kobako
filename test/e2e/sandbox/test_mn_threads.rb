@@ -2,9 +2,9 @@
 
 require "test_helper"
 
-# E2E — runs on Threads of Ruby's M:N scheduler, which carries a Thread on
+# E2E — runs on threads of Ruby's M:N scheduler, which carries a thread on
 # another native thread once it gives the GVL up. Each guest stays on a thread
-# of its own, so a Service call answers wherever its caller went on. The
+# of its own, so a service call answers wherever its caller went on. The
 # scheduler is chosen as the process starts, so the case runs in a child.
 class TestE2EMnThreads < Minitest::Test
   include E2eGuestHelper

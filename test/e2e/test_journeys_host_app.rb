@@ -4,8 +4,8 @@ require "test_helper"
 require "support/in_memory_file_system"
 require "support/extension_fixtures"
 
-# E2E — the Host App's journeys: routing failures through the three-class
-# error taxonomy, exposing a block-yielding Service, installing a native
+# E2E — the host app's journeys: routing failures through the three-class
+# error taxonomy, exposing a block-yielding service, installing a native
 # idiom, and evaluating submissions under a deadline. The agent author's
 # walk is test_journeys.rb.
 class TestE2EHostAppJourneys < Minitest::Test

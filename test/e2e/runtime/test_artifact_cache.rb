@@ -130,7 +130,7 @@ class TestRuntimeArtifactCache < Minitest::Test
     return File.chmod(0o777, path) unless Gem.win_platform?
 
     assert system("icacls", path, "/grant", "#{EVERYONE}:(OI)(CI)F", out: File::NULL),
-           "icacls must grant Everyone the cache directory"
+           "icacls must grant Everyone the cache directory; its output is hidden, so rerun it by hand to see why not"
   end
 
   # Move the cache directory holding +entry+ aside and leave a link in its
@@ -143,10 +143,11 @@ class TestRuntimeArtifactCache < Minitest::Test
 
     assert system("cmd", "/c", "mklink", "/J", File.dirname(entry).tr("/", "\\"), linked.tr("/", "\\"),
                   out: File::NULL),
-           "mklink must leave a junction in the cache directory's place"
+           "mklink must leave a junction in the cache directory's place; its output is hidden, so rerun it " \
+           "by hand to see why not"
   end
 
-  # Let a first build of a Guest Binary unlike the fixture make the cache
+  # Let a first build of a guest binary unlike the fixture make the cache
   # directory, as a directory made otherwise takes what its parent grants,
   # then plant an empty cache entry whose mtime sits past the 30-day
   # retention window, so the next artifact write must remove it.

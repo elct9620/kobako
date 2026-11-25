@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# E2E — a Service's +throw+ reaching the Host App's +catch+ through the real
-# Guest Binary, past Ruby code the run calls on its way out.
+# E2E — a service's +throw+ reaching the host app's +catch+ through the real
+# guest binary, past Ruby code the run calls on its way out.
 #
 # A +throw+ that loses its target crashes the process, so the run is a child
 # process and a crash fails through its status.

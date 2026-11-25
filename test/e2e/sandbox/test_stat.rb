@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# E2E — what a Sandbox says its runs are doing now, read while one of them
-# waits on a directory another Sandbox's run holds.
+# E2E — what a sandbox says its runs are doing now, read while one of them
+# waits on a directory another sandbox's run holds.
 class TestE2ESandboxStat < Minitest::Test
   include E2eGuestHelper
   include Handshake
@@ -42,7 +42,7 @@ class TestE2ESandboxStat < Minitest::Test
     wait_until("the holder never reached its mount's block holding the directory") { !@holding.empty? }
   end
 
-  # A Sandbox over the Tmpfs at /data whose block, on a change when +holds+,
+  # A sandbox over the +Tmpfs+ at /data whose block, on a change when +holds+,
   # says so and waits on the release.
   def sandbox_on(holds: false)
     Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", @tmpfs, access: :read_write) do |_path, access|

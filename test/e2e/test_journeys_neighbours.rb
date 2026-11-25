@@ -7,7 +7,7 @@ require "tmpdir"
 # a run can occupy, under both gvl: modes. Each tier's own scenario shows its
 # rule alone; this one shows the rules compose, so the run arrives.
 #
-# A jam leaves no Thread of the process able to run a timeout, so each mode
+# A jam leaves no thread of the process able to run a timeout, so each mode
 # walks in a child the test kills past a deadline. Every neighbour is in
 # place before the run starts and still there as it ends, so none can have
 # finished early and left the run alone.

@@ -3,11 +3,11 @@
 require "test_helper"
 
 # E2E — a guest's TCPSocket in a child forked after its parent's guest
-# exchanged data, through the real Guest Binary.
+# exchanged data, through the real guest binary.
 #
 # The parent's guest connects once before forking, so whatever watches the
 # process's host sockets already exists when the child starts. The loopback
-# server runs on a Thread of the parent, which the child never inherits, and
+# server runs on a thread of the parent, which the child never inherits, and
 # answers each connection with the upcase of what it read.
 class TestE2ENetworkForked < Minitest::Test
   include E2eGuestHelper

@@ -41,7 +41,7 @@ class TestE2EFirstRunInterrupt < Minitest::Test
 
   # @behavior S-206
   def test_an_interrupt_during_a_processs_first_run_reaches_the_host_app_as_itself
-    assert_equal "Interrupt", caught_interrupting(CHILD),
+    assert_equal "Interrupt", interrupt_child(CHILD),
                  "a SIGINT during a process's first Sandbox#eval must raise Interrupt in the Host App"
   end
 
@@ -59,7 +59,7 @@ class TestE2EFirstRunInterrupt < Minitest::Test
 
   # @behavior S-215
   def test_an_interrupt_delivered_while_a_guest_keeping_the_gvl_computes_stops_the_run_as_it_computes
-    assert_equal "Interrupt", caught_interrupting(COMPUTING_CHILD),
+    assert_equal "Interrupt", interrupt_child(COMPUTING_CHILD),
                  "a SIGINT while a Sandbox#eval keeping the GVL runs `loop { }` without a deadline must raise " \
                  "Interrupt in the Host App"
   end
@@ -68,7 +68,7 @@ class TestE2EFirstRunInterrupt < Minitest::Test
 
   # What +child+ prints once it is sent SIGINT after its guest started
   # computing, or +:hung+ when it outlives the deadline.
-  def caught_interrupting(child)
+  def interrupt_child(child)
     Dir.mktmpdir("kobako-interrupt") do |gate|
       reader, writer = IO.pipe
       pid = spawn_ruby(child, env: { "KOBAKO_WASM" => REAL_WASM, "GATE" => gate }, out: writer, err: File::NULL)

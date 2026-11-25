@@ -43,7 +43,7 @@ class TestE2ENetworkHttpBodyFailure < Minitest::Test
     end
   RUBY
 
-  # A name the Mock holds unanswered never connects, so nothing takes the
+  # A name the mock holds unanswered never connects, so nothing takes the
   # body past the buffer the host holds, whatever the host's own buffers.
   # @behavior NW-238
   def test_a_request_body_nothing_takes_raises_net_write_timeout

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E — what a Sandbox's default open-file cap leaves the Host App, in a
+# E2E — what a sandbox's default open-file cap leaves the host app, in a
 # child whose host holds 256 descriptors at most.
 class TestE2ESandboxDescriptors < Minitest::Test
   include DescriptorChild
@@ -18,7 +18,7 @@ class TestE2ESandboxDescriptors < Minitest::Test
   GUEST
 
   CASE = <<~RUBY.freeze
-    root = tree("b0", count: 300)
+    root = make_tree("b0", count: 300)
     sandboxed = Kobako::Sandbox.new(wasm_path: WASM).mount("/b0", Kobako::Filesystem::Bind.new(root))
     held = []
     opened = sandboxed.eval(#{OPENS.inspect}).value

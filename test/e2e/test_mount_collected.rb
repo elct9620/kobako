@@ -2,19 +2,19 @@
 
 require "test_helper"
 
-# E2E — a Tmpfs the Host App lets go, through the real Guest Binary: what its
+# E2E — a +Tmpfs+ the host app lets go, through the real guest binary: what its
 # files hold counts toward Ruby's own decision to collect, so dropped
-# instances go without the Host App calling GC.start. Each case runs in a
+# instances go without the host app calling GC.start. Each case runs in a
 # child collecting by thresholds of its own.
 class TestE2EMountCollected < Minitest::Test
   include CollectionChild
 
   RUNS = 40
 
-  # Write until the Tmpfs at +/t+ is full.
+  # Write until the +Tmpfs+ at +/t+ is full.
   FILL = 'c = "x" * 65_536; begin; File.open("/t/f", "w") { |f| loop { f.write(c) } }; rescue Errno::ENOSPC; end'
 
-  # How many of RUNS Tmpfs instances, each filled by one run under +gvl+ and
+  # How many of RUNS +Tmpfs+ instances, each filled by one run under +gvl+ and
   # let go, are alive once every run ended. Each is made in a frame of its
   # own, so none stays on the stack the count is read from.
   DROPPED = <<~RUBY.freeze
@@ -41,7 +41,7 @@ class TestE2EMountCollected < Minitest::Test
     end
   end
 
-  # How many times Ruby collected while a run filled its Tmpfs.
+  # How many times Ruby collected while a run filled its +Tmpfs+.
   FILLED = <<~RUBY.freeze
     sandbox = Kobako::Sandbox.new(wasm_path: WASM)
                              .mount("/t", Kobako::Filesystem::Tmpfs.new, access: :read_write)

@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # A child process the host has no thread or address space left for, through
-# the real Guest Binary.
+# the real guest binary.
 #
 # Exhausting the host would starve the test process, so each case is a child
 # that lowers its own soft limits and raises them again. RLIMIT_NPROC counts
@@ -31,7 +31,7 @@ module ExhaustedChild
     end
 
     # Whether the process can start no thread. Ruby 3.4 shows it through
-    # Thread.new itself; Ruby 3.3 queues a Thread whose native thread failed
+    # Thread.new itself; Ruby 3.3 queues a thread whose native thread failed
     # and hands it the GVL for ever (Bug #20779), so there the limit and the
     # user are read instead.
     def threads_refused?

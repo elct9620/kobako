@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E — a fork beside another Thread's run, through the real Guest Binary,
+# E2E — a fork beside another thread's run, through the real guest binary,
 # which raises at once rather than wait for the run. Each script lets its runs
 # go whatever the fork answered, so a fork that waits shows as unanswered
 # instead of keeping the run it waits on.

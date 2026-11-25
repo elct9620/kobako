@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 # A child process whose Ruby collects garbage by thresholds the case sets,
-# through the real Guest Binary. When Ruby collects on its own depends on how
+# through the real guest binary. When Ruby collects on its own depends on how
 # much the process allocated before, so a case judged by collection runs in a
 # child of its own with those thresholds fixed, as CRuby's own GC tests run
 # under child_env. Every Ruby from 3.3 reads these variables the same way.

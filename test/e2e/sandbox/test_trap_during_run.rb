@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E — a main-Thread trap handler that raises, landing as the guest
+# E2E — a main-thread trap handler that raises, landing as the guest
 # computes. The guest stands on a thread of its own, so the handler runs on
 # the caller, which holds what it raises before the next callback starts and
 # raises it once the run ends. A trap handler is the process's one, so each

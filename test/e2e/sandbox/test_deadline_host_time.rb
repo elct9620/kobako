@@ -9,8 +9,8 @@ require "test_helper"
 class TestE2EDeadlineHostTime < Minitest::Test
   include E2eGuestHelper
 
-  # Room for the guest to reach its Service, which then waits as long again,
-  # so the deadline passes inside the Service whenever the guest got there.
+  # Room for the guest to reach its service, which then waits as long again,
+  # so the deadline passes inside the service whenever the guest got there.
   DEADLINE = 0.2
 
   # @behavior S-169

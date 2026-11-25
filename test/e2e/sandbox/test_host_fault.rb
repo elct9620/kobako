@@ -2,10 +2,10 @@
 
 require "test_helper"
 
-# E2E — a SIGSEGV outside the guest after a run, through the real Guest Binary.
+# E2E — a SIGSEGV outside the guest after a run, through the real guest binary.
 #
 # A run leaves the process's handlers for the guest's faults in place, so a
-# fault the Host App itself takes must still reach Ruby's crash report rather
+# fault the host app itself takes must still reach Ruby's crash report rather
 # than be read as the guest's.
 class TestE2EHostFault < Minitest::Test
   include E2eGuestHelper

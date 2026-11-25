@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# E2E — how long a Thread waits for the GVL beside a run keeping it, against
-# a Thread computing in plain Ruby, under the quantum RUBY_THREAD_TIMESLICE
+# E2E — how long a thread waits for the GVL beside a run keeping it, against
+# a thread computing in plain Ruby, under the quantum RUBY_THREAD_TIMESLICE
 # sets. A Ruby reading no such variable keeps 100 ms for both.
 class TestE2EGvlTurnsQuantum < Minitest::Test
   include E2eGuestHelper
@@ -11,7 +11,7 @@ class TestE2EGvlTurnsQuantum < Minitest::Test
 
   DEADLINE = 30
 
-  # Prints the longest of a few waits for the GVL beside a Thread that never
+  # Prints the longest of a few waits for the GVL beside a thread that never
   # gives it up of its own accord: a guest that never ends, or plain Ruby.
   STALL = <<~RUBY
     require "kobako"

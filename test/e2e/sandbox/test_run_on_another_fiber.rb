@@ -3,9 +3,9 @@
 require "test_helper"
 require "weakref"
 
-# E2E — runs on Fibers of one Thread, one suspended inside its own run's
+# E2E — runs on fibers of one thread, one suspended inside its own run's
 # callback. Each run's guest stands on a thread of its own, so the runs end in
-# either order, and a run whose Fiber is left suspended and collected lets go
+# either order, and a run whose fiber is left suspended and collected lets go
 # of what its guest held.
 class TestE2ERunOnAnotherFiber < Minitest::Test
   include E2eGuestHelper
@@ -14,7 +14,7 @@ class TestE2ERunOnAnotherFiber < Minitest::Test
   # @behavior S-225
   def test_runs_on_two_fibers_of_one_thread_end_in_either_order
     %i[hold release].product([true, false]).each do |gvl, first_ends_first|
-      assert_equal %w[a b], two_suspended_runs(gvl, first_ends_first),
+      assert_equal %w[a b], resume_two_suspended_runs(gvl, first_ends_first),
                    "Sandbox#eval (gvl: #{gvl}) on two Fibers of one Thread, each suspended in its run's Service, " \
                    "must answer both runs when the #{first_ends_first ? "first" : "second"} resumes first"
     end
@@ -57,7 +57,7 @@ class TestE2ERunOnAnotherFiber < Minitest::Test
 
   private
 
-  # What a run on an Enumerator raises, writing to the Tmpfs whose directory
+  # What a run on an Enumerator raises, writing to the +Tmpfs+ whose directory
   # the outer run holds while its mount's block runs it, beside whether it
   # answered within a second.
   def write_from_enumerator_in_mount_block(gvl)
@@ -65,21 +65,21 @@ class TestE2ERunOnAnotherFiber < Minitest::Test
     inner = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl, timeout: 5).mount("/data", tmpfs, access: :read_write)
     seen = nil
     outer = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl).mount("/data", tmpfs, access: :read_write) do
-      seen ||= Enumerator.new { |y| y << within(1) { refused { inner.eval('File.write("/data/b", "2")') } } }.next
+      seen ||= Enumerator.new { |y| y << within(1) { rescue_error { inner.eval('File.write("/data/b", "2")') } } }.next
     end
     outer.eval('File.write("/data/a", "1")')
     seen
   end
 
-  def refused
+  def rescue_error
     yield
     nil
   rescue Kobako::SandboxError, Kobako::TimeoutError => e
     e.class
   end
 
-  # Weak references to the Tmpfs a Context mounted and the Fiber left suspended
-  # in that mount's block, which closes over the Fiber's own scope.
+  # Weak references to the +Tmpfs+ a context mounted and the fiber left suspended
+  # in that mount's block, which closes over the fiber's own scope.
   def abandon_with_context_mount(sandbox)
     tmpfs = Kobako::Filesystem::Tmpfs.new
     fiber = Fiber.new do
@@ -91,9 +91,9 @@ class TestE2ERunOnAnotherFiber < Minitest::Test
     [WeakRef.new(tmpfs), WeakRef.new(fiber)]
   end
 
-  # The answers of two runs on Fibers of this Thread, each suspended in its
-  # Service, in the order they were started.
-  def two_suspended_runs(gvl, first_ends_first)
+  # The answers of two runs on fibers of this thread, each suspended in its
+  # service, in the order they were started.
+  def resume_two_suspended_runs(gvl, first_ends_first)
     sandbox = pausing_sandbox(gvl)
     first, second = ['Host::Pause.call("a")', 'Host::Pause.call("b")'].map do |script|
       Fiber.new { sandbox.eval(script).value }.tap(&:resume)
@@ -113,16 +113,16 @@ class TestE2ERunOnAnotherFiber < Minitest::Test
     end
   end
 
-  # A Sandbox whose mount's block suspends its Fiber as the run writes.
+  # A sandbox whose mount's block suspends its fiber as the run writes.
   def parking_holder(tmpfs, gvl)
     Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl).mount("/data", tmpfs, access: :read_write) do |_path, access|
       Fiber.yield(:parked) if access == :read_write
     end
   end
 
-  # Leave the Fiber running +block+ suspended where it yields, as a Host App
-  # does, on a Thread that then ends, and wait for the collector to free it.
-  # The collector scans each live Thread's stack conservatively, so a Fiber
+  # Leave the fiber running +block+ suspended where it yields, as a host app
+  # does, on a thread that then ends, and wait for the collector to free it.
+  # The collector scans each live thread's stack conservatively, so a fiber
   # left on this one could stay reachable through a stray word.
   def abandon_suspended_run(&block)
     fiber = Thread.new do

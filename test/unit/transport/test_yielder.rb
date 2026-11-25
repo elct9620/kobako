@@ -49,7 +49,7 @@ class TestYielder < Minitest::Test
 
     error = assert_raises(Kobako::Codec::InvalidTypeError) { yielder.yield }
     assert_equal "payload holds more than 262144 values", error.message,
-                 "a block answer holding more values than the budget through Yielder#yield must " \
-                 "raise at the Service's yield site rather than reach the Service"
+                 "a block answer holding more values than the budget must raise at the service's yield " \
+                 "site rather than reach the service"
   end
 end

@@ -3,22 +3,22 @@
 require "test_helper"
 
 # E2E — a Sandbox#mount nested inside another that kobako refuses to place,
-# through the real Guest Binary: the run fails naming it, as a container fails
+# through the real guest binary: the run fails naming it, as a container fails
 # to start.
 class TestE2EMountUnreached < Minitest::Test
   include E2eGuestHelper
   include MountReads
 
-  # Wraps +bind+ as the outer Filesystem, by name: the Bind alone, and an
-  # Overlay whose lower Layer it is.
+  # Wraps +bind+ as the outer filesystem, by name: the +Bind+ alone, and an
+  # +Overlay+ whose lower layer it is.
   OUTERS = {
     "Bind" => ->(bind) { bind },
     "Overlay" => ->(bind) { Kobako::Filesystem::Overlay.new(lower: [bind], upper: Kobako::Filesystem::Tmpfs.new) }
   }.freeze
 
-  # A Sandbox with +outer+ wrapping a Bind over +host+ at +/data+, whose
-  # +inner+ is a link to +real/+, and a Tmpfs at +at+.
-  def through_link(host, outer, at)
+  # A sandbox with +outer+ wrapping a +Bind+ over +host+ at +/data+, whose
+  # +inner+ is a link to +real/+, and a +Tmpfs+ at +at+.
+  def mount_through_link(host, outer, at)
     FileUtils.mkdir_p(File.join(host, "real", "x"))
     File.symlink("real", File.join(host, "inner"))
     Kobako::Sandbox.new(wasm_path: REAL_WASM)
@@ -32,7 +32,7 @@ class TestE2EMountUnreached < Minitest::Test
     OUTERS.each do |kind, outer|
       %w[/data/inner /data/inner/x].each do |at|
         TestPaths.host_directory do |host|
-          error = assert_raises(Kobako::SandboxError) { through_link(host, outer, at).eval("nil") }
+          error = assert_raises(Kobako::SandboxError) { mount_through_link(host, outer, at).eval("nil") }
           assert_includes error.message, %("#{at}" stands nowhere: ELOOP),
                           "Sandbox#eval with a mount at #{at}, past a link in a #{kind}, must fail naming it"
         end

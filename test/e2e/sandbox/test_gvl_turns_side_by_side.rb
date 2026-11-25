@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E — two runs keeping the GVL whose guests wait on each other through one
-# Tmpfs. Each caller hands the GVL over while it waits for its guest, so both
+# +Tmpfs+. Each caller hands the GVL over while it waits for its guest, so both
 # guests go on at once; served one at a time, the first would wait forever.
 class TestE2EGvlTurnsSideBySide < Minitest::Test
   include E2eGuestHelper

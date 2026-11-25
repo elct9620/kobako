@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# E2E — what counts against +memory_limit+ from the moment a run's Store
-# opens: what a Guest Binary declares is its baseline, and every growth past
+# E2E — what counts against +memory_limit+ from the moment a run's store
+# opens: what a guest binary declares is its baseline, and every growth past
 # it, whichever memory, table, or heap it lands in, counts against the one
 # cap.
 class TestE2EMemoryBudget < Minitest::Test
@@ -21,12 +21,12 @@ class TestE2EMemoryBudget < Minitest::Test
     kept.size
   GUEST
 
-  # A Guest Binary's declared memory and table, each past the cap, are its
+  # A guest binary's declared memory and table, each past the cap, are its
   # baseline: the run gets past instantiation and fails only for answering
   # nothing.
   # @behavior S-113
   def test_what_a_guest_binary_declares_takes_none_of_the_memory_cap
-    error = assert_raises(Kobako::TrapError) { run_fixture("minimal_declared_large.wat") }
+    error = assert_raises(Kobako::TrapError) { run_fixture("minimal_large_declarations.wat") }
 
     assert_equal Kobako::TrapError, error.class,
                  "a Guest Binary declaring a 2 MiB memory and a 2 MiB table under a 1 MiB memory_limit " \
@@ -56,7 +56,7 @@ class TestE2EMemoryBudget < Minitest::Test
                   "MemoryLimitError") { run_fixture("minimal_growing_table.wat") }
   end
 
-  # Building the Sandbox instantiates the guest outside any run, so it goes
+  # Building the sandbox instantiates the guest outside any run, so it goes
   # through; only the run's own instantiation is charged.
   # @behavior S-259
   def test_a_start_function_growing_past_the_memory_cap_raises
@@ -98,7 +98,7 @@ class TestE2EMemoryBudget < Minitest::Test
                   "must raise MemoryLimitError") { sandbox.eval(GROW_AFTER_RESCUE) }
   end
 
-  # A Service answering a Call by yielding once, so each round trips both
+  # A service answering a call by yielding once, so each round trips both
   # ways.
   class Echo
     def once = yield(1)
@@ -106,9 +106,9 @@ class TestE2EMemoryBudget < Minitest::Test
 
   ROUND_TRIPS = "%<calls>d.times { Echo.once { |n| n } }; nil"
 
-  # Each Call leaves a Reply the host wrote and each yield an answer the
+  # Each call leaves a reply the host wrote and each yield an answer the
   # guest wrote; both kept would grow the peak with the count, a page at a
-  # time, so three times the Calls would show.
+  # time, so three times the calls would show.
   # @behavior S-262
   def test_a_call_or_a_yield_once_answered_keeps_none_of_the_memory_budget
     peaks = [20_000, 60_000].map do |calls|

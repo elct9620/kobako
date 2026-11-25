@@ -99,7 +99,7 @@ class TestE2ENetworkDialCounts < Minitest::Test
 
   REFUSED = "93.184.216.99"
 
-  # A Sandbox under connection_limit: 2 reaching `app.test`, PUBLIC, and
+  # A sandbox under connection_limit: 2 reaching `app.test`, PUBLIC, and
   # REFUSED, whose connect policy refuses REFUSED.
   def guarded_sandbox(mock)
     mock_sandbox(mock, connection_limit: 2) do |net|

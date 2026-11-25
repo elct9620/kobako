@@ -26,7 +26,7 @@ module Kobako
     end
 
     # A compile of +table+ on its own thread, held inside the compiler until
-    # #release, as an engine a Host App brings may take as long as it likes.
+    # #release, as an engine a host app brings may take as long as it likes.
     class HeldCompile
       def initialize(table)
         began = Thread::Queue.new
@@ -116,8 +116,8 @@ module Kobako
       held.release
 
       assert_equal [[], before], [second.requests, during],
-                   "an invocation beginning while another compiles through Catalog::Snippets#compile must " \
-                   "replay the source without waiting, and must not compile it again"
+                   "an invocation beginning while another compiles the snippets must replay the source " \
+                   "without waiting, and must not compile it again"
     end
 
     def test_a_table_without_source_asks_for_no_compile

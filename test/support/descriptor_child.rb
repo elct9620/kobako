@@ -1,6 +1,6 @@
 # frozen_string_literal: true
 
-# A child process out of host descriptors, through the real Guest Binary.
+# A child process out of host descriptors, through the real guest binary.
 #
 # A process out of descriptors cannot be staged without starving the test
 # process, so each case is a child that lowers its own soft limit to 256,
@@ -29,7 +29,7 @@ module DescriptorChild
 
     # A host tree under HOSTS/+name+ of +count+ directories, each +depth+
     # deep and holding note.txt at its bottom.
-    def tree(name, count: 1, depth: 1)
+    def make_tree(name, count: 1, depth: 1)
       root = File.join(HOSTS, name)
       count.times do |at|
         dir = File.join(root, "d\#{at}", *Array.new(depth - 1, "d"))
@@ -39,7 +39,7 @@ module DescriptorChild
       root
     end
 
-    # A Sandbox with each Bind of +binds+ mounted at its key.
+    # A sandbox with each +Bind+ of +binds+ mounted at its key.
     def sandbox(open_file_limit: 64, **binds)
       sandbox = Kobako::Sandbox.new(wasm_path: WASM, open_file_limit: open_file_limit)
       binds.each { |at, root| sandbox.mount("/\#{at}", Kobako::Filesystem::Bind.new(root), access: :read_write) }
@@ -66,9 +66,9 @@ module DescriptorChild
     def leave(free)
       loop { HELD << File.open(File::NULL) }
     rescue Errno::EMFILE
-      abort "only \#{HELD.size} could be freed" if HELD.size < free
+      abort "only \#{HELD.size} could be freed: the child inherited more than 256 leaves room for" if HELD.size < free
       free.times { HELD.pop.close }
-      abort "room is \#{room}, not \#{free}" unless room == free
+      abort "room is \#{room}, not \#{free}: something else in the child opened or closed one" unless room == free
     end
 
     # What the guest answered, the name of the Errno it raised when it did.

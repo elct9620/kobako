@@ -17,8 +17,8 @@ class TestE2EDirectoryLockThreads < Minitest::Test
 
   DEADLINE = 30
 
-  # One Sandbox creating a file through an Overlay whose lower Ruby Layer,
-  # asked about the new name holding the directory, goes on once a Sandbox
+  # One sandbox creating a file through an overlay whose lower Ruby layer,
+  # asked about the new name holding the directory, goes on once a sandbox
   # holding the GVL waits looking in that directory.
   CHILD = <<~RUBY
     require "kobako"
@@ -50,8 +50,8 @@ class TestE2EDirectoryLockThreads < Minitest::Test
     print [maker.value, looking.value].inspect
   RUBY
 
-  # One Sandbox creating a file in a Tmpfs whose mount's block, asked about
-  # the change holding the directory, goes on once a Sandbox holding the GVL
+  # One sandbox creating a file in a +Tmpfs+ whose mount's block, asked about
+  # the change holding the directory, goes on once a sandbox holding the GVL
   # waits looking in that directory.
   POLICY_CHILD = <<~RUBY
     require "kobako"
@@ -75,8 +75,8 @@ class TestE2EDirectoryLockThreads < Minitest::Test
     print [maker.value, looking.value].inspect
   RUBY
 
-  # One Sandbox holding a directory in its mount's block until a second,
-  # waiting on that directory, has a Timeout::Error raised into its Thread,
+  # One sandbox holding a directory in its mount's block until a second,
+  # waiting on that directory, has a Timeout::Error raised into its thread,
   # as a Timeout raises; then a third changing it once the first is done.
   INTERRUPTED_CHILD = <<~RUBY
     require "kobako"

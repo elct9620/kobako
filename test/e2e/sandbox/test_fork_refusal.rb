@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# E2E — a fork from a Thread inside a run, through the real Guest Binary,
-# which raises, as the fork would wait on the Thread's own run.
+# E2E — a fork from a thread inside a run, through the real guest binary,
+# which raises, as the fork would wait on the thread's own run.
 class TestE2EForkRefusal < Minitest::Test
   include ForkingChild
 

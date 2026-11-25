@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E — the most values one guest payload may make the host build, the
-# Codec's own 262144 whatever the memory cap.
+# codec's own 262144 whatever the memory cap.
 class TestSandboxValueBudget < Minitest::Test
   include GuestGuard
 

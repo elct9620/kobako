@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# E2E — a run that starts while a fork is under way, through the real Guest
-# Binary. A `_fork` hook prepended before the first Sandbox runs inside
+# E2E — a run that starts while a fork is under way, through the real guest
+# binary. A `_fork` hook prepended before the first sandbox runs inside
 # kobako's own, so the fork stops there with runs held back.
 class TestE2EForkUnderWay < Minitest::Test
   include ForkingChild
@@ -56,8 +56,8 @@ class TestE2EForkUnderWay < Minitest::Test
                  "waiting run must go on"
   end
 
-  # A hook prepended after the first Sandbox stands outside kobako's, so it
-  # forks again the moment the gate opens, before the waiting run's Thread
+  # A hook prepended after the first sandbox stands outside kobako's, so it
+  # forks again the moment the gate opens, before the waiting run's thread
   # could take a turn of its own.
   FORK_AGAIN_AS_ONE_RETURNS = <<~RUBY
     queue = Queue.new

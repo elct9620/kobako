@@ -2,18 +2,18 @@
 
 require "test_helper"
 
-# E2E — a run waiting on the host, its Thread woken by Ruby, through the real
-# Guest Binary. Ruby wakes a Thread for an exception, a trap, or
+# E2E — a run waiting on the host, its thread woken by Ruby, through the real
+# guest binary. Ruby wakes a thread for an exception, a trap, or
 # Thread#wakeup alike, so the wait goes on unless the wakeup raises.
 class TestE2EWakeupDuringWait < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
   include Handshake
 
-  # A Ruby exception outside StandardError, as a Host App stops a run with.
+  # A Ruby exception outside StandardError, as a host app stops a run with.
   class Stop < Exception; end # rubocop:disable Lint/InheritException
 
-  # The guest's own open_timeout, which ends the lookup the Mock holds.
+  # The guest's own open_timeout, which ends the lookup the mock holds.
   OPEN_TIMEOUT = 0.3
 
   LOOKUP = <<~RUBY
@@ -28,16 +28,16 @@ class TestE2EWakeupDuringWait < Minitest::Test
     answer
   RUBY
 
-  # What the guest's lookup answers while the Mock holds it past
-  # +open_timeout+ seconds, the run's Thread taking +poke+ once the lookup
-  # reached the Mock; +went+ is filled once the guest goes on past it.
+  # What the guest's lookup answers while the mock holds it past
+  # +open_timeout+ seconds, the run's thread taking +poke+ once the lookup
+  # reached the mock; +went+ is filled once the guest goes on past it.
   def lookup_while(gvl, went = [], open_timeout: OPEN_TIMEOUT, &poke)
     mock = Kobako::Network::Mock.new
     sandbox = stalled_sandbox(gvl, mock, went)
     script = format(LOOKUP, open_timeout: open_timeout)
     runner = Thread.new { mock.hold("stall.test") { sandbox.eval(script).value } }
     runner.report_on_exception = false
-    wait_until("the guest's lookup never reached the Mock") { mock.lookups.any? || !runner.alive? }
+    wait_until("the guest's lookup never reached the mock") { mock.lookups.any? || !runner.alive? }
     poke.call(runner)
     runner.value
   end
@@ -49,9 +49,9 @@ class TestE2EWakeupDuringWait < Minitest::Test
   end
 
   # What a lookup with an open_timeout far past the test raised once its
-  # Thread took Thread#raise(Stop), and whether the guest went on past the
+  # thread took Thread#raise(Stop), and whether the guest went on past the
   # lookup, as it would only once the open_timeout ended it.
-  def stopped_lookup(gvl)
+  def stop_lookup(gvl)
     went = []
     lookup_while(gvl, went, open_timeout: 20) { |runner| runner.raise(Stop) }
     [nil, went.any?]
@@ -59,13 +59,13 @@ class TestE2EWakeupDuringWait < Minitest::Test
     [e, went.any?]
   end
 
-  # What the guest's write answers while another Sandbox's mount block holds
-  # the directory, the run's Thread woken while it waits, then the block let
+  # What the guest's write answers while another sandbox's mount block holds
+  # the directory, the run's thread woken while it waits, then the block let
   # go.
   def write_while_held(gvl)
     tmpfs = Kobako::Filesystem::Tmpfs.new
     release = Thread::Queue.new
-    holder = holding(tmpfs, release)
+    holder = hold_root(tmpfs, release)
     waiting = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl, timeout: 30)
                              .mount("/data", tmpfs, access: :read_write)
     runner = Thread.new { waiting.eval('File.write("/data/b", "2")').value }
@@ -75,9 +75,9 @@ class TestE2EWakeupDuringWait < Minitest::Test
     runner.value.tap { holder.join }
   end
 
-  # A Thread whose run holds +tmpfs+'s root from its mount's block until
+  # A thread whose run holds +tmpfs+'s root from its mount's block until
   # +release+ is filled, started once the block holds it.
-  def holding(tmpfs, release)
+  def hold_root(tmpfs, release)
     asking = Thread::Queue.new
     holder = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: :release)
     holder.mount("/data", tmpfs, access: :read_write) do |_path, access|
@@ -104,7 +104,7 @@ class TestE2EWakeupDuringWait < Minitest::Test
 
     # @behavior S-222
     define_method(:"test_a_wakeup_that_raises_ends_the_run_under_#{gvl}") do
-      raised, went = stopped_lookup(gvl)
+      raised, went = stop_lookup(gvl)
       assert_equal [Stop, false], [raised.class, went],
                    "a Thread#raise(Stop) into a guest's Net::HTTP lookup the Mock holds, with gvl: :#{gvl}, " \
                    "must end the run before the lookup's own open_timeout and raise Stop in the Host App, " \

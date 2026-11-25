@@ -7,13 +7,13 @@ require "test_helper"
 class TestE2EHostDescriptors < Minitest::Test
   include DescriptorChild
 
-  # Each Bind holds its root from Bind.new, so the descriptors are counted
-  # once they stand and while the Sandbox is held: only the kept directories
+  # Each +Bind+ holds its root from Bind.new, so the descriptors are counted
+  # once they stand and while the sandbox is held: only the kept directories
   # count, whatever Ruby collects meanwhile.
   # @behavior FS-151
   def test_binds_reading_many_directories_leave_the_host_its_descriptors
     before, after = run_descriptor_child(<<~RUBY).scan(/\d+/).map(&:to_i)
-      sandboxed = sandbox(**(0...4).to_h { |at| [:"b\#{at}", tree("b\#{at}", count: 100)] })
+      sandboxed = sandbox(**(0...4).to_h { |at| [:"b\#{at}", make_tree("b\#{at}", count: 100)] })
       before = open_descriptors
       sandboxed.eval('4.times { |b| 100.times { |d| File.read("/b" + b.to_s + "/d" + d.to_s + "/note.txt") } }')
       print [before, open_descriptors].inspect
@@ -26,9 +26,9 @@ class TestE2EHostDescriptors < Minitest::Test
   # @behavior FS-217
   def test_a_bind_reads_while_another_binds_directories_fill_the_host
     answer = run_descriptor_child(<<~RUBY)
-      full = sandbox(full: tree("full", count: 100))
+      full = sandbox(full: make_tree("full", count: 100))
       full.eval('100.times { |d| File.read("/full/d" + d.to_s + "/note.txt") }')
-      fresh = sandbox(fresh: tree("fresh"))
+      fresh = sandbox(fresh: make_tree("fresh"))
       leave(0)
       print answer(fresh, 'File.read("/fresh/d0/note.txt")')
     RUBY
@@ -39,7 +39,7 @@ class TestE2EHostDescriptors < Minitest::Test
   # Descriptors the process holds before and after its Binds kept 100
   # directories, and in a child forked after that.
   FORKED = <<~RUBY
-    sandboxed = sandbox(b0: tree("b0", count: 100))
+    sandboxed = sandbox(b0: make_tree("b0", count: 100))
     before = open_descriptors
     sandboxed.eval('100.times { |d| File.read("/b0/d" + d.to_s + "/note.txt") }')
     kept = open_descriptors
@@ -76,7 +76,7 @@ class TestE2EHostDescriptors < Minitest::Test
   def test_each_operation_32_directories_deep_lands_with_three_descriptors_free
     answers = OPERATIONS.to_h do |name, call|
       [name, run_descriptor_child(<<~RUBY)]
-        sandboxed = sandbox(b0: tree("b0", depth: 32))
+        sandboxed = sandbox(b0: make_tree("b0", depth: 32))
         leave(3)
         print answer(sandboxed, #{%(Dir.chdir("/b0/d0") { #{call}; :done }).inspect})
       RUBY

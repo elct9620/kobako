@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E — a guest socket the host has no thread to watch, through the real
-# Guest Binary. The process's reactor starts with the first socket it
+# guest binary. The process's reactor starts with the first socket it
 # watches, so the child connects nothing before it can start no thread.
 class TestE2ENetworkExhaustedHost < Minitest::Test
   include ExhaustedChild

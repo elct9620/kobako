@@ -21,7 +21,7 @@ class TestE2ENetworkCallCounts < Minitest::Test
     end
   RUBY
 
-  # A Sandbox under +limit+ whose names under `.test` answer nothing.
+  # A sandbox under +limit+ whose names under `.test` answer nothing.
   def silent_names_sandbox(mock, limit)
     mock_sandbox(mock, connection_limit: limit) { |net| net.endpoint "*.test", port: 80, protocol: :tcp }
   end

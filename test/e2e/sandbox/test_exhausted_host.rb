@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# E2E — a Sandbox the host has no thread or address space left for, through
-# the real Guest Binary. Each case runs beside a run waiting in a Service, so
+# E2E — a sandbox the host has no thread or address space left for, through
+# the real guest binary. Each case runs beside a run waiting in a service, so
 # a run that fails leaves its neighbour to answer.
 class TestE2EExhaustedHost < Minitest::Test
   include ExhaustedChild

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E — a run on a Thread a forked child starts, through the real Guest Binary.
+# E2E — a run on a thread a forked child starts, through the real guest binary.
 #
 # The parent runs once before forking, so the process has already set up what
 # catches a guest's faults when the child starts. A child that cannot run

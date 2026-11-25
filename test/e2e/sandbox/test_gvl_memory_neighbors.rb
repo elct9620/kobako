@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E — a run taking all the memory or the time it may beside another run
-# on another Thread, under both gvl: modes: the other run still reaches its
+# on another thread, under both gvl: modes: the other run still reaches its
 # own memory_limit and answers.
 class TestE2EGvlMemoryNeighbors < Minitest::Test
   include E2eGuestHelper
@@ -33,7 +33,7 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
 
   # @behavior RT-418
   def test_a_run_filling_its_memory_leaves_a_neighbour_its_own
-    answers = GVL_MODES.map { |mode| side_by_side(mode) }
+    answers = GVL_MODES.map { |mode| eval_beside_greedy(mode) }
 
     assert_equal [[Kobako::MemoryLimitError, 3_000_000]] * 2, answers,
                  "a run filling its memory_limit and refused more growth must leave a run beside it " \
@@ -52,8 +52,8 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
   private
 
   # What a short script answers beside the flood, and whether the flood still
-  # ran as it answered. Both Sandboxes are built first, so the first compile of
-  # the Guest Binary in a process with a cold artifact cache plays no part.
+  # ran as it answered. Both sandboxes are built first, so the first compile of
+  # the guest binary in a process with a cold artifact cache plays no part.
   def eval_beside_flood(mode)
     neighbour = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode)
     flooder = Kobako::Sandbox.new(wasm_path: TestPaths.fixture("minimal_random_flood.wat"),
@@ -67,13 +67,13 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
     [answer, still]
   end
 
-  def side_by_side(mode)
+  def eval_beside_greedy(mode)
     greedy = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode)
     victim = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode)
-    [Thread.new { refusal(greedy) }, Thread.new { victim.eval(VICTIM).value }].map(&:value)
+    [Thread.new { eval_greedy(greedy) }, Thread.new { victim.eval(VICTIM).value }].map(&:value)
   end
 
-  def refusal(sandbox)
+  def eval_greedy(sandbox)
     sandbox.eval(GREEDY)
     nil
   rescue Kobako::MemoryLimitError => e

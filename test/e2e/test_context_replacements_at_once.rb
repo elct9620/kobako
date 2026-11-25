@@ -3,10 +3,10 @@
 require "test_helper"
 require "support/rendezvous"
 
-# E2E — Threads sharing one Sandbox, each invocation's Context replacing a
-# mount or a network entry: what one Context gives stays with its own
+# E2E — threads sharing one sandbox, each invocation's context replacing a
+# mount or a network entry: what one context gives stays with its own
 # invocation while the others run at once. Each round's invocations meet
-# inside their Context blocks after replacing, so every replacement is made
+# inside their context blocks after replacing, so every replacement is made
 # before any of them runs.
 class TestE2EContextReplacementsAtOnce < Minitest::Test
   include E2eGuestHelper
@@ -29,7 +29,7 @@ class TestE2EContextReplacementsAtOnce < Minitest::Test
   # @behavior MT-063
   def test_invocations_at_once_each_reach_only_the_mount_their_own_context_gave
     shared = Kobako::Filesystem::Tmpfs.new("who.txt" => "shared")
-    sandbox = release_sandbox.mount("/data", shared, access: :read_write)
+    sandbox = releasing_sandbox.mount("/data", shared, access: :read_write)
 
     assert_equal expected_views, at_once { |tenant, round| read_own_mount(sandbox, tenant, round) },
                  "invocations at once on one shared Sandbox, each with its own ctx.mount, must each read and " \
@@ -41,7 +41,7 @@ class TestE2EContextReplacementsAtOnce < Minitest::Test
   # @behavior NW-234
   def test_invocations_at_once_each_reach_only_the_entry_their_own_context_gave
     judged = Queue.new
-    sandbox = release_sandbox.network(:api, RecordingEntry.new(:shared, judged))
+    sandbox = releasing_sandbox.network(:api, RecordingEntry.new(:shared, judged))
     at_once { |tenant, round| look_up_through_own_entry(sandbox, tenant, round, judged) }
 
     assert_equal expected_lookups, drain(judged),
@@ -54,12 +54,12 @@ class TestE2EContextReplacementsAtOnce < Minitest::Test
 
   private
 
-  def release_sandbox
+  def releasing_sandbox
     Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: :release)
   end
 
-  # Run ROUNDS rounds on each of TENANTS Threads at once, each round handed
-  # the meeting point its invocations share, answering each Thread's
+  # Run ROUNDS rounds on each of TENANTS threads at once, each round handed
+  # the meeting point its invocations share, answering each thread's
   # distinct results paired with its tenant.
   def at_once(&block)
     meetings = Array.new(ROUNDS) { Rendezvous.new(TENANTS) }

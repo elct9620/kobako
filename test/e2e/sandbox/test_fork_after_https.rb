@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E — a fork after a guest's HTTPS, through the real Guest Binary. macOS
+# E2E — a fork after a guest's HTTPS, through the real guest binary. macOS
 # verifies a certificate through services a forked child loses, so a fork
 # there raises; Linux reads certificates from files. The HTTPS reaches a
 # loopback server with a certificate of its own, which the system still
@@ -10,7 +10,7 @@ require "test_helper"
 class TestE2EForkAfterHttps < Minitest::Test
   include ForkingChild
 
-  # A loopback TLS server with a certificate no system trusts, the Sandbox
+  # A loopback TLS server with a certificate no system trusts, the sandbox
   # +web+ that reaches it, and the +request+ its guest makes over HTTPS.
   HTTPS_PRELUDE = <<~RUBY
     require "openssl"

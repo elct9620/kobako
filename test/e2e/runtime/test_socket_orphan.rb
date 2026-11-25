@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E — a TCP socket a script closes while bytes it wrote still wait for a
-# peer that never reads, through the real Guest Binary: the socket goes on
+# peer that never reads, through the real guest binary: the socket goes on
 # sending as Linux's orphan does, holding its connection but no descriptor.
 class TestE2ESocketOrphan < Minitest::Test
   include E2eGuestHelper

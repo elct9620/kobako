@@ -35,8 +35,8 @@ class TestE2EHostException < Minitest::Test
     assert_empty @went_on, "an Interrupt from a Ruby Filesystem's open through Sandbox#eval must end the run"
   end
 
-  # Raised into the run's Thread, outside StandardError, as a Timeout or a
-  # signal raises its own, once the Filesystem's open has begun, where a guest
+  # Raised into the run's thread, outside StandardError, as a Timeout or a
+  # signal raises its own, once the filesystem's open has begun, where a guest
   # answer would swallow it.
   # @behavior RF-014
   def test_an_exception_raised_into_a_ruby_filesystems_open_reaches_the_host_app

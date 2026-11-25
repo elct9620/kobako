@@ -6,7 +6,7 @@
 # prints what the neighbours said they hold, what the run and its nested run
 # answered, what a fork beside it did, what 12 runs after it answered, and
 # what ended each neighbour no longer there, then exits at once, leaving the
-# neighbours running. Under :hold every host call of this Thread waits its
+# neighbours running. Under :hold every host call of this thread waits its
 # turn behind each neighbour's slice of the GVL, so it makes as few as it
 # can, and its parent cleans up.
 #
@@ -46,7 +46,7 @@ def sandbox(timeout: NEIGHBOUR_TIMEOUT)
   end
 end
 
-def bind(at) = Kobako::Filesystem::Bind.new(File.join(HOST, "b#{at}"))
+def bind_for(at) = Kobako::Filesystem::Bind.new(File.join(HOST, "b#{at}"))
 
 # What each neighbour says it holds; every one goes round for as long as
 # the process lives.
@@ -62,7 +62,7 @@ class Crowd
 end
 
 # Says the run is about to ask the parked directory.
-class Asking
+class SaysAsking
   def initialize(queue)
     @queue = queue
   end
@@ -102,7 +102,7 @@ SOCKET_WAITER = <<~GUEST.freeze
   end
 GUEST
 
-# Walks four Binds, taking its connections, descriptors, and memory up to its
+# Walks four +Bind+ mounts, taking its connections, descriptors, and memory up to its
 # own caps, then asks again.
 LEAF = <<~GUEST.freeze
   kept = []
@@ -147,22 +147,22 @@ VICTIM = <<~GUEST.freeze
   [read, echoed, kept.sum(&:bytesize), seen]
 GUEST
 
-def neighbour(sandbox, script)
+def start_neighbour(sandbox, script)
   Thread.new { sandbox.bind("Crowd::Ctl", CROWD).eval(script).value }
 end
 
-def computing
+def start_computing
   Thread.new do
     Kobako::Sandbox.new(wasm_path: WASM, timeout: nil, **CAPS).bind("Crowd::Ctl", CROWD)
                    .eval('Crowd::Ctl.holds("gvl"); loop { }').value
   end
 end
 
-def writer(at) = neighbour(sandbox.mount("/s", SHARED, access: :read_write), format(WRITER, at: at))
+def start_writer(at) = start_neighbour(sandbox.mount("/s", SHARED, access: :read_write), format(WRITER, at: at))
 
 # A writer whose mount's block parks on +gate+ as it first creates
 # /s/p/park, so it holds that directory, saying so through +parked+.
-def parked_writer(gate, parked)
+def start_parked_writer(gate, parked)
   held = false
   park = sandbox.mount("/s", SHARED, access: :read_write) do |path, access|
     next true if held || path != "/s/p/park" || access != :read_write
@@ -172,24 +172,24 @@ def parked_writer(gate, parked)
     gate.pop
     true
   end
-  neighbour(park, PARKED)
+  start_neighbour(park, PARKED)
 end
 
-def leaf
+def start_leaf
   leaf = sandbox
-  4.times { |at| leaf.mount("/b#{at}", bind(at), access: :read) }
-  neighbour(leaf, LEAF)
+  4.times { |at| leaf.mount("/b#{at}", bind_for(at), access: :read) }
+  start_neighbour(leaf, LEAF)
 end
 
 # The run, whose mount's block runs a nested run that round trips once and
 # keeps its answer in +inner+.
-def victim(inner, asking)
-  run = sandbox(timeout: RUN_TIMEOUT).mount("/s", SHARED, access: :read_write).mount("/b", bind(0), access: :read)
+def build_victim(inner, asking)
+  run = sandbox(timeout: RUN_TIMEOUT).mount("/s", SHARED, access: :read_write).mount("/b", bind_for(0), access: :read)
   run.mount("/m", Kobako::Filesystem::Tmpfs.new, access: :read_write) do
     inner << sandbox(timeout: RUN_TIMEOUT).eval(INNER).value if inner.empty?
     true
   end
-  run.bind("Asking", Asking.new(asking))
+  run.bind("Asking", SaysAsking.new(asking))
 end
 
 def fork_beside
@@ -200,7 +200,7 @@ rescue RuntimeError
 end
 
 # What ended +thread+, a neighbour no longer there.
-def ended(thread)
+def end_reason_of(thread)
   thread.value.inspect
 rescue Kobako::Error => e
   e.message
@@ -208,15 +208,15 @@ end
 
 gate = Queue.new
 parked = Queue.new
-neighbours = Array.new(3) { |at| ["writer #{at}", writer(at)] }.to_h
-neighbours.merge!("computing" => computing, "parked" => parked_writer(gate, parked),
-                  "socket waiter" => neighbour(sandbox, SOCKET_WAITER), "leaf" => leaf)
+neighbours = Array.new(3) { |at| ["writer #{at}", start_writer(at)] }.to_h
+neighbours.merge!("computing" => start_computing, "parked" => start_parked_writer(gate, parked),
+                  "socket waiter" => start_neighbour(sandbox, SOCKET_WAITER), "leaf" => start_leaf)
 said = Array.new(6) { CROWD.said.pop(timeout: WAITED) or abort "a neighbour never said it holds; its run failed" }
 parked.pop(timeout: WAITED) or abort "the parked writer never reached its mount's block; its run failed"
 
 inner = []
 asking = Queue.new
-victim_run = victim(inner, asking)
+victim_run = build_victim(inner, asking)
 run = Thread.new { victim_run.eval(VICTIM).value }
 asking.pop(timeout: WAITED) or abort "the run never reached the parked directory; it failed first"
 forked = fork_beside
@@ -227,11 +227,11 @@ answer = run.value
 
 after = Array.new(12) do
   Thread.new do
-    Kobako::Sandbox.new(wasm_path: WASM, timeout: RUN_TIMEOUT, **CAPS).mount("/b", bind(0), access: :read)
+    Kobako::Sandbox.new(wasm_path: WASM, timeout: RUN_TIMEOUT, **CAPS).mount("/b", bind_for(0), access: :read)
                    .eval('File.read("/b/d/note.txt")').value
   end
 end.map(&:value)
-gone = neighbours.reject { |_, thread| thread.alive? }.map { |name, thread| "#{name}: #{ended(thread)}" }
+gone = neighbours.reject { |_, thread| thread.alive? }.map { |name, thread| "#{name}: #{end_reason_of(thread)}" }
 
 print [said.sort, answer, inner, forked, after.uniq, gone].inspect
 $stdout.flush

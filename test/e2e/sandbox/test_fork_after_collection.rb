@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# E2E — a fork right after the collector freed a Fiber suspended in its run,
-# through the real Guest Binary. The run is in progress until its guest ends,
+# E2E — a fork right after the collector freed a fiber suspended in its run,
+# through the real guest binary. The run is in progress until its guest ends,
 # so a fork either raises or leaves a child that takes the run's locks.
 class TestE2EForkAfterCollection < Minitest::Test
   include ForkingChild

@@ -2,8 +2,8 @@
 
 require "test_helper"
 
-# Distinct Sandboxes on distinct Threads execute independently: each thread
-# owns its Sandbox, and guest global state set on one never reaches the
+# Distinct sandboxes on distinct threads execute independently: each thread
+# owns its sandbox, and guest global state set on one never reaches the
 # other.
 class TestE2EThreading < Minitest::Test
   include E2eGuestHelper

@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E — a run releasing the GVL waiting on its guest under a Fiber scheduler
+# E2E — a run releasing the GVL waiting on its guest under a fiber scheduler
 # that runs blocking operations on another thread. Async does so with its
 # worker pool, which io-event builds only where Ruby offers the scheduler
 # hook's operations, and which a process turns on as it starts, so each case
@@ -18,9 +18,9 @@ class TestE2EFiberSchedulerWait < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release, timeout: 30)
   RUBY
 
-  # Each guest marks its file on a shared Tmpfs, then computes until the
+  # Each guest marks its file on a shared +Tmpfs+, then computes until the
   # other's is there, so both finish only if the scheduler runs the other
-  # run's Fiber while the first waits on its guest; run one after the other,
+  # run's fiber while the first waits on its guest; run one after the other,
   # they would reach their deadline instead. A guest spinning on a check
   # allocates as fast as it asks, so its memory is not capped.
   OVERLAP_CHILD = PRELUDE + <<~RUBY

@@ -2,9 +2,9 @@
 
 require "test_helper"
 
-# E2E — the root every Sandbox#mount is reached from, through the real Guest
-# Binary: the guest walks from `/` as Linux walks from a process's root, and
-# where the Host App mounts nothing there, the root holds only the way to
+# E2E — the root every Sandbox#mount is reached from, through the real guest
+# binary: the guest walks from `/` as Linux walks from a process's root, and
+# where the host app mounts nothing there, the root holds only the way to
 # each mount.
 class TestE2EMountRoot < Minitest::Test
   include E2eGuestHelper

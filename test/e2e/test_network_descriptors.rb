@@ -3,7 +3,7 @@
 require "test_helper"
 
 # E2E — the host descriptors a guest's connection holds, against a process
-# with one left, through the real Guest Binary. The loopback server runs in
+# with one left, through the real guest binary. The loopback server runs in
 # this process, and each child connects once before it fills, so the reactor
 # it starts on the first connection holds its own already and the one left
 # is the connection's alone.

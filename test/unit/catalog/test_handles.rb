@@ -75,19 +75,19 @@ module Kobako
     # SandboxError must catch the exhaustion, so its class matters even though
     # the dispatcher turns the raise into a fault the guest observes.
     # @behavior T-012 T-185
-    def test_the_millionth_alloc_succeeds_then_next_alloc_raises
+    def test_the_millionth_handle_is_issued_then_the_next_raises
       table = Table.new(next_id: 1_000_000)
 
       assert_equal 1_000_000, table.alloc(Object.new).id,
-                   "the 1,000,000th allocation through Handles#alloc must be issued id 1,000,000"
+                   "the 1,000,000th Handle one invocation issues must carry id 1,000,000"
       err = assert_raises(Kobako::HandleExhaustedError) { table.alloc(Object.new) }
       assert_kind_of Kobako::SandboxError, err,
-                     "an allocation past 1,000,000 through Handles#alloc must raise a SandboxError"
+                     "a Handle past the 1,000,000th in one invocation must raise a Kobako::SandboxError"
     end
 
     # @behavior T-013
     def test_the_ceiling_sits_below_what_the_wire_numbers
-      # Wire Contract: Handle ext 0x01 carries a 4-byte signed int, so
+      # In the wire contract a +Handle+ (ext 0x01) carries a 4-byte signed int, so
       # 0x7fff_ffff is the highest id the wire can carry.
       assert_equal [1_000_000, 0x7fff_ffff], [Table::MAX_HANDLES, Kobako::Handle::MAX_ID],
                    "the Handle table's ceiling must be 1,000,000, below the wire's highest id 0x7fff_ffff"

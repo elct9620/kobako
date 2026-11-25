@@ -16,7 +16,7 @@ class TestE2EGvlTurnsInSyscall < Minitest::Test
   # Shorter than the 45 s the kernel waits before it breaks a lease itself.
   DEADLINE = 30
 
-  # Prints what the guest read; ARGV[0] says which Thread runs it.
+  # Prints what the guest read; ARGV[0] says which thread runs it.
   CHILD = <<~RUBY
     require "kobako"
     require "tmpdir"

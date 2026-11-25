@@ -99,8 +99,8 @@ class TestTransportDispatchViolations < Minitest::Test
 
     assert_equal ["internal", "Sandbox could not read the request: payload holds more than 262144 values"],
                  [answer.payload.type, answer.payload.message],
-                 "a Call whose arguments hold more values than the budget through Dispatcher.dispatch " \
-                 "must refuse as an internal fault naming the budget"
+                 "a Call whose arguments hold more values than the budget must refuse as an internal fault " \
+                 "naming the budget"
   end
 
   # ---------- Over-deep answer (the outbound twin) ----------

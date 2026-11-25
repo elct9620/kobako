@@ -53,7 +53,7 @@ class TestE2EFileStatIno < Minitest::Test
     require_fixture(FIXTURE)
   end
 
-  # A Sandbox with +filesystem+ at the root, which the fixture guest reads
+  # A sandbox with +filesystem+ at the root, which the fixture guest reads
   # through its one preopen.
   def sandbox(wasm_path, filesystem)
     Kobako::Sandbox.new(wasm_path: wasm_path, profile: :permissive).mount("/", filesystem)
@@ -84,7 +84,7 @@ class TestE2EFileStatIno < Minitest::Test
   end
 
   # @behavior RT-183
-  def test_a_script_reads_a_hash_on_the_weaker_profile
+  def test_a_script_reads_a_hash_on_the_permissive_profile
     hashes = tmpfs_entries(:permissive).map { |ino| Integer(ino) }
 
     assert_equal 3, hashes.uniq.size, "File::Stat#ino through a permissive guest must tell three entries apart"
@@ -92,7 +92,7 @@ class TestE2EFileStatIno < Minitest::Test
                     "File::Stat#ino through a permissive guest must read a hash, not a Tmpfs's own small numbers"
   end
 
-  # Each Tmpfs takes the next device number of the process, so two runs
+  # Each +Tmpfs+ takes the next device number of the process, so two runs
   # reading alike shows the number comes from neither.
   # @behavior RT-183 RT-428
   def test_a_hermetic_script_numbers_entries_in_the_order_it_meets_them

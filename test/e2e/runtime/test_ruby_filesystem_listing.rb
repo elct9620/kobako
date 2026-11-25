@@ -2,7 +2,7 @@
 
 require "test_helper"
 
-# E2E — a listing of a Filesystem written in Ruby stops between its stats once
+# E2E — a listing of a filesystem written in Ruby stops between its stats once
 # the run is past its timeout, so a slow stat holds the directory no longer
 # than the one call.
 class TestE2ERubyFilesystemListing < Minitest::Test

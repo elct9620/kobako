@@ -9,7 +9,7 @@ require "test_helper"
 class TestE2EYieldBudget < Minitest::Test
   include E2eGuestHelper
 
-  # The Service sleeps as long as the deadline from its own call, past the
+  # The service sleeps as long as the deadline from its own call, past the
   # deadline that began before it, then yields to a block that does nothing,
   # so only the time spent around the yield can end the run.
   # @behavior T-248

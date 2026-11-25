@@ -4,7 +4,7 @@ require "test_helper"
 require "tmpdir"
 
 # E2E — a run beside four others that create, move, list, and write in the
-# same Filesystem, under both gvl: modes: the run still finishes its own
+# same filesystem, under both gvl: modes: the run still finishes its own
 # lookups and creates. How long it takes is the host's: under :hold each call
 # giving up the GVL waits behind every attacker's time slice, and how often
 # one does depends on the cores to spare. So the test judges by what the run
@@ -28,9 +28,9 @@ class TestE2EFilesystemNeighbours < Minitest::Test
       @going = true
     end
 
-    def started = (@started << true) && nil
+    def mark_started = (@started << true) && nil
 
-    def stop! = @going = false
+    def stop = @going = false
 
     def wait_started(count)
       count.times do
@@ -52,7 +52,7 @@ class TestE2EFilesystemNeighbours < Minitest::Test
   ATTACKER = <<~RUBY
     round = -> { begin; %<round>s; rescue SystemCallError; end }
     round.call
-    Crowd::Ctl.started
+    Crowd::Ctl.mark_started
     n = 1
     while Crowd::Ctl.going
       round.call
@@ -74,7 +74,9 @@ class TestE2EFilesystemNeighbours < Minitest::Test
 
   # @behavior MT-064
   def test_a_run_beside_others_hammering_a_shared_filesystem_finishes
-    answers = kinds.keys.product(GVL_MODES).map { |kind, mode| [kind, mode, *beside_attackers(kinds[kind].call, mode)] }
+    answers = kinds.keys.product(GVL_MODES).map do |kind, mode|
+      [kind, mode, *run_beside_attackers(kinds[kind].call, mode)]
+    end
 
     assert_equal(kinds.keys.product(GVL_MODES).map { |kind, mode| [kind, mode, ROUNDS, true, true] }, answers,
                  "a run looking up and creating names beside four runs creating, moving, listing, and " \
@@ -86,21 +88,21 @@ class TestE2EFilesystemNeighbours < Minitest::Test
 
   def kinds
     @kinds ||= {
-      tmpfs: -> { Kobako::Filesystem::Tmpfs.new(seeded) },
-      bind: -> { Kobako::Filesystem::Bind.new(host_dir) },
+      tmpfs: -> { Kobako::Filesystem::Tmpfs.new(seed_tree) },
+      bind: -> { Kobako::Filesystem::Bind.new(make_host_dir) },
       overlay: lambda {
-        Kobako::Filesystem::Overlay.new(lower: [Kobako::Filesystem::Tmpfs.new(seeded)],
+        Kobako::Filesystem::Overlay.new(lower: [Kobako::Filesystem::Tmpfs.new(seed_tree)],
                                         upper: Kobako::Filesystem::Tmpfs.new)
       }
     }
   end
 
-  def seeded = (0...8).to_h { |i| ["d/f#{i}", "a"] }.merge("e/keep" => "k")
+  def seed_tree = (0...8).to_h { |i| ["d/f#{i}", "a"] }.merge("e/keep" => "k")
 
-  def host_dir
+  def make_host_dir
     dir = Dir.mktmpdir("kobako-neighbours")
     (@host_dirs ||= []) << dir
-    seeded.each do |path, contents|
+    seed_tree.each do |path, contents|
       FileUtils.mkdir_p(File.join(dir, File.dirname(path)))
       File.write(File.join(dir, path), contents)
     end
@@ -116,17 +118,17 @@ class TestE2EFilesystemNeighbours < Minitest::Test
   # attacker was still in its loop as the victim ended, and whether every one
   # went round, so none failed and was counted as done. A victim reaching its
   # timeout raises, the one way this test reads a jam.
-  def beside_attackers(filesystem, mode)
+  def run_beside_attackers(filesystem, mode)
     crowd = Crowd.new
     attackers = start_attackers(filesystem, mode, crowd)
     crowd.wait_started(attackers.size)
     answer = sandbox(filesystem, mode, JAMMED_AFTER).eval(VICTIM).value
     there = attackers.all?(&:alive?)
-    crowd.stop!
+    crowd.stop
     [answer, there, attackers.map(&:value).all? { |rounds| rounds.is_a?(Integer) && rounds.positive? }]
   end
 
-  # One attacker of each kind, each on its own Thread, outlasting the
+  # One attacker of each kind, each on its own thread, outlasting the
   # victim's timeout so a jammed victim never finds them gone.
   def start_attackers(filesystem, mode, crowd)
     Array.new(ATTACKS.size) do |i|

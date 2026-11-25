@@ -4,8 +4,8 @@ require "test_helper"
 require "fileutils"
 require "tmpdir"
 
-# E2E — what an Overlay of Binds counts against the open-file cap, through
-# the real Guest Binary. A directory each Bind Layer holds keeps a host
+# E2E — what an +Overlay+ of +Bind+ layers counts against the open-file cap,
+# through the real guest binary. A directory each bind layer holds keeps a host
 # directory open for each, yet the cap counts the guest's descriptor alone,
 # as Linux's RLIMIT_NOFILE does; the three standard descriptors and the root
 # preopen leave a cap of 16 room for twelve.
@@ -20,9 +20,9 @@ class TestE2EOverlayDescriptors < Minitest::Test
     TestPaths.remove_host_directory(@hosts)
   end
 
-  # A Sandbox under +open_file_limit+ mounting at /o an Overlay of +layers+
-  # Binds, each holding d/note.txt, the topmost twenty files beside d.
-  def stacked(layers, open_file_limit:)
+  # A sandbox under +open_file_limit+ mounting at /o an +Overlay+ of +layers+
+  # bind layers, each holding d/note.txt, the topmost twenty files beside d.
+  def stack_binds(layers, open_file_limit:)
     binds = Array.new(layers) do |at|
       root = File.join(@hosts, at.to_s)
       FileUtils.mkdir_p(File.join(root, "d"))
@@ -41,7 +41,7 @@ class TestE2EOverlayDescriptors < Minitest::Test
 
   # @behavior RT-152
   def test_an_overlay_directory_lists_however_many_bind_layers_hold_it
-    assert_equal ["note.txt"], answer(stacked(13, open_file_limit: 16), 'Dir.children("/o/d")'),
+    assert_equal ["note.txt"], answer(stack_binds(13, open_file_limit: 16), 'Dir.children("/o/d")'),
                  "Dir.children of a directory thirteen Bind Layers of an Overlay hold, under an open-file cap of 16, " \
                  "must list it"
   end
