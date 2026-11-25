@@ -2287,7 +2287,7 @@ mod tests {
         }
     }
 
-    /// `dir` of a Tmpfs, of a Bind of `host`, and of an Overlay, each holding
+    /// `dir` of a `Tmpfs`, of a `Bind` of `host`, and of an `Overlay`, each holding
     /// `a`, `b`, and `c`, opened to list.
     fn listed_kinds(host: &HostDir) -> Vec<(&'static str, KernPath)> {
         let files = || -> Tmpfs {
@@ -2376,7 +2376,7 @@ mod tests {
         );
     }
 
-    /// A Layer whose files signal the run reading them as they hand over their
+    /// A layer whose files signal the run reading them as they hand over their
     /// first chunk.
     struct SignalsOnRead(Arc<AtomicUsize>);
 
@@ -3484,7 +3484,7 @@ mod tests {
         );
     }
 
-    /// A Tmpfs whose first open holds, flagging that it began, until `waits`
+    /// A `Tmpfs` whose first open holds, flagging that it began, until `waits`
     /// counts a wait.
     struct HoldsFirstOpen {
         opening: AtomicBool,
@@ -3562,7 +3562,7 @@ mod tests {
         );
     }
 
-    // The upper Layer's directory changes now, and the lower one's times are
+    // The upper layer's directory changes now, and the lower one's times are
     // long past, so the two report different times and only the upper's
     // matches.
     // @behavior FS-117

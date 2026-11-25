@@ -137,8 +137,8 @@ mod tests {
         assert_eq!(
             (last, past.is_err()),
             (Some(Ok(1_000_000)), true),
-            "1,000,000 allocations through HandleTable::alloc must issue the last as id \
-             1,000,000, and the next must be refused"
+            "binding 1,000,000 objects in one run must issue the last the handle id \
+             1,000,000, and must refuse to bind the next"
         );
     }
 

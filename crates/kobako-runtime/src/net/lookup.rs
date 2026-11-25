@@ -330,9 +330,9 @@ mod tests {
     }
 
     /// A socket that tells of each change.
-    struct Tells(Mutex<mpsc::Sender<()>>);
+    struct TellsEvents(Mutex<mpsc::Sender<()>>);
 
-    impl Ready for Tells {
+    impl Ready for TellsEvents {
         fn on_event(&self) {
             let _ = self.0.lock().unwrap().send(());
         }
@@ -340,8 +340,8 @@ mod tests {
         fn abort(&self) {}
     }
 
-    // One Sandbox's lookup taking long holds only the thread that waits on
-    // it, so another Sandbox's socket hears its peer at once.
+    // One sandbox's lookup taking long holds only the thread that waits on
+    // it, so another sandbox's socket hears its peer at once.
     // @behavior NW-236
     #[test]
     fn a_slow_lookup_delays_no_other_socket() {
@@ -361,7 +361,7 @@ mod tests {
             .recv_timeout(Duration::from_secs(5))
             .expect("the lookup's query is polled");
         let (tx, rx) = mpsc::channel();
-        let ready: Arc<dyn Ready> = Arc::new(Tells(Mutex::new(tx)));
+        let ready: Arc<dyn Ready> = Arc::new(TellsEvents(Mutex::new(tx)));
         let addr = "127.0.0.1:0".parse().unwrap();
         let mut socket = mio::net::UdpSocket::bind(addr).expect("a UDP socket binds");
         let _registration = Reactor::current()

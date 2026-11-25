@@ -240,7 +240,7 @@ mod tests {
 
     fn seen_by(profile: Profile, stat: Kstat) -> Kstat {
         cp_new_stat(&Cred::default().with_profile(profile), stat)
-            .expect("a fresh Cred has every inode number left to give")
+            .expect("a fresh `Cred` has every inode number left to give")
     }
 
     fn identity(ino: u64) -> Option<Identity> {
@@ -263,7 +263,7 @@ mod tests {
             (hermetic.size, permissive.size, hermetic.ino, hermetic.atime),
             (0, 0, 1, Some(UNIX_EPOCH)),
             "a link's stat through cp_new_stat must report no size on any profile, and on the \
-             hermetic profile the first number its Invocation hands out and every time at the \
+             hermetic profile the first number its invocation hands out and every time at the \
              Unix epoch"
         );
         assert!(
@@ -308,7 +308,7 @@ mod tests {
             ino_of(&permissive, identity),
             "ino_of one identity must answer one number within a process"
         );
-        let seen = seen.expect("a permissive Cred hashes every identity");
+        let seen = seen.expect("a permissive `Cred` hashes every identity");
         assert_ne!(
             seen,
             unkeyed.finish(),
@@ -317,8 +317,8 @@ mod tests {
         );
     }
 
-    // An Invocation's numbering is the Cred it starts from, so every Cred
-    // restricted from it numbers one entry alike, and another Invocation's
+    // An invocation's numbering is the `Cred` it starts from, so every `Cred`
+    // restricted from it numbers one entry alike, and another invocation's
     // starts again from 1.
     // @behavior RT-428
     #[test]
@@ -329,8 +329,8 @@ mod tests {
         assert_eq!(
             numbers,
             [Ok(1), Ok(2), Ok(1), Ok(3)],
-            "ino_of through a hermetic Cred must hand each identity the next number the first \
-             time it is met, and that number again after"
+            "a stat on the hermetic profile must give each entry the next inode number the \
+             first time the invocation meets it, and that number again after"
         );
         assert_eq!(
             (
@@ -338,8 +338,8 @@ mod tests {
                 ino_of(&Cred::default(), identity(5))
             ),
             (Ok(3), Ok(1)),
-            "a Cred restricted from a hermetic one must share its numbering, and a fresh \
-             Invocation's must start from 1"
+            "a `Cred` restricted from a hermetic one must share its numbering, and a fresh \
+             invocation's must start from 1"
         );
     }
 
@@ -357,8 +357,8 @@ mod tests {
                 ino_of(&hermetic, None),
             ),
             (Err(Errno::ValueTooLarge), Ok(1), Ok(0)),
-            "ino_of through a hermetic Cred that handed out 32,768 numbers must answer EOVERFLOW \
-             for a new identity, the number an identity it met, and 0 for none"
+            "a stat on the hermetic profile after 32,768 inode numbers were given must answer \
+             EOVERFLOW for a new entry, the number of an entry already met, and 0 for none"
         );
     }
 

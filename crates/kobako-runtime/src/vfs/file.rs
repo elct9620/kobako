@@ -866,7 +866,7 @@ mod tests {
         }
     }
 
-    /// A file its Filesystem opens with no operations of its own.
+    /// A file its filesystem opens with no operations of its own.
     struct ListsNothing;
 
     impl FileOperations for ListsNothing {}
@@ -896,8 +896,8 @@ mod tests {
         assert_eq!(
             (listed, waits.load(Ordering::SeqCst)),
             (Err(Errno::NotADirectory), 0),
-            "File::iterate_dir of a file whose FileOperations lacks iterate_shared must answer \
-             NotADirectory without waiting on the inode lock another thread holds"
+            "a listing of a file its filesystem gives no way to list must answer ENOTDIR \
+             without waiting on the lock another thread holds on it"
         );
     }
 

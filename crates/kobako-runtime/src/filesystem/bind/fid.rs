@@ -254,7 +254,7 @@ mod tests {
 
     /// A cache of its own holding one directory, so no other test's walks
     /// reach what this one counts.
-    fn holding_one(owner: &FidOwner, sb: &SuperBlock) -> (FidCache, Arc<Dentry>) {
+    fn keep_one_directory(owner: &FidOwner, sb: &SuperBlock) -> (FidCache, Arc<Dentry>) {
         let cache = FidCache::new();
         let dentry = sb.dentries().alloc_pseudo();
         cache.put(owner, &dentry, &host_dir());
@@ -266,7 +266,7 @@ mod tests {
     fn a_host_out_of_descriptors_makes_the_kept_directories_give_way() {
         let sb = SuperBlock::new(Tmpfs::new()).expect("the instance must stand");
         let owner = FidOwner;
-        let (cache, _dentry) = holding_one(&owner, &sb);
+        let (cache, _dentry) = keep_one_directory(&owner, &sb);
         let tries = Cell::new(0);
         let answer = cache.open(|| {
             tries.set(tries.get() + 1);
@@ -278,18 +278,18 @@ mod tests {
         assert_eq!(
             (answer, tries.get()),
             (Ok(0), 2),
-            "FidCache::open refused as EMFILE must let every kept directory go and try once more"
+            "an open refused as EMFILE must let every kept directory go and try once more"
         );
     }
 
-    // The guest's open directory holds its own host directory, as a Bind's
+    // The guest's open directory holds its own host directory, as a `Bind`'s
     // open of one does, so giving way lets go of the cache's alone.
     // @behavior FS-220
     #[test]
     fn a_directory_held_open_answers_after_the_kept_ones_give_way() {
         let sb = SuperBlock::new(Tmpfs::new()).expect("the instance must stand");
         let owner = FidOwner;
-        let (cache, _kept) = holding_one(&owner, &sb);
+        let (cache, _kept) = keep_one_directory(&owner, &sb);
         let held_dentry = sb.dentries().alloc_pseudo();
         let held = host_dir();
         cache.put(&owner, &held_dentry, &held);
@@ -319,7 +319,7 @@ mod tests {
         assert_eq!(
             (answer, tries.get()),
             (Err(Errno::TooManyOpenFilesInSystem), 2),
-            "FidCache::open refused as ENFILE twice must answer ENFILE after its one more try"
+            "an open refused as ENFILE twice must answer ENFILE after its one more try"
         );
     }
 
@@ -328,7 +328,7 @@ mod tests {
     fn nothing_is_kept_while_a_call_gives_way() {
         let sb = SuperBlock::new(Tmpfs::new()).expect("the instance must stand");
         let owner = FidOwner;
-        let (cache, dentry) = holding_one(&owner, &sb);
+        let (cache, dentry) = keep_one_directory(&owner, &sb);
         let mut first = true;
         let answer = cache.open(|| match std::mem::take(&mut first) {
             true => Err(Errno::TooManyOpenFiles),
@@ -340,7 +340,7 @@ mod tests {
         assert_eq!(
             (answer, cache.len()),
             (Ok(()), 0),
-            "a FidCache::put during FidCache::open giving way must keep nothing"
+            "a directory kept while an open refused as EMFILE gives way must not stay kept"
         );
     }
 
@@ -349,12 +349,12 @@ mod tests {
     fn a_forked_child_keeps_none_of_its_parents_directories() {
         let sb = SuperBlock::new(Tmpfs::new()).expect("the instance must stand");
         let owner = FidOwner;
-        let (cache, dentry) = holding_one(&owner, &sb);
+        let (cache, dentry) = keep_one_directory(&owner, &sb);
         cache.inherit();
         assert_eq!(
             (cache.len(), cache.get(&dentry).is_none()),
             (0, true),
-            "a FidCache a forked child inherits must keep none of its parent's directories"
+            "a forked child must keep none of the directories its parent kept"
         );
     }
 }

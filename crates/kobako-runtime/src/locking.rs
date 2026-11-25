@@ -400,7 +400,12 @@ mod tests {
         fn wait_stopped(&self, what: &str) {
             self.stopped
                 .recv_timeout(sched::testing::MAX_WAIT)
-                .unwrap_or_else(|_| panic!("{what} did not happen"));
+                .unwrap_or_else(|_| {
+                    panic!(
+                        "{what} did not happen within the max wait; check that the signal \
+                         reached the waiter and that its wait handles one"
+                    )
+                });
         }
 
         fn go_on(&self) {
@@ -431,24 +436,24 @@ mod tests {
         }
     }
 
-    fn queued(rwsem: &Arc<RwSemaphore>, count: usize) {
+    fn wait_until_queued(rwsem: &Arc<RwSemaphore>, count: usize) {
         wait_until(&format!("{count} threads waiting in line"), || {
             rwsem.queued() == count
         });
     }
 
     // Holding it shared again past the waiting writer stands in for what a walk
-    // does when a Ruby Filesystem reaches its own Mount, which must never hang.
+    // does when a Ruby filesystem reaches its own mount, which must never hang.
     // @behavior RT-253
     #[test]
     fn a_writer_goes_ahead_of_readers_arriving_after_it() {
         let rwsem: Arc<RwSemaphore> = Arc::default();
         let order = Order::default();
         let held = rwsem.down_read().expect("the first reader holds it");
-        let writer = thread::spawn(within(note(&rwsem, true, &order, "writer")));
-        queued(&rwsem, 1);
-        let reader = thread::spawn(within(note(&rwsem, false, &order, "reader")));
-        queued(&rwsem, 2);
+        let writer = thread::spawn(bound_to_max_wait(note(&rwsem, true, &order, "writer")));
+        wait_until_queued(&rwsem, 1);
+        let reader = thread::spawn(bound_to_max_wait(note(&rwsem, false, &order, "reader")));
+        wait_until_queued(&rwsem, 2);
         let again = rwsem.down_read().map(drop);
         drop(held);
         let answers = (join("the writer", writer), join("the reader", reader));
@@ -465,7 +470,7 @@ mod tests {
         );
     }
 
-    fn within<T>(ask: impl FnOnce() -> T + Send) -> impl FnOnce() -> T + Send {
+    fn bound_to_max_wait<T>(ask: impl FnOnce() -> T + Send) -> impl FnOnce() -> T + Send {
         move || within_max_wait(ask)
     }
 
@@ -496,12 +501,12 @@ mod tests {
         let rwsem: Arc<RwSemaphore> = Arc::default();
         let order = Order::default();
         let held = rwsem.down_write().expect("the holder holds it");
-        let first = thread::spawn(within(note(&rwsem, false, &order, "reader")));
-        queued(&rwsem, 1);
-        let writer = thread::spawn(within(note(&rwsem, true, &order, "writer")));
-        queued(&rwsem, 2);
-        let last = thread::spawn(within(note(&rwsem, false, &order, "reader")));
-        queued(&rwsem, 3);
+        let first = thread::spawn(bound_to_max_wait(note(&rwsem, false, &order, "reader")));
+        wait_until_queued(&rwsem, 1);
+        let writer = thread::spawn(bound_to_max_wait(note(&rwsem, true, &order, "writer")));
+        wait_until_queued(&rwsem, 2);
+        let last = thread::spawn(bound_to_max_wait(note(&rwsem, false, &order, "reader")));
+        wait_until_queued(&rwsem, 3);
         drop(held);
         let answers = (
             join("the first reader", first),
@@ -531,8 +536,8 @@ mod tests {
             rwsem.down_write_trylock().is_some(),
             rwsem.down_read_trylock().is_some(),
         );
-        let later = thread::spawn(within(note(&rwsem, true, &order, "later")));
-        queued(&rwsem, 2);
+        let later = thread::spawn(bound_to_max_wait(note(&rwsem, true, &order, "later")));
+        wait_until_queued(&rwsem, 2);
         first.go_on();
         let answers = (
             first.join("the first waiter"),
@@ -562,10 +567,10 @@ mod tests {
         behind.wait_stopped("the waiter behind stopping as it handles a signal");
         first.task.interrupt();
         let left = first.join("the first waiter");
-        queued(&rwsem, 1);
+        wait_until_queued(&rwsem, 1);
         drop(held);
-        let later = thread::spawn(within(note(&rwsem, true, &order, "later")));
-        queued(&rwsem, 2);
+        let later = thread::spawn(bound_to_max_wait(note(&rwsem, true, &order, "later")));
+        wait_until_queued(&rwsem, 2);
         behind.go_on();
         let answers = (
             behind.join("the waiter behind"),
@@ -589,8 +594,8 @@ mod tests {
         let rwsem: Arc<RwSemaphore> = Arc::default();
         let order = Order::default();
         let held = rwsem.down_write().expect("the holder holds it");
-        let first = thread::spawn(within(note(&rwsem, false, &order, "first")));
-        queued(&rwsem, 1);
+        let first = thread::spawn(bound_to_max_wait(note(&rwsem, false, &order, "first")));
+        wait_until_queued(&rwsem, 1);
         let granted = Asker::spawn(true, note(&rwsem, false, &order, "granted"));
         granted.wait_stopped("the reader behind stopping as it handles a signal");
         drop(held);

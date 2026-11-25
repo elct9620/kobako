@@ -192,7 +192,7 @@ mod tests {
         let producer = {
             let (queue, ready, waits) = (queue.clone(), ready.clone(), waits.clone());
             thread::spawn(move || {
-                // The poller has asked once and waits through the Blocking, so
+                // The poller has asked once and waits through the `Blocking`, so
                 // only the wake makes it look again before its run's deadline.
                 wait_until("the poll waiting on its queue", || {
                     !queue.waiters().is_empty() && waits.load(Ordering::SeqCst) > 0
@@ -347,7 +347,7 @@ mod tests {
         assert_eq!(
             answer,
             Err(Errno::Interrupted),
-            "do_poll with no timeout, its thread interrupted as it sleeps, must answer EINTR \
+            "a poll with no timeout, its thread interrupted as it sleeps, must answer EINTR \
              before its deadline"
         );
     }

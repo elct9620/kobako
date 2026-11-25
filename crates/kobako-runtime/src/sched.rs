@@ -436,7 +436,7 @@ pub(crate) mod testing {
         counts
     }
 
-    /// Counts each signal the registered Blocking handles for this thread,
+    /// Counts each signal the registered `Blocking` handles for this thread,
     /// leaving every wait to go on.
     pub(crate) fn count_signals() -> Arc<AtomicUsize> {
         BLOCKING.get_or_init(|| Box::new(CountsWaits));
@@ -445,7 +445,7 @@ pub(crate) mod testing {
         signals
     }
 
-    /// Runs `stop` each time the registered Blocking handles a signal for this
+    /// Runs `stop` each time the registered `Blocking` handles a signal for this
     /// thread, so a test holds a waiter where it handles one.
     pub(crate) fn on_signal(stop: impl Fn() + 'static) {
         BLOCKING.get_or_init(|| Box::new(CountsWaits));

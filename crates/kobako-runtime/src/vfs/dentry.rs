@@ -1185,7 +1185,7 @@ mod tests {
         assert_eq!(
             (panicked, begun),
             (true, 2),
-            "SeqLock::read_seqbegin after a write that panicked must answer at once, the write \
+            "a walk beginning after a move that panicked must go on at once, the move \
              counted as ended"
         );
     }

@@ -182,9 +182,9 @@ mod tests {
     use super::*;
 
     /// Counts each drop of itself.
-    struct Dropped(Arc<AtomicUsize>);
+    struct CountsDrops(Arc<AtomicUsize>);
 
-    impl Drop for Dropped {
+    impl Drop for CountsDrops {
         fn drop(&mut self) {
             self.0.fetch_add(1, Ordering::SeqCst);
         }
@@ -234,9 +234,9 @@ mod tests {
     fn a_value_made_in_another_process_is_never_dropped() {
         let drops = Arc::new(AtomicUsize::new(0));
         let local = ProcessLocal::new();
-        local.with(|held| *held = Some(Dropped(drops.clone())));
+        local.with(|held| *held = Some(CountsDrops(drops.clone())));
         local.inherit();
-        local.with(|held| *held = Some(Dropped(Arc::new(AtomicUsize::new(0)))));
+        local.with(|held| *held = Some(CountsDrops(Arc::new(AtomicUsize::new(0)))));
         drop(local);
         assert_eq!(
             drops.load(Ordering::SeqCst),
@@ -250,7 +250,7 @@ mod tests {
     fn a_value_made_in_this_process_drops_with_it() {
         let drops = Arc::new(AtomicUsize::new(0));
         let local = ProcessLocal::new();
-        local.with(|held| *held = Some(Dropped(drops.clone())));
+        local.with(|held| *held = Some(CountsDrops(drops.clone())));
         drop(local);
         assert_eq!(
             drops.load(Ordering::SeqCst),

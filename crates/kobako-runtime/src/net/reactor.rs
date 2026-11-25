@@ -360,9 +360,9 @@ mod tests {
     /// A socket whose callback fails once armed, as a panic in the code it
     /// runs would. Unarmed, it lets pass the event its registration brings,
     /// as a socket is writable the moment it registers.
-    struct Panics(AtomicBool);
+    struct PanicsOnceArmed(AtomicBool);
 
-    impl Ready for Panics {
+    impl Ready for PanicsOnceArmed {
         fn on_event(&self) {
             if self.0.load(Ordering::Acquire) {
                 panic!("a socket's callback failed on the reactor");
@@ -391,7 +391,7 @@ mod tests {
         let reactor = Reactor::start().expect("a reactor starts");
         let (tx, rx) = mpsc::channel();
         let waiting: Arc<dyn Ready> = Arc::new(TellsAbort(Mutex::new(tx.clone())));
-        let panics = Arc::new(Panics(AtomicBool::new(false)));
+        let panics = Arc::new(PanicsOnceArmed(AtomicBool::new(false)));
         let failing: Arc<dyn Ready> = panics.clone();
         let addr = "127.0.0.1:0".parse().unwrap();
         let mut watched = mio::net::UdpSocket::bind(addr).expect("a UDP socket binds");
@@ -425,9 +425,9 @@ mod tests {
 
     /// A socket that counts each turn it is given.
     #[derive(Default)]
-    struct Counts(AtomicUsize);
+    struct CountsTurns(AtomicUsize);
 
-    impl Ready for Counts {
+    impl Ready for CountsTurns {
         fn on_event(&self) {
             self.0.fetch_add(1, Ordering::SeqCst);
         }
@@ -443,7 +443,7 @@ mod tests {
     fn a_repoll_runs_once_past_an_interrupted_wait() {
         let poll = mio::Poll::new().expect("a poll opens");
         let reactor = Reactor::on(&poll).expect("a reactor is made");
-        let counts = Arc::new(Counts::default());
+        let counts = Arc::new(CountsTurns::default());
         let ready: Arc<dyn Ready> = counts.clone();
         reactor.repoll().push(Arc::downgrade(&ready));
         // Interrupted, then a round with no event, then a failure that stops

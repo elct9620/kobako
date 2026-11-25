@@ -1,4 +1,4 @@
-//! The most values one guest payload may make the host build, the Codec's
+//! The most values one guest payload may make the host build, the codec's
 //! own 262144 whatever the memory cap.
 
 #![cfg(all(feature = "wasmtime", feature = "msgpack"))]
@@ -7,8 +7,8 @@ use crate::common::real_sandbox_with;
 use kobako::msgpack::Value;
 use kobako::{Error, Options};
 
-// 1 + 512 arrays + 512 * 511 Integers = 262145 values, one past the budget;
-// popping one Integer leaves exactly 262144.
+// 1 + 512 arrays + 512 * 511 integers = 262145 values, one past the budget;
+// popping one integer leaves exactly 262144.
 const PAST_BUDGET: &str = "Array.new(512) { Array.new(511, 0) }";
 const AT_BUDGET: &str = "a = Array.new(512) { Array.new(511, 0) }; a[0].pop; a";
 const REFUSAL: &str = "malformed msgpack structure: payload holds more values than its budget";

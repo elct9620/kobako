@@ -201,7 +201,7 @@ mod tests {
     use crate::security::{prepare_creds, restrict_self};
     use crate::vfs::OpenHow;
 
-    // A host folding case lands two paths on one directory; two Mounts at one
+    // A host folding case lands two paths on one directory; two mounts at one
     // path land alike on every host, so the rule is witnessed where names
     // match exactly too.
     // @behavior MT-042

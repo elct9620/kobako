@@ -144,7 +144,7 @@ impl std::error::Error for MemoryLimitExceeded {}
 mod tests {
     //! The arithmetic of one budget, so a regression that breaks the baseline
     //! (dropping its subtraction, or letting `arm` carry stale state across
-    //! invocations) is caught without an Engine.
+    //! invocations) is caught without a wasmtime `Engine`.
     use super::MemoryBudget;
 
     fn assert_charged(budget: &MemoryBudget, bytes: usize, what: &str) {
@@ -166,12 +166,12 @@ mod tests {
     fn what_the_guest_binary_declares_takes_none_of_the_budget() {
         let budget = MemoryBudget::new(Some(1 << 20));
         budget.arm(2 << 20);
-        assert_charged(&budget, 2 << 20, "creating 2 MiB a Guest Binary declares");
+        assert_charged(&budget, 2 << 20, "creating 2 MiB a guest binary declares");
         assert_eq!(
             budget.peak(),
             0,
-            "creating the 2 MiB a Guest Binary declares under a 1 MiB limit must leave \
-             MemoryBudget::peak at 0"
+            "creating the 2 MiB a guest binary declares under a 1 MiB limit must leave the \
+             peak memory at 0"
         );
     }
 
@@ -258,8 +258,8 @@ mod tests {
         assert_eq!(
             budget.peak(),
             1 << 19,
-            "a 256 KiB growth, then one the Engine failed to make, through MemoryBudget::peak \
-             must report the 512 KiB the watermark reached"
+            "a 256 KiB growth, then one wasmtime failed to make, must leave the peak memory \
+             at the 512 KiB the watermark reached"
         );
     }
 

@@ -30,14 +30,14 @@ use kobako::{Profile, Sandbox};
 struct Compiler {
     answer: Option<Vec<Vec<u8>>>,
     panics: bool,
-    held: Option<Held>,
+    held: Option<WaitsForRelease>,
     compiles: Arc<Mutex<usize>>,
     replayed: Replays,
 }
 
 /// A compile that says it began, then waits for its release, as an engine
-/// a Host App brings may take as long as it likes.
-struct Held {
+/// a host app brings may take as long as it likes.
+struct WaitsForRelease {
     began: mpsc::Sender<()>,
     release: Mutex<mpsc::Receiver<()>>,
 }
@@ -175,7 +175,7 @@ fn a_compile_holds_up_no_other_invocation_of_its_sandbox() {
     let (release, released) = mpsc::channel();
     let (sandbox, compiles, replayed) = preload_snippet(Compiler {
         answer: Some(vec![b"RITE\x00alpha".to_vec()]),
-        held: Some(Held {
+        held: Some(WaitsForRelease {
             began,
             release: Mutex::new(released),
         }),

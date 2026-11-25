@@ -1191,8 +1191,8 @@ mod tests {
         let (opened, binds): (Vec<_>, Vec<_>) = opened.unzip();
         assert!(
             opened.iter().all(|&opened| opened) && FIDS.len() <= 64,
-            "vfs::do_file_open 100 directories beneath each of two Binds must land, the process \
-             keeping at most 64 of them open, keeping {}",
+            "an open of a file 100 directories beneath each of two binds must land, the process \
+             keeping at most 64 of those directories open, keeping {}",
             FIDS.len()
         );
         drop(binds);

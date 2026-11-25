@@ -3443,7 +3443,7 @@ mod tests {
                 &crate::grant::Grant::Mount(inner),
             ],
         )
-        .expect("every Mount stands");
+        .expect("every mount stands");
         let during = vfs::vfs_fstatat(&cred, &outer_root, "inner/l/../y/c", false);
         let after = vfs::vfs_fstatat(&cred, &outer_root, "inner/../y/c", false);
         assert_eq!(
@@ -3454,9 +3454,9 @@ mod tests {
         );
     }
 
-    /// A Filesystem of `files` whose link `l` moves `from` to `to` through
+    /// A filesystem of `files` whose link `l` moves `from` to `to` through
     /// `moved`, which is set once that mount stands.
-    fn links_to_move(
+    fn moving_link_filesystem(
         files: &[(&'static str, &'static str)],
         moved: &Arc<OnceLock<Path>>,
         from: &'static str,
@@ -3473,14 +3473,14 @@ mod tests {
         Filesystem::new(wrapped).expect("the instance must stand")
     }
 
-    fn mounted(path: &str, filesystem: &Arc<Filesystem>) -> Mount {
+    fn mount_at(path: &str, filesystem: &Arc<Filesystem>) -> Mount {
         Mount::new(path, filesystem.clone(), Access::ReadWrite).expect("a guest path")
     }
 
     // @behavior RT-409
     #[test]
     fn a_dotdot_a_move_on_another_filesystem_landed_before_goes_on() {
-        let elsewhere = mounted(
+        let elsewhere = mount_at(
             "/other",
             &Filesystem::new(Tmpfs::from_iter([("x/k", "k")])).unwrap(),
         );
@@ -3489,9 +3489,9 @@ mod tests {
             .set(Path::root(elsewhere.mnt()))
             .ok()
             .expect("set only here");
-        let walked = mounted(
+        let walked = mount_at(
             "/data",
-            &links_to_move(&[("a/keep", "k"), ("c", "stays")], &moved, "x", "y"),
+            &moving_link_filesystem(&[("a/keep", "k"), ("c", "stays")], &moved, "x", "y"),
         );
         let stat = vfs::vfs_fstatat(
             &Arc::default(),
@@ -3502,29 +3502,29 @@ mod tests {
         assert_eq!(
             stat.map(|stat| stat.size),
             Ok(5),
-            "vfs_fstatat through `..` with a move landing on another Filesystem during the walk \
+            "a stat through `..` with a move landing on another filesystem during the walk \
              must reach the file, since that move cannot carry any directory the walk stands in"
         );
     }
 
-    // A Host App may mount one Filesystem into two Sandboxes; the move here goes
-    // through a Mount the walk never touches.
+    // A host app may mount one filesystem into two sandboxes; the move here goes
+    // through a mount the walk never touches.
     // @behavior RT-240
     #[test]
     fn a_dotdot_a_move_through_another_mount_of_its_filesystem_landed_before_asks_again() {
         let moved = Arc::new(OnceLock::new());
-        let shared = links_to_move(
+        let shared = moving_link_filesystem(
             &[("a/keep", "k"), ("x/k", "k"), ("c", "stays")],
             &moved,
             "x",
             "y",
         );
-        let other_sandbox = mounted("/data", &shared);
+        let other_sandbox = mount_at("/data", &shared);
         moved
             .set(Path::root(other_sandbox.mnt()))
             .ok()
             .expect("set only here");
-        let walked = mounted("/data", &shared);
+        let walked = mount_at("/data", &shared);
         let stat = vfs::vfs_fstatat(
             &Arc::default(),
             &Path::root(walked.mnt()),
@@ -3534,12 +3534,12 @@ mod tests {
         assert_eq!(
             stat.map(|_| ()),
             Err(Errno::WouldBlock),
-            "vfs_fstatat through `..` with a move landing through another Mount of the same \
-             Filesystem during the walk must answer EAGAIN, as the move may carry its directories"
+            "a stat through `..` with a move landing through another mount of the same \
+             filesystem during the walk must answer EAGAIN, as the move may carry its directories"
         );
     }
 
-    // `again` mounts the walk's own Filesystem a second time, after the link moved
+    // `again` mounts the walk's own filesystem a second time, after the link moved
     // a directory of it, so only the `r_seq` kept for the first mount knows of the
     // move once the walk climbs back there.
     // @behavior RT-240
@@ -3547,22 +3547,22 @@ mod tests {
     fn a_dotdot_back_onto_a_filesystem_mounted_twice_learns_of_a_move_between() {
         let outer = Filesystem::new(Tmpfs::from_iter([("inner/keep", "k"), ("x/k", "k")])).unwrap();
         let moved = Arc::new(OnceLock::new());
-        let inner = links_to_move(&[("again/keep", "k")], &moved, "x", "y");
+        let inner = moving_link_filesystem(&[("again/keep", "k")], &moved, "x", "y");
         let mounts = [
-            mounted("/data", &outer),
-            mounted("/data/inner", &inner),
-            mounted("/data/inner/again", &outer),
+            mount_at("/data", &outer),
+            mount_at("/data/inner", &inner),
+            mount_at("/data/inner/again", &outer),
         ];
         let outer_root = Path::root(mounts[0].mnt());
         moved.set(outer_root.clone()).ok().expect("set only here");
         let grants: Vec<_> = mounts.into_iter().map(crate::grant::Grant::Mount).collect();
         let cred = crate::security::restrict_self(&Arc::default(), grants.iter())
-            .expect("every Mount stands");
+            .expect("every mount stands");
         let stat = vfs::vfs_fstatat(&cred, &outer_root, "inner/l/again/../../inner", false);
         assert_eq!(
             stat.map(|_| ()),
             Err(Errno::WouldBlock),
-            "vfs_fstatat through `..` back onto a Filesystem mounted twice along the walk, with a \
+            "a stat through `..` back onto a filesystem mounted twice along the walk, with a \
              move on it landing between the two mounts, must answer EAGAIN"
         );
     }
@@ -3572,16 +3572,16 @@ mod tests {
     fn a_dotdot_out_of_the_walks_own_filesystem_mounted_again_climbs_back() {
         let outer =
             Filesystem::new(Tmpfs::from_iter([("m/keep", "k"), ("note", "the note")])).unwrap();
-        let mounts = [mounted("/data", &outer), mounted("/data/m", &outer)];
+        let mounts = [mount_at("/data", &outer), mount_at("/data/m", &outer)];
         let outer_root = Path::root(mounts[0].mnt());
         let grants: Vec<_> = mounts.into_iter().map(crate::grant::Grant::Mount).collect();
         let cred = crate::security::restrict_self(&Arc::default(), grants.iter())
-            .expect("every Mount stands");
+            .expect("every mount stands");
         let stat = vfs::vfs_fstatat(&cred, &outer_root, "m/../note", false);
         assert_eq!(
             stat.map(|stat| stat.size),
             Ok(8),
-            "vfs_fstatat of `m/../note` from a Filesystem's root, with that Filesystem mounted \
+            "a stat of `m/../note` from a filesystem's root, with that filesystem mounted \
              again at `m`, must climb back out of `m` and reach `note`"
         );
     }
@@ -3962,7 +3962,7 @@ mod tests {
             &crate::security::prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
         )
-        .expect("every Mount stands");
+        .expect("every mount stands");
         let root = Path::root(mount.mnt());
         [
             vfs::filename_mkdirat(&cred, &root, "dir"),
@@ -4122,7 +4122,7 @@ mod tests {
                 &crate::grant::Grant::Mount(links.clone()),
             ],
         )
-        .expect("every Mount stands");
+        .expect("every mount stands");
         let (plain, links) = (Path::root(plain.mnt()), Path::root(links.mnt()));
         assert_eq!(
             (
@@ -4217,7 +4217,7 @@ mod tests {
         assert_eq!(
             vfs::kern_path::filp_open(
                 &crate::security::restrict_self(&crate::security::prepare_creds(&[], None), [])
-                    .expect("every Mount stands"),
+                    .expect("every mount stands"),
                 &root,
                 "w",
                 &how
@@ -4290,7 +4290,7 @@ mod tests {
     }
 
     /// A Policy allowing everything that holds its first answer until the
-    /// removal waits through the Blocking, as `waits` counts, or lands.
+    /// removal waits through the `Blocking`, as `waits` counts, or lands.
     struct PausesFirst {
         answered: AtomicBool,
         reached: Mutex<mpsc::Sender<()>>,
@@ -4343,7 +4343,7 @@ mod tests {
             &crate::security::prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
         )
-        .expect("every Mount stands");
+        .expect("every mount stands");
         let opener = {
             let (root, cred) = (root.clone(), cred.clone());
             thread::spawn(move || {
@@ -5197,7 +5197,7 @@ mod tests {
             &crate::security::prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
         )
-        .expect("every Mount stands");
+        .expect("every mount stands");
         vfs::kern_path::filp_open(&cred, &Path::root(mount.mnt()), path, how).err()
     }
 
@@ -5552,8 +5552,8 @@ mod tests {
                 crate::sched::testing::join("the second walk", second),
             ),
             (true, Some(Errno::NotFound)),
-            "vfs::vfs_fstatat waiting on another walk's Filesystem lookup of the name must, once \
-             that lookup panics, ask the Filesystem itself and answer, rather than wait on"
+            "a stat waiting on another walk's lookup of the name must, once that lookup \
+             panics, ask the filesystem itself and answer, rather than wait on"
         );
     }
 
@@ -5830,9 +5830,9 @@ mod tests {
         assert_eq!(
             (woke_early, join("the signalled wait", waiting)),
             (false, Ok(())),
-            "vfs::filename_mkdirat waiting on a directory another thread holds, its thread \
-             signalled and the signal handled without an interrupt, must go on waiting and \
-             make the directory once the other lets go"
+            "a mkdir waiting on a directory another thread holds, its thread signalled and \
+             the signal handled without an interrupt, must go on waiting and make the \
+             directory once the other lets go"
         );
     }
 
@@ -5911,7 +5911,7 @@ mod tests {
     // to `a/x`. A writer with no Policy renames it within `a` meanwhile, which
     // takes no rename lock. A dentry taken before the wait would follow it to
     // the name the Policy refuses, so only a name found under the lock answers
-    // ENOENT. The writer renames only once the move waits through the Blocking.
+    // ENOENT. The writer renames only once the move waits through the `Blocking`.
     // @behavior RT-211
     #[test]
     fn a_move_acts_on_what_stands_at_its_names_once_it_holds_them() {
@@ -5935,7 +5935,7 @@ mod tests {
             &crate::security::prepare_creds(&[], None),
             [&crate::grant::Grant::Mount(mount.clone())],
         )
-        .expect("every Mount stands");
+        .expect("every mount stands");
         let root = Path::root(mount.mnt());
         let holder = {
             let root = root.clone();

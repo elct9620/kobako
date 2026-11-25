@@ -3392,8 +3392,10 @@ mod tests {
         peer.set_read_timeout(Some(Duration::from_secs(10)))
             .unwrap();
         let mut got = Vec::new();
-        std::io::Read::read_to_end(peer, &mut got)
-            .expect("the peer must read the stream to its end within ten seconds");
+        std::io::Read::read_to_end(peer, &mut got).expect(
+            "the peer must read the stream to its end within ten seconds; a timeout means \
+                 the guest's end never closed, so check that the test drops or shuts its socket",
+        );
         got
     }
 
