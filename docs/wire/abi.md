@@ -36,7 +36,7 @@ interface guest {
 }
 ```
 
-`cabi_realloc` gives the host the guest memory every list lands in: a request, a Reply, the Preamble, and each list a WASI 0.2 import answers. With no room left it traps, so the host never writes at 0. Adding, removing, or renaming a symbol is an ABI version increment (→ [§ ABI Version](#abi-version)).
+`cabi_realloc` gives the host the guest memory every list lands in: a request, a Reply, the Preamble, and each list a WASI 0.2 import answers. With no room left it traps, so the host never writes at 0. The guest owns each list it is handed and frees it once read, as a Canonical ABI callee does. A run makes Calls without end, so a list kept to the end of its invocation would fill its memory. Adding, removing, or renaming a symbol is an ABI version increment (→ [§ ABI Version](#abi-version)).
 
 ### Downcall and Upcall
 

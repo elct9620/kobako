@@ -89,6 +89,29 @@ class TestE2EMemoryBudget < Minitest::Test
                   "must raise MemoryLimitError") { sandbox.eval(GROW_AFTER_RESCUE) }
   end
 
+  # A Service answering a Call by yielding once, so each round trips both
+  # ways.
+  class Echo
+    def once = yield(1)
+  end
+
+  ROUND_TRIPS = "%<calls>d.times { Echo.once { |n| n } }; nil"
+
+  # Each Call leaves a Reply the host wrote and each yield an answer the
+  # guest wrote; both kept would grow the peak with the count, a page at a
+  # time, so three times the Calls would show.
+  # @behavior S-262
+  def test_a_call_or_a_yield_once_answered_keeps_none_of_the_memory_budget
+    peaks = [20_000, 60_000].map do |calls|
+      Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: nil).bind("Echo", Echo.new)
+                     .eval(format(ROUND_TRIPS, calls: calls)).usage.memory_peak
+    end
+
+    assert_equal peaks.first, peaks.last,
+                 "a run calling a Service 60,000 times, each Call yielding once, must report the memory peak " \
+                 "a run making 20,000 such Calls reports"
+  end
+
   private
 
   def run_fixture(name)

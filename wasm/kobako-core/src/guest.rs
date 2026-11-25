@@ -68,6 +68,9 @@ macro_rules! export_guest {
             let request =
                 unsafe { ::core::slice::from_raw_parts(ptr as usize as *const u8, len as usize) };
             let reply = $crate::abi::handle::<$guest>(request);
+            // SAFETY: the host took the request's room from `cabi_realloc`,
+            // and nothing reads it once it is answered.
+            unsafe { $crate::abi::release_list(ptr, len) };
             $crate::abi::return_reply(&reply)
         }
 
