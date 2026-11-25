@@ -2,12 +2,14 @@
 
 require "test_helper"
 
-# E2E — the inode number a script reads through +File::Stat+.
+# E2E — the inode number a script reads through +File::Stat+, and what
+# +File.identical?+ answers from it.
 class TestE2EFileStatIno < Minitest::Test
   include E2eGuestHelper
 
   FIXTURE = TestPaths.fixture("minimal_stat_fields.wat")
   ENTRIES = '[File.stat("/d/f").ino, File.stat("/d/e").ino, File.stat("/d/dir").ino].map(&:to_s)'
+  IDENTICAL = '[File.identical?("/d/f", "/d/./f"), File.identical?("/d/f", "/d/e"), File.identical?("/d/f", "/d/no")]'
 
   Stat = Data.define(:directory, :size, :dev, :ino) do
     def directory? = directory
@@ -96,6 +98,27 @@ class TestE2EFileStatIno < Minitest::Test
   def test_a_hermetic_script_numbers_entries_in_the_order_it_meets_them
     assert_equal [%w[1 2 3], %w[1 2 3]], [tmpfs_entries(:hermetic), tmpfs_entries(:hermetic)],
                  "File::Stat#ino of three entries a hermetic script stats in turn must read 1, 2, and 3 in each run"
+  end
+
+  # @behavior FL-109
+  def test_file_identical_answers_whether_two_paths_reach_one_entry
+    answers = %i[hermetic permissive].map do |profile|
+      filesystem = Kobako::Filesystem::Tmpfs.new("f" => "", "e" => "")
+      Kobako::Sandbox.new(wasm_path: REAL_WASM, profile: profile).mount("/d", filesystem).eval(IDENTICAL).value
+    end
+
+    assert_equal [[true, false, false]] * 2, answers,
+                 "File.identical? of one file by two spellings, of two files, and of a missing path must answer " \
+                 "true, false, and false on either profile"
+  end
+
+  # @behavior FL-110
+  def test_file_identical_matches_nothing_to_an_entry_reporting_no_inode_number
+    answer = Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/m", OneFileFilesystem.new(0))
+                            .eval('[File.stat("/m/f").ino, File.identical?("/m/f", "/m/f")]').value
+
+    assert_equal [0, false], answer,
+                 "File.identical? of a Ruby Filesystem's file reporting inode number 0 and itself must answer false"
   end
 
   # @behavior RT-429
