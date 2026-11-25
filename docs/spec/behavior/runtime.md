@@ -4685,3 +4685,16 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | four runs moving files between two directories of one Tmpfs, each rescuing nothing |
 | When | their `timeout:` passes as a move waits for its directory |
 | Then | each raises `Kobako::TimeoutError`, as Linux's `exit_to_user_mode` ends a task before it reads `EINTR` |
+
+## `RT-427` A wait stands once on each queue, however often its sources name it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-335` |
+| relates | `RT-387` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a wait on a list whose sources all stand on one queue |
+| When | it sleeps on that queue |
+| Then | the queue holds the wait once, so one event wakes it once. The reactor so spends one wake per wait, however long the guest's list |
