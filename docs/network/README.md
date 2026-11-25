@@ -256,6 +256,7 @@ The reactor only wakes. A request moves on its guest's thread, as that guest pol
 | Event | Reaches |
 |---|---|
 | one Sandbox's slow handshake | its own thread, never another Sandbox's wait |
+| a peer that keeps a connection readable | one look's 128 steps, as tokio's budget; the request then wakes its own wait |
 | a request no guest polls | nothing: it stays where it stood |
 | the reactor stopping, by a panic or a failed poll | every socket it watched, aborted, and every timer, woken |
 
