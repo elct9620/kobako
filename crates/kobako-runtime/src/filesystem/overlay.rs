@@ -584,6 +584,19 @@ mod tests {
         Arc::new([(path, contents)].into_iter().collect())
     }
 
+    /// Set every time of what stands at `path` to a moment long past, so a
+    /// time a later change sets differs from it whatever the clock's
+    /// resolution.
+    fn set_long_ago(fs: &KernPath, path: &str) {
+        let long_ago = std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(1);
+        let at = Some(crate::vfs::SetTime::At(long_ago));
+        let attr = Iattr {
+            ctime: Some(long_ago),
+            ..Iattr::for_times(at, at)
+        };
+        fs.setattr(path, &attr).expect("the times must be set");
+    }
+
     // A helper beneath the VFS skips the super block's read-only answer, so only
     // the view's own upper standing empty keeps the change off its lower Layers.
     // @behavior FS-197
@@ -1737,8 +1750,8 @@ mod tests {
     }
 
     /// Another call through the VFS at `overlay`, started once on a thread
-    /// of its own and given a while to finish, recording whether it did
-    /// before the call starting it went on.
+    /// of its own and held for until it waits or finishes, recording whether
+    /// it finished before the call starting it went on.
     #[derive(Default)]
     struct Interleave {
         overlay: Mutex<Option<crate::vfs::Path>>,
@@ -1753,7 +1766,11 @@ mod tests {
             };
             let finished = Arc::new(AtomicUsize::new(0));
             let marker = finished.clone();
+            let (counted, counts) = std::sync::mpsc::channel();
             let handle = thread::spawn(move || {
+                counted
+                    .send(crate::sched::testing::count_waits())
+                    .expect("the call starting it takes the count");
                 let how = crate::vfs::OpenHow {
                     write: true,
                     create: true,
@@ -1763,10 +1780,10 @@ mod tests {
                     crate::vfs::kern_path::filp_open(&Arc::default(), &overlay, "dir/new", &how);
                 marker.store(1, Ordering::SeqCst);
             });
-            let deadline = Instant::now() + Duration::from_millis(200);
-            while finished.load(Ordering::SeqCst) == 0 && Instant::now() < deadline {
-                thread::sleep(Duration::from_millis(5));
-            }
+            let waits = counts.recv().expect("the other call counts its waits");
+            crate::sched::testing::wait_until("the other call waiting or finishing", || {
+                waits.load(Ordering::SeqCst) > 0 || finished.load(Ordering::SeqCst) == 1
+            });
             *self.finished_inside.lock().unwrap() = Some(finished.load(Ordering::SeqCst) == 1);
             *self.other.lock().unwrap() = Some(handle);
         }
@@ -2077,10 +2094,10 @@ mod tests {
     #[test]
     fn a_copy_up_keeps_the_lower_files_times() {
         let lower = tmpfs_with("dir/file", "lower");
+        set_long_ago(&on(&lower), "dir/file");
         let before = on(&lower)
             .vfs_lstat("dir/file")
             .expect("the lower file must stand");
-        std::thread::sleep(Duration::from_millis(10));
         let overlay = at(over(lower, Arc::new(Tmpfs::new())));
         overlay
             .open(
@@ -2107,11 +2124,11 @@ mod tests {
         let lower: Arc<Tmpfs> = Arc::new([("dir/a", "a"), ("dir/b", "b")].into_iter().collect());
         let overlay = at(over(lower, Arc::new(Tmpfs::new())));
         overwrite(&overlay, "dir/a", b"changed");
+        set_long_ago(&overlay, "dir");
         let before = overlay
             .vfs_lstat("dir")
             .expect("the directory must stand")
             .mtime;
-        std::thread::sleep(Duration::from_millis(10));
         overlay
             .open(
                 "dir/b",
@@ -2819,14 +2836,27 @@ mod tests {
         );
     }
 
-    /// Slows the first ask about the directory `e` once armed, so a second copy
-    /// up of it finds the first under way.
-    struct SlowsDirectory(AtomicBool);
+    /// Holds the first ask about the directory `e` once armed, as a copy up
+    /// holding the view's lock of it asks, until another thread waits in
+    /// line for that lock or its open ended, so a second copy up of it finds
+    /// the first under way.
+    #[derive(Default)]
+    struct HoldsDirectory {
+        lock: Mutex<Option<Arc<crate::locking::RwSemaphore>>>,
+        ended: AtomicUsize,
+    }
 
-    impl Hook for SlowsDirectory {
+    impl Hook for HoldsDirectory {
         fn getattr(&self, inner: &dyn InodeOperations, dentry: &Dentry) -> Result<Kstat, Errno> {
-            if dentry.name() == "e" && self.0.swap(false, Ordering::SeqCst) {
-                thread::sleep(Duration::from_millis(100));
+            let armed = match dentry.name() == "e" {
+                true => self.lock.lock().unwrap().take(),
+                false => None,
+            };
+            if let Some(lock) = armed {
+                crate::sched::testing::wait_until(
+                    "the other open waiting for the directory this one copies up, or ending",
+                    || lock.queued() > 0 || self.ended.load(Ordering::SeqCst) > 0,
+                );
             }
             inner.getattr(dentry)
         }
@@ -2841,7 +2871,7 @@ mod tests {
         use crate::mount::{Access, Mount};
         use crate::vfs::{self, OpenHow, Path};
         let lower: Tmpfs = [("d/e/f", "1"), ("d/e/g", "2")].into_iter().collect();
-        let hook = Arc::new(SlowsDirectory(AtomicBool::new(false)));
+        let hook = Arc::new(HoldsDirectory::default());
         let overlay = Overlay::new(
             vec![Filesystem::new(Wrap::new(Arc::new(lower), hook.clone()))
                 .expect("the instance must stand")],
@@ -2863,12 +2893,28 @@ mod tests {
         for name in ["d/e/f", "d/e/g"] {
             vfs::vfs_fstatat(&cred, &root, name, false).expect("the file stands");
         }
-        hook.0.store(true, Ordering::SeqCst);
+        let read_dir = OpenHow {
+            read: true,
+            directory: true,
+            ..OpenHow::default()
+        };
+        let Ok(held) = vfs::kern_path::filp_open(&cred, &root, "d/e", &read_dir) else {
+            panic!("the directory must open");
+        };
+        let inode = held
+            .path()
+            .dentry()
+            .inode()
+            .expect("the directory has an inode");
+        let view = OverlayDirInode::of(&inode).expect("the view holds the directory");
+        *hook.lock.lock().unwrap() = Some(view.lock.clone());
+        let open = |name| {
+            let opened = vfs::kern_path::filp_open(&cred, &root, name, &write).map(drop);
+            hook.ended.fetch_add(1, Ordering::SeqCst);
+            opened
+        };
         let opened = thread::scope(|scope| {
-            let (first, second) = (
-                scope.spawn(|| vfs::kern_path::filp_open(&cred, &root, "d/e/f", &write).map(drop)),
-                scope.spawn(|| vfs::kern_path::filp_open(&cred, &root, "d/e/g", &write).map(drop)),
-            );
+            let (first, second) = (scope.spawn(|| open("d/e/f")), scope.spawn(|| open("d/e/g")));
             (
                 crate::sched::testing::join_scoped("the first open", first),
                 crate::sched::testing::join_scoped("the second open", second),
@@ -3435,13 +3481,14 @@ mod tests {
         );
     }
 
-    /// A Tmpfs whose first open sleeps a while, flagging that it began.
-    #[derive(Default)]
-    struct SleepsOnOpen {
+    /// A Tmpfs whose first open holds, flagging that it began, until `waits`
+    /// counts a wait.
+    struct HoldsFirstOpen {
         opening: AtomicBool,
+        waits: Arc<AtomicUsize>,
     }
 
-    impl Hook for SleepsOnOpen {
+    impl Hook for HoldsFirstOpen {
         fn open(
             &self,
             inner: &dyn InodeOperations,
@@ -3449,26 +3496,32 @@ mod tests {
             how: &OpenHow,
         ) -> Result<Box<dyn FileOperations>, Errno> {
             if !self.opening.swap(true, Ordering::SeqCst) {
-                thread::sleep(Duration::from_millis(100));
+                crate::sched::testing::wait_until(
+                    "the second copy up waiting for the first one's lock",
+                    || self.waits.load(Ordering::SeqCst) > 0,
+                );
             }
             inner.open(dentry, how)
         }
     }
 
-    // The first copy up holds the file's lock while its lower open sleeps,
+    // The first copy up holds the file's lock while its lower open holds,
     // so the second, of the same file, finds the lock held and waits.
     // @behavior FS-039
     #[test]
     fn a_contended_copy_up_waits_through_the_registered_blocking() {
         let counts = crate::sched::testing::count_waits();
-        let sleeps = Arc::new(SleepsOnOpen::default());
-        let lower = Wrap::new(tmpfs_with("note", "lower"), sleeps.clone());
+        let holds = Arc::new(HoldsFirstOpen {
+            opening: AtomicBool::new(false),
+            waits: counts.clone(),
+        });
+        let lower = Wrap::new(tmpfs_with("note", "lower"), holds.clone());
         let overlay = over(Arc::new(lower), Arc::new(Tmpfs::new()));
         let first = at(overlay);
         let second = first.clone();
         let copying = thread::spawn(move || write_over(&first, "note", b"first"));
         crate::sched::testing::wait_until("the first copy up opening its lower file", || {
-            sleeps.opening.load(Ordering::SeqCst)
+            holds.opening.load(Ordering::SeqCst)
         });
         let waited =
             crate::sched::testing::within_max_wait(|| write_over(&second, "note", b"later"));
@@ -3506,15 +3559,16 @@ mod tests {
         );
     }
 
-    // The upper Layer's directory changes after the lower one is made, so
-    // the two report different times and only the upper's matches.
+    // The upper Layer's directory changes now, and the lower one's times are
+    // long past, so the two report different times and only the upper's
+    // matches.
     // @behavior FS-117
     #[test]
     fn an_overlay_reports_a_merged_directory_as_overlayfs_does() {
         let lower: Arc<Tmpfs> = Arc::new([("dir/a.txt", "a")].into_iter().collect());
+        set_long_ago(&on(&lower), "dir");
         let upper: Arc<Tmpfs> = Arc::new(Tmpfs::new());
         let overlay = at(over(lower.clone(), upper.clone()));
-        std::thread::sleep(std::time::Duration::from_millis(10));
         write(&overlay, "dir/b.txt", b"b").expect("the upper must take a write");
         let merged = overlay.vfs_lstat("dir").expect("the directory must stand");
         let modified = |layer: &Arc<Tmpfs>, path: &str| {

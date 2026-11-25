@@ -1181,6 +1181,19 @@ mod tests {
         );
     }
 
+    /// Set every time of what stands at `path` to a moment long past, so a
+    /// time a later change sets differs from it whatever the clock's
+    /// resolution.
+    fn set_long_ago(fs: &KernPath, path: &str) {
+        let long_ago = SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1);
+        let at = Some(SetTime::At(long_ago));
+        let attr = Iattr {
+            ctime: Some(long_ago),
+            ..Iattr::for_times(at, at)
+        };
+        fs.setattr(path, &attr).expect("the times must be set");
+    }
+
     fn at(tmpfs: Tmpfs) -> KernPath {
         kern_path(Arc::new(tmpfs))
     }
@@ -1722,14 +1735,14 @@ mod tests {
     }
 
     // The content stands as it was, so only `st_ctime` tells the name moved, as
-    // `simple_rename_timestamp` moves it alone. The wait passes the clock's
-    // resolution, so the two times cannot pass for one.
+    // `simple_rename_timestamp` moves it alone. The times start long past, so
+    // the two cannot pass for one whatever the clock's resolution.
     // @behavior FS-177
     #[test]
     fn a_moved_file_moves_only_its_changed_time() {
         let tmpfs = at([("file", "x")].into_iter().collect());
+        set_long_ago(&tmpfs, "file");
         let before = tmpfs.vfs_lstat("file").expect("the file must stand");
-        std::thread::sleep(std::time::Duration::from_millis(20));
         tmpfs
             .rename("file", &tmpfs, "moved")
             .expect("the move must land");
@@ -1830,8 +1843,8 @@ mod tests {
         );
     }
 
-    // The write waits past the clock's resolution, so a time left where
-    // the file was made cannot pass for one the write moved.
+    // The file's times are set long past before it is read, so a time left
+    // where it was cannot pass for one the write moved.
     // @behavior FS-115
     #[test]
     fn a_tmpfs_keeps_a_files_times_as_a_tmpfs_mounted_noatime_does() {
@@ -1846,10 +1859,10 @@ mod tests {
             .expect("the file must be made");
         file.write_iter(&mut Kiocb::new(0), b"ab")
             .expect("the file must take a write");
+        set_long_ago(&tmpfs, "file");
         let made = tmpfs.vfs_lstat("file").expect("the file must report");
         file.read_iter(&mut Kiocb::new(0), &mut [0; 1])
             .expect("the file must read");
-        std::thread::sleep(std::time::Duration::from_millis(10));
         file.write_iter(&mut Kiocb::new(0), b"c")
             .expect("the file must take a write within its length");
         let written = tmpfs.vfs_lstat("file").expect("the file must stand");

@@ -352,8 +352,13 @@ mod tests {
 
     /// Holds the first ask of `revalidate` about `d` once it reached the
     /// Filesystem, so a move of `d` racing it either lands first or waits for
-    /// the answer.
-    struct PausesRevalidate(std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>>);
+    /// the answer, until `mover_waits` counts a wait or `moved` is set.
+    #[derive(Default)]
+    struct PausesRevalidate {
+        reached: std::sync::Mutex<Option<std::sync::mpsc::Sender<()>>>,
+        mover_waits: std::sync::OnceLock<Arc<std::sync::atomic::AtomicUsize>>,
+        moved: std::sync::atomic::AtomicBool,
+    }
 
     impl Hook for PausesRevalidate {
         fn revalidate(
@@ -362,13 +367,22 @@ mod tests {
             dir: &dyn InodeOperations,
             dentry: &Dentry,
         ) -> Result<bool, Errno> {
+            use std::sync::atomic::Ordering;
             let reached = match dentry.name() == "d" {
-                true => self.0.lock().expect("the sender").take(),
+                true => self.reached.lock().expect("the sender").take(),
                 false => None,
             };
             if let Some(reached) = reached {
                 reached.send(()).expect("the test waits for the ask");
-                std::thread::sleep(std::time::Duration::from_millis(100));
+                crate::sched::testing::wait_until(
+                    "the move waiting for the call, or landing",
+                    || {
+                        self.mover_waits
+                            .get()
+                            .is_some_and(|waits| waits.load(Ordering::SeqCst) > 0)
+                            || self.moved.load(Ordering::SeqCst)
+                    },
+                );
             }
             ops.revalidate(dir, dentry)
         }
@@ -405,11 +419,11 @@ mod tests {
     fn a_directory_moved_while_a_call_starts_from_it_stays_reachable_beneath_a_policy() {
         let tmpfs: Tmpfs = [("p/d/f", "x"), ("q/keep", "x")].into_iter().collect();
         let (reached, asked) = std::sync::mpsc::channel();
-        let hook = Arc::new(PausesRevalidate(std::sync::Mutex::new(None)));
+        let hook = Arc::new(PausesRevalidate::default());
         let filesystem = Filesystem::new(Wrap::new(Arc::new(tmpfs), hook.clone()))
             .expect("the instance must stand");
         let (cred, held, plain, guard) = held_beneath_a_policy(filesystem);
-        *hook.0.lock().expect("the sender") = Some(reached);
+        *hook.reached.lock().expect("the sender") = Some(reached);
         let start = held.path().clone();
         let first = std::thread::scope(|scope| {
             let first = scope.spawn(|| guard.check(&start));
@@ -417,14 +431,11 @@ mod tests {
                 .recv_timeout(crate::sched::testing::MAX_WAIT)
                 .expect("the call must ask revalidate");
             let root = Path::root(plain.mnt());
-            crate::vfs::filename_renameat2(
-                &restrict_self(&prepare_creds(&[], None), []).expect("every Mount stands"),
-                &root,
-                "p/d",
-                &root,
-                "q/d",
-            )
-            .expect("the move must land");
+            let mover = restrict_self(&prepare_creds(&[], None), []).expect("every Mount stands");
+            let _ = hook.mover_waits.set(crate::sched::testing::count_waits());
+            crate::vfs::filename_renameat2(&mover, &root, "p/d", &root, "q/d")
+                .expect("the move must land");
+            hook.moved.store(true, std::sync::atomic::Ordering::SeqCst);
             crate::sched::testing::join_scoped("the call", first)
         });
         assert!(

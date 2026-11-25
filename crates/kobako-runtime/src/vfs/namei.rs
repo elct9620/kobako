@@ -4251,16 +4251,18 @@ mod tests {
 
     #[test]
     fn a_directory_made_while_another_is_removed_in_its_place_stays_alive() {
+        let counts = count_waits();
         let (removed, removing) = mpsc::channel();
         let (made, making) = mpsc::channel::<()>();
         let (removed, making) = (Mutex::new(removed), Mutex::new(making));
         let hooked = HookedTmpfs {
             removed: Some(Box::new(move || {
                 removed.lock().expect("unpoisoned").send(()).ok();
-                let _ = making
-                    .lock()
-                    .expect("unpoisoned")
-                    .recv_timeout(Duration::from_millis(200));
+                let making = making.lock().expect("unpoisoned");
+                crate::sched::testing::wait_until(
+                    "the make waiting for the removal, or made",
+                    || counts.load(Ordering::SeqCst) > 0 || making.try_recv().is_ok(),
+                );
                 Ok(())
             })),
             ..HookedTmpfs::default()
@@ -4288,22 +4290,27 @@ mod tests {
     }
 
     /// A Policy allowing everything that holds its first answer until the
-    /// test lets it go, or a short while passes.
+    /// removal waits through the Blocking, as `waits` counts, or lands.
     struct PausesFirst {
         answered: AtomicBool,
         reached: Mutex<mpsc::Sender<()>>,
-        resume: Mutex<mpsc::Receiver<()>>,
+        waits: Arc<OnceLock<Arc<AtomicUsize>>>,
+        removed: Arc<AtomicBool>,
     }
 
     impl Policy<MountRequest<'_>> for PausesFirst {
         fn allows(&self, _request: &MountRequest<'_>) -> bool {
             if !self.answered.swap(true, Ordering::SeqCst) {
                 self.reached.lock().expect("unpoisoned").send(()).ok();
-                let _ = self
-                    .resume
-                    .lock()
-                    .expect("unpoisoned")
-                    .recv_timeout(Duration::from_millis(200));
+                crate::sched::testing::wait_until(
+                    "the removal waiting for the open, or landing",
+                    || {
+                        self.waits
+                            .get()
+                            .is_some_and(|waits| waits.load(Ordering::SeqCst) > 0)
+                            || self.removed.load(Ordering::SeqCst)
+                    },
+                );
             }
             true
         }
@@ -4316,11 +4323,12 @@ mod tests {
     #[test]
     fn a_create_opens_the_file_it_finds_or_makes_one() {
         let (reached, reaching) = mpsc::channel();
-        let (removed, resume) = mpsc::channel();
+        let (waits, removed) = (Arc::<OnceLock<_>>::default(), Arc::<AtomicBool>::default());
         let policy = PausesFirst {
             answered: AtomicBool::new(false),
             reached: Mutex::new(reached),
-            resume: Mutex::new(resume),
+            waits: waits.clone(),
+            removed: removed.clone(),
         };
         let tmpfs: Tmpfs = [("f", "x")].into_iter().collect();
         let mount = Mount::new(
@@ -4351,8 +4359,9 @@ mod tests {
             .recv_timeout(crate::sched::testing::MAX_WAIT)
             .expect("the open must reach the Policy");
         let remover = thread::spawn(move || {
+            let _ = waits.set(count_waits());
             let answer = vfs::filename_unlinkat(&cred, &root, "f");
-            removed.send(()).ok();
+            removed.store(true, Ordering::SeqCst);
             answer
         });
         let opened = crate::sched::testing::join("the open", opener);
@@ -5902,8 +5911,7 @@ mod tests {
     // to `a/x`. A writer with no Policy renames it within `a` meanwhile, which
     // takes no rename lock. A dentry taken before the wait would follow it to
     // the name the Policy refuses, so only a name found under the lock answers
-    // ENOENT. The wait can only be slept for; a move not yet waiting is one the
-    // assertion passes on, never one it fails.
+    // ENOENT. The writer renames only once the move waits through the Blocking.
     // @behavior RT-211
     #[test]
     fn a_move_acts_on_what_stands_at_its_names_once_it_holds_them() {
@@ -5938,11 +5946,20 @@ mod tests {
         reaching
             .recv_timeout(crate::sched::testing::MAX_WAIT)
             .expect("the held move must reach its Filesystem");
+        let (counted, counts) = mpsc::channel();
         let mover = {
             let (cred, root) = (cred.clone(), root.clone());
-            thread::spawn(move || vfs::filename_renameat2(&cred, &root, "a/x", &root, "b/y"))
+            thread::spawn(move || {
+                counted
+                    .send(count_waits())
+                    .expect("the test takes the count");
+                vfs::filename_renameat2(&cred, &root, "a/x", &root, "b/y")
+            })
         };
-        thread::sleep(Duration::from_millis(200));
+        let waits = counts.recv().expect("the move counts its waits");
+        crate::sched::testing::wait_until("the move waiting for the rename lock", || {
+            waits.load(Ordering::SeqCst) > 0
+        });
         let renamed = vfs::filename_renameat2(&Arc::default(), &root, "a/x", &root, "a/moved");
         go_on.send(()).expect("the held move must be waiting");
         crate::sched::testing::join("the holder", holder)
