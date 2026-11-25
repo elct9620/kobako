@@ -112,6 +112,18 @@ class TestE2EMemoryBudget < Minitest::Test
                  "a run making 20,000 such Calls reports"
   end
 
+  # Each String is dropped as the next is built, but mruby collects by its
+  # count of objects, so the growth past the cap comes before any
+  # collection; only its failing, rather than ending the run, lets mruby
+  # collect and build the next.
+  # @behavior S-263
+  def test_a_run_that_let_go_of_what_it_built_goes_on_past_a_refused_growth
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 4 << 20)
+
+    assert_equal 200, sandbox.eval('n = 0; 200.times { "x" * 65_536; n += 1 }; n').value,
+                 "a run under a 4 MiB memory_limit building and dropping 200 Strings of 64 KiB must answer 200"
+  end
+
   private
 
   def run_fixture(name)

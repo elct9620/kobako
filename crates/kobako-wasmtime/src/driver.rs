@@ -83,9 +83,10 @@ impl Driver {
             .instance_pre
             .instantiate(store.as_context_mut())
             .map_err(|e| {
-                trap::run_cap_trap_of(&e, store.data_mut().limiter_mut()).unwrap_or_else(|| {
+                let failed = trap::cap_trap_of(&e).unwrap_or_else(|| {
                     Trap::Other(format!("failed to instantiate the Sandbox runtime: {e}"))
-                })
+                });
+                trap::charged_to_budget(failed, store.data_mut().limiter_mut())
             })?;
         let exports = Exports::resolve(&instance, store.as_context_mut());
         store.data_mut().set_exports(exports.clone());
@@ -104,7 +105,14 @@ impl Driver {
     ) -> Result<wasmtime::Result<u32>, InvokeError> {
         let exports = self.instantiate(store)?;
         let downcall = exports::require(exports.downcall.as_ref())?;
-        let (ptr, len) = endpoint::write_request(&mut guest_of(store), request)?;
+        let (ptr, len) =
+            endpoint::write_request(&mut guest_of(store), request).map_err(|err| match err {
+                InvokeError::Trap(failed) => InvokeError::Trap(trap::charged_to_budget(
+                    failed,
+                    store.data_mut().limiter_mut(),
+                )),
+                other => other,
+            })?;
         // A wait for a lock the call meets ends at the same deadline the guest's
         // code does, so another Sandbox holding it cannot keep this one past it.
         let deadline = store.data().deadline();
@@ -152,15 +160,14 @@ impl ContractRuntime for Driver {
             store.data_mut().bind_on_dispatch(handler);
         }
         let called = self.downcall(&mut store, &endpoint::request_of(entry))?;
-        let completion = match called {
-            Ok(ret) => match endpoint::read_outcome(&mut guest_of(&mut store), ret) {
-                Ok(outcome) => Completion::Outcome(outcome),
-                Err(t) => Completion::Trap(t),
-            },
-            Err(e) => Completion::Trap(
-                trap::run_cap_trap_of(&e, store.data_mut().limiter_mut())
-                    .unwrap_or_else(|| trap::to_trap(e)),
-            ),
+        let read = match called {
+            Ok(ret) => endpoint::read_outcome(&mut guest_of(&mut store), ret),
+            Err(e) => Err(trap::to_trap(e)),
+        };
+        let limiter = store.data_mut().limiter_mut();
+        let completion = match read {
+            Ok(outcome) => trap::completion_of(outcome, limiter),
+            Err(failed) => Completion::Trap(trap::charged_to_budget(failed, limiter)),
         };
         Ok(self.build_snapshot(&store, completion))
     }

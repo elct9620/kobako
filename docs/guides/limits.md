@@ -25,7 +25,7 @@ Each cap has a default and its own way to end a run.
 |---|---|---|
 | `timeout` | 60.0 s | `Kobako::TimeoutError` |
 | `setup_timeout` | 10.0 s | `Kobako::SetupError` at `new` |
-| `memory_limit` | 4 MiB | `Kobako::MemoryLimitError` |
+| `memory_limit` | 4 MiB | `Kobako::MemoryLimitError`, once the guest cannot free room |
 | `stdout_limit`, `stderr_limit` | 1 MiB each | output clipped, no raise |
 | `open_file_limit` | 16 | `Errno::EMFILE` in the guest |
 | `open_connection_limit` | 6 | `Errno::EAGAIN` in the guest |

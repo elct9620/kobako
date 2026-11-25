@@ -55,7 +55,7 @@ An invocation is a small virtual machine, as a sandbox runtime such as gVisor or
 
 ### Guest RAM
 
-`memory_limit` is the guest's RAM. A growth past it is refused at once, before the engine allocates.
+`memory_limit` is the guest's RAM. A growth past it is refused at once, before the engine allocates. The guest sees it fail, as `memory.grow` answers -1, so it can collect what it dropped and try again, as memcg reclaims before it kills. A run that fails after a refusal fails as `memory_limit`'s.
 
 | Growth | Counted |
 |---|---|

@@ -29,9 +29,10 @@ fn to_usize(size: Option<u64>) -> usize {
 }
 
 /// wasmtime asks this as a memory, a table, or the GC heap is created or
-/// grows; an `Err` becomes the trap surfaced to the host as a guest
-/// invocation failure. A growth it allowed may still fail, past the memory's
-/// maximum or for want of host memory, and its charge is then given back.
+/// grows; a growth past the budget fails and is kept as the refusal that a
+/// run failing after it is attributed to. A growth it allowed may still
+/// fail, past the memory's maximum or for want of host memory, and its
+/// charge is then given back.
 pub(crate) struct MemoryLimiter {
     budget: Arc<MemoryBudget>,
     pending: Option<GrowthCharge>,
@@ -52,20 +53,27 @@ impl MemoryLimiter {
         &self.budget
     }
 
-    /// The last growth the budget refused. wasmtime drops a refusal to grow
-    /// the GC heap and fails the allocation after it instead, so this is
-    /// what tells that failure apart as the budget's.
+    /// The last growth the budget refused. The guest only sees the growth
+    /// fail, so this is what tells a run that then fails apart as the
+    /// budget's.
     pub(crate) fn refused(&self) -> Option<&MemoryLimitExceeded> {
         self.refused.as_ref()
     }
 
+    /// A growth the budget refuses fails, as `memory.grow` answers -1, rather
+    /// than ending the run, so the guest can collect what it no longer holds
+    /// and try again, as mruby does once its allocator answers none.
     fn charge(&mut self, bytes: usize) -> wasmtime::Result<bool> {
-        let charge = self.budget.charge_growth(bytes).map_err(|refusal| {
-            self.refused = Some(refusal.clone());
-            wasmtime::Error::new(refusal)
-        })?;
-        self.pending = Some(charge);
-        Ok(true)
+        match self.budget.charge_growth(bytes) {
+            Ok(charge) => {
+                self.pending = Some(charge);
+                Ok(true)
+            }
+            Err(refusal) => {
+                self.refused = Some(refusal);
+                Ok(false)
+            }
+        }
     }
 
     fn give_back(&mut self) {

@@ -10,13 +10,15 @@
 
 use std::time::{Duration, Instant};
 
-use wasmtime::{GcHeapOutOfMemory, Store, StoreHookState, UpdateDeadline};
+use wasmtime::{Store, StoreHookState, UpdateDeadline};
 
 use crate::invocation::Invocation;
 use crate::limiter::MemoryLimiter;
 use kobako_runtime::error::{SetupError, Trap};
 use kobako_runtime::memcg::MemoryLimitExceeded;
 use kobako_runtime::sched::{self, FatalSignal};
+use kobako_runtime::snapshot::Completion;
+use kobako_transport::envelope::Outcome;
 
 /// Marker error returned from the epoch-deadline callback when the
 /// wall-clock deadline is exceeded. Downcast from the wasmtime trap
@@ -103,16 +105,31 @@ pub(crate) fn arm_deadline(store: &mut Store<Invocation>, limit: Option<Duration
     store.set_epoch_deadline(1);
 }
 
-/// The cap trap ending a run in `err`, `limiter` having charged its growth:
-/// a GC allocation wasmtime failed once the budget refused the heap room is
-/// the budget's, though wasmtime dropped the refusal.
-pub(crate) fn run_cap_trap_of(err: &wasmtime::Error, limiter: &MemoryLimiter) -> Option<Trap> {
-    cap_trap_of(err).or_else(|| {
-        limiter
-            .refused()
-            .filter(|_| err.is::<GcHeapOutOfMemory<()>>())
-            .map(|refused| Trap::MemoryLimit(refused.to_string()))
-    })
+/// The class a guest's interpreter raises once its allocator answers no
+/// room, as mruby's and CRuby's do.
+const OUT_OF_MEMORY: &str = "NoMemoryError";
+
+/// `trap` ending a run, as `limiter` attributes it: once the budget refused
+/// a growth, a run that fails for another reason than its deadline failed
+/// for want of the room, as an allocator with none traps or a GC heap
+/// allocation fails.
+pub(crate) fn charged_to_budget(trap: Trap, limiter: &MemoryLimiter) -> Trap {
+    match (limiter.refused(), trap) {
+        (Some(refused), Trap::Other(_)) => Trap::MemoryLimit(refused.to_string()),
+        (_, trap) => trap,
+    }
+}
+
+/// What `outcome` completes a run as: a guest that ended raising
+/// `NoMemoryError` after the budget refused a growth failed as the budget's,
+/// while one that collected and went on answers its own outcome.
+pub(crate) fn completion_of(outcome: Outcome, limiter: &MemoryLimiter) -> Completion {
+    match (&outcome, limiter.refused()) {
+        (Outcome::Panic(panic), Some(refused)) if panic.error.name == OUT_OF_MEMORY => {
+            Completion::Trap(Trap::MemoryLimit(refused.to_string()))
+        }
+        _ => Completion::Outcome(outcome),
+    }
 }
 
 /// The cap trap `err` carries, if a cap fired: a setup step that fails
