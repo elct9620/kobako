@@ -42,6 +42,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_preload.rb`
 - `test/e2e/sandbox/test_flag.rb`
 - `test/e2e/sandbox/test_usage.rb`
+- `test/e2e/sandbox/test_stat.rb`
 - `test/e2e/test_caps.rb`
 - `test/e2e/test_memory_budget.rb`
 - `test/e2e/test_open_file_limit.rb`
@@ -2503,3 +2504,15 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox whose memory cap is 4 MiB |
 | When | a run builds and drops 64 KiB Strings until it has built 13 MB |
 | Then | it answers its count. The refused growth fails as `memory.grow` answering -1, and the guest collects and tries again |
+
+## `S-264` A Sandbox counts its runs waiting now
+
+| Attribute | Value |
+| --- | --- |
+| relates | `RT-336` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose run waits on a directory another run holds |
+| When | the Host App reads `Sandbox#stat` while it waits, and after it ends |
+| Then | `:runs_waiting` counts that run while it waits, and no run once it ends. `Sandbox#stat(:runs_waiting)` answers the count alone, as `GC.stat` does |
