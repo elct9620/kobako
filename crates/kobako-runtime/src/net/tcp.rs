@@ -462,6 +462,13 @@ impl TcpSock {
         state.orphan.take()
     }
 
+    /// How many bytes arrived that nothing has read, as Linux's `SIOCINQ`
+    /// reads, so a test sees what the reactor queued.
+    #[cfg(test)]
+    pub(crate) fn unread(&self) -> usize {
+        self.state().receive_queue.len()
+    }
+
     /// Lock the host socket's send buffer at `size`, so the host stops
     /// taking bytes once it holds that many, as a test needs a connection
     /// still sending.
@@ -812,6 +819,18 @@ mod tests {
         let (peer, _) = listener.accept().expect("the listener accepts");
         wait_for(|table| file.poll(table), PollMask::OUT);
         (sock, file, peer)
+    }
+
+    /// Wait until what the socket wrote reached `peer`, so its close finds
+    /// bytes unread and resets, as Linux's `tcp_close` does.
+    fn wait_until_arrived(peer: &std::net::TcpStream) {
+        peer.set_read_timeout(Some(crate::sched::testing::MAX_WAIT))
+            .unwrap();
+        let arrived = peer.peek(&mut [0; 1]);
+        assert!(
+            arrived.as_ref().is_ok_and(|n| *n > 0),
+            "the bytes the socket wrote never reached its peer, got {arrived:?}"
+        );
     }
 
     // @behavior NW-116
@@ -1405,8 +1424,8 @@ mod tests {
     fn a_reset_reads_as_an_error_its_poll_reports() {
         let (_sock, mut file, peer) = connected_socket();
         file.write(b"unread").unwrap();
-        std::thread::sleep(Duration::from_millis(20));
         // A close with bytes unread sends a reset, as Linux's `tcp_close` does.
+        wait_until_arrived(&peer);
         drop(peer);
         wait_for(|table| file.poll(table), PollMask::ERR);
         assert_eq!(
@@ -1421,7 +1440,7 @@ mod tests {
     fn reset_socket() -> (Arc<TcpSock>, File) {
         let (sock, mut file, peer) = connected_socket();
         file.write(b"unread").unwrap();
-        std::thread::sleep(Duration::from_millis(20));
+        wait_until_arrived(&peer);
         drop(peer);
         wait_for(|table| file.poll(table), PollMask::ERR);
         (sock, file)
@@ -1447,7 +1466,7 @@ mod tests {
         file.write(b"unread").unwrap();
         peer.shutdown(Shutdown::Write).unwrap();
         wait_for(|table| file.poll(table), PollMask::IN);
-        std::thread::sleep(Duration::from_millis(20));
+        wait_until_arrived(&peer);
         drop(peer);
         std::thread::sleep(Duration::from_millis(20));
         let _ = file.write(b"after the reset");

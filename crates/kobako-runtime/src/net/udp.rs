@@ -710,15 +710,54 @@ mod tests {
     /// host's queue until the socket itself takes it; the host socket's own
     /// address.
     fn stop_reactor_for(sock: &UdpSock) -> SocketAddr {
+        let round = Arc::new(TellsOnEvent::default());
+        let (tell, told) = std::sync::mpsc::channel();
+        *round.0.lock().unwrap() = Some(tell);
         let local = {
             let mut state = sock.state();
             let (socket, registration) = state.host.as_mut().expect("a connected socket");
             registration.deregister(socket);
+            // An event the reactor took before the deregister may still run,
+            // but only within the round that ends before this one runs.
+            let round: Arc<dyn Ready> = round.clone();
+            registration.repoll(Arc::downgrade(&round));
             socket.local_addr().unwrap()
         };
-        // An event the reactor took before the deregister may still run.
-        thread::sleep(Duration::from_millis(100));
+        told.recv_timeout(crate::sched::testing::MAX_WAIT)
+            .expect("the reactor never ran a round past the deregister");
         local
+    }
+
+    /// Tells once of the first change the reactor hands it.
+    #[derive(Default)]
+    struct TellsOnEvent(Mutex<Option<std::sync::mpsc::Sender<()>>>);
+
+    impl Ready for TellsOnEvent {
+        fn on_event(&self) {
+            if let Some(tell) = self.0.lock().unwrap().take() {
+                let _ = tell.send(());
+            }
+        }
+
+        fn abort(&self) {}
+    }
+
+    /// Send `count` one-byte datagrams numbered from 0 from `peer` to
+    /// `local`, then one to a witness socket, and wait until the witness
+    /// hears it: loopback hands one sender's datagrams over in order, so
+    /// every datagram before it waits in the host socket's queue by then.
+    fn send_numbered(peer: &UdpSocket, local: SocketAddr, count: u8) {
+        let witness = UdpSocket::bind("127.0.0.1:0").unwrap();
+        witness
+            .set_read_timeout(Some(crate::sched::testing::MAX_WAIT))
+            .unwrap();
+        for i in 0..count {
+            peer.send_to(&[i], local).unwrap();
+        }
+        peer.send_to(b"w", witness.local_addr().unwrap()).unwrap();
+        witness
+            .recv_from(&mut [0; 1])
+            .expect("the datagram sent after the numbered ones never reached its witness");
     }
 
     /// Wait until a datagram waits in `sock`'s host socket.
@@ -742,11 +781,7 @@ mod tests {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         let sock = connected_socket(peer.local_addr().unwrap());
         let local = stop_reactor_for(&sock);
-        for i in 0..100u8 {
-            peer.send_to(&[i], local).unwrap();
-        }
-        wait_until_queued(&sock);
-        thread::sleep(Duration::from_millis(200));
+        send_numbered(&peer, local, 100);
         // The turn is read under its own lock, before a repoll can take more.
         let one_turn = {
             let mut state = sock.state();
@@ -777,11 +812,7 @@ mod tests {
         let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
         let sock = connected_socket(peer.local_addr().unwrap());
         let local = stop_reactor_for(&sock);
-        for i in 0..100u8 {
-            peer.send_to(&[i], local).unwrap();
-        }
-        wait_until_queued(&sock);
-        thread::sleep(Duration::from_millis(200));
+        send_numbered(&peer, local, 100);
         sock.pump(&mut sock.state());
         let started = Instant::now();
         while sock.state().receive_queue.len() < 100 && started.elapsed() < Duration::from_secs(5) {

@@ -153,6 +153,7 @@ mod tests {
     use std::task::Poll;
 
     use super::*;
+    use crate::sched::testing::{count_waits, join, wait_until, within_max_wait};
     use crate::wait::{do_poll, poll_wait};
 
     // A request woken from another thread moves on once its guest polls it
@@ -182,10 +183,13 @@ mod tests {
             )
         };
         task.poll();
+        let waits = count_waits();
         let opener = {
-            let gate = gate.clone();
+            let (gate, waits) = (gate.clone(), waits.clone());
             std::thread::spawn(move || {
-                std::thread::sleep(std::time::Duration::from_millis(20));
+                wait_until("the guest waiting on the request's queue", || {
+                    waits.load(Ordering::SeqCst) > 0
+                });
                 let waker = {
                     let mut gate = gate.lock().unwrap();
                     gate.0 = true;
@@ -194,20 +198,26 @@ mod tests {
                 waker.expect("the task waited").wake();
             })
         };
-        let answer = do_poll(
-            || Some(std::time::Instant::now() + std::time::Duration::from_secs(5)),
-            |table| {
-                poll_wait(&wait, table);
-                task.poll();
-                ended.load(Ordering::SeqCst).then_some(())
-            },
-        );
-        opener.join().unwrap();
+        let answer = within_max_wait(|| {
+            do_poll(
+                || None,
+                |table| {
+                    poll_wait(&wait, table);
+                    // A poll once the deadline passed was not the wake's.
+                    if crate::sched::fatal_signal_pending() {
+                        return None;
+                    }
+                    task.poll();
+                    ended.load(Ordering::SeqCst).then_some(())
+                },
+            )
+        });
+        join("the opener", opener);
         assert_eq!(
             answer,
             Ok(Some(())),
             "a request woken from another thread must wake the queue its guest waits on, and \
-             end once the guest polls it again"
+             end once the guest polls it again, before the guest's deadline ends its wait"
         );
     }
 }

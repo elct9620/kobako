@@ -307,16 +307,23 @@ mod tests {
         );
     }
 
-    /// A resolver whose query takes long in each poll, as a slow certificate
-    /// check holds the thread polling it, telling as it starts.
-    struct TakesLong(Mutex<mpsc::Sender<()>>);
+    /// A resolver whose query holds each poll until the test lets it go, as a
+    /// slow certificate check holds the thread polling it, telling as it
+    /// starts.
+    struct TakesLong {
+        polling: Mutex<mpsc::Sender<()>>,
+        release: Arc<Mutex<mpsc::Receiver<()>>>,
+    }
 
     impl Resolver for TakesLong {
         fn resolve(&self, _name: &str) -> Resolving {
-            let polling = self.0.lock().unwrap().clone();
+            let polling = self.polling.lock().unwrap().clone();
+            let release = self.release.clone();
             Box::pin(std::future::poll_fn(move |_| {
                 let _ = polling.send(());
-                std::thread::sleep(Duration::from_secs(2));
+                // The test lets go once it heard the other socket, or drops
+                // its end as it fails.
+                let _ = release.lock().unwrap().recv();
                 Poll::Ready(Ok(Vec::new()))
             }))
         }
@@ -341,7 +348,11 @@ mod tests {
         let (polling, polled) = mpsc::channel();
         let invocation = OpenConnections::new(None);
         let place = open(&invocation).expect("the count has room");
-        let resolver = Arc::new(TakesLong(Mutex::new(polling)));
+        let (release, released) = mpsc::channel();
+        let resolver = Arc::new(TakesLong {
+            polling: Mutex::new(polling),
+            release: Arc::new(Mutex::new(released)),
+        });
         let asking = std::thread::spawn(move || {
             let lookup = NameLookup::start_holding(resolver, "slow.test".into(), Arc::new(place));
             while lookup.answer().is_none() {}
@@ -362,12 +373,13 @@ mod tests {
             .expect("a UDP socket binds")
             .send_to(b"x", socket.local_addr().unwrap())
             .expect("the datagram goes");
-        let heard = rx.recv_timeout(Duration::from_millis(500)).is_ok();
-        asking.join().expect("the asking thread ends");
+        let heard = rx.recv_timeout(crate::sched::testing::MAX_WAIT).is_ok();
+        drop(release);
+        crate::sched::testing::join("the asking thread", asking);
         assert!(
             heard,
-            "a socket whose peer sent must be woken at once while another Sandbox's lookup \
-             spends seconds in its resolver, since only the thread waiting on that lookup polls it"
+            "a socket whose peer sent must be woken while another Sandbox's lookup is held in \
+             its resolver, since only the thread waiting on that lookup polls it"
         );
     }
 }

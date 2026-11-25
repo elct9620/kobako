@@ -1429,6 +1429,22 @@ mod tests {
         Namespace::for_network(&network, Arc::new(HostInet), Arc::new(HyperOutbound::new()))
     }
 
+    /// A namespace whose one entry holds `endpoints`, over a host that counts
+    /// each dial it is asked for, so a request sending nothing dials nothing.
+    fn counting_namespace(endpoints: Vec<Endpoint>) -> (Namespace, Arc<CountsDials>) {
+        let mut entry = Builder::default();
+        endpoints.into_iter().for_each(|endpoint| {
+            entry.endpoint(endpoint);
+        });
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let family = Arc::new(CountsDials::default());
+        let outbound = Arc::new(HyperOutbound::new());
+        (
+            Namespace::for_network(&network, family.clone(), outbound),
+            family,
+        )
+    }
+
     fn greeting_request(authority: &str) -> OutgoingRequest {
         let mut request = OutgoingRequest::new("GET", Scheme::Http, authority);
         request.path_with_query = "/greeting?lang=en".to_string();
@@ -1633,7 +1649,8 @@ mod tests {
         let cred = prepare_creds(&[], None);
         let exchange = crate::net::send(&namespace, &cred, greeting_request("api.example.com"))
             .expect("the endpoint admits it");
-        thread::sleep(Duration::from_millis(50));
+        // The send polls its request once before it answers, so a lookup that
+        // starts on its thread is recorded by now.
         let started_on = family.0.lock().unwrap().clone();
         exchange.release();
         assert_eq!(
@@ -2232,13 +2249,11 @@ mod tests {
     // @behavior NW-038
     #[test]
     fn a_request_no_http_endpoint_names_is_denied_unsent() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let port = listener.local_addr().unwrap().port();
+        let port = 8080;
         let raw = Endpoint::new("127.0.0.1", port)
             .unwrap()
             .with_protocol(Protocol::Tcp);
-        let namespace = namespace(vec![raw]);
+        let (namespace, family) = counting_namespace(vec![raw]);
         let cred = prepare_creds(&[], None);
         let answers = [
             format!("127.0.0.1:{port}"),
@@ -2246,12 +2261,11 @@ mod tests {
             format!("198.18.0.0:{port}"),
         ]
         .map(|authority| crate::net::send(&namespace, &cred, greeting_request(&authority)).err());
-        thread::sleep(Duration::from_millis(20));
         assert!(
             answers
                 .iter()
                 .all(|answer| *answer == Some(HttpError::Denied))
-                && listener.accept().is_err(),
+                && family.dials() == 0,
             "a guest's request to an authority only a tcp endpoint names, one no endpoint names, \
              or a virtual address must answer Denied, sending nothing, got {answers:?}"
         );
@@ -2260,22 +2274,20 @@ mod tests {
     // @behavior NW-041
     #[test]
     fn a_request_carrying_a_header_the_seam_frames_is_refused_unsent() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
+        let port = 8080;
+        let (namespace, family) =
+            counting_namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
         let cred = prepare_creds(&[], None);
         let answers = ["Host", "content-length", "bad name"].map(|name| {
             let mut request = greeting_request(&format!("127.0.0.1:{port}"));
             request.headers.push((name.to_string(), b"x".to_vec()));
             crate::net::send(&namespace, &cred, request).err()
         });
-        thread::sleep(Duration::from_millis(20));
         assert!(
             answers
                 .iter()
                 .all(|answer| *answer == Some(HttpError::Denied))
-                && listener.accept().is_err(),
+                && family.dials() == 0,
             "a guest's request carrying host, content-length, or a name that is no \
              token must answer Denied, sending nothing, got {answers:?}"
         );
@@ -2284,22 +2296,20 @@ mod tests {
     // @behavior NW-184
     #[test]
     fn a_request_whose_target_is_not_in_origin_form_is_refused_unsent() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
+        let port = 8080;
+        let (namespace, family) =
+            counting_namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
         let cred = prepare_creds(&[], None);
         let answers = ["http://other.example/x", "*", "", "/a#b"].map(|target| {
             let mut request = greeting_request(&format!("127.0.0.1:{port}"));
             request.path_with_query = target.to_string();
             crate::net::send(&namespace, &cred, request).err()
         });
-        thread::sleep(Duration::from_millis(20));
         assert!(
             answers
                 .iter()
                 .all(|answer| *answer == Some(HttpError::Denied))
-                && listener.accept().is_err(),
+                && family.dials() == 0,
             "a guest's request whose target is absolute-form, asterisk-form, empty, or \
              carries a fragment must answer Denied, sending nothing, got {answers:?}"
         );
@@ -2308,22 +2318,20 @@ mod tests {
     // @behavior NW-219
     #[test]
     fn a_request_whose_method_is_not_a_token_is_refused_unsent() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let port = listener.local_addr().unwrap().port();
-        let namespace = namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
+        let port = 8080;
+        let (namespace, family) =
+            counting_namespace(vec![Endpoint::new("127.0.0.1", port).unwrap()]);
         let cred = prepare_creds(&[], None);
         let answers = ["", "GET X"].map(|method| {
             let mut request = greeting_request(&format!("127.0.0.1:{port}"));
             request.method = method.to_string();
             crate::net::send(&namespace, &cred, request).err()
         });
-        thread::sleep(Duration::from_millis(20));
         assert!(
             answers
                 .iter()
                 .all(|answer| *answer == Some(HttpError::Denied))
-                && listener.accept().is_err(),
+                && family.dials() == 0,
             "a guest's request whose method is empty or holds a space must answer Denied, \
              sending nothing, got {answers:?}"
         );
@@ -2476,9 +2484,7 @@ mod tests {
     // @behavior NW-045
     #[test]
     fn a_request_policy_sees_the_request_and_refuses_it_unsent() {
-        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-        listener.set_nonblocking(true).unwrap();
-        let port = listener.local_addr().unwrap().port();
+        let port = 8080;
         let seen = Arc::new(Mutex::new(Vec::new()));
         let recorded = seen.clone();
         let mut entry = Builder::default();
@@ -2498,21 +2504,17 @@ mod tests {
                 false
             });
         let network = Network::new("web", Arc::new(entry)).unwrap();
+        let family = Arc::new(CountsDials::default());
         let namespace =
-            Namespace::for_network(&network, Arc::new(HostInet), Arc::new(HyperOutbound::new()));
+            Namespace::for_network(&network, family.clone(), Arc::new(HyperOutbound::new()));
         let mut request = greeting_request(&format!("127.0.0.1:{port}"));
         request
             .headers
             .push(("X-Probe".to_string(), b"secret".to_vec()));
         let cred = prepare_creds(&[], None);
         let answer = crate::net::send(&namespace, &cred, request).err();
-        thread::sleep(Duration::from_millis(20));
         assert_eq!(
-            (
-                answer,
-                seen.lock().unwrap().clone(),
-                listener.accept().is_err()
-            ),
+            (answer, seen.lock().unwrap().clone(), family.dials() == 0),
             (
                 Some(HttpError::Denied),
                 vec![(
@@ -2898,9 +2900,12 @@ mod tests {
             thread::sleep(Duration::from_millis(1));
         }
         let _ = go.send(());
-        // Long enough for the reactor to queue every byte the peer sent, so
-        // the connection stays readable for each look that follows.
-        thread::sleep(Duration::from_millis(200));
+        // Once the reactor queued every byte the peer sent, the connection
+        // stays readable for each look that follows.
+        let upstreams = namespace.tcp_sockets().held();
+        crate::sched::testing::wait_until("the reactor queueing every byte the peer sent", || {
+            upstreams.iter().any(|upstream| upstream.unread() == SENT)
+        });
         let (mut most, mut last) = (0, reads.load(Ordering::SeqCst));
         let answer = crate::wait::do_poll(
             || Some(give_up),
