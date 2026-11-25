@@ -17,14 +17,15 @@ class TestE2EDirectoryLockThreads < Minitest::Test
 
   DEADLINE = 30
 
-  # One Sandbox creating a file through an Overlay whose lower Ruby Layer
-  # sleeps while it is asked about the new name, holding the directory,
-  # and one holding the GVL looking in that directory meanwhile.
+  # One Sandbox creating a file through an Overlay whose lower Ruby Layer,
+  # asked about the new name holding the directory, goes on once a Sandbox
+  # holding the GVL waits looking in that directory.
   CHILD = <<~RUBY
     require "kobako"
     Stat = Data.define(:directory, :size, :ino) { def directory? = directory }
     asking = Queue.new
     asked = 0
+    looker = nil
     layer = Object.new
     layer.define_singleton_method(:open) { |path, _flags| raise Errno::ENOENT, path }
     # A create finds its name holding the directory, so the first ask is made
@@ -34,7 +35,7 @@ class TestE2EDirectoryLockThreads < Minitest::Test
 
       if (asked += 1) == 1
         asking << true
-        sleep 0.2
+        sleep 0.001 until looker&.stat(:runs_waiting) == 1
       end
       raise Errno::ENOENT, path
     end
@@ -44,21 +45,23 @@ class TestE2EDirectoryLockThreads < Minitest::Test
     end
     maker = Thread.new { sandbox.(:hold).eval('File.write("/data/new", "x"); true').value }
     asking.pop
-    looker = Thread.new { sandbox.(:hold).eval('File.exist?("/data/new")').value }
-    print [maker.value, looker.value].inspect
+    looker = sandbox.(:hold)
+    looking = Thread.new { looker.eval('File.exist?("/data/new")').value }
+    print [maker.value, looking.value].inspect
   RUBY
 
-  # One Sandbox creating a file in a Tmpfs while its mount's block sleeps on
-  # the change, holding the directory, and one holding the GVL looking in
-  # that directory meanwhile.
+  # One Sandbox creating a file in a Tmpfs whose mount's block, asked about
+  # the change holding the directory, goes on once a Sandbox holding the GVL
+  # waits looking in that directory.
   POLICY_CHILD = <<~RUBY
     require "kobako"
     asking = Queue.new
+    looker = nil
     tmpfs = Kobako::Filesystem::Tmpfs.new
     block = lambda do |_path, access|
       if access == :read_write
         asking << true
-        sleep 0.2
+        sleep 0.001 until looker&.stat(:runs_waiting) == 1
       end
       true
     end
@@ -67,37 +70,42 @@ class TestE2EDirectoryLockThreads < Minitest::Test
     end
     maker = Thread.new { sandbox.(:hold).eval('File.write("/data/new", "x"); true').value }
     asking.pop
-    looker = Thread.new { sandbox.(:hold).eval('File.exist?("/data/new")').value }
-    print [maker.value, looker.value].inspect
+    looker = sandbox.(:hold)
+    looking = Thread.new { looker.eval('File.exist?("/data/new")').value }
+    print [maker.value, looking.value].inspect
   RUBY
 
-  # One Sandbox holding a directory while its mount's block sleeps, one
-  # waiting on that directory whom a Timeout interrupts, and a third changing
-  # it once the first is done.
+  # One Sandbox holding a directory in its mount's block until a second,
+  # waiting on that directory, has a Timeout::Error raised into its Thread,
+  # as a Timeout raises; then a third changing it once the first is done.
   INTERRUPTED_CHILD = <<~RUBY
     require "kobako"
     require "timeout"
     asking = Queue.new
+    release = Queue.new
     tmpfs = Kobako::Filesystem::Tmpfs.new
-    sandbox = lambda do |&block|
-      Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM")).mount("/data", tmpfs, access: :read_write, &block)
-    end
     holder = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release)
     holder.mount("/data", tmpfs, access: :read_write) do |_path, access|
       if access == :read_write
         asking << true
-        sleep 0.5
+        release.pop
       end
       true
     end
+    sandbox = -> { Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM")).mount("/data", tmpfs, access: :read_write) }
     first = Thread.new { holder.eval('File.write("/data/a", "1"); true').value }
     asking.pop
+    waiting = sandbox.call
     waiter = Thread.new do
-      Timeout.timeout(0.1) { sandbox.call.eval('File.write("/data/b", "2"); :not_interrupted').value }
+      waiting.eval('File.write("/data/b", "2"); :not_interrupted').value
     rescue Timeout::Error
       :timed_out
     end
-    print [first.value, waiter.value, sandbox.call.eval('File.write("/data/c", "3"); true').value].inspect
+    sleep 0.001 until waiting.stat(:runs_waiting) == 1
+    waiter.raise(Timeout::Error)
+    interrupted = waiter.value
+    release << true
+    print [first.value, interrupted, sandbox.call.eval('File.write("/data/c", "3"); true').value].inspect
   RUBY
 
   # Ruby checks for an interrupt as a thread comes back from waiting without
@@ -106,8 +114,8 @@ class TestE2EDirectoryLockThreads < Minitest::Test
   def test_a_sandbox_interrupted_while_it_waits_on_a_directory_leaves_the_directory_to_the_next
     assert_equal "[true, :timed_out, true]",
                  run_ruby(INTERRUPTED_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE),
-                 "a Timeout around a Sandbox#eval waiting on a directory another Thread holds must raise " \
-                 "Timeout::Error, and a later Sandbox#eval must change that directory"
+                 "a Timeout::Error raised into a Sandbox#eval waiting on a directory another Thread holds must " \
+                 "reach the Host App, and a later Sandbox#eval must change that directory"
   end
 
   # A block needs the GVL to answer, so only the directory's lock giving up

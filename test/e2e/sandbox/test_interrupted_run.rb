@@ -36,36 +36,43 @@ class TestE2EInterruptedRun < Minitest::Test
                  "Sandbox#eval on that Thread must answer what its Service returned"
   end
 
+  # A Timeout::Error raised into a run's Thread as a Timeout raises, once
+  # the run waits on a directory another Sandbox holds until then.
   WAITING_CHILD = <<~RUBY
     require "kobako"
     require "timeout"
     asking = Queue.new
+    release = Queue.new
     tmpfs = Kobako::Filesystem::Tmpfs.new
     holder = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release)
     holder.mount("/data", tmpfs, access: :read_write) do |_path, access|
       if access == :read_write
         asking << true
-        sleep 0.3
+        release.pop
       end
       true
     end
     first = Thread.new { holder.eval('File.write("/data/a", "1")') }
     asking.pop
     waiting = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM")).mount("/data", tmpfs, access: :read_write)
-    begin
-      Timeout.timeout(0.05) { waiting.eval('File.write("/data/b", "2")') }
-      print "returned"
+    waiter = Thread.new do
+      waiting.eval('File.write("/data/b", "2")')
+      "returned"
     rescue Timeout::Error
-      print "Timeout::Error"
+      "Timeout::Error"
     end
+    sleep 0.001 until waiting.stat(:runs_waiting) == 1
+    waiter.raise(Timeout::Error)
+    print waiter.value
+    release << true
     first.join
   RUBY
 
   # @behavior S-208
   def test_an_interrupt_delivered_while_a_run_waits_reaches_the_host_app_once_the_run_ends
     assert_equal "Timeout::Error", run_ruby(WAITING_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE),
-                 "a Timeout firing while a Sandbox#eval waits on a directory must raise Timeout::Error in the " \
-                 "Host App once the run ends"
+                 "a Timeout::Error raised into a Sandbox#eval waiting on a directory must reach the Host App " \
+                 "once the run ends"
   end
 
   SERVICE_TIMEOUT_CHILD = <<~RUBY

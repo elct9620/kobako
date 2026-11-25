@@ -216,12 +216,12 @@ parked.pop(timeout: WAITED) or abort "the parked writer never reached its mount'
 
 inner = []
 asking = Queue.new
-run = Thread.new { victim(inner, asking).eval(VICTIM).value }
+victim_run = victim(inner, asking)
+run = Thread.new { victim_run.eval(VICTIM).value }
 asking.pop(timeout: WAITED) or abort "the run never reached the parked directory; it failed first"
 forked = fork_beside
-# Room for the run to reach the parked directory before its gate opens.
-# Nothing is judged by it: the run's answer is.
-sleep 0.2
+# The gate opens once the run waits on the parked directory.
+sleep 0.001 until victim_run.stat(:runs_waiting) == 1
 gate << true
 answer = run.value
 
