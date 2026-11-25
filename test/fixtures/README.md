@@ -176,7 +176,6 @@ Hand-written text-format modules that call preview1's `random_get` as the real G
 
 | Fixture | Asks for | Stands in for |
 |---|---|---|
-| `minimal_random_outside.wat` | 64 MiB into a buffer past its one-page memory | a buffer checked before any entropy is drawn |
 | `minimal_random_flood.wat` | 64 MiB filling its memory, over and over | a run only its deadline ends |
 
 ## `snippet_*.{rb,mrb}` — `#preload(binary:)` fixtures

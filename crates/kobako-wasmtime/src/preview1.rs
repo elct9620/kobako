@@ -530,3 +530,61 @@ impl wasi_snapshot_preview1::WasiSnapshotPreview1 for Invocation {
         })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use std::time::Instant;
+
+    use wasmtime::{Module, Store};
+
+    use crate::cache::load_engine;
+    use crate::config::Config;
+    use crate::imports;
+    use crate::invocation::Invocation;
+    use crate::trap::NO_TIMEOUT_EPOCH_DELTA;
+    use crate::wasi::Wasi;
+    use kobako_runtime::profile::Profile;
+    use kobako_runtime::sched::run_task;
+
+    /// Ask for no entropy, then answer 7 once the guest reads what the call
+    /// answered.
+    const CALL_WAT: &str = r#"
+        (module
+          (import "wasi_snapshot_preview1" "random_get"
+            (func $random (param i32 i32) (result i32)))
+          (memory (export "memory") 1)
+          (func (export "read_nothing") (result i32)
+            (drop (call $random (i32.const 0) (i32.const 0)))
+            (i32.const 7)))
+    "#;
+
+    // @behavior RT-426
+    #[test]
+    fn a_host_call_returning_past_its_runs_deadline_ends_the_run_there() {
+        let engine = load_engine().expect("shared engine must be constructible");
+        let config = Config::for_profile(Profile::Hermetic);
+        let wasi = Wasi::for_invocation(&config, &[]).expect("WASI context must build");
+        let mut store = Store::new(engine, Invocation::new(wasi));
+        store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
+        let module = Module::new(engine, CALL_WAT).expect("call module must compile");
+        let instance = imports::linker()
+            .expect("host imports must link")
+            .instantiate(&mut store, &module)
+            .expect("call module must instantiate");
+        let read = instance
+            .get_typed_func::<(), i32>(&mut store, "read_nothing")
+            .expect("call export must resolve");
+        let deadline = Some(Instant::now());
+        store.data_mut().set_deadline(deadline);
+        let ended = run_task(deadline, || read.call(&mut store, ()));
+        assert!(
+            ended
+                .as_ref()
+                .err()
+                .is_some_and(|trap| trap.is::<crate::trap::TimeoutTrap>()),
+            "a random_get returning once its run's deadline passed must end the run as timed \
+             out before the guest reads what it answered; got {:?}",
+            ended.map_err(|trap| trap.to_string())
+        );
+    }
+}
