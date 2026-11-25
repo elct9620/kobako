@@ -152,7 +152,7 @@ impl Connector {
             }
             let connection = Transport {
                 sock,
-                budget: self.poll_budget.clone(),
+                poll_budget: self.poll_budget.clone(),
             };
             match connection.wait_for_connect().await {
                 Ok(()) => {
@@ -194,7 +194,7 @@ impl fmt::Debug for Connector {
 /// guest's poll does.
 pub struct Transport {
     sock: Arc<TcpSock>,
-    budget: Arc<PollBudget>,
+    poll_budget: Arc<PollBudget>,
 }
 
 impl Transport {
@@ -213,7 +213,7 @@ impl Transport {
         cx: &mut Context<'_>,
         mut op: impl FnMut() -> Result<T, Errno>,
     ) -> Poll<Result<T, Errno>> {
-        let step = ready!(self.budget.poll_proceed(cx));
+        let step = ready!(self.poll_budget.poll_proceed(cx));
         let done = match op() {
             Err(Errno::WouldBlock) => {
                 self.sock.sk_sleep().add(cx.waker());
