@@ -14,50 +14,55 @@ class TestE2EFiberSchedulerWait < Minitest::Test
   PRELUDE = <<~RUBY
     require "kobako"
     require "async"
-    def clock = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    def timed = (started = clock; yield; clock - started)
     abort "no-worker-pool" unless defined?(IO::Event::WorkerPool)
     sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release, timeout: 30)
   RUBY
 
+  # Each guest marks its file on a shared Tmpfs, then computes until the
+  # other's is there, so both finish only if the scheduler runs the other
+  # run's Fiber while the first waits on its guest; run one after the other,
+  # they would reach their deadline instead. A guest spinning on a check
+  # allocates as fast as it asks, so its memory is not capped.
   OVERLAP_CHILD = PRELUDE + <<~RUBY
-    compute = "i = 0; i += 1 while i < 5_000_000; i"
-    one = timed { sandbox.eval(compute) }
-    ticks = 0
-    two = timed do
-      Sync do |task|
-        ticker = task.async { loop { sleep 0.01; ticks += 1 } }
-        Array.new(2) { task.async { sandbox.eval(compute) } }.each(&:wait)
-        ticker.stop
-      end
+    sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release, timeout: 30, memory_limit: nil)
+                             .mount("/t", Kobako::Filesystem::Tmpfs.new, access: :read_write)
+    meet = ->(me, other) { %(File.write("/t/\#{me}", "1"); nil until File.exist?("/t/\#{other}"); :met) }
+    met = Sync do |task|
+      [%w[a b], %w[b a]].map { |me, other| task.async { sandbox.eval(meet.(me, other)).value } }.map(&:wait)
     end
-    print [two < one * 1.6, ticks >= one / 0.02].inspect
+    print met.inspect
   RUBY
 
+  # The guest says it started, then computes without end, so only the stop
+  # ends the run before its deadline.
   STOP_CHILD = PRELUDE + <<~RUBY
-    stopped = timed do
-      Sync do |task|
-        run = task.async { sandbox.eval("i = 0; i += 1 while i < 2_000_000_000; i") }
-        sleep 0.2
-        run.stop
-        run.wait
+    started = Thread::Queue.new
+    sandbox.bind("Started", -> { started << true })
+    ended = Sync do |task|
+      run = task.async do
+        sandbox.eval("Started.call; loop { }")
+      rescue Kobako::TimeoutError
+        :deadline
       end
+      started.pop
+      run.stop
+      run.wait
     end
-    print [stopped < 2, sandbox.eval("1 + 1").value].inspect
+    print [ended == :deadline, sandbox.eval("1 + 1").value].inspect
   RUBY
 
   # @behavior S-234
   def test_a_run_waiting_on_its_guest_lets_a_fiber_scheduler_run_other_fibers
-    assert_equal "[true, true]", run_with_worker_pool(OVERLAP_CHILD),
+    assert_equal "[:met, :met]", run_with_worker_pool(OVERLAP_CHILD),
                  "two Sandbox#eval runs with gvl: :release on Fibers of one Thread under Async's worker pool, " \
                  "each guest only computing, must overlap while a ticking Fiber goes on"
   end
 
   # @behavior S-235
   def test_a_fiber_scheduler_stopping_a_fiber_whose_run_waits_ends_that_run
-    assert_equal "[true, 2]", run_with_worker_pool(STOP_CHILD),
-                 "an Async task stopped while its Sandbox#eval with gvl: :release waits on a computing guest " \
-                 "must end within moments, and the next run must answer"
+    assert_equal "[false, 2]", run_with_worker_pool(STOP_CHILD),
+                 "an Async task stopped while its Sandbox#eval with gvl: :release waits on a guest computing " \
+                 "without end must end before the run's deadline, and the next run must answer"
   end
 
   private

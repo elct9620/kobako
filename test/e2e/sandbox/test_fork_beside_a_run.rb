@@ -62,11 +62,12 @@ class TestE2EForkBesideARun < Minitest::Test
     napper.define_singleton_method(:nap) { sleep 0.02 }
     print({ "Napper.nap" => "waiting", "i = 0; i += 1 while i < 20_000" => "computing" }.map do |script, kind|
       stop = false
+      going = Queue.new
       runners = Array.new(4) do
         sandbox = Kobako::Sandbox.new(wasm_path: WASM).bind("Napper", napper)
-        Thread.new { sandbox.eval(script) until stop }
+        Thread.new { sandbox.eval(script).then { going << true }; sandbox.eval(script) until stop }
       end
-      sleep 0.3
+      4.times { going.pop }
       outcome = fork_within(2)
       stop = true
       runners.each(&:join)

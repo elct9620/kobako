@@ -90,14 +90,17 @@ class TestE2EInterruptedRun < Minitest::Test
   HOST_MASK_CHILD = <<~RUBY
     require "kobako"
     sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release)
+    entered = Thread::Queue.new
+    poked = Thread::Queue.new
     sandbox.bind("Host::Wait", lambda do
-      sleep 0.3
+      entered << true
+      poked.pop
       :slept
     rescue RuntimeError
       :raised_inside
     end)
     main = Thread.current
-    Thread.new { sleep 0.1; main.raise "poke" }
+    Thread.new { entered.pop; main.raise "poke"; poked << true }
     answered = nil
     begin
       Thread.handle_interrupt(Object => :never) { answered = sandbox.eval("Host::Wait.call").value }
