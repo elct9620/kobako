@@ -706,6 +706,7 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox mounting a Tmpfs, garbage collection disabled |
+| Given | a Sandbox mounting a Tmpfs |
+| Given | a process whose thresholds for collecting garbage no run reaches |
 | When | the script writes until it raises `Errno::ENOSPC` |
 | Then | Ruby has collected garbage no more times than before the run |
