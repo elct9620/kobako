@@ -29,7 +29,7 @@ class TestE2EExecution < Minitest::Test
   # A timed-out run has a nil #value too, so it must stay tellable from a run
   # that simply returned nil.
   def test_failed_is_true_on_the_trap_path
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.05)
 
     execution = assert_raises(Kobako::TimeoutError) { sandbox.eval("loop { }") }.execution
 

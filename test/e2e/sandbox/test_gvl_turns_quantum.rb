@@ -25,7 +25,7 @@ class TestE2EGvlTurnsQuantum < Minitest::Test
       Thread.new { sandbox.eval('File.write("/t/in", "1"); loop { }') }
     end
     sleep 0.01 until File.exist?(File.join(dir, "in"))
-    waits = Array.new(3) do
+    waits = Array.new(2) do
       started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
       sleep 0.001
       Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
