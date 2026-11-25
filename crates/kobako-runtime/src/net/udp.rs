@@ -175,6 +175,12 @@ impl UdpSock {
         self.state().inet.hash_connect(ports)
     }
 
+    /// How many datagrams arrived that the guest has not read, as Linux's
+    /// `skb_queue_len` reads a socket's receive queue.
+    pub fn receive_queue_len(&self) -> usize {
+        self.state().receive_queue.len()
+    }
+
     fn state(&self) -> MutexGuard<'_, State> {
         self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }

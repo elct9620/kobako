@@ -2352,7 +2352,10 @@ mod tests {
             for _ in 0..20 {
                 peer.send_to(b"ping", guest_end)?;
             }
-            std::thread::sleep(Duration::from_millis(500));
+            let socket = guest.table_mut().get(incoming)?.socket.clone();
+            crate::waits::wait_until("the twenty datagrams queued", || {
+                socket.sock.receive_queue_len() == 20
+            });
             let mut batches = Vec::new();
             while batches.iter().sum::<usize>() < 20 {
                 let arrived = guest.udp_incoming_datagram_stream_subscribe(incoming)?;
