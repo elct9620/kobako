@@ -56,17 +56,20 @@ class TestE2EForkRefusal < Minitest::Test
                  "RuntimeError, and the run must answer once resumed"
   end
 
-  FORKS_IN_A_TRAP = <<~RUBY
+  # The trap ends the run once it forked, so no run waits out its deadline,
+  # which only ends a run the signal never reached.
+  FORKS_IN_A_TRAP = <<~RUBY.freeze
+    Stop = Class.new(StandardError)
     print(%i[hold release].map do |gvl|
       seen = []
       ended = false
-      trap("USR1") { seen << [fork_outcome.first, ended] }
+      trap("USR1") { seen << [fork_outcome.first, ended]; raise Stop }
       started = Queue.new
-      computing = Kobako::Sandbox.new(wasm_path: WASM, gvl: gvl, timeout: 2).bind("Started", -> { started << 1 })
+      computing = Kobako::Sandbox.new(wasm_path: WASM, gvl: gvl, timeout: #{BOUND / 2}).bind("Started", -> { started << 1 })
       Thread.new { started.pop; Process.kill("USR1", Process.pid) }
       begin
         computing.eval("Started.call; loop {}")
-      rescue Kobako::TimeoutError
+      rescue Stop, Kobako::TimeoutError
         ended = true
       end
       seen

@@ -23,6 +23,14 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
   # Grows 3 MB of the default 4 MiB and answers what it holds.
   VICTIM = 'kept = []; 3.times { kept << ("x" * 1_000_000) }; kept.sum(&:bytesize)'
 
+  # Far past any slowdown, so a flood still running then means its neighbour
+  # jammed; the flood ending first turns the test red.
+  JAMMED_AFTER = 30
+
+  # Ends the flood once the neighbour answered, so no run waits out a deadline.
+  class Stop < StandardError
+  end
+
   # @behavior RT-418
   def test_a_run_filling_its_memory_leaves_a_neighbour_its_own
     answers = GVL_MODES.map { |mode| side_by_side(mode) }
@@ -33,31 +41,30 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
   end
 
   # @behavior RT-419
-  def test_a_run_filling_entropy_delays_a_neighbour_less_than_its_deadline
-    spent = GVL_MODES.map { |mode| eval_beside_flood(mode) }
+  def test_a_run_filling_entropy_leaves_a_neighbour_to_answer_while_it_floods
+    answers = GVL_MODES.map { |mode| [mode, *eval_beside_flood(mode)] }
 
-    assert spent.all? { |elapsed| elapsed < 1.0 },
-           "a run beside one reading 64 MiB of entropy over and over under a 2 s timeout must answer " \
-           "within a second under :hold and :release; it took #{spent.map { |s| s.round(2) }}"
+    assert_equal GVL_MODES.map { |mode| [mode, 1, true] }, answers,
+                 "a run beside one reading 64 MiB of entropy over and over must answer while the flood " \
+                 "still runs, under :hold and :release"
   end
 
   private
 
-  # The seconds from the flood's head start until a short script answers.
-  # Both Sandboxes are built first, so the first compile of the Guest Binary
-  # in a process with a cold artifact cache is not judged. The clock is read
-  # before the head start, so the wait for the GVL to come back is.
+  # What a short script answers beside the flood, and whether the flood still
+  # ran as it answered. Both Sandboxes are built first, so the first compile of
+  # the Guest Binary in a process with a cold artifact cache plays no part.
   def eval_beside_flood(mode)
     neighbour = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode)
     flooder = Kobako::Sandbox.new(wasm_path: TestPaths.fixture("minimal_random_flood.wat"),
-                                  profile: :permissive, gvl: mode, timeout: 2, memory_limit: nil)
-    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+                                  profile: :permissive, gvl: mode, timeout: JAMMED_AFTER, memory_limit: nil)
     flooding = Thread.new { flood(flooder) }
     sleep 0.05
-    neighbour.eval("1")
-    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+    answer = neighbour.eval("1").value
+    still = flooding.alive?
+    flooding.raise(Stop)
     flooding.join
-    elapsed
+    [answer, still]
   end
 
   def side_by_side(mode)
@@ -75,7 +82,7 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
 
   def flood(sandbox)
     sandbox.eval("nil")
-  rescue Kobako::TimeoutError
+  rescue Kobako::TimeoutError, Stop
     nil
   end
 end

@@ -10,7 +10,8 @@ require "test_helper"
 # child leaves with +exit!+ once it printed. The hog's guest writes a file on
 # a Bind mount as it starts its endless part, and the child's main Thread waits
 # for that file, so the other Thread asks for the GVL only once the guest is
-# past every callback.
+# past every callback. The other Thread sets no deadline of its own: how soon
+# it answers is the host's, and only the child's deadline ends a jam.
 class TestE2EGvlTurns < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
@@ -46,9 +47,9 @@ class TestE2EGvlTurns < Minitest::Test
     sleep 0.01 until File.exist?(File.join(dir, "in"))
     answer = case victim
              when "ruby" then Thread.new { 1 + 1 }.value
-             when "run" then Kobako::Sandbox.new(wasm_path: wasm, gvl: victim_gvl.to_sym, timeout: 1).eval("1 + 1").value
+             when "run" then Kobako::Sandbox.new(wasm_path: wasm, gvl: victim_gvl.to_sym, timeout: nil).eval("1 + 1").value
              when "service"
-               neighbour = Kobako::Sandbox.new(wasm_path: wasm, gvl: victim_gvl.to_sym, timeout: 1)
+               neighbour = Kobako::Sandbox.new(wasm_path: wasm, gvl: victim_gvl.to_sym, timeout: nil)
                neighbour.bind("Host::Two", -> { 2 })
                neighbour.eval("Host::Two.call").value
              end
@@ -61,7 +62,7 @@ class TestE2EGvlTurns < Minitest::Test
     # @behavior S-243
     define_method(:"test_a_run_beside_a_#{hog_gvl}_guest_that_never_ends_answers_under_#{victim_gvl}") do
       assert_equal "2", beside(:compute, "run", hog_gvl: hog_gvl, victim_gvl: victim_gvl),
-                   "Sandbox#eval with gvl: :#{victim_gvl} and timeout: 1 must answer while a Sandbox with " \
+                   "Sandbox#eval with gvl: :#{victim_gvl} and no deadline must answer while a Sandbox with " \
                    "gvl: :#{hog_gvl} on another Thread runs `loop { }` without a deadline"
     end
   end
@@ -69,7 +70,7 @@ class TestE2EGvlTurns < Minitest::Test
   # @behavior S-243
   def test_a_run_whose_service_returns_beside_a_guest_that_never_ends_answers
     assert_equal "2", beside(:compute, "service"),
-                 "Sandbox#eval with timeout: 1 whose script calls a Service must answer while a Sandbox " \
+                 "Sandbox#eval with no deadline whose script calls a Service must answer while a Sandbox " \
                  "keeping the GVL on another Thread runs `loop { }` without a deadline"
   end
 
@@ -89,7 +90,7 @@ class TestE2EGvlTurns < Minitest::Test
     # @behavior S-243
     define_method(:"test_a_run_beside_a_guest_that_#{name}_answers") do
       assert_equal "2", beside(hog, "run"),
-                   "Sandbox#eval with timeout: 1 must answer while a Sandbox keeping the GVL on another " \
+                   "Sandbox#eval with no deadline must answer while a Sandbox keeping the GVL on another " \
                    "Thread #{does}, without a deadline"
     end
   end

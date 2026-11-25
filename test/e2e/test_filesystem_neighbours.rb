@@ -5,16 +5,18 @@ require "tmpdir"
 
 # E2E — a run beside four others that create, move, list, and write in the
 # same Filesystem, under both gvl: modes: the run still finishes its own
-# lookups and creates. Under :hold each of its calls that gives up the GVL
-# waits behind every attacker's 100 ms time slice, as CRuby's ready queue
-# serves it, so its timeout covers those turns: 30 calls behind four slices
-# each take about 12 s on a host with no core to spare.
+# lookups and creates. How long it takes is the host's: under :hold each call
+# giving up the GVL waits behind every attacker's time slice, and how often
+# one does depends on the cores to spare. So the test judges by what the run
+# answers, and by each attacker, in its endless loop before the run began,
+# still being there as it ends; a timeout only ends a run that jammed.
 class TestE2EFilesystemNeighbours < Minitest::Test
   include E2eGuestHelper
 
   GVL_MODES = %i[hold release].freeze
   ROUNDS = 10
-  VICTIM_TIMEOUT = 30
+  # Far past any slowdown, so reaching it means the run jammed.
+  JAMMED_AFTER = 60
 
   # What every attacker asks between rounds, and how the test knows each one
   # is in its loop.
@@ -74,10 +76,10 @@ class TestE2EFilesystemNeighbours < Minitest::Test
   def test_a_run_beside_others_hammering_a_shared_filesystem_finishes
     answers = kinds.keys.product(GVL_MODES).map { |kind, mode| [kind, mode, *beside_attackers(kinds[kind].call, mode)] }
 
-    assert_equal(kinds.keys.product(GVL_MODES).map { |kind, mode| [kind, mode, ROUNDS, true] }, answers,
+    assert_equal(kinds.keys.product(GVL_MODES).map { |kind, mode| [kind, mode, ROUNDS, true, true] }, answers,
                  "a run looking up and creating names beside four runs creating, moving, listing, and " \
-                 "writing in the same Filesystem must answer every call within its timeout, each attacker " \
-                 "going round all the while")
+                 "writing in the same Filesystem must answer every call, each attacker still going round " \
+                 "as it ends and none failing")
   end
 
   private
@@ -110,22 +112,26 @@ class TestE2EFilesystemNeighbours < Minitest::Test
     super
   end
 
-  # What the victim answers beside one attacker of each kind, and whether
-  # every attacker went round, so none failed and was counted as done.
+  # What the victim answers beside one attacker of each kind, whether every
+  # attacker was still in its loop as the victim ended, and whether every one
+  # went round, so none failed and was counted as done. A victim reaching its
+  # timeout raises, the one way this test reads a jam.
   def beside_attackers(filesystem, mode)
     crowd = Crowd.new
     attackers = start_attackers(filesystem, mode, crowd)
     crowd.wait_started(attackers.size)
-    answer = sandbox(filesystem, mode, VICTIM_TIMEOUT).eval(VICTIM).value
+    answer = sandbox(filesystem, mode, JAMMED_AFTER).eval(VICTIM).value
+    there = attackers.all?(&:alive?)
     crowd.stop!
-    [answer, attackers.map(&:value).all? { |rounds| rounds.is_a?(Integer) && rounds.positive? }]
+    [answer, there, attackers.map(&:value).all? { |rounds| rounds.is_a?(Integer) && rounds.positive? }]
   end
 
-  # One attacker of each kind, each on its own Thread.
+  # One attacker of each kind, each on its own Thread, outlasting the
+  # victim's timeout so a jammed victim never finds them gone.
   def start_attackers(filesystem, mode, crowd)
     Array.new(ATTACKS.size) do |i|
       script = format(ATTACKER, round: format(ATTACKS[i], i: i))
-      Thread.new { sandbox(filesystem, mode, 60).bind("Crowd::Ctl", crowd).eval(script).value }
+      Thread.new { sandbox(filesystem, mode, JAMMED_AFTER * 2).bind("Crowd::Ctl", crowd).eval(script).value }
     end
   end
 

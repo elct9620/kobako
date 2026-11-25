@@ -29,24 +29,29 @@ class TestE2EForkBesideARun < Minitest::Test
                  "Sandbox answers"
   end
 
-  BESIDE_A_COMPUTING_RUN = <<~RUBY
+  # The run is stopped once the fork answered, so it never waits out its
+  # deadline, which only ends a run the stop never reached.
+  BESIDE_A_COMPUTING_RUN = <<~RUBY.freeze
+    Stop = Class.new(StandardError)
     print(%i[hold release].map do |gvl|
       started = Queue.new
-      computing = Kobako::Sandbox.new(wasm_path: WASM, gvl: gvl, timeout: 3).bind("Started", -> { started << 1 })
+      computing = Kobako::Sandbox.new(wasm_path: WASM, gvl: gvl, timeout: #{BOUND / 2}).bind("Started", -> { started << 1 })
       run = Thread.new do
         computing.eval("Started.call; loop {}")
-      rescue Kobako::TimeoutError => e
+      rescue Stop, Kobako::TimeoutError => e
         e.class
       end
       started.pop
       outcome = fork_within(2)
-      [Array(outcome).first, run.alive?, run.value]
+      going = run.alive?
+      run.raise(Stop)
+      [Array(outcome).first, going, run.value]
     end.inspect)
   RUBY
 
   # @behavior S-236
   def test_a_fork_beside_another_threads_computing_run_raises
-    assert_equal "[[:raised, true, Kobako::TimeoutError], [:raised, true, Kobako::TimeoutError]]",
+    assert_equal "[[:raised, true, Stop], [:raised, true, Stop]]",
                  run_forking_child(BESIDE_A_COMPUTING_RUN),
                  "Kernel#fork while another Thread's Sandbox#eval (either gvl) computes must raise RuntimeError " \
                  "before that run ends"
