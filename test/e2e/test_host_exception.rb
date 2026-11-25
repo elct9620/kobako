@@ -42,7 +42,7 @@ class TestE2EHostException < Minitest::Test
   def test_an_exception_raised_into_a_ruby_filesystems_open_reaches_the_host_app
     entered = Queue.new
     sandbox = marking_sandbox.mount("/data", RaisingFilesystem.new { wait_in_open(entered) })
-    run = Thread.new { sandbox.eval(RESCUING_OPEN) }
+    run = Thread.new { sandbox.eval(RESCUING_OPEN) }.tap { |thread| thread.report_on_exception = false }
     wait_until("the guest never reached the Ruby Filesystem's open") { !entered.empty? }
     run.raise(Interrupt)
 
