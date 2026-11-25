@@ -18,7 +18,7 @@ No public surface shows what the registries do internally. That covers how a nam
 
 ### Compiled snippets
 
-A Sandbox has its preloaded source compiled once and replays the bytecode afterwards. The compile runs on an instance no script ever touches, so no invocation can reach what later ones replay. A compile that answers nothing changes nothing a script can see. The source keeps replaying, so every failed compile ends the same way.
+A Sandbox has its preloaded source compiled once and replays the bytecode afterwards. The compile holds nothing another invocation waits on, so one stuck compile stalls no one else. The compile runs on an instance no script ever touches, so no invocation can reach what later ones replay. A compile that answers nothing leaves the source replaying, so every failed compile ends the same way.
 
 ### Output surface
 
@@ -1588,7 +1588,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | --- | --- |
 | Given | a Sandbox with preloaded source whose guest answers its bytecode |
 | When | the Sandbox is invoked several times |
-| Then | the source is compiled once and every invocation replays the bytecode in its place |
+| Then | the source is compiled once and every invocation after the compile replays the bytecode in its place |
 
 ## `S-187` Source the guest compiled nothing for keeps replaying
 
@@ -2464,3 +2464,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox whose memory cap is 1 MiB |
 | When | a 900 KB source is evaluated, which the guest copies once more as it reads it |
 | Then | it raises `Kobako::MemoryLimitError` |
+
+## `S-261` A compile holds up no other invocation of its Sandbox
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-186` |
+| relates | `S-187` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose first invocation is still compiling its preloaded source |
+| When | another invocation of that Sandbox runs |
+| Then | it completes on the source without waiting for the compile, and the source is not compiled again |

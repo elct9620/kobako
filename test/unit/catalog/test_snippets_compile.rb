@@ -25,6 +25,32 @@ module Kobako
       end
     end
 
+    # A compile of +table+ on its own thread, held inside the compiler until
+    # #release, as an engine a Host App brings may take as long as it likes.
+    class HeldCompile
+      def initialize(table)
+        began = Thread::Queue.new
+        @release = Thread::Queue.new
+        @thread = Thread.new { table.compile { |_| hold(began) } }
+        began.pop
+      end
+
+      # The join is bounded, so a compile that never lets go fails the test
+      # instead of hanging the suite.
+      def release
+        @release << true
+        raise "the held compile did not end once released" unless @thread.join(10)
+      end
+
+      private
+
+      def hold(began)
+        began << true
+        @release.pop
+        ["RITE\x00alpha".b, "RITE\x00beta".b]
+      end
+    end
+
     def setup
       @table = Catalog::Snippets.new
       @table.register(code: "A = 1", name: :Alpha)
@@ -77,6 +103,21 @@ module Kobako
       assert_equal ["engine fault", [], before], [error.message, second.requests, @table.entries],
                    "a compiler that raises through Catalog::Snippets#compile must fail that compile with " \
                    "its error and leave the source replaying, with no second attempt"
+    end
+
+    # @behavior S-261
+    def test_a_compile_holds_up_no_other_invocation
+      before = @table.entries
+      second = AnsweringCompiler.new(["unused"])
+      held = HeldCompile.new(@table)
+
+      @table.compile(&second)
+      during = @table.entries
+      held.release
+
+      assert_equal [[], before], [second.requests, during],
+                   "an invocation beginning while another compiles through Catalog::Snippets#compile must " \
+                   "replay the source without waiting, and must not compile it again"
     end
 
     def test_a_table_without_source_asks_for_no_compile

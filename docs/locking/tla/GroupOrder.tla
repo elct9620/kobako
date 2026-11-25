@@ -123,8 +123,6 @@ Edges ==
   \cup E("mock_state", {"wq_waiters", "wq_tasks"})
   \cup E("ready_waker", {"wq_waiters", "wq_tasks"})
   \cup E("query_ctx", {"wq_waiters", "wq_tasks"})
-  \* sdk: sealing a Sandbox compiles its catalog
-  \cup E("registry", {"ticker", "memcg"})
   \* gate: inside its gate a fork may give the GVL up and take it again, and
   \* lets go of the directories Binds keep before it opens
   \cup E("fork_gate", {"GVL", "RUNS", "fid_cache"})

@@ -4,7 +4,8 @@
 //!
 //! The SDK twin of the Ruby gem's `Kobako::Catalog`: the registration
 //! tables fill during setup, seal on the first invocation, and from
-//! then on every dispatch and Preamble sees one immutable state. The
+//! then on every dispatch and Preamble sees one immutable state, save
+//! the source snippets a compile answers bytecode for. The
 //! per-invocation capability Handle table lives separately in
 //! `crate::handles` — it mutates during dispatch, so it sits outside
 //! the sealed state.
@@ -96,7 +97,7 @@ impl Catalog {
 
     /// Compiles the source snippets under the Preamble an invocation sends,
     /// so the replayed bytecode saw the same bindings and flags.
-    pub(crate) fn compile(&mut self, runtime: &dyn Runtime) {
+    pub(crate) fn compile(&self, runtime: &dyn Runtime) {
         let preamble = self.preamble();
         self.snippets.compile(runtime, &preamble);
     }

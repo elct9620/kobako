@@ -9,8 +9,6 @@
 //! observables — lives on that returned `Execution`, not on the reused
 //! Sandbox, so nothing an invocation produces outlives it on `self`.
 
-use std::any::Any;
-use std::panic::{self, AssertUnwindSafe};
 #[cfg(feature = "wasmtime")]
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -44,9 +42,6 @@ pub use options::Options;
 
 use context::{collect_overrides, Overrides};
 
-/// What a panic carries as it unwinds.
-type Panic = Box<dyn Any + Send>;
-
 /// The registration tables' seal-once lifecycle: open for setup, then
 /// immutable from the first invocation on.
 enum Registry {
@@ -64,25 +59,18 @@ impl Registry {
         }
     }
 
-    /// The snippets are compiled here, once when `compile` is set, so every
-    /// invocation replays the same sealed table. The registry seals however
-    /// the compile ends: a panic from the engine leaves the snippets as
-    /// source and comes back as the second value, for the caller to resume
-    /// once the lock is released.
-    fn seal(&mut self, runtime: &dyn Runtime, compile: bool) -> (Arc<Catalog>, Option<Panic>) {
-        let mut panicked = None;
-        if let Registry::Open(open) = self {
-            let mut catalog = std::mem::take(open);
-            if compile {
-                // The snippets change only once the engine has answered, so
-                // a panic inside the engine leaves them as registered.
-                let compiling = AssertUnwindSafe(|| catalog.compile(runtime));
-                panicked = panic::catch_unwind(compiling).err();
+    /// Every seal answers the one sealed catalog; the second value is true
+    /// for the seal that closed it, the one invocation that compiles it.
+    fn seal(&mut self) -> (Arc<Catalog>, bool) {
+        let closed = match self {
+            Registry::Open(open) => {
+                *self = Registry::Sealed(Arc::new(std::mem::take(open)));
+                true
             }
-            *self = Registry::Sealed(Arc::new(catalog));
-        }
+            Registry::Sealed(_) => false,
+        };
         match self {
-            Registry::Sealed(catalog) => (catalog.clone(), panicked),
+            Registry::Sealed(catalog) => (catalog.clone(), closed),
             Registry::Open(_) => unreachable!("seal above pinned the sealed state"),
         }
     }
@@ -384,18 +372,20 @@ impl Sandbox {
         Ok(build_execution(snapshot, handles, verb))
     }
 
-    /// The seal locks the registry, so concurrent first invocations serialize
-    /// on it and all observe the same sealed catalog. A Sandbox with an unmet
-    /// dependency never runs, so it seals without asking for a compile.
+    /// The seal alone holds the registry lock, so every invocation observes
+    /// the same sealed catalog and none waits on the engine's compile: one
+    /// that begins while the sealing invocation compiles replays the source.
+    /// A Sandbox with an unmet dependency never runs, so it asks for no
+    /// compile.
     fn begin_invocation(&self) -> Result<(Arc<Catalog>, Arc<Mutex<HandleTable>>), Error> {
         let dependencies = self.extensions.assert_dependencies();
-        let (catalog, panicked) = self
+        let (catalog, closed) = self
             .registry
             .lock()
             .expect("the registry mutex is never poisoned")
-            .seal(self.runtime.as_ref(), dependencies.is_ok());
-        if let Some(payload) = panicked {
-            panic::resume_unwind(payload);
+            .seal();
+        if closed && dependencies.is_ok() {
+            catalog.compile(self.runtime.as_ref());
         }
         dependencies?;
         Ok((catalog, Arc::new(Mutex::new(HandleTable::default()))))
@@ -442,27 +432,6 @@ mod tests {
 
     use super::*;
 
-    /// Sealing an empty table asks the engine for nothing, so one that
-    /// cannot run is enough.
-    struct NoEngine;
-
-    impl Runtime for NoEngine {
-        fn invoke(
-            &self,
-            _entry: kobako_runtime::runtime::Entry<'_>,
-            _preamble: &kobako_transport::envelope::Preamble,
-            _handler: Option<Arc<dyn kobako_runtime::dispatch::DispatchHandler>>,
-            _grants: &[kobako_runtime::grant::Grant],
-        ) -> Result<kobako_runtime::snapshot::Snapshot, kobako_runtime::error::InvokeError>
-        {
-            unreachable!("sealing never invokes")
-        }
-
-        fn profile(&self) -> Profile {
-            Profile::Hermetic
-        }
-    }
-
     // The seal-once lifecycle is pure state and testable without a
     // driver; the invocation path itself is pinned end-to-end by the
     // parity harness against the real guest binary.
@@ -471,7 +440,7 @@ mod tests {
     fn registry_refuses_late_mutation() {
         let mut registry = Registry::Open(Catalog::default());
         assert!(registry.open_mut().is_ok());
-        registry.seal(&NoEngine, true);
+        registry.seal();
         assert!(matches!(registry.open_mut(), Err(Error::Sealed(_))));
     }
 
@@ -479,9 +448,14 @@ mod tests {
     #[test]
     fn registry_seals_once() {
         let mut registry = Registry::Open(Catalog::default());
-        let (first, _) = registry.seal(&NoEngine, true);
-        let (second, _) = registry.seal(&NoEngine, true);
+        let (first, closed_first) = registry.seal();
+        let (second, closed_second) = registry.seal();
         assert!(Arc::ptr_eq(&first, &second));
+        assert_eq!(
+            (closed_first, closed_second),
+            (true, false),
+            "only the seal that closed the registry may compile its catalog"
+        );
     }
 
     // Pins the literal values rather than a shared constant, so a drift

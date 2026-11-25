@@ -11,7 +11,9 @@
 #[cfg(feature = "wasmtime")]
 use crate::common;
 
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
+use std::thread;
+use std::time::Duration;
 
 use kobako_runtime::dispatch::DispatchHandler;
 use kobako_runtime::grant::Grant;
@@ -22,13 +24,22 @@ use kobako_transport::envelope::{Outcome, Preamble, Snippet};
 use kobako::{Profile, Sandbox};
 
 /// Answers each compile with `answer`, or panics when `panics` is set, and
-/// records what every request and every invocation was handed.
+/// records what every request and every invocation was handed. With `held`
+/// set, each compile waits until the test lets it go.
 #[derive(Default)]
 struct Compiler {
     answer: Option<Vec<Vec<u8>>>,
     panics: bool,
+    held: Option<Held>,
     compiles: Arc<Mutex<usize>>,
     replayed: Replays,
+}
+
+/// A compile that says it began, then waits for its release, as an engine
+/// a Host App brings may take as long as it likes.
+struct Held {
+    began: mpsc::Sender<()>,
+    release: Mutex<mpsc::Receiver<()>>,
 }
 
 /// The snippet table each invocation was handed, in invocation order.
@@ -60,6 +71,10 @@ impl Runtime for Compiler {
 
     fn compile(&self, _preamble: &Preamble) -> Option<Vec<Vec<u8>>> {
         *self.compiles.lock().unwrap() += 1;
+        if let Some(held) = &self.held {
+            held.began.send(()).unwrap();
+            held.release.lock().unwrap().recv().unwrap();
+        }
         assert!(!self.panics, "the engine fails this compile outright");
         self.answer.clone()
     }
@@ -147,6 +162,62 @@ fn a_compile_that_panics_leaves_the_source_replaying() {
         (true, true, vec![vec![alpha_source()]]),
         "a Sandbox whose engine panics compiling its preloaded source through Sandbox::eval must \
          fail that invocation with the panic and run the next one on the source"
+    );
+}
+
+// The second evaluation is given far longer than it needs; past that it is
+// waiting on the first one's compile, and the compile is let go so both
+// threads end and the assertion reports it.
+// @behavior S-261
+#[test]
+fn a_compile_holds_up_no_other_invocation_of_its_sandbox() {
+    let (began, compiling) = mpsc::channel();
+    let (release, released) = mpsc::channel();
+    let (sandbox, compiles, replayed) = preload_snippet(Compiler {
+        answer: Some(vec![b"RITE\x00alpha".to_vec()]),
+        held: Some(Held {
+            began,
+            release: Mutex::new(released),
+        }),
+        ..Compiler::default()
+    });
+    let sandbox = Arc::new(sandbox);
+
+    let first = thread::spawn({
+        let sandbox = sandbox.clone();
+        move || sandbox.eval("A").is_ok()
+    });
+    compiling
+        .recv()
+        .expect("the first Sandbox::eval must reach the engine's compile, or nothing is held");
+    let (done, finished) = mpsc::channel();
+    let second = thread::spawn({
+        let sandbox = sandbox.clone();
+        move || done.send(sandbox.eval("A").is_ok()).unwrap()
+    });
+    let second_ok = finished.recv_timeout(Duration::from_secs(10)).ok();
+    release.send(()).unwrap();
+    let first_ok = first.join().unwrap();
+    second.join().unwrap();
+
+    let bytecode = Snippet::Bytecode {
+        body: b"RITE\x00alpha".to_vec(),
+    };
+    assert_eq!(
+        (
+            second_ok,
+            first_ok,
+            *compiles.lock().unwrap(),
+            replayed.lock().unwrap().clone()
+        ),
+        (
+            Some(true),
+            true,
+            1,
+            vec![vec![alpha_source()], vec![bytecode]]
+        ),
+        "a Sandbox::eval beginning while another compiles the preloaded source must complete \
+         on the source without waiting, and the source must be compiled only once"
     );
 }
 

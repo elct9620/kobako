@@ -9,6 +9,8 @@
 //! present, lives in the RITE `debug_info` the guest reads at load
 //! time.
 
+use std::sync::OnceLock;
+
 use kobako_runtime::runtime::Runtime;
 use kobako_transport::envelope::name::is_constant_name;
 use kobako_transport::envelope::{self, Preamble, Snippet};
@@ -19,6 +21,10 @@ use crate::error::{ArgumentKind, Error};
 #[derive(Default)]
 pub(crate) struct Snippets {
     table: envelope::Snippets,
+    // Set once a compile answers, so a sealed table gains its bytecode
+    // without a lock, and an invocation that began before replays the
+    // source.
+    compiled: OnceLock<envelope::Snippets>,
 }
 
 impl Snippets {
@@ -55,14 +61,14 @@ impl Snippets {
     }
 
     pub(crate) fn table(&self) -> &envelope::Snippets {
-        &self.table
+        self.compiled.get().unwrap_or(&self.table)
     }
 
     /// Has `runtime` compile the source entries under `preamble`, which
     /// carries this table, and puts each bytecode it answers in place of
     /// its source, so every invocation after replays it instead of
     /// compiling again. When nothing comes back the source stays.
-    pub(crate) fn compile(&mut self, runtime: &dyn Runtime, preamble: &Preamble) {
+    pub(crate) fn compile(&self, runtime: &dyn Runtime, preamble: &Preamble) {
         let has_source = self
             .table
             .entries
@@ -74,14 +80,15 @@ impl Snippets {
         let Some(bytecodes) = runtime.compile(preamble) else {
             return;
         };
-        let sources = self
-            .table
+        let mut compiled = self.table.clone();
+        let sources = compiled
             .entries
             .iter_mut()
             .filter(|entry| matches!(entry, Snippet::Source { .. }));
         for (entry, body) in sources.zip(bytecodes) {
             *entry = Snippet::Bytecode { body };
         }
+        let _ = self.compiled.set(compiled);
     }
 }
 

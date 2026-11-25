@@ -17,7 +17,6 @@ TierOfLock(l) == CASE Group(l) = "gate" -> "gate"
                    [] Group(l) = "ruby" -> "gvl"
                    [] OTHER             -> "other"
 
-Gone == E("registry", {"ticker", "memcg"})
 Resources ==
   \* fork gate: the gate and the runs' registry
      E("fork_gate", {"GVL", "runs", "fid_cache"})
@@ -43,7 +42,7 @@ BrokenTier(adds) ==
     [] adds = "gvlWaitsReactor"   -> E("gvl", {"reactor"})
     [] OTHER -> {}
 
-All(adds) == (Edges \ Gone) \cup Resources \cup BrokenLock(adds)
+All(adds) == Edges \cup Resources \cup BrokenLock(adds)
 ByLock == {e \in All("none") : e[1] # e[2]}
 ByGroup == {e \in {<<Group(d[1]), Group(d[2])>> : d \in All("none")} : e[1] # e[2]}
 ByTier(adds) ==
