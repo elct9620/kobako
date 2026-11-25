@@ -316,6 +316,7 @@ The models prove the rules, and each abstracts what another witness decides.
 | that code follows a rule | the scenario's test |
 | that a run with a timeout ends | the timeout's scenarios, up to the host app's boundary |
 | the step from a promise to the assembly's fairness | this argument: waits leads to has implies it |
+| that the code's tiers compose | a journey: one run beside a neighbour in each tier |
 
 ### Model Checks
 
