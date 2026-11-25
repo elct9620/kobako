@@ -73,6 +73,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 - `crates/kobako-wasmtime/src/preview1/fd.rs`
 - `crates/kobako-wasmtime/src/preview1/mount_view.rs`
 - `crates/kobako-wasmtime/src/preview1/memory.rs`
+- `crates/kobako-wasmtime/src/preview1/random.rs`
+- `crates/kobako-wasmtime/src/preview1.rs`
 - `crates/kobako-wasmtime/src/preview1/differential.rs`
 - `crates/kobako-wasmtime/tests/integration/compile_profile.rs`
 - `crates/kobako-wasmtime/src/exports.rs`
@@ -4557,9 +4559,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest at the weaker profile whose entropy buffer ends past its memory |
+| Given | a guest at the weaker profile whose entropy buffer begins in its memory and ends past it |
 | When | it reads entropy into that buffer |
-| Then | the run raises `Kobako::TrapError` at once, as Linux's `getrandom` faults on such a buffer |
+| Then | the run traps with nothing drawn into the part inside its memory, as Linux's `getrandom` faults on such a buffer |
 
 ## `RT-417` A run reading entropy stops at its deadline
 
@@ -4569,9 +4571,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a guest that reads 64 MiB of entropy over and over, under a deadline of a fifth of a second |
-| When | it runs |
-| Then | it raises `Kobako::TimeoutError` within a second, as Linux's `getrandom` looks for a fatal signal between pages |
+| Given | a guest at the weaker profile whose run's deadline passed |
+| When | it reads two pages of entropy |
+| Then | it draws the first page, and the run ends as timed out before the second. Linux's `getrandom` looks for a fatal signal between pages |
 
 ## `RT-418` A run filling its memory leaves a neighbour its own
 
@@ -4682,9 +4684,9 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | four runs moving files between two directories of one Tmpfs, each rescuing nothing |
-| When | their `timeout:` passes as a move waits for its directory |
-| Then | each raises `Kobako::TimeoutError`, as Linux's `exit_to_user_mode` ends a task before it reads `EINTR` |
+| Given | a guest whose run's deadline passed while one of its host calls ran |
+| When | that call returns |
+| Then | the run ends as timed out before the guest reads the answer. Linux's `exit_to_user_mode` ends a task before it reads `EINTR` |
 
 ## `RT-427` A wait stands once on each queue, however often its sources name it
 
