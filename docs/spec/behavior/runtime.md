@@ -1960,7 +1960,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | a caller lists it, stops early, and lists it again from where it stopped |
 | Then | `.` and `..` come first, and each entry carries its own position |
 
-## `RT-183` A guest tells entries apart by inode number where its profile allows
+## `RT-183` A guest tells entries apart by inode number
 
 | Attribute | Value |
 | --- | --- |
@@ -1970,7 +1970,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | --- | --- |
 | Given | a permissive guest and a hermetic guest, each holding a Mount of a file |
 | When | each stats the file and lists its directory |
-| Then | the permissive guest reads one hash in both, and the hermetic guest reads 0 |
+| Then | each guest reads one number for the file in both, and another for its directory |
 ## `RT-184` A directory answers as one open to read does
 
 | Attribute | Value |
@@ -4698,3 +4698,41 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Given | a wait on a list whose sources all stand on one queue |
 | When | it sleeps on that queue |
 | Then | the queue holds the wait once, so one event wakes it once. The reactor so spends one wake per wait, however long the guest's list |
+
+## `RT-428` A hermetic guest numbers entries in the order it first meets them
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-183` |
+| relates | `RT-194` |
+
+| Step | Statement |
+| --- | --- |
+| Given | two hermetic invocations, each holding a Mount of one Tmpfs with three files |
+| When | each stats the three files in one order |
+| Then | both read 1, 2, and 3 in that order. So no number depends on the process or the host |
+
+## `RT-429` A hermetic listing goes on past an entry gone since the listing named it
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-428` |
+| relates | `RT-182` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a hermetic guest and a directory whose last listed entry is gone before a stat reaches it |
+| When | the script lists the directory |
+| Then | it reads every name the listing gave, as a permissive guest does, and nothing raises |
+
+## `RT-430` A hermetic guest past 32,768 entries reads no number for one more
+
+| Attribute | Value |
+| --- | --- |
+| refines | `RT-428` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a hermetic invocation that met 32,768 entries |
+| When | it asks the inode number of one more, and of one it met |
+| Then | the new one answers EOVERFLOW, as Linux's `cp_new_stat` does, and the one it met reads its number |
