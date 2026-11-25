@@ -71,7 +71,7 @@ pub(super) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     Ok(())
 }
 
-/// `Tmpfs.new(files = {}, size: 64 MiB, nr_inodes:)`: each
+/// `Tmpfs.new(files = {}, size: 4 MiB, nr_inodes:)`: each
 /// `path => contents` pair becomes a file, its directories created along
 /// the way. Ruby hands a bare `"path" => contents` over as keywords, so
 /// every String keyword is a file too. Without `nr_inodes:` the entries

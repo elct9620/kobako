@@ -7,7 +7,7 @@ module Kobako
   #
   #   sandbox.mount("/data", Kobako::Filesystem::Tmpfs.new("config.yml" => yaml))
   #
-  # [<tt>Tmpfs.new(files = {}, size: 64 MiB, nr_inodes:)</tt>]
+  # [<tt>Tmpfs.new(files = {}, size: 4 MiB, nr_inodes:)</tt>]
   #   Files held in memory for as long as the object lives, seeded from a
   #   Hash of path to contents. Every invocation shares them; one that
   #   should start empty mounts a new Tmpfs through Context#mount.

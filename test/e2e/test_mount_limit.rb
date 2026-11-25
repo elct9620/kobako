@@ -18,8 +18,23 @@ class TestE2EMountLimit < Minitest::Test
     end
   RUBY
 
-  def write_beneath(filesystem)
-    Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", filesystem, access: :read_write).eval(SCRIPT).value
+  # Write 4 MiB to +/data/scratch+, then one byte more, answering whether
+  # that byte landed and how large the file stands.
+  FILL_THEN_ONE_MORE = <<~RUBY
+    File.open("/data/scratch", "w") do |file|
+      chunk = "x" * 65_536
+      64.times { file.write(chunk) }
+      begin
+        file.write("x")
+        [:written, File.size("/data/scratch")]
+      rescue Errno::ENOSPC
+        [:refused, File.size("/data/scratch")]
+      end
+    end
+  RUBY
+
+  def write_beneath(filesystem, script = SCRIPT)
+    Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/data", filesystem, access: :read_write).eval(script).value
   end
 
   # The seeded file rides as a bare keyword beside +size:+, so both must
@@ -29,6 +44,13 @@ class TestE2EMountLimit < Minitest::Test
     assert_equal [:refused, "hello"], write_beneath(Kobako::Filesystem::Tmpfs.new("note.txt" => "hello", size: 8)),
                  "a write past a size given through Tmpfs.new must raise Errno::ENOSPC in the guest " \
                  "and leave the seeded files"
+  end
+
+  # @behavior MT-065
+  def test_a_tmpfs_given_no_size_in_ruby_holds_four_mib
+    assert_equal [:refused, 4 << 20], write_beneath(Kobako::Filesystem::Tmpfs.new, FILL_THEN_ONE_MORE),
+                 "a Tmpfs made through Tmpfs.new without size: must take 4 MiB from the guest and raise " \
+                 "Errno::ENOSPC for one byte more"
   end
 
   # @behavior MT-015
