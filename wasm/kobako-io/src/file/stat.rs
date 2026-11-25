@@ -31,6 +31,7 @@ const S_IFSOCK: u32 = 0xc000;
 #[derive(Clone, Copy)]
 #[beni::wrap(class = "File::Stat", name = "Kobako::File::Stat")]
 pub(crate) struct Stat {
+    dev: u64,
     ino: u64,
     nlink: u64,
     size: u64,
@@ -124,6 +125,7 @@ mod raw {
         // SAFETY: the call succeeded, so it filled the buffer.
         let found = unsafe { found.assume_init() };
         Ok(Stat {
+            dev: found.dev,
             ino: found.ino,
             nlink: found.nlink,
             size: u64::try_from(found.size).unwrap_or(0),
@@ -162,6 +164,7 @@ mod raw {
 
     fn report_of(metadata: fs::Metadata) -> Stat {
         Stat {
+            dev: metadata.dev(),
             ino: metadata.ino(),
             nlink: metadata.nlink(),
             size: metadata.size(),
@@ -230,6 +233,7 @@ pub(super) fn init(mrb: &Mrb, file: RClass) -> Result<(), Error> {
     file.define_singleton_method(mrb, c"size?", beni::method!(file_s_size_p, 1))?;
     file.define_singleton_method(mrb, c"zero?", beni::method!(file_s_zero_p, 1))?;
     file.define_singleton_method(mrb, c"empty?", beni::method!(file_s_zero_p, 1))?;
+    file.define_singleton_method(mrb, c"identical?", beni::method!(file_s_identical_p, 2))?;
     Ok(())
 }
 
@@ -371,4 +375,18 @@ fn file_s_size_p(mrb: &Mrb, _self: Value, path: Value) -> Result<Value, Error> {
 fn file_s_zero_p(mrb: &Mrb, _self: Value, path: Value) -> Result<bool, Error> {
     let (_, found) = ask_host(mrb, "File.zero?", path, raw::stat)?;
     Ok(found.is_ok_and(|stat| stat.size == 0))
+}
+
+/// Whether both paths reach one entry, links followed, as CRuby's
+/// `rb_file_identical_p` compares the device and inode numbers of two stats,
+/// false once either stat fails. An inode number of 0 names no entry, so an
+/// entry reporting it is identical to none.
+fn file_s_identical_p(mrb: &Mrb, _self: Value, first: Value, second: Value) -> Result<bool, Error> {
+    let (_, Ok(first)) = ask_host(mrb, "File.identical?", first, raw::stat)? else {
+        return Ok(false);
+    };
+    let (_, Ok(second)) = ask_host(mrb, "File.identical?", second, raw::stat)? else {
+        return Ok(false);
+    };
+    Ok(first.ino != 0 && (first.dev, first.ino) == (second.dev, second.ino))
 }
