@@ -272,3 +272,14 @@ docker run --rm -v "$PWD/test/fixtures/file_open_matrix.rb:/m.rb:ro" -v "$SEEDED
 ```
 
 Mount `$SEEDED` with `:ro` for the read-only answers.
+
+## `journey_neighbours.rb`
+
+`journey_neighbours.rb` is the child process a journey runs once for each `gvl:` mode. It walks one run beside a neighbour holding each kind of thing a run can occupy. It stands apart from its test because the child is a whole program, each guest script in it a constant.
+
+| Argument | Holds |
+|---|---|
+| first | the `gvl:` mode, `hold` or `release` |
+| second | a host directory holding `b0` to `b3`, each with `d/note.txt` |
+
+It prints its answers and exits at once, leaving every neighbour running. Its parent removes the directory, since under `:hold` each host call of the child waits behind the neighbours' turns.
