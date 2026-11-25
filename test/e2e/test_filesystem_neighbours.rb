@@ -5,13 +5,16 @@ require "tmpdir"
 
 # E2E — a run beside four others that create, move, list, and write in the
 # same Filesystem, under both gvl: modes: the run still finishes its own
-# lookups and creates. Each attacker calls a Service every round, so under
-# :hold the Threads take turns and what is measured is the directory lock.
+# lookups and creates. Under :hold each of its calls that gives up the GVL
+# waits behind every attacker's 100 ms time slice, as CRuby's ready queue
+# serves it, so its timeout covers those turns: 30 calls behind four slices
+# each take about 12 s on a host with no core to spare.
 class TestE2EFilesystemNeighbours < Minitest::Test
   include E2eGuestHelper
 
   GVL_MODES = %i[hold release].freeze
-  ROUNDS = 100
+  ROUNDS = 10
+  VICTIM_TIMEOUT = 30
 
   # What every attacker asks between rounds, and how the test knows each one
   # is in its loop.
@@ -113,7 +116,7 @@ class TestE2EFilesystemNeighbours < Minitest::Test
     crowd = Crowd.new
     attackers = start_attackers(filesystem, mode, crowd)
     crowd.wait_started(attackers.size)
-    answer = sandbox(filesystem, mode, 5).eval(VICTIM).value
+    answer = sandbox(filesystem, mode, VICTIM_TIMEOUT).eval(VICTIM).value
     crowd.stop!
     [answer, attackers.map(&:value).all? { |rounds| rounds.is_a?(Integer) && rounds.positive? }]
   end

@@ -668,5 +668,5 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 | --- | --- |
 | Given | a Tmpfs, a Bind, or an Overlay mounted in four runs that create, move, list, and write there |
 | Given | either `gvl:` mode |
-| When | another run looks up and creates names there 100 times, under a 5 s `timeout:` |
-| Then | it answers each call |
+| When | another run looks up and creates names there 10 times, under a 30 s `timeout:` |
+| Then | it answers each call. Under `:hold` a call giving up the GVL waits behind each neighbour's time slice, so it slows |
