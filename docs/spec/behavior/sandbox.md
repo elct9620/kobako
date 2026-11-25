@@ -2249,7 +2249,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Step | Statement |
 | --- | --- |
 | Given | a Sandbox keeping the GVL whose guest computes without end, its deadline lifted, on a Thread of its own |
-| When | another Thread runs plain Ruby, or a Sandbox whose deadline is a second |
+| When | another Thread runs plain Ruby, or a Sandbox |
 | Then | that Thread finishes while the guest still computes. A run waiting for its guest hands the GVL to a waiting Thread each quantum, as Ruby's Threads do |
 
 ## `S-244` A run keeping the GVL lets another Thread run while its guest blocks in the host

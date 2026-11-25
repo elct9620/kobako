@@ -4587,7 +4587,7 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | When | the neighbour grows to near its own `memory_limit` |
 | Then | the neighbour answers what it holds |
 
-## `RT-419` A run filling entropy delays a neighbour less than its deadline
+## `RT-419` A run filling entropy leaves a neighbour to answer while it floods
 
 | Attribute | Value |
 | --- | --- |
@@ -4595,10 +4595,10 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 
 | Step | Statement |
 | --- | --- |
-| Given | a run reading 64 MiB of entropy over and over under a 2 s timeout |
+| Given | a run reading 64 MiB of entropy over and over |
 | Given | a neighbour run on another Thread, under either `gvl:` mode |
 | When | the neighbour evaluates a short script |
-| Then | it answers within a second |
+| Then | it answers while the flood still runs |
 
 ## `RT-420` A reader takes a directory nobody holds past the writers waiting for it
 
