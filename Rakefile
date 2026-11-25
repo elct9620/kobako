@@ -4,10 +4,11 @@ require "bundler/gem_tasks"
 
 # The suite shares process-wide state no Thread can split, as a run's GVL
 # turns, a fork, or the GC, so each process runs its share of the files one
-# at a time, one process per available CPU.
+# at a time, one process per available CPU. It finds the files itself, as
+# naming every one would pass Windows' command-line limit.
 desc "Run the Ruby suite"
 task :test do
-  sh({ "RUBYOPT" => "-w -Ilib -Itest -I." }, "parallel_test", "--type", "test", *FileList["test/**/test_*.rb"])
+  sh({ "RUBYOPT" => "-w -Ilib -Itest -I." }, "parallel_test", "test", "--type", "test", "--suffix", '/test_[^/]*\.rb$')
 end
 
 # Grouped subsets of the suite the main +test+ task already runs whole:
