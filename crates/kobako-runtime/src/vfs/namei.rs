@@ -3456,7 +3456,7 @@ mod tests {
 
     /// A filesystem of `files` whose link `l` moves `from` to `to` through
     /// `moved`, which is set once that mount stands.
-    fn moving_link_filesystem(
+    fn new_moving_link_filesystem(
         files: &[(&'static str, &'static str)],
         moved: &Arc<OnceLock<Path>>,
         from: &'static str,
@@ -3491,7 +3491,7 @@ mod tests {
             .expect("set only here");
         let walked = mount_at(
             "/data",
-            &moving_link_filesystem(&[("a/keep", "k"), ("c", "stays")], &moved, "x", "y"),
+            &new_moving_link_filesystem(&[("a/keep", "k"), ("c", "stays")], &moved, "x", "y"),
         );
         let stat = vfs::vfs_fstatat(
             &Arc::default(),
@@ -3513,7 +3513,7 @@ mod tests {
     #[test]
     fn a_dotdot_a_move_through_another_mount_of_its_filesystem_landed_before_asks_again() {
         let moved = Arc::new(OnceLock::new());
-        let shared = moving_link_filesystem(
+        let shared = new_moving_link_filesystem(
             &[("a/keep", "k"), ("x/k", "k"), ("c", "stays")],
             &moved,
             "x",
@@ -3547,7 +3547,7 @@ mod tests {
     fn a_dotdot_back_onto_a_filesystem_mounted_twice_learns_of_a_move_between() {
         let outer = Filesystem::new(Tmpfs::from_iter([("inner/keep", "k"), ("x/k", "k")])).unwrap();
         let moved = Arc::new(OnceLock::new());
-        let inner = moving_link_filesystem(&[("again/keep", "k")], &moved, "x", "y");
+        let inner = new_moving_link_filesystem(&[("again/keep", "k")], &moved, "x", "y");
         let mounts = [
             mount_at("/data", &outer),
             mount_at("/data/inner", &inner),
