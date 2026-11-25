@@ -70,8 +70,21 @@ raises `Errno::ENOSPC`.
 
 | Bound | Unless given | `nil` |
 |---|---|---|
-| `size:` | 64 MiB of file bytes | no bound |
+| `size:` | 4 MiB of file bytes | no bound |
 | `nr_inodes:` | one entry per 4 KiB of `size`, and the root | no bound |
+
+A Tmpfs belongs to the Host App and outlives every run that writes to it. It
+counts toward no run's caps, so its two bounds are all that hold it. Each
+entry costs about 1.25 KiB beside its file bytes, a 255-byte name included.
+
+```
+memory held <= size + nr_inodes * 1.25 KiB    # about 5.3 MiB by default
+```
+
+Ruby counts that memory, so a Tmpfs the Host App lets go is collected on
+Ruby's own schedule, without `GC.start`. A full Tmpfs triggers no collection.
+An Overlay's upper Tmpfs bounds its copy-ups too: changing a lower file larger
+than its room raises `Errno::ENOSPC`.
 
 ### Overlays
 
@@ -159,7 +172,7 @@ A Bind opens only files and directories: a FIFO, socket, or device raises
 |---|---|
 | `access: :read` unless the guest must write | a read-only Mount refuses every change |
 | a Tmpfs over a Bind | a Bind is a real host path the guest changes |
-| `size:` and `nr_inodes:` sized to the task | the defaults hold 64 MiB and 16385 entries |
+| `size:` and `nr_inodes:` sized to the task | the defaults hold 4 MiB and 1025 entries |
 | `open_file_limit:` sized against the host's own | what the guest opens holds host descriptors |
 | no writable grant over kobako's compile cache | the host runs what that cache holds as native code |
 

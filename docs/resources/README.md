@@ -87,6 +87,7 @@ A Codec and a Service live outside the machine, as a host daemon behind a virtua
 | what a payload makes a Codec build | the Codec, which alone knows its amplification |
 | the Handles one invocation is issued | a table of 1,000,000, as wasmtime's `ResourceTable` |
 | what a Service builds or keeps | the host app |
+| what a Tmpfs holds | its own `size` and `nr_inodes`, outliving every invocation that wrote it |
 
 ## Five Tiers
 
