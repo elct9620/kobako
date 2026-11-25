@@ -62,5 +62,7 @@ module Kobako
     def profile: () -> Symbol
 
     def compile: (Kobako::Context::preamble preamble) -> Array[String]?
+
+    def stat: () -> Hash[Symbol, Integer]
   end
 end

@@ -199,6 +199,16 @@ module Kobako
       begin_invocation.eval(source, &block)
     end
 
+    # What this Sandbox's runs are doing now, as a Hash, or the one value
+    # +key+ names, as GC.stat answers: +:runs_waiting+ counts the runs waiting
+    # on a lock or an event. Raises ArgumentError for a key it does not hold.
+    def stat(key = nil) # :nodoc:
+      stat = @runtime.stat
+      return stat if key.nil?
+
+      stat.fetch(key) { raise ArgumentError, "unknown key: #{key}" }
+    end
+
     private
 
     def build_runtime

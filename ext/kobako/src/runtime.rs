@@ -27,6 +27,7 @@ use magnus::{
 };
 
 use std::path::Path;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -105,6 +106,7 @@ pub(crate) fn register(ruby: &Ruby, kobako: RModule) -> Result<(), MagnusError> 
     runtime.define_method("run", method!(Runtime::run, 4))?;
     runtime.define_method("profile", method!(Runtime::profile, 0))?;
     runtime.define_method("compile", method!(Runtime::compile, 1))?;
+    runtime.define_method("stat", method!(Runtime::stat, 0))?;
     // The guest re-enters for a block yield through a frame-scoped
     // `Kobako::GuestYielder` the dispatcher hands the Proc, not a method on
     // Runtime.
@@ -274,6 +276,9 @@ struct Runtime {
     // construction; a `bool` carries no interior mutability, so the type
     // stays `Send + Sync`.
     release_gvl: bool,
+    // How many of its runs wait now, on a lock or an event, as each run's
+    // guest counts while it waits. An atomic, so the type stays `Send + Sync`.
+    waiting: Arc<AtomicUsize>,
 }
 
 impl DataTypeFunctions for Runtime {}
@@ -343,6 +348,7 @@ impl Runtime {
         Ok(Self {
             runtime: Arc::new(driver),
             release_gvl,
+            waiting: Arc::default(),
         })
     }
 
@@ -386,7 +392,7 @@ impl Runtime {
         let handler = build_handler(dispatch);
         let preamble = to_preamble(&ruby, setup)?;
         let runtime = self.runtime.clone();
-        gvl::run(&ruby, self.release_gvl, || {
+        gvl::run(&ruby, self.release_gvl, &self.waiting, || {
             let (mut grants, mut pins) = filesystem::to_grants(setup.entry(3)?)?;
             let (networks, network_pins) = network::to_grants(&ruby, setup.entry(4)?)?;
             grants.extend(networks);
@@ -407,6 +413,18 @@ impl Runtime {
         .map_err(|e| errors::from_invoke(&ruby, e))
     }
 
+    /// What this Runtime's runs are doing now, as `GC.stat` answers the
+    /// collector's: how many wait, on a lock or an event.
+    fn stat(&self) -> Result<RHash, MagnusError> {
+        let ruby = Ruby::get().expect("Ruby thread");
+        let stat = ruby.hash_new();
+        stat.aset(
+            ruby.to_symbol("runs_waiting"),
+            self.waiting.load(Ordering::SeqCst),
+        )?;
+        Ok(stat)
+    }
+
     /// The bytecode of the source snippets, one binary String each in
     /// order, or `nil` when the guest compiled nothing; no failure raises,
     /// since the Sandbox keeps the source either way. Takes the Preamble an
@@ -417,7 +435,7 @@ impl Runtime {
         let ruby = Ruby::get().expect("Ruby thread");
         let preamble = to_preamble(&ruby, preamble)?;
         let runtime = self.runtime.clone();
-        let bytecodes = gvl::run(&ruby, self.release_gvl, || {
+        let bytecodes = gvl::run(&ruby, self.release_gvl, &self.waiting, || {
             Ok(move || runtime.compile(&preamble))
         })?;
         Ok(bytecodes.map(|bytecodes| {

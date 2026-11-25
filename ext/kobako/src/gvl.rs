@@ -23,7 +23,7 @@ use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_long, c_void};
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
 use std::ptr;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError};
 use std::time::Duration;
 
@@ -280,13 +280,15 @@ where
 
 /// Run `f` as one run of a Sandbox on a guest's thread, serving what it asks of
 /// Ruby here, giving up the GVL while it runs when `release` says so, and
-/// raising what the run kept once it ends.
+/// raising what the run kept once it ends. Each wait the run makes is counted
+/// on `waiting` while it waits.
 ///
 /// `setup` builds what the guest runs inside the run, so each Ruby object it
 /// pins is kept for the run.
 pub(crate) fn run<R, F>(
     ruby: &Ruby,
     release: bool,
+    waiting: &Arc<AtomicUsize>,
     setup: impl FnOnce() -> Result<F, MagnusError>,
 ) -> Result<R, MagnusError>
 where
@@ -295,7 +297,7 @@ where
 {
     let run = escape::Run::enter(ruby)?;
     let f = setup()?;
-    let ran = serve(ruby, release, run.state(), f)?;
+    let ran = serve(ruby, release, waiting, run.state(), f)?;
     fork::tell_pitchfork_past_trust(ruby);
     run.finish()?;
     Ok(ran)
@@ -309,6 +311,7 @@ where
 fn serve<R: Send + 'static>(
     ruby: &Ruby,
     release: bool,
+    waiting: &Arc<AtomicUsize>,
     state: &Arc<escape::RunState>,
     f: impl FnOnce() -> R + Send + 'static,
 ) -> Result<R, MagnusError> {
@@ -318,6 +321,7 @@ fn serve<R: Send + 'static>(
         state.task().clone(),
         !release,
         state.pending_flag(),
+        waiting.clone(),
         move || {
             let value = f();
             *answered.lock().unwrap_or_else(PoisonError::into_inner) = Some(value);

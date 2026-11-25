@@ -18,7 +18,7 @@ use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::io;
 use std::panic::{catch_unwind, resume_unwind, AssertUnwindSafe};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -193,6 +193,9 @@ pub(crate) struct Line {
     ended: AtomicBool,
     /// Ends the run's waits once its caller is gone.
     interrupt: Task,
+    /// How many runs of the caller's Sandbox wait now, this one among them
+    /// while it waits.
+    waiting: Arc<AtomicUsize>,
 }
 
 impl Line {
@@ -202,6 +205,14 @@ impl Line {
         self.abandoned.store(true, Ordering::SeqCst);
         self.interrupt.interrupt();
         self.to_guest.put(Reply::Answer(None));
+    }
+
+    /// Run `wait`, counted among the runs of the caller's Sandbox waiting
+    /// until it returns, whatever way it ends.
+    fn counting(&self, wait: &mut dyn FnMut()) {
+        self.waiting.fetch_add(1, Ordering::SeqCst);
+        let _ends = WaitEnd(&self.waiting);
+        wait();
     }
 
     fn is_abandoned(&self) -> bool {
@@ -348,11 +359,20 @@ pub(crate) fn on_caller<R>(f: impl FnOnce() -> R) -> Option<R> {
 pub(crate) fn wait_releasing(wait: &mut dyn FnMut()) {
     let line = line().expect("only a guest's thread waits through its caller");
     if !line.keeps_gvl || line.is_abandoned() {
-        return wait();
+        return line.counting(wait);
     }
     line.to_caller.put(Message::Wait(true));
-    wait();
+    line.counting(wait);
     line.ask(Message::Wait(false));
+}
+
+/// Takes a wait off the count of its Sandbox's runs waiting once it goes.
+struct WaitEnd<'a>(&'a AtomicUsize);
+
+impl Drop for WaitEnd<'_> {
+    fn drop(&mut self) {
+        self.0.fetch_sub(1, Ordering::SeqCst);
+    }
 }
 
 /// A closure whose captures the other side touches only while this side
@@ -387,6 +407,7 @@ pub(crate) fn start(
     task: Current,
     keeps_gvl: bool,
     pending: Arc<AtomicBool>,
+    waiting: Arc<AtomicUsize>,
     run: impl FnOnce() + Send + 'static,
 ) -> io::Result<Arc<Line>> {
     let line = Arc::new(Line {
@@ -398,6 +419,7 @@ pub(crate) fn start(
         abandoned: AtomicBool::new(false),
         ended: AtomicBool::new(false),
         interrupt: task.task(),
+        waiting,
     });
     let guest_line = line.clone();
     let job: Job = Box::new(move || {

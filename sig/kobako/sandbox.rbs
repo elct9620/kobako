@@ -42,6 +42,9 @@ module Kobako
 
     def eval: (String code) ?{ (Kobako::Context) -> void } -> Kobako::Execution
 
+    def stat: () -> Hash[Symbol, Integer]
+            | (Symbol key) -> Integer
+
     private
 
     def build_runtime: () -> Kobako::Runtime
