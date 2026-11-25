@@ -2165,8 +2165,8 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Step | Statement |
 | --- | --- |
 | Given | a Fiber scheduler that runs a blocking operation on another thread, and Sandboxes releasing the GVL |
-| When | two Fibers on one Thread each run a guest that only computes, beside a Fiber that ticks |
-| Then | the runs overlap and the ticking Fiber goes on meanwhile. A run hands its wait to the scheduler only once a callback did not come back within a spin |
+| When | two Fibers on one Thread each run a guest that computes until the other's has begun |
+| Then | both runs finish, so the scheduler ran the other Fiber while each waited. A run hands its wait to the scheduler only once a callback did not come back within a spin |
 
 ## `S-235` A Fiber scheduler stopping a Fiber whose run waits on its guest ends that run
 
@@ -2177,8 +2177,8 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Step | Statement |
 | --- | --- |
 | Given | a Fiber scheduler that runs a blocking operation on another thread |
-| When | it stops a Fiber whose run waits on a guest that only computes |
-| Then | the run ends within moments raising what the scheduler raised, and the next run answers |
+| When | it stops a Fiber whose run waits on a guest that computes without end |
+| Then | the run ends before its deadline raising what the scheduler raised, and the next run answers |
 
 ## `S-236` A fork beside another Thread's run raises
 
