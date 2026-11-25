@@ -126,7 +126,7 @@ fn to_filetype(file_type: FileType) -> Filetype {
 /// A `filestat` for what a Filesystem reports a path names, as `cred` sees
 /// it, at time zero where it keeps no time.
 pub(crate) fn to_filestat(cred: &Cred, stat: Kstat) -> Answer<types::Filestat> {
-    let stat = vfs::cp_new_stat(cred, stat);
+    let stat = vfs::cp_new_stat(cred, stat)?;
     Ok(types::Filestat {
         dev: stat.dev,
         ino: stat.ino,
@@ -386,7 +386,7 @@ fn write_dirent(
 ) -> Answer<Option<u32>> {
     let (start, capacity) = buf;
     let at = *used;
-    let header = to_dirent_header(emit, vfs::ino_of(cred, emit.identity))?;
+    let header = to_dirent_header(emit, vfs::ino_of(cred, emit.identity)?)?;
     let mut whole = true;
     for part in [&header[..], emit.name.as_bytes()] {
         let room = (capacity - *used) as usize;

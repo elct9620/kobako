@@ -1,9 +1,10 @@
 //! Looking at what stands at a path, as Linux's `fstatat` and
 //! `readlinkat` do.
 
+use std::collections::HashMap;
 use std::hash::{BuildHasher, RandomState};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, LazyLock};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::inode::Identity;
@@ -160,9 +161,10 @@ pub fn do_readlinkat(cred: &Arc<Cred>, start: &impl Start, path: &str) -> Result
 /// keeps one record; a hermetic caller sees every time at the Unix epoch,
 /// where its wall clock stands, so a time a write left behind is no clock it
 /// can read. A link reports no size, so nothing of where it points reaches the
-/// caller, and an entry is told apart only by what `ino_of` answers.
-pub fn cp_new_stat(cred: &Cred, stat: Kstat) -> Kstat {
-    let ino = ino_of(cred, Identity::of(&stat));
+/// caller, and an entry is told apart only by what `ino_of` answers, EOVERFLOW
+/// where it has no number left to give.
+pub fn cp_new_stat(cred: &Cred, stat: Kstat) -> Result<Kstat, Errno> {
+    let ino = ino_of(cred, Identity::of(&stat))?;
     let masked = match cred.profile() {
         Profile::Permissive => stat,
         Profile::Hermetic => {
@@ -170,25 +172,59 @@ pub fn cp_new_stat(cred: &Cred, stat: Kstat) -> Kstat {
             stat.with_times(epoch(stat.atime), epoch(stat.mtime), epoch(stat.ctime))
         }
     };
-    Kstat {
+    Ok(Kstat {
         size: match masked.file_type {
             FileType::Symlink => 0,
             _ => masked.size,
         },
         ..masked.with_identity(0, ino)
-    }
+    })
 }
 
 /// The inode number the caller `cred` is made for sees for `identity`, in a
-/// stat or a listing. A hermetic caller sees none, as a Filesystem's device
-/// number depends on how many were made before it in the process. Any other
-/// sees a hash of it under a key the process draws once, so it can tell
-/// entries apart and cannot work back to a host's inode number.
-pub fn ino_of(cred: &Cred, identity: Option<Identity>) -> u64 {
+/// stat or a listing, 0 for an entry naming none. A hermetic caller sees the
+/// number its `InoNamespace` hands the entry, which nothing of the process or
+/// the host decides. Any other sees a hash of it under a key the process draws
+/// once, so it can tell entries apart and cannot work back to a host's inode
+/// number.
+pub fn ino_of(cred: &Cred, identity: Option<Identity>) -> Result<u64, Errno> {
     static KEY: LazyLock<RandomState> = LazyLock::new(RandomState::new);
     match (cred.profile(), identity) {
-        (Profile::Hermetic, _) | (_, None) => 0,
-        (Profile::Permissive, Some(identity)) => KEY.hash_one(identity),
+        (_, None) => Ok(0),
+        (Profile::Hermetic, Some(identity)) => cred.ino_ns().number_of(identity),
+        (Profile::Permissive, Some(identity)) => Ok(KEY.hash_one(identity)),
+    }
+}
+
+/// The most inode numbers one `InoNamespace` hands out, as Linux's
+/// `PID_MAX_DEFAULT` bounds the numbers a PID namespace hands its tasks.
+const INO_MAX: usize = 32_768;
+
+/// The inode numbers one Invocation's entries are known by, each the next in the
+/// order the Invocation first met it, as a PID namespace numbers its own tasks.
+/// A Filesystem's device number depends on how many were made before it in the
+/// process, and a host's inode number on the host, so neither reaches the
+/// numbering: two runs meeting entries in one order read one numbering.
+#[derive(Default)]
+pub(crate) struct InoNamespace {
+    handed: Mutex<HashMap<Identity, u64>>,
+}
+
+impl InoNamespace {
+    /// The number `identity` was handed, or the next one, EOVERFLOW once
+    /// `INO_MAX` are handed, as `cp_new_stat` answers an inode number the
+    /// caller cannot hold.
+    fn number_of(&self, identity: Identity) -> Result<u64, Errno> {
+        let mut handed = self.handed.lock().unwrap_or_else(PoisonError::into_inner);
+        if let Some(number) = handed.get(&identity) {
+            return Ok(*number);
+        }
+        if handed.len() >= INO_MAX {
+            return Err(Errno::ValueTooLarge);
+        }
+        let number = handed.len() as u64 + 1;
+        handed.insert(identity, number);
+        Ok(number)
     }
 }
 
@@ -196,13 +232,19 @@ pub fn ino_of(cred: &Cred, identity: Option<Identity>) -> u64 {
 mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
-    use super::{cp_new_stat, ino_of, FileType, Kstat};
+    use super::{cp_new_stat, ino_of, FileType, Kstat, INO_MAX};
     use crate::cred::Cred;
     use crate::profile::Profile;
     use crate::vfs::Identity;
+    use crate::Errno;
 
     fn seen_by(profile: Profile, stat: Kstat) -> Kstat {
         cp_new_stat(&Cred::default().with_profile(profile), stat)
+            .expect("a fresh Cred has every inode number left to give")
+    }
+
+    fn identity(ino: u64) -> Option<Identity> {
+        Identity::from_numbers(7, ino)
     }
 
     // The Wasm Driver only encodes this, so another one shows the same, and a
@@ -219,9 +261,10 @@ mod tests {
         );
         assert_eq!(
             (hermetic.size, permissive.size, hermetic.ino, hermetic.atime),
-            (0, 0, 0, Some(UNIX_EPOCH)),
+            (0, 0, 1, Some(UNIX_EPOCH)),
             "a link's stat through cp_new_stat must report no size on any profile, and on the \
-             hermetic profile no inode number and every time at the Unix epoch"
+             hermetic profile the first number its Invocation hands out and every time at the \
+             Unix epoch"
         );
         assert!(
             permissive.ino != 0 && permissive.ino != 9 && permissive.atime == reported.atime,
@@ -265,11 +308,57 @@ mod tests {
             ino_of(&permissive, identity),
             "ino_of one identity must answer one number within a process"
         );
+        let seen = seen.expect("a permissive Cred hashes every identity");
         assert_ne!(
             seen,
             unkeyed.finish(),
             "ino_of on the permissive profile must not answer a hash anyone can compute from the \
              device and inode numbers"
+        );
+    }
+
+    // An Invocation's numbering is the Cred it starts from, so every Cred
+    // restricted from it numbers one entry alike, and another Invocation's
+    // starts again from 1.
+    // @behavior RT-428
+    #[test]
+    fn a_hermetic_invocation_numbers_entries_in_the_order_it_meets_them() {
+        let hermetic = Cred::default();
+        let restricted = hermetic.with_modules(Vec::new());
+        let numbers = [9, 3, 9, 5].map(|ino| ino_of(&hermetic, identity(ino)));
+        assert_eq!(
+            numbers,
+            [Ok(1), Ok(2), Ok(1), Ok(3)],
+            "ino_of through a hermetic Cred must hand each identity the next number the first \
+             time it is met, and that number again after"
+        );
+        assert_eq!(
+            (
+                ino_of(&restricted, identity(5)),
+                ino_of(&Cred::default(), identity(5))
+            ),
+            (Ok(3), Ok(1)),
+            "a Cred restricted from a hermetic one must share its numbering, and a fresh \
+             Invocation's must start from 1"
+        );
+    }
+
+    // @behavior RT-430
+    #[test]
+    fn a_hermetic_invocation_past_its_last_number_answers_eoverflow_for_a_new_entry() {
+        let hermetic = Cred::default();
+        for ino in 1..=INO_MAX as u64 {
+            ino_of(&hermetic, identity(ino)).expect("every number up to INO_MAX is handed out");
+        }
+        assert_eq!(
+            (
+                ino_of(&hermetic, identity(INO_MAX as u64 + 1)),
+                ino_of(&hermetic, identity(1)),
+                ino_of(&hermetic, None),
+            ),
+            (Err(Errno::ValueTooLarge), Ok(1), Ok(0)),
+            "ino_of through a hermetic Cred that handed out 32,768 numbers must answer EOVERFLOW \
+             for a new identity, the number an identity it met, and 0 for none"
         );
     }
 

@@ -1,6 +1,6 @@
 //! Who a call is made for, as Linux's `struct cred`: the security modules
 //! registered for the caller, the memory charged on its behalf, the profile it
-//! sees entries through, and its mount namespace. The hooks that ask its
+//! sees entries through, and its mount and inode number namespaces. The hooks that ask its
 //! modules live with the security framework, as `security/security.c` holds
 //! them apart from `kernel/cred.c`.
 
@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::memcg::MemoryBudget;
 use crate::profile::Profile;
 use crate::security::SecurityOperations;
-use crate::vfs::{MntNamespace, VfsMount};
+use crate::vfs::{InoNamespace, MntNamespace, VfsMount};
 
 /// Who a call is made for, holding the security modules registered for it, as
 /// `cred->security` holds a Landlock domain, and the memory budget the guest's
@@ -17,13 +17,16 @@ use crate::vfs::{MntNamespace, VfsMount};
 /// task's memory cgroup does. Its profile decides what the
 /// caller sees of an entry, as `cred->user_ns` decides the owner `cp_new_stat`
 /// reports. Its mount namespace says which mount stands on which name, as a
-/// task's `nsproxy` holds one beside its credentials.
+/// task's `nsproxy` holds one beside its credentials, and its inode number
+/// namespace which number a hermetic caller knows each entry by, as a PID
+/// namespace sits there too.
 #[derive(Clone)]
 pub struct Cred {
     security: Vec<Arc<dyn SecurityOperations>>,
     memory: Arc<MemoryBudget>,
     profile: Profile,
     mnt_ns: Arc<MntNamespace>,
+    ino_ns: Arc<InoNamespace>,
 }
 
 /// One no module is registered for, which this crate's tests make calls as.
@@ -35,6 +38,7 @@ impl Default for Cred {
             memory: MemoryBudget::new(None),
             profile: Profile::Hermetic,
             mnt_ns: Arc::default(),
+            ino_ns: Arc::default(),
         }
     }
 }
@@ -47,7 +51,8 @@ impl Cred {
 
     /// One with `security` registered, charging what is held on its behalf to
     /// `memory`, seeing entries as the hermetic profile does until told
-    /// otherwise.
+    /// otherwise, and numbering them afresh, which every Cred restricted from
+    /// it shares.
     pub(crate) fn within(
         security: Vec<Arc<dyn SecurityOperations>>,
         memory: Arc<MemoryBudget>,
@@ -57,6 +62,7 @@ impl Cred {
             memory,
             profile: Profile::Hermetic,
             mnt_ns: Arc::default(),
+            ino_ns: Arc::default(),
         })
     }
 
@@ -121,5 +127,10 @@ impl Cred {
     /// The budget a Wasm Driver charges the guest's growth to.
     pub fn memory_budget(&self) -> &Arc<MemoryBudget> {
         &self.memory
+    }
+
+    /// The inode numbers a hermetic caller knows its entries by.
+    pub(crate) fn ino_ns(&self) -> &InoNamespace {
+        &self.ino_ns
     }
 }

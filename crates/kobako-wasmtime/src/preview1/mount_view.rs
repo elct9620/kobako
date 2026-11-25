@@ -927,16 +927,21 @@ fn a_permissive_guest_tells_entries_apart_by_their_inode_numbers() {
     );
 }
 
-// A Tmpfs's device number depends on how many came before it, so any number
-// drawn from it would differ between otherwise identical runs.
-// @behavior RT-183
+// A Tmpfs's device number depends on how many came before it, so the numbers
+// are the Invocation's own, handed out in the order it meets each entry.
+// @behavior RT-183 RT-428
 #[test]
-fn a_hermetic_guest_sees_no_inode_numbers() {
+fn a_hermetic_guest_tells_entries_apart_by_numbers_of_its_own() {
+    let (stat, listed, dot) = inodes_seen(Profile::Hermetic);
     assert_eq!(
-        inodes_seen(Profile::Hermetic),
-        (0, 0, 0),
-        "a stat and a listing of a file and its directory beneath a Mount through a hermetic \
-         guest's preview1 must answer inode number 0"
+        stat, listed,
+        "fd_readdir and path_filestat_get of a file beneath a Mount through a hermetic guest's \
+         preview1 must answer the same inode number"
+    );
+    assert!(
+        stat != 0 && dot != 0 && dot != stat && stat.max(dot) <= 3,
+        "a hermetic guest's inode numbers for a file and its directory must differ and be the \
+         first numbers its Invocation hands out, not {stat} and {dot}"
     );
 }
 
