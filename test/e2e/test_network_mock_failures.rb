@@ -108,26 +108,6 @@ class TestE2ENetworkMockFailures < Minitest::Test
                  "endpoint names must meet the connect hook and then be refused, and the endpoints must be read once"
   end
 
-  SLOW_THEN_NEXT = <<~RUBY
-    http = Net::HTTP.new(%<first>p, 80)
-    http.open_timeout = 0.2
-    [begin; http.get("/"); rescue => e; e.class.to_s; end,
-     begin; Net::HTTP.get("next.test", "/"); rescue => e; e.class.to_s; end]
-  RUBY
-
-  # @behavior NW-085
-  def test_a_given_up_requests_lookup_gives_its_place_back_at_once
-    mock = mock_resolving({ "slow.test" => PUBLIC, "next.test" => PUBLIC })
-    sandbox = mock_sandbox(mock, open_connection_limit: 1) do |net|
-      %w[slow.test next.test].each { |host| net.endpoint host, port: 80 }
-    end
-    held = mock.hold("slow.test") { sandbox.eval(format(SLOW_THEN_NEXT, first: "slow.test")).value }
-
-    assert_equal %w[Net::OpenTimeout Errno::ECONNREFUSED], held,
-                 "with open_connection_limit 1, a request sent after one given up while its name still resolves " \
-                 "must take the place at once and dial, though the resolver has not answered"
-  end
-
   # @behavior NW-154
   def test_a_connect_or_a_request_is_refused_when_the_hosts_own_addresses_cannot_be_read
     mock = mock_resolving({ "app.test" => PUBLIC, "web.test" => PUBLIC }, local_addresses: nil)

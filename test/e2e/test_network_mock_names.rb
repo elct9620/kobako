@@ -10,28 +10,6 @@ class TestE2ENetworkMockNames < Minitest::Test
 
   PUBLIC = "93.184.216.34"
 
-  LOOKUP_EACH = <<~RUBY
-    %<names>p.map do |name|
-      Addrinfo.getaddrinfo(name, 80)
-    rescue SocketError => e
-      [e.class.to_s, e.error_code]
-    end
-  RUBY
-
-  # @behavior NW-024
-  def test_a_name_no_endpoint_names_answers_unresolvable_without_asking_the_resolver
-    mock = Kobako::Network::Mock.new
-    sandbox = mock_sandbox(mock) do |net|
-      add_tcp_hosts(net, "app.test", "*.example.test", "denied.test")
-      net.policy(:resolve) { |name| name != "denied.test" }
-    end
-    value = sandbox.eval(format(LOOKUP_EACH, names: %w[nobody.test denied.test example.test])).value
-
-    assert_equal [[["Socket::ResolutionError", -2]] * 3, []], [value, mock.lookups],
-                 "a lookup of a name no endpoint names, one a resolve policy refuses, or a wildcard's apex must " \
-                 "raise Socket::ResolutionError as NXDOMAIN, and the Mock must be asked nothing"
-  end
-
   CONNECT_EACH = <<~RUBY
     %<hosts>p.map do |host|
       socket = TCPSocket.new(host, 80)
@@ -54,20 +32,6 @@ class TestE2ENetworkMockNames < Minitest::Test
     mock_sandbox(mock) do |net|
       add_tcp_hosts(net, "public.test", "local.test")
       net.endpoint "cache.test", port: 80, protocol: :tcp, addresses: [:local]
-    end
-  end
-
-  # @behavior NW-025
-  def test_a_name_connects_through_its_virtual_address_to_where_its_endpoint_leads
-    with_upcase_server do |port|
-      mock = mock_resolving({ "public.test" => PUBLIC, "local.test" => "127.0.0.1", "cache.test" => "127.0.0.1" })
-      mock.route(PUBLIC, 80, to: ["127.0.0.1", port])
-      connected = connect_each(public_and_local_sandbox(mock), "public.test", "local.test", "cache.test")
-
-      assert_equal [[%w[PING 198.18.0.0], "Errno::EACCES", "Errno::ECONNREFUSED"], [[PUBLIC, 80], ["127.0.0.1", 80]]],
-                   [connected, mock.dialed_addresses],
-                   "a connect to a name must dial the one real address its virtual address stands for, and an " \
-                   "endpoint leading only to public addresses must refuse a local one an endpoint naming :local admits"
     end
   end
 

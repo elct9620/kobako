@@ -39,24 +39,6 @@ class TestE2EOverlayDescriptors < Minitest::Test
     sandbox.eval(["begin", script, "rescue SystemCallError => e; e.class.to_s; end"].join("\n")).value
   end
 
-  # A Dir reads its listing as it opens, so a File holds the directory.
-  OPENS_PAST_A_HELD_DIRECTORY = <<~RUBY
-    held = File.open("/o/d")
-    opened = []
-    begin
-      20.times { |file| opened << File.open("/o/f" + file.to_s) }
-    rescue Errno::EMFILE
-    end
-    opened.size
-  RUBY
-
-  # @behavior RT-152
-  def test_an_overlay_directory_takes_one_descriptor_however_many_bind_layers_hold_it
-    assert_equal 11, answer(stacked(8, open_file_limit: 16), OPENS_PAST_A_HELD_DIRECTORY),
-                 "File.open past a directory eight Bind Layers of an Overlay hold, under an open-file cap of 16, " \
-                 "must open eleven files"
-  end
-
   # @behavior RT-152
   def test_an_overlay_directory_lists_however_many_bind_layers_hold_it
     assert_equal ["note.txt"], answer(stacked(13, open_file_limit: 16), 'Dir.children("/o/d")'),

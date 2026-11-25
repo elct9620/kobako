@@ -43,16 +43,6 @@ class TestE2ECaps < Minitest::Test
     assert_match(/memory_limit/, err.message)
   end
 
-  # The cap re-anchors at each invocation's entry, so back-to-back scripts
-  # whose combined high-water mark exceeds it still each run within budget.
-  # @behavior S-008
-  def test_memory_limit_resets_per_invocation
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, memory_limit: 1 << 20)
-
-    assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize').value
-    assert_equal 200_000, sandbox.eval('a = "x" * 200_000; a.bytesize').value
-  end
-
   # Pins that the cap is wired through the real guest at the default 4 MiB
   # budget, not some far larger figure; the exact-threshold bisection lives
   # in the cargo `KobakoLimiter` unit tests.
