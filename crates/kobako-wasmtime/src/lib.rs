@@ -26,6 +26,8 @@ mod limiter;
 mod preview1;
 mod preview2;
 mod trap;
+#[cfg(test)]
+mod waits;
 mod wasi;
 
 pub use config::Config;

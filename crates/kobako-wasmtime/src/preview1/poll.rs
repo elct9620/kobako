@@ -274,12 +274,15 @@ mod tests {
     // @behavior RT-337
     #[test]
     fn an_interrupted_wait_ends_its_run_at_once() {
-        let (ended, spent) = wait_ten_seconds(
+        let (ended, _) = wait_ten_seconds(
             Profile::Permissive,
             Some(Duration::from_secs(20)),
             Some(|task: Task| {
+                let waits = crate::waits::count_waits();
                 std::thread::spawn(move || {
-                    std::thread::sleep(Duration::from_millis(50));
+                    crate::waits::wait_until("the clock wait going to sleep", || {
+                        waits.load(std::sync::atomic::Ordering::SeqCst) == 1
+                    });
                     task.interrupt();
                 });
             }),
@@ -288,10 +291,10 @@ mod tests {
             ended
                 .as_ref()
                 .err()
-                .is_some_and(|trap| trap.is::<crate::trap::Interrupted>())
-                && spent < Duration::from_secs(5),
+                .is_some_and(|trap| trap.is::<crate::trap::Interrupted>()),
             "a ten-second clock wait through a permissive guest's poll_oneoff, its thread \
-             interrupted, must end the run as interrupted at once, got {:?} after {spent:?}",
+             interrupted as it sleeps, must end the run as interrupted, not wait out the clock; \
+             got {:?}",
             ended.map_err(|trap| trap.to_string())
         );
     }

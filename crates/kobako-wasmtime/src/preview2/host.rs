@@ -2580,6 +2580,83 @@ mod tests {
         (guest, listener)
     }
 
+    /// Dials the host as its own network does, keeping each stream, so a test
+    /// fills the host's send buffer once the guest is connected.
+    #[derive(Default)]
+    struct FillsHostSendBuffer {
+        dialed: std::sync::Mutex<Vec<std::net::TcpStream>>,
+    }
+
+    impl kobako_runtime::net::ProtocolFamily for FillsHostSendBuffer {
+        fn connect(&self, addr: std::net::SocketAddr) -> std::io::Result<std::net::TcpStream> {
+            let stream = kobako_runtime::net::HostInet.connect(addr)?;
+            self.dialed.lock().unwrap().push(stream.try_clone()?);
+            Ok(stream)
+        }
+
+        fn local_addresses(&self) -> std::io::Result<Vec<std::net::IpAddr>> {
+            kobako_runtime::net::HostInet.local_addresses()
+        }
+    }
+
+    impl FillsHostSendBuffer {
+        /// Write to each stream dialed until the host takes no more, its peer
+        /// reading nothing, so nothing the guest queues leaves.
+        fn fill(&self) {
+            use std::io::Write as _;
+            for mut stream in self.dialed.lock().unwrap().iter() {
+                loop {
+                    match stream.write(&[0; 64 * 1024]) {
+                        Ok(_) => {}
+                        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => break,
+                        Err(err) => panic!(
+                            "a connected stream must take bytes until the host holds no more, \
+                             failed with {err}; the guest's connect must finish before the fill"
+                        ),
+                    }
+                }
+            }
+        }
+    }
+
+    /// A hermetic guest dialing the loopback listener through a
+    /// `FillsHostSendBuffer`, and that listener and family.
+    fn guest_filling_host_send_buffer(
+    ) -> (Invocation, std::net::TcpListener, Arc<FillsHostSendBuffer>) {
+        let (listener, endpoint) = loopback_listener();
+        let family = Arc::new(FillsHostSendBuffer::default());
+        let guest = Invocation::hermetic(Some(vec![endpoint]), |config| {
+            config.network = kobako_runtime::net::Backends::new(
+                family.clone(),
+                Arc::new(kobako_runtime::net::HostInet),
+            )
+        });
+        (guest, listener, family)
+    }
+
+    /// Write to `output` until it permits no more, the host taking nothing.
+    fn fill_output(guest: &mut Invocation, output: OutputStream) -> wasmtime::Result<()> {
+        loop {
+            match guest
+                .streams_output_stream_check_write(output)
+                .into_answer()?
+            {
+                Ok(0) => return Ok(()),
+                Ok(room) => {
+                    guest
+                        .streams_output_stream_write(output, vec![b'x'; room.min(4096) as usize])
+                        .into_answer()?
+                        .expect("the stream takes what it permitted");
+                }
+                Err(err) => {
+                    return Err(wasmtime::Error::msg(format!(
+                        "the stream failed while filling: {err:?}"
+                    )))
+                }
+            }
+        }
+    }
+
     /// A loopback listener, and the endpoint that reaches it.
     fn loopback_listener() -> (std::net::TcpListener, network::Endpoint) {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
@@ -3006,17 +3083,18 @@ mod tests {
     // @behavior NW-091
     #[test]
     fn a_tcp_sockets_pollable_waits_only_on_its_connect() {
-        let (mut guest, listener) = guest_and_listener();
+        let (mut guest, listener, family) = guest_filling_host_send_buffer();
         let port = listener.local_addr().unwrap().port();
-        let started = Instant::now();
-        let answered = run_task(Some(started + Duration::from_secs(10)), || {
+        let answered = run_task(Some(Instant::now() + crate::waits::MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let fresh = guest
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
                 .into_answer()?
                 .expect("a network makes a socket");
             let idle = guest.tcp_tcp_socket_subscribe(fresh)?;
+            let waits = crate::waits::count_waits();
             guest.poll_pollable_block(idle)?;
+            let idle_waits = waits.load(std::sync::atomic::Ordering::SeqCst);
             let socket = guest
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
                 .into_answer()?
@@ -3031,39 +3109,22 @@ mod tests {
                 .tcp_tcp_socket_finish_connect(socket)
                 .into_answer()?
                 .expect("the listener accepts");
-            // The listener never reads, so once the host's buffers fill too the
-            // send buffer stays full and a wait for room would hold; the
-            // pollable answers anyway once connected.
-            let mut full_for = 0;
-            while full_for < 5 {
-                match guest
-                    .streams_output_stream_check_write(output)
-                    .into_answer()?
-                {
-                    Ok(0) => {
-                        full_for += 1;
-                        std::thread::sleep(Duration::from_millis(50));
-                    }
-                    Ok(n) => {
-                        full_for = 0;
-                        guest
-                            .streams_output_stream_write(output, vec![b'x'; n as usize])
-                            .into_answer()?
-                            .expect("the stream takes what it permitted");
-                    }
-                    Err(_) => return Err(wasmtime::Error::msg("the stream failed")),
-                }
-            }
+            // The host takes nothing more, so the stream stays without room and
+            // a wait for room would hold; the pollable answers anyway once
+            // connected.
+            family.fill();
+            fill_output(&mut guest, output)?;
+            let waits = crate::waits::count_waits();
             let connected = guest.tcp_tcp_socket_subscribe(socket)?;
             guest.poll_pollable_block(connected)?;
             guest.poll_pollable_block(connecting)?;
-            Ok::<_, wasmtime::Error>(())
+            Ok::<_, wasmtime::Error>((idle_waits, waits.load(std::sync::atomic::Ordering::SeqCst)))
         });
         assert!(
-            answered.is_ok() && started.elapsed() < Duration::from_secs(5),
-            "pollable.block on a fresh socket's subscribe, on a connected socket's, and again on \
-             the one taken while it connected, must answer at once, not {answered:?} after {:?}",
-            started.elapsed()
+            matches!(answered, Ok((0, 0))),
+            "pollable.block on a fresh socket's subscribe, on a connected socket's whose stream \
+             has no room, and again on the one taken while it connected, must answer without \
+             waiting; got {answered:?} as (Ok of) the waits each made"
         );
     }
 
@@ -3443,10 +3504,9 @@ mod tests {
     // @behavior NW-229
     #[test]
     fn a_blocking_flush_after_the_send_side_shut_answers_closed_though_bytes_wait() {
-        let (mut guest, listener) = guest_and_listener();
+        let (mut guest, listener, family) = guest_filling_host_send_buffer();
         let port = listener.local_addr().unwrap().port();
-        let started = Instant::now();
-        let answers = run_task(Some(started + Duration::from_secs(10)), || {
+        let answers = run_task(Some(Instant::now() + crate::waits::MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
@@ -3467,46 +3527,29 @@ mod tests {
                 .into_answer()?
                 .expect("the listener accepts");
             let (_peer, _) = listener.accept().unwrap();
-            // Fill the host's buffers and the socket's own, the peer reading
-            // nothing, so what is queued cannot leave.
-            let mut quiet = 0;
-            while quiet < 20 {
-                match guest
-                    .streams_output_stream_check_write(output)
-                    .into_answer()?
-                {
-                    Ok(0) => {
-                        quiet += 1;
-                        std::thread::sleep(Duration::from_millis(5));
-                    }
-                    Ok(room) => {
-                        quiet = 0;
-                        let chunk = vec![b'x'; room.min(4096) as usize];
-                        let _ = guest
-                            .streams_output_stream_write(output, chunk)
-                            .into_answer()?;
-                    }
-                    Err(_) => break,
-                }
-            }
+            // The host takes nothing more and the peer reads nothing, so
+            // what the socket queues cannot leave.
+            family.fill();
+            fill_output(&mut guest, output)?;
             guest
                 .tcp_tcp_socket_shutdown(socket, ShutdownType::Send)
                 .into_answer()?
                 .expect("a connected socket shuts its send side");
-            let asked = Instant::now();
+            let waits = crate::waits::count_waits();
             let nothing = guest
                 .streams_output_stream_blocking_write_and_flush(output, Vec::new())
                 .into_answer()?;
             Ok::<_, wasmtime::Error>((
                 matches!(nothing, Err(StreamError::Closed)),
-                asked.elapsed() < Duration::from_secs(2),
+                waits.load(std::sync::atomic::Ordering::SeqCst),
             ))
         });
         assert!(
-            matches!(answers, Ok((true, true))),
+            matches!(answers, Ok((true, 0))),
             "output-stream.blocking-write-and-flush of no bytes after tcp-socket.shutdown of the \
-             send side, with bytes queued that the peer never reads, must answer closed at once, \
-             as wasmtime asks the stream for room before it waits, not {answers:?}"
+             send side, with bytes queued that the peer never reads, must answer closed without \
+             waiting, as wasmtime asks the stream for room before it waits; got {answers:?} as \
+             (Ok of) whether it answered closed and the waits it made"
         );
     }
 
