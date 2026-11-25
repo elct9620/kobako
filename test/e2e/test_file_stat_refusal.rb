@@ -67,8 +67,8 @@ class TestE2EFileStatRefusal < Minitest::Test
                  "or of no String must raise ArgumentError and TypeError"
   end
 
-  # A hermetic guest's inode numbers are all zero, so comparing two entries
-  # would call them one, and the guest has no +Time+ to give a time in.
+  # The guest has no +Time+ to give a time in, and a report orders and equates
+  # by its modification time.
   # @behavior FL-047
   def test_what_a_report_cannot_answer_truly_it_does_not_define
     assert_equal [[], [], false, false, false], tmpfs_sandbox.eval(UNDEFINED).value,

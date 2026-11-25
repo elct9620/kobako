@@ -112,12 +112,16 @@ class TestE2ERubyFilesystemStat < Minitest::Test
   end
 
   # @behavior RT-183
-  def test_a_hermetic_guest_reads_no_inode_number_of_a_ruby_filesystem
+  def test_a_hermetic_guest_reads_one_number_of_its_own_for_a_ruby_filesystems_file
     seen = fields(OneFileFilesystem.new(Stat.new(directory: false, size: 5, ino: 42), bare_file), profile: :hermetic)
+    numbers = [seen.path[0], seen.open[0], seen.listed]
 
-    assert_equal [0, 0, 0], [seen.path[0], seen.open[0], seen.listed],
+    assert_equal 1, numbers.uniq.size,
                  "path_filestat_get, fd_filestat_get, and fd_readdir of a Ruby Filesystem's file through a hermetic " \
-                 "guest must answer inode number 0"
+                 "guest must answer one inode number"
+    refute_includes [0, 42], numbers.first,
+                    "a hermetic guest's inode number of a Ruby Filesystem's file must be its Invocation's own, " \
+                    "neither none nor the number the Ruby object reports"
   end
 
   # @behavior RF-031

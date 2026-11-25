@@ -29,6 +29,23 @@ class TestE2EFileStatIno < Minitest::Test
     end
   end
 
+  # A directory listing +a+ and +gone+, where +gone+ went before a stat after
+  # the listing reaches it, as an entry another writer moves away does.
+  class VanishingFilesystem
+    def initialize = @asked = Hash.new(0)
+
+    def open(_path, _flags) = StringIO.new(+"")
+
+    def children(_path) = %w[a gone]
+
+    def stat(path)
+      @asked[path] += 1
+      raise Errno::ENOENT, path if path == "gone" && @asked[path] > 1
+
+      Stat.new(directory: path.empty?, size: 0, dev: 7, ino: { "" => 1, "a" => 2 }.fetch(path, 3))
+    end
+  end
+
   def setup
     super
     require_fixture(FIXTURE)
@@ -65,13 +82,31 @@ class TestE2EFileStatIno < Minitest::Test
   end
 
   # @behavior RT-183
-  def test_a_script_reads_a_hash_on_the_weaker_profile_and_zero_on_the_strongest
+  def test_a_script_reads_a_hash_on_the_weaker_profile
     hashes = tmpfs_entries(:permissive).map { |ino| Integer(ino) }
 
-    assert_equal %w[0 0 0], tmpfs_entries(:hermetic),
-                 "File::Stat#ino through a hermetic guest must read 0 for every entry"
     assert_equal 3, hashes.uniq.size, "File::Stat#ino through a permissive guest must tell three entries apart"
     assert_operator hashes.min, :>, 2**16,
                     "File::Stat#ino through a permissive guest must read a hash, not a Tmpfs's own small numbers"
+  end
+
+  # Each Tmpfs takes the next device number of the process, so two runs
+  # reading alike shows the number comes from neither.
+  # @behavior RT-183 RT-428
+  def test_a_hermetic_script_numbers_entries_in_the_order_it_meets_them
+    assert_equal [%w[1 2 3], %w[1 2 3]], [tmpfs_entries(:hermetic), tmpfs_entries(:hermetic)],
+                 "File::Stat#ino of three entries a hermetic script stats in turn must read 1, 2, and 3 in each run"
+  end
+
+  # @behavior RT-429
+  def test_a_hermetic_listing_reads_every_name_past_an_entry_gone_since
+    children = %i[hermetic permissive].map do |profile|
+      Kobako::Sandbox.new(wasm_path: REAL_WASM, profile: profile).mount("/m", VanishingFilesystem.new)
+                     .eval('Dir.children("/m")').value
+    end
+
+    assert_equal [%w[a gone], %w[a gone]], children,
+                 "Dir.children of a directory whose last entry went after the listing named it must read every " \
+                 "listed name through a hermetic guest, as through a permissive one"
   end
 end
