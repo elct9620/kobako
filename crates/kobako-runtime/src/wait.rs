@@ -110,9 +110,14 @@ impl Drop for PollTable {
 }
 
 /// Have the poll `table` stands for woken by `queue`, as a file's `->poll`
-/// calls `poll_wait`; a poll that will not sleep passes no table.
+/// calls `poll_wait`; a poll that will not sleep passes no table. A table
+/// stands on a queue once, however many of its sources name it, where Linux
+/// adds an entry for each, so whoever wakes the queue wakes the poll once.
 pub fn poll_wait(queue: &Arc<WaitQueueHead>, table: Option<&mut PollTable>) {
     if let Some(table) = table {
+        if table.queues.iter().any(|stood| Arc::ptr_eq(stood, queue)) {
+            return;
+        }
         queue.waiters().push(table.waiter.clone());
         table.queues.push(queue.clone());
     }
@@ -215,6 +220,29 @@ mod tests {
             "do_poll with no timeout over a queue another thread wakes once its event arrives \
              must answer what the poll then finds at once, and leave the queue, got {answer:?} \
              after {spent:?}"
+        );
+    }
+
+    // A guest may list one source many times over, each through a handle of
+    // its own, and the reactor wakes every waiter a queue holds on each
+    // event, so the wait must stand there once.
+    // @behavior RT-427
+    #[test]
+    fn a_poll_naming_one_queue_many_times_stands_on_it_once() {
+        let queue = Arc::new(WaitQueueHead::default());
+        let mut standing = None;
+        let answer = do_poll(end_after(Duration::from_millis(20)), |table| {
+            match table {
+                Some(table) => (0..2000).for_each(|_| poll_wait(&queue, Some(&mut *table))),
+                None => standing = Some(queue.waiters().len()),
+            }
+            None::<()>
+        });
+        assert_eq!(
+            (answer, standing, queue.waiters().len()),
+            (Ok(None), Some(1), 0),
+            "a poll whose 2000 sources all stand on one queue must stand on it once while it \
+             sleeps, and leave it as the poll ends"
         );
     }
 
