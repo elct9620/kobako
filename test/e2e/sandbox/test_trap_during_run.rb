@@ -7,7 +7,9 @@ require "test_helper"
 # the caller, which holds what it raises before the next callback starts and
 # raises it once the run ends. A trap handler is the process's one, so each
 # case runs in a child; another process sends the signal, so it arrives while
-# a run keeping the GVL holds it.
+# a run keeping the GVL holds it. The guest says through a Bind gate that it
+# computes and spins until the handler opens the gate, so the signal always
+# lands as it computes, before the callback.
 class TestE2ETrapDuringRun < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
@@ -16,10 +18,13 @@ class TestE2ETrapDuringRun < Minitest::Test
   # exception, and what the next run answers.
   CHILD = <<~RUBY
     require "kobako"
+    require "tmpdir"
     gvl, callback = ARGV.map(&:to_sym)
     seen = []
+    gate = Dir.mktmpdir
     tmpfs = Kobako::Filesystem::Tmpfs.new
     sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: gvl)
+                             .mount("/gate", Kobako::Filesystem::Bind.new(gate), access: :read_write)
     sandbox.bind("Host::Pass", lambda do |value|
       value
     rescue StandardError => e
@@ -32,11 +37,11 @@ class TestE2ETrapDuringRun < Minitest::Test
       seen << e.message
       true
     end
-    trap("USR1") { raise "trapped" }
-    touch = callback == :mount ? 'File.write("/data/x", "1")' : "Host::Pass.call(i)"
-    Process.detach(spawn("sleep 0.1; kill -USR1 \#{Process.pid}"))
+    trap("USR1") { File.write(File.join(gate, "go"), "1"); raise "trapped" }
+    touch = callback == :mount ? 'File.write("/data/x", "1")' : "Host::Pass.call(1)"
+    Process.detach(spawn("until [ -e \#{gate}/computing ]; do sleep 0.01; done; kill -USR1 \#{Process.pid}"))
     raised = begin
-      sandbox.eval("i = 0; i += 1 while i < 10_000_000; \#{touch}")
+      sandbox.eval('File.write("/gate/computing", "1"); nil until File.exist?("/gate/go"); ' + touch)
       nil
     rescue RuntimeError => e
       e.message

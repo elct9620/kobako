@@ -19,7 +19,7 @@ class TestE2EInterruptedRun < Minitest::Test
     require "timeout"
     released = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release, timeout: nil)
     begin
-      Timeout.timeout(0.05) { released.eval("i = 0; while i < 30_000_000; i += 1; end; i") }
+      Timeout.timeout(0.05) { released.eval("loop { }") }
       print "not interrupted "
     rescue Timeout::Error
       print "interrupted "
