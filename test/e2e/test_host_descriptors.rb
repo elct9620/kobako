@@ -7,12 +7,15 @@ require "test_helper"
 class TestE2EHostDescriptors < Minitest::Test
   include DescriptorChild
 
+  # Each Bind holds its root from Bind.new, so the room is read once they
+  # stand and while the Sandbox is held: only the kept directories count,
+  # whatever Ruby collects meanwhile.
   # @behavior FS-151
   def test_binds_reading_many_directories_leave_the_host_its_descriptors
     room = run_descriptor_child(<<~RUBY)
-      roots = (0...4).to_h { |at| [:"b\#{at}", tree("b\#{at}", count: 100)] }
+      sandboxed = sandbox(**(0...4).to_h { |at| [:"b\#{at}", tree("b\#{at}", count: 100)] })
       before = room
-      sandbox(**roots).eval('4.times { |b| 100.times { |d| File.read("/b" + b.to_s + "/d" + d.to_s + "/note.txt") } }')
+      sandboxed.eval('4.times { |b| 100.times { |d| File.read("/b" + b.to_s + "/d" + d.to_s + "/note.txt") } }')
       print [before, room].inspect
     RUBY
     before, after = room.scan(/\d+/).map(&:to_i)
