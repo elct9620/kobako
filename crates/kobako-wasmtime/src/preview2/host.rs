@@ -1707,6 +1707,61 @@ mod tests {
         );
     }
 
+    /// Answers no name, counting each query dropped before it answered.
+    #[derive(Default)]
+    struct CountsCancelledLookups(Arc<std::sync::atomic::AtomicUsize>);
+
+    /// Counts a query on its resolver as cancelled once dropped.
+    struct Cancelled(Arc<std::sync::atomic::AtomicUsize>);
+
+    impl Drop for Cancelled {
+        fn drop(&mut self) {
+            self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }
+    }
+
+    impl kobako_runtime::net::Resolver for CountsCancelledLookups {
+        fn resolve(&self, _name: &str) -> kobako_runtime::net::Resolving {
+            let cancelled = Cancelled(self.0.clone());
+            Box::pin(std::future::poll_fn(move |_| {
+                let _ = &cancelled;
+                std::task::Poll::Pending
+            }))
+        }
+    }
+
+    // @behavior NW-085
+    #[test]
+    fn a_lookup_its_invocation_ends_before_it_answers_cancels_its_query() {
+        let resolver = Arc::new(CountsCancelledLookups::default());
+        let cancelled = resolver.0.clone();
+        let mut guest = Invocation::hermetic(
+            Some(vec![network::Endpoint::new("slow.test", 443).unwrap()]),
+            |config| {
+                config.network = kobako_runtime::net::Backends::new(
+                    Arc::new(kobako_runtime::net::HostInet),
+                    resolver,
+                )
+            },
+        );
+        let network = guest.instance_network_instance_network().unwrap();
+        guest
+            .ip_name_lookup_resolve_addresses(network, "slow.test".to_string())
+            .into_answer()
+            .unwrap()
+            .expect("the endpoint names slow.test");
+        let unanswered = cancelled.load(std::sync::atomic::Ordering::SeqCst);
+        drop(guest);
+        crate::waits::wait_until("the lookup's query being cancelled", || {
+            cancelled.load(std::sync::atomic::Ordering::SeqCst) == 1
+        });
+        assert_eq!(
+            unanswered, 0,
+            "a lookup still unanswered must keep its query while its invocation runs, and the \
+             invocation's end must cancel it"
+        );
+    }
+
     // @behavior NW-201
     #[test]
     fn a_lookup_of_an_address_answers_the_address_itself() {

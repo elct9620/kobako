@@ -33,6 +33,15 @@ class TestE2EMemoryBudget < Minitest::Test
                  "must fail for answering nothing, not as MemoryLimitError; got #{error.class}: #{error.message}"
   end
 
+  # The null guest grows nothing, so any peak would be the heap the engine
+  # collects, made before the run.
+  # @behavior S-113
+  def test_the_first_page_of_the_collected_heap_takes_none_of_the_memory_cap
+    assert_equal 0, run_fixture("minimal_null_guest.wat").usage.memory_peak,
+                 "a run of a Guest Binary growing nothing through Sandbox#eval must report a memory peak " \
+                 "of 0, the first page of the heap the engine collects counted as declared"
+  end
+
   # @behavior S-256
   def test_two_memories_growing_add_up_against_the_memory_cap
     assert_raises(Kobako::MemoryLimitError,

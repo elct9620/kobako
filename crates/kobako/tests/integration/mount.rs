@@ -199,6 +199,25 @@ fn a_mount_whose_directories_above_it_stand_nowhere_fails_the_run() {
     );
 }
 
+// @behavior MT-051
+#[test]
+fn a_mount_landing_on_a_file_fails_the_run() {
+    let Some(mut sandbox) = sandbox_with_note() else {
+        return;
+    };
+    sandbox
+        .mount("/data/note.txt", tmpfs("inner"), Access::Read)
+        .expect("mount a Tmpfs at /data/note.txt");
+
+    let failure = sandbox.eval("nil").err();
+    assert!(
+        matches!(&failure, Some(Error::Setup(setup))
+            if setup.to_string().contains(r#""/data/note.txt" stands nowhere: ENOTDIR"#)),
+        "Sandbox::eval with a mount landing on a file beneath its parent must fail naming it \
+         and ENOTDIR, not {failure:?}"
+    );
+}
+
 // @behavior MT-028
 #[test]
 fn a_policy_cannot_make_a_read_only_mount_writable() {
