@@ -10,6 +10,9 @@ pub(crate) struct SeqLock {
     writer: Mutex<()>,
     /// How many times a write began or ended, odd while one is under way.
     sequence: AtomicUsize,
+    /// How many readers wait out a write, for a test to see one waiting.
+    #[cfg(test)]
+    waiting: AtomicUsize,
 }
 
 impl SeqLock {
@@ -17,7 +20,15 @@ impl SeqLock {
         Self {
             writer: Mutex::new(()),
             sequence: AtomicUsize::new(0),
+            #[cfg(test)]
+            waiting: AtomicUsize::new(0),
         }
+    }
+
+    /// How many readers wait out a write, for a test to see one waiting.
+    #[cfg(test)]
+    pub(crate) fn waiting(&self) -> usize {
+        self.waiting.load(Ordering::SeqCst)
     }
 
     /// Run `write` with every reader overlapping it told to read again, as
@@ -38,7 +49,11 @@ impl SeqLock {
             if sequence.is_multiple_of(2) {
                 return sequence;
             }
+            #[cfg(test)]
+            self.waiting.fetch_add(1, Ordering::SeqCst);
             drop(self.writer.lock().unwrap_or_else(PoisonError::into_inner));
+            #[cfg(test)]
+            self.waiting.fetch_sub(1, Ordering::SeqCst);
         }
     }
 

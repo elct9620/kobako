@@ -174,7 +174,7 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-    use crate::sched::testing::{count_waits, join, wait_until, within_max_wait};
+    use crate::sched::testing::{count_waits, join, wait_until, within_max_wait, MAX_WAIT};
     use crate::sched::{run_task, Task};
 
     /// An end `after` from now, the same each time it is read.
@@ -323,34 +323,32 @@ mod tests {
     // @behavior RT-267
     #[test]
     fn a_poll_ends_with_eintr_once_its_thread_is_interrupted() {
-        let (task, waiting) = (Arc::new(Mutex::new(None)), Arc::new(AtomicBool::new(false)));
+        let polling = Arc::new(Mutex::new(None));
         let poller = {
-            let (task, waiting) = (task.clone(), waiting.clone());
+            let polling = polling.clone();
             thread::spawn(move || {
-                run_task(Some(Instant::now() + Duration::from_secs(10)), || {
-                    *task.lock().unwrap() = Some(Task::current());
-                    do_poll(
-                        || None,
-                        |_| {
-                            waiting.store(true, Ordering::SeqCst);
-                            None::<()>
-                        },
-                    )
+                // Past the longest a test waits, so only the interrupt ends
+                // the poll before the test gives up on it.
+                run_task(Some(Instant::now() + MAX_WAIT * 3), || {
+                    *polling.lock().unwrap() = Some((Task::current(), count_waits()));
+                    do_poll(|| None, |_| None::<()>)
                 })
             })
         };
-        crate::sched::testing::wait_until("the poll", || waiting.load(Ordering::SeqCst));
-        // The poller has asked once and gone to sleep by now, so only a wake
-        // from the interrupt ends it before its deadline.
-        thread::sleep(Duration::from_millis(50));
-        task.lock().unwrap().as_ref().unwrap().interrupt();
-        let started = Instant::now();
-        let answer = join("the interrupted poll", poller);
-        assert!(
-            answer == Err(Errno::Interrupted) && started.elapsed() < Duration::from_secs(1),
-            "do_poll with no timeout, its thread interrupted, must answer EINTR without waiting \
-             for its deadline, got {answer:?} after {:?}",
-            started.elapsed()
+        wait_until("the poll going to sleep", || {
+            polling
+                .lock()
+                .unwrap()
+                .as_ref()
+                .is_some_and(|(_, waits)| waits.load(Ordering::SeqCst) == 1)
+        });
+        polling.lock().unwrap().as_ref().unwrap().0.interrupt();
+        let answer = join("the interrupted poll ending", poller);
+        assert_eq!(
+            answer,
+            Err(Errno::Interrupted),
+            "do_poll with no timeout, its thread interrupted as it sleeps, must answer EINTR \
+             before its deadline"
         );
     }
 

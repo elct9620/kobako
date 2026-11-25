@@ -1149,16 +1149,18 @@ mod tests {
             let lock = lock.clone();
             thread::spawn(move || lock.read_seqbegin())
         };
-        thread::sleep(std::time::Duration::from_millis(50));
+        crate::sched::testing::wait_until("the walk waiting for the move or answering", || {
+            lock.waiting() == 1 || reader.is_finished()
+        });
         let waited = !reader.is_finished();
         release.send(()).ok();
-        crate::sched::testing::join("the write", writer);
-        let begun = crate::sched::testing::join("the read", reader);
+        crate::sched::testing::join("the move", writer);
+        let begun = crate::sched::testing::join("the walk", reader);
         assert_eq!(
             (waited, begun, lock.read_seqretry(begun)),
             (true, 2, false),
-            "SeqLock::read_seqbegin during a write must wait for it to end and answer where the \
-             writes stand after it, which no later read finds changed"
+            "a walk begun while a move is under way must wait for the move to land and begin \
+             where the moves stand after it, which no later walk finds changed"
         );
     }
 
