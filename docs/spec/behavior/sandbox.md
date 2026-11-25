@@ -2477,3 +2477,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox whose first invocation is still compiling its preloaded source |
 | When | another invocation of that Sandbox runs |
 | Then | it completes on the source without waiting for the compile, and the source is not compiled again |
+
+## `S-262` A Call or a yield, once answered, keeps none of the memory budget
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-121` |
+| relates | `S-260` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose Service answers each Call and yields to each block it is given |
+| When | a run makes 20,000 Calls, or 60,000, each one yielding once |
+| Then | both runs report the same memory peak, as the host's Reply and the guest's answer are freed once read |
