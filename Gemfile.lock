@@ -51,6 +51,8 @@ GEM
       prism (>= 1.5, < 3)
     msgpack (1.8.7)
     parallel (2.3.0)
+    parallel_tests (5.9.0)
+      parallel
     parser (3.3.13.0)
       ast (~> 2.4.1)
       racc
@@ -134,6 +136,7 @@ DEPENDENCIES
   irb
   kobako!
   minitest (~> 6.1)
+  parallel_tests (~> 5.9)
   rake (~> 13.0)
   rake-compiler
   rubocop (~> 1.92)
@@ -168,6 +171,7 @@ CHECKSUMS
   minitest (6.1.0) sha256=ff373595aa8888631e8a5463986a76b3845346ae6d7fa46e139c1633d418076e
   msgpack (1.8.7) sha256=dfefec761b5f9047e6e8d95d2c7f8af4b3725d984a01942adc533aa819a2df33
   parallel (2.3.0) sha256=f75a3e904101ce6a1ccb6b8dc800cbafd42166d83330192438dcf29395167a6f
+  parallel_tests (5.9.0) sha256=593169873cfeefe54f233103238cb3b078320e6eac0155d0f1107b39233f98f8
   parser (3.3.13.0) sha256=e02f9b63c2fe05b0c68f692ba4df89b3cb113b663964f75d988fbebfd6c3deca
   pp (0.6.4) sha256=dfcb0fce700c41456265922884f9fe195d7fbb0674a3578e6c0f69588e82b570
   prettyprint (0.2.1) sha256=d555d57ea6d7cf001d4774b693546a6bd88bec1e778ddffb5c60b68ceec4b7d4

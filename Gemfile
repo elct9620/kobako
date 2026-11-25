@@ -25,6 +25,9 @@ gem "beni", "~> 0.27.0", require: false
 group :development do
   gem "irb", require: false
   gem "minitest", "~> 6.1", require: false
+
+  # Runs the Ruby suite in one process per available CPU.
+  gem "parallel_tests", "~> 5.9", require: false
   gem "rubocop", "~> 1.92", require: false
 
   # Static type checker. Signatures live in sig/.
