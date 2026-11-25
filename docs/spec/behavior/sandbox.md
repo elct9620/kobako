@@ -1836,7 +1836,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a process whose first Sandbox runs a guest loop for a while |
+| Given | a process whose first Sandbox runs a guest loop without end |
 | When | the process receives SIGINT during that run |
 | Then | the run raises `Interrupt` in the Host App |
 
@@ -2116,9 +2116,9 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox keeping or releasing the GVL whose guest computes for seconds without calling the host |
+| Given | a Sandbox keeping or releasing the GVL whose guest computes without end, calling the host no more |
 | When | another Thread raises into the Thread running it |
-| Then | the run raises that exception within moments, not once the guest would end. A Linux task dies of a fatal signal on its way back to its own code |
+| Then | the run raises that exception as the guest computes, before its deadline. A Linux task dies of a fatal signal on its way back to its own code |
 
 ## `S-231` A run whose Fiber is collected while suspended lets the Ruby objects it reached go
 
@@ -2236,9 +2236,9 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a Sandbox keeping or releasing the GVL whose guest computes for seconds without calling the host |
+| Given | a Sandbox keeping or releasing the GVL whose guest computes without end, calling the host no more |
 | When | another Thread kills the Thread running it |
-| Then | that Thread ends within moments, not once the guest would end |
+| Then | that Thread ends as the guest computes, before the run's deadline |
 
 ## `S-243` A run keeping the GVL lets another Thread run while its guest computes
 
