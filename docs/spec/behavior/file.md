@@ -604,7 +604,7 @@ disable_file flag -> no File constant
 | --- | --- |
 | Given | a report of a file |
 | When | a script asks for a time, an order or equality, a device, an owner, a permission, or a FIFO's kind |
-| Then | no such method is defined, and neither `File.identical?` nor `IO#stat` is |
+| Then | no such method is defined, and neither is `IO#stat` |
 
 ## `FL-048` A special file reads as preview1 names it
 
@@ -1056,3 +1056,28 @@ disable_file flag -> no File constant
 | Given | an invocation handed a Mount holding a file |
 | When | the script seeks by the whence `2**40` |
 | Then | it raises `RangeError`, as CRuby's `NUM2INT` refuses an Integer past C's `int` |
+
+## `FL-109` `File.identical?` answers whether two paths reach one entry
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-040` |
+| relates | `RT-183` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Mount holding two files |
+| When | the script asks `File.identical?` of one file by two spellings, of the two files, and of a missing path |
+| Then | it answers `true`, `false`, and `false`, as CRuby compares the device and inode numbers of two stats |
+
+## `FL-110` An entry reporting no inode number is identical to none
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FL-109` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation handed a Ruby Filesystem whose `stat` answers `ino` 0 for a file |
+| When | the script asks `File.identical?` of that file and itself |
+| Then | it answers `false`. An inode number of 0 names no entry, so it matches nothing |
