@@ -107,12 +107,12 @@ room, and the Guest Binary traps when it has no room left.
 pub fn realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {}
 ```
 
-## `release_list`
+## `dealloc`
 
-Give back a list the host wrote into room `realloc` took, once it is read. A
-Canonical ABI callee owns the lists it is handed. An empty list took no room,
-so nothing is given back for it.
+Give back room `realloc` took, once nothing reads it, as wit-bindgen's
+`cabi_dealloc` does. A Canonical ABI callee owns the lists it is handed. An
+empty list took no room, so nothing is given back for it.
 
 ```rust
-pub unsafe fn release_list(ptr: u32, len: u32) {}
+pub unsafe fn dealloc(ptr: u32, size: u32, align: u32) {}
 ```

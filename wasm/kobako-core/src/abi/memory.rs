@@ -11,33 +11,25 @@ extern "C" {
     fn libc_free(ptr: *mut u8);
 }
 
-/// Give back a buffer `cabi_realloc` handed out.
+/// Give back the `size` bytes at `ptr`, taken at `align` through
+/// `cabi_realloc`, once nothing reads them, as wit-bindgen's `cabi_dealloc`
+/// takes. An empty list took no room, so nothing is freed for it.
 ///
 /// # Safety
 ///
-/// `ptr` came from `cabi_realloc` taking room, and nothing reads it after.
-#[cfg(target_arch = "wasm32")]
-unsafe fn free(ptr: *mut u8) {
-    // SAFETY: the caller's promise above; wasi-libc's `free` takes what its
-    // `aligned_alloc` gave.
-    unsafe { libc_free(ptr) }
-}
-
-/// Give back the `len` bytes at `ptr` a host handed this guest, once read.
-/// An empty list took no room, so nothing is freed for it.
-///
-/// # Safety
-///
-/// The host took `[ptr, ptr + len)` from `cabi_realloc` and handed it over,
-/// and nothing reads it after.
-pub unsafe fn release_list(ptr: u32, len: u32) {
+/// `[ptr, ptr + size)` came from `cabi_realloc` at `align`, and nothing
+/// reads it after.
+pub unsafe fn dealloc(ptr: u32, size: u32, align: u32) {
     #[cfg(target_arch = "wasm32")]
-    if len != 0 {
+    if size != 0 {
+        // wasi-libc's `free` takes whatever its `aligned_alloc` gave, at any
+        // alignment.
+        let _ = align;
         // SAFETY: the caller's promise above.
-        unsafe { free(ptr as *mut u8) };
+        unsafe { libc_free(ptr as *mut u8) };
     }
     #[cfg(not(target_arch = "wasm32"))]
-    let _ = (ptr, len);
+    let _ = (ptr, size, align);
 }
 
 /// The Canonical ABI's `cabi_realloc` behind the export of that name: room
@@ -70,7 +62,7 @@ pub fn realloc(old_ptr: u32, old_len: u32, align: u32, new_len: u32) -> u32 {
                     ptr,
                     old_len.min(new_len) as usize,
                 );
-                release_list(old_ptr, old_len);
+                dealloc(old_ptr, old_len, align as u32);
             }
         }
         ptr as u32

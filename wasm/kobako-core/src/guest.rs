@@ -70,7 +70,7 @@ macro_rules! export_guest {
             let reply = $crate::abi::handle::<$guest>(request);
             // SAFETY: the host took the request's room from `cabi_realloc`,
             // and nothing reads it once it is answered.
-            unsafe { $crate::abi::release_list(ptr, len) };
+            unsafe { $crate::abi::dealloc(ptr, len, 1) };
             $crate::abi::return_reply(&reply)
         }
 
