@@ -75,6 +75,7 @@ The runtime and the kernel are the invocation's overhead, as a virtual machine's
 | a host socket's buffers | `open_connection_limit` | the host's autotuning maximum |
 | a listing, an overlay's merge | `open_file_limit` | the directory's own names |
 | a lifted list | one host call | the hostcall fuel, set to `memory_limit` |
+| a hermetic guest's inode numbers | 32,768, as Linux's `PID_MAX_DEFAULT` | one identity and its number |
 
 A filesystem's cached names belong to the filesystem instance, bounded by its own cache, as gVisor's per-mount dentry cache is. A shared object is charged to no invocation, so no holder can make another pay.
 

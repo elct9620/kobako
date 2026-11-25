@@ -161,7 +161,7 @@ than read a wrong answer.
 
 The kind predicates are `file?`, `directory?`, `symlink?`, `chardev?`, and
 `socket?`. A FIFO's and a block device's `ftype` read `"unknown"`, and a
-hermetic guest reads every `ino` as 0.
+hermetic guest reads each `ino` as the order its invocation first met the entry.
 
 ## Mount Choices
 

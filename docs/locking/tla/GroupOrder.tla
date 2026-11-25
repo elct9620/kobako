@@ -24,7 +24,7 @@ Groups == [
   fsi      |-> {"tmpfs_state", "tmpfs_content", "whiteout_times", "pipe_state",
                 "OpenRubyFile", "open_fids", "open_dir_fid",
                 "ovl_level", "ovl_real", "ovl_unfinished"},
-  mem      |-> {"memcg"},
+  mem      |-> {"memcg", "ino_ns"},
   sched    |-> {"task_sleeping", "waiter_woken", "wq_waiters", "wq_tasks"},
   \* The process's caches: the wasmtime ones, and the directories Binds keep.
   cache    |-> {"module_cache", "instance_pre_cache", "ticker", "fid_cache"},
@@ -133,6 +133,9 @@ Edges ==
   \* dentry, or GVL lock its call holds, and takes nothing more
   \cup UNION {E(l, {"fid_cache"}) :
               l \in (Groups.vfs \cup Groups.dcache \cup Groups.fsi \cup {"GVL"})}
+  \* mem: a stat or a listing numbers an entry for a hermetic caller under
+  \* whichever lock its Filesystem holds as it lists, and takes nothing more
+  \cup UNION {E(l, {"ino_ns"}) : l \in (Groups.vfs \cup Groups.fsi \cup {"GVL"})}
 
 \* Every node an edge of R leads to from X, X itself included.
 RECURSIVE Reach(_, _)

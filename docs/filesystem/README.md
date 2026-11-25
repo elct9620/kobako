@@ -152,6 +152,18 @@ kobako: placed per run -------> path held (b) --+--> EBUSY (c)
 
 Each departure of this kind keeps a mount's path stable between runs. A new one traces back here, or it is a mistake.
 
+### Inode Numbers
+
+A stat and a listing report the number the caller's Profile gives, never a Filesystem's own `i_ino`. Linux reports an owner through the caller's user namespace the same way.
+
+| Departure from Linux | Reason | Precedent |
+|---|---|---|
+| permissive: a keyed hash | no host number reaches the guest | wasmtime-wasi's metadata hash |
+| hermetic: the next number, in the order an invocation meets entries | no process or host state decides it | gVisor's gofer numbering |
+| hermetic: 32,768 numbers, then EOVERFLOW | a fixed overhead per invocation | `PID_MAX_DEFAULT`; `cp_new_stat` |
+
+A listing carries the same number, so wasi-libc never stats an entry to learn one. A stat that finds an entry gone after the listing named it therefore never fails the listing.
+
 ## Lock Order
 
 The VFS takes its sleeping locks in Linux's order, ranked as `directory-locking.rst` ranks them. This sets the vfs, dcache, and fsi lock groups' own order; [`locking/`](../locking/README.md) holds the edges between groups.

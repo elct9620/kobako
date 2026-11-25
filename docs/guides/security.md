@@ -56,10 +56,10 @@ one and defaults to `:hermetic`. The profiles differ in what the guest reads of 
 
 | Profile | Clocks and entropy | A Mount's entries | Everything else |
 |---|---|---|---|
-| `hermetic` | frozen clock, constant entropy | every time at the epoch, inode number 0 | no ambient filesystem, `ENV`, or socket |
-| `permissive` | live host time and entropy | real times, an inode number per entry | same as `hermetic` |
+| `hermetic` | frozen clock, constant entropy | every time at the epoch, an invocation's own inode numbers | no ambient filesystem, `ENV`, or socket |
+| `permissive` | live host time and entropy | real times, a hashed inode number | same as `hermetic` |
 
-A permissive guest's inode number tells entries apart, and nothing outside the process can compute it from a host's numbers.
+Either profile's inode number tells entries apart. A permissive hash hides host numbers; a hermetic guest counts up to 32,768 entries as it meets them.
 
 `hermetic` keeps the guest deterministic except for values a Service injects or a
 network entry brings.
