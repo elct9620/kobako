@@ -725,6 +725,7 @@ impl Exchange {
         // exchange's last hold, which cancels the task, is never the task's.
         let (state, wait) = (exchange.state.clone(), exchange.wait.clone());
         connector.wait = Some(wait.clone());
+        let budget = connector.poll_budget.clone();
         let _ = request.body.exchange.set(Arc::downgrade(&exchange));
         let sending = seam.send_request(request, connector);
         let sent = async move {
@@ -749,7 +750,7 @@ impl Exchange {
                 }
             }
         };
-        let task = Arc::new(Task::new(sent, exchange.wait.clone()));
+        let task = Arc::new(Task::spending(sent, exchange.wait.clone(), budget));
         *exchange.task.lock().unwrap_or_else(PoisonError::into_inner) = Some(task);
         exchange.poll_task();
         Ok(exchange)
@@ -2824,6 +2825,102 @@ mod tests {
                 std::future::pending().await
             })
         }
+    }
+
+    /// A seam that dials the request's authority, then reads the connection a
+    /// byte at a time, counting each, and never answers.
+    struct ReadsEachByte(Arc<AtomicUsize>);
+
+    impl Outbound for ReadsEachByte {
+        fn send_request(&self, request: OutgoingRequest, connector: Connector) -> ResponseFuture {
+            let reads = self.0.clone();
+            Box::pin(async move {
+                let _held = request;
+                let mut connection = connector.dial().await?;
+                let mut byte = [0; 1];
+                loop {
+                    let mut buf = tokio::io::ReadBuf::new(&mut byte);
+                    poll_fn(|cx| {
+                        tokio::io::AsyncRead::poll_read(Pin::new(&mut connection), cx, &mut buf)
+                    })
+                    .await
+                    .map_err(|_| HttpError::Internal)?;
+                    if buf.filled().is_empty() {
+                        std::future::pending::<()>().await;
+                    }
+                    reads.fetch_add(1, Ordering::SeqCst);
+                }
+            })
+        }
+    }
+
+    // A peer that keeps the connection readable, as one sending endless
+    // informational responses, must not hold one look at the request: the
+    // look returns after its budget, and the request wakes its own wait.
+    // @behavior NW-256
+    #[test]
+    fn one_look_at_a_request_reads_its_connection_at_most_128_times() {
+        const SENT: usize = 16 * 1024;
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let (go, gone) = std::sync::mpsc::channel::<()>();
+        let (done, finished) = std::sync::mpsc::channel::<()>();
+        let peer = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            let informational = b"HTTP/1.1 102 Processing\r\n\r\n".repeat(SENT);
+            // Sent once the request connected, so no look before the
+            // measured ones reads it.
+            let _ = gone.recv_timeout(Duration::from_secs(10));
+            stream.write_all(&informational[..SENT]).unwrap();
+            let _ = finished.recv_timeout(Duration::from_secs(10));
+        });
+        let mut entry = Builder::default();
+        entry.endpoint(
+            Endpoint::new("127.0.0.1", port)
+                .unwrap()
+                .with_addresses(vec![crate::network::Addresses::Local]),
+        );
+        let network = Network::new("web", Arc::new(entry)).unwrap();
+        let reads = Arc::new(AtomicUsize::new(0));
+        let seam = Arc::new(ReadsEachByte(reads.clone()));
+        let namespace = Namespace::for_network(&network, Arc::new(HostInet), seam);
+        let exchange = crate::net::send(
+            &namespace,
+            &prepare_creds(&[], None),
+            greeting_request(&format!("127.0.0.1:{port}")),
+        )
+        .expect("the endpoint names the authority");
+        let give_up = Instant::now() + Duration::from_secs(10);
+        while exchange.connected.get().is_none() && Instant::now() < give_up {
+            let _ = exchange.response();
+            thread::sleep(Duration::from_millis(1));
+        }
+        let _ = go.send(());
+        // Long enough for the reactor to queue every byte the peer sent, so
+        // the connection stays readable for each look that follows.
+        thread::sleep(Duration::from_millis(200));
+        let (mut most, mut last) = (0, reads.load(Ordering::SeqCst));
+        let answer = crate::wait::do_poll(
+            || Some(give_up),
+            |table| {
+                crate::wait::poll_wait(&exchange.wait, table);
+                let _ = exchange.response();
+                let now = reads.load(Ordering::SeqCst);
+                most = most.max(now - last);
+                last = now;
+                (now >= SENT).then_some(())
+            },
+        );
+        let _ = done.send(());
+        peer.join().unwrap();
+        assert_eq!(
+            (answer, most),
+            (Ok(Some(())), 128),
+            "a request whose connection holds 16 KiB read a byte at a time must read at most 128 \
+             times in each look, and wake its own wait until every byte is read, got {} of \
+             {SENT} bytes",
+            reads.load(Ordering::SeqCst)
+        );
     }
 
     /// The answer `exchange` settles on, once it settles. Ten seconds is far

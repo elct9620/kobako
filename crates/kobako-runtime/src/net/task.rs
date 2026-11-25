@@ -6,17 +6,84 @@
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
-use std::task::{Context, Wake, Waker};
+use std::task::{Context, Poll, Wake, Waker};
 
 use crate::wait::WaitQueueHead;
 
 type Running = Pin<Box<dyn Future<Output = ()> + Send>>;
 
+/// The steps one poll of a task may take on its resources, as tokio's
+/// cooperative budget gives each poll of a task 128.
+const STEPS_PER_POLL: usize = 128;
+
+/// What one poll of a task may still move, as tokio's coop budget: each step
+/// a resource takes spends one, and a resource that finds none left wakes
+/// the task and answers `Pending`. A poll so returns however ready its
+/// resources stay, and its guest looks at its deadline and its stop before
+/// the next.
+pub(crate) struct PollBudget(AtomicUsize);
+
+impl Default for PollBudget {
+    fn default() -> Self {
+        Self(AtomicUsize::new(STEPS_PER_POLL))
+    }
+}
+
+impl PollBudget {
+    fn renew(&self) {
+        self.0.store(STEPS_PER_POLL, Ordering::Relaxed);
+    }
+
+    /// A step to take, or `Pending` with the task woken once none is left,
+    /// as `poll_proceed`; the step is given back unless it made progress.
+    pub(crate) fn poll_proceed(&self, cx: &mut Context<'_>) -> Poll<Step<'_>> {
+        let spent = self
+            .0
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |left| {
+                left.checked_sub(1)
+            });
+        match spent {
+            Ok(_) => Poll::Ready(Step {
+                budget: self,
+                progressed: false,
+            }),
+            Err(_) => {
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+        }
+    }
+}
+
+/// One step a resource took, given back as it drops unless it made
+/// progress, as tokio's `RestoreOnPending`.
+pub(crate) struct Step<'a> {
+    budget: &'a PollBudget,
+    progressed: bool,
+}
+
+impl Step<'_> {
+    pub(crate) fn made_progress(mut self) {
+        self.progressed = true;
+    }
+}
+
+impl Drop for Step<'_> {
+    fn drop(&mut self) {
+        if !self.progressed {
+            self.budget.0.fetch_add(1, Ordering::Relaxed);
+        }
+    }
+}
+
 pub(crate) struct Task {
     future: Mutex<Option<Running>>,
     /// Wakes the queue the request's guest waits on, so it polls again.
     waker: Waker,
+    /// Renewed for each poll, so one poll moves the future a bounded way.
+    budget: Arc<PollBudget>,
 }
 
 impl Task {
@@ -25,16 +92,27 @@ impl Task {
         future: impl Future<Output = ()> + Send + 'static,
         wait: Arc<WaitQueueHead>,
     ) -> Self {
+        Self::spending(future, wait, Arc::default())
+    }
+
+    /// `future`, whose resources spend `budget`, renewed for each poll.
+    pub(crate) fn spending(
+        future: impl Future<Output = ()> + Send + 'static,
+        wait: Arc<WaitQueueHead>,
+        budget: Arc<PollBudget>,
+    ) -> Self {
         Self {
             future: Mutex::new(Some(Box::pin(future))),
             waker: Waker::from(Arc::new(WakesQueue(wait))),
+            budget,
         }
     }
 
-    /// Move the future as far as it goes without waiting, letting go of what
-    /// it holds once it ends.
+    /// Move the future as far as its budget lets it without waiting, letting
+    /// go of what it holds once it ends.
     pub(crate) fn poll(&self) {
         let mut future = self.future();
+        self.budget.renew();
         let ended = future.as_mut().is_some_and(|running| {
             running
                 .as_mut()

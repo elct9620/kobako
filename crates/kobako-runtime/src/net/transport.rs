@@ -12,7 +12,7 @@ use std::io;
 use std::net::{IpAddr, Shutdown, SocketAddr};
 use std::pin::Pin;
 use std::sync::{Arc, OnceLock};
-use std::task::{Context, Poll};
+use std::task::{ready, Context, Poll};
 use std::time::Instant;
 
 use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
@@ -22,6 +22,7 @@ use super::http::HttpError;
 use super::lookup::NameLookup;
 use super::namespace::TcpSockets;
 use super::socket::{BindHash, Destination};
+use super::task::PollBudget;
 use super::{Namespace, ProtoOps, ProtocolFamily, SockOpt, TcpSock};
 use crate::errno::CarriedErrno;
 use crate::network::{Host, Protocol, Ruleset};
@@ -50,6 +51,8 @@ pub struct Connector {
     /// The queue its exchange's waiters sleep on, woken as the connect opens,
     /// so a wait bound by the connect's timeout takes the head's.
     pub(crate) wait: Option<Arc<WaitQueueHead>>,
+    /// What one poll of the exchange's task may move on the connection.
+    pub(crate) poll_budget: Arc<PollBudget>,
 }
 
 impl Connector {
@@ -89,6 +92,7 @@ impl Connector {
             budget,
             connected: Arc::default(),
             wait: None,
+            poll_budget: Arc::default(),
         })
     }
 
@@ -146,7 +150,10 @@ impl Connector {
                 }
                 Ok(()) => {}
             }
-            let connection = Transport { sock };
+            let connection = Transport {
+                sock,
+                budget: self.poll_budget.clone(),
+            };
             match connection.wait_for_connect().await {
                 Ok(()) => {
                     let _ = self.connected.set(Instant::now());
@@ -187,6 +194,7 @@ impl fmt::Debug for Connector {
 /// guest's poll does.
 pub struct Transport {
     sock: Arc<TcpSock>,
+    budget: Arc<PollBudget>,
 }
 
 impl Transport {
@@ -197,21 +205,27 @@ impl Transport {
     }
 
     /// `op` once it stops answering `WouldBlock`, the task added to the
-    /// socket's wait queue first, so a wake between the two is not lost.
+    /// socket's wait queue first, so a wake between the two is not lost. Each
+    /// answer spends a step of the task's poll budget, as tokio's I/O does,
+    /// so a peer that keeps the socket ready never holds one poll.
     fn attempt<T>(
         &self,
         cx: &mut Context<'_>,
         mut op: impl FnMut() -> Result<T, Errno>,
     ) -> Poll<Result<T, Errno>> {
-        match op() {
-            Err(Errno::WouldBlock) => {}
-            done => return Poll::Ready(done),
-        }
-        self.sock.sk_sleep().add(cx.waker());
-        match op() {
-            Err(Errno::WouldBlock) => Poll::Pending,
-            done => Poll::Ready(done),
-        }
+        let step = ready!(self.budget.poll_proceed(cx));
+        let done = match op() {
+            Err(Errno::WouldBlock) => {
+                self.sock.sk_sleep().add(cx.waker());
+                match op() {
+                    Err(Errno::WouldBlock) => return Poll::Pending,
+                    done => done,
+                }
+            }
+            done => done,
+        };
+        step.made_progress();
+        Poll::Ready(done)
     }
 }
 
