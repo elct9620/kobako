@@ -8,65 +8,80 @@ require "test_helper"
 class TestE2EWakeupDuringWait < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
+  include Handshake
 
   # A Ruby exception outside StandardError, as a Host App stops a run with.
   class Stop < Exception; end # rubocop:disable Lint/InheritException
 
+  # The guest's own open_timeout, which ends the lookup the Mock holds.
+  OPEN_TIMEOUT = 0.3
+
   LOOKUP = <<~RUBY
     http = Net::HTTP.new("stall.test", 80)
     http.open_timeout = %<open_timeout>s
-    begin
+    answer = begin
       http.get("/")
     rescue Net::OpenTimeout => e
       e.class.to_s
     end
+    Host::Went.call
+    answer
   RUBY
 
   # What the guest's lookup answers while the Mock holds it past
-  # +open_timeout+ seconds, the run's Thread taking +poke+ 0.2 s in.
-  def lookup_while(gvl, open_timeout: 0.8, &poke)
+  # +open_timeout+ seconds, the run's Thread taking +poke+ once the lookup
+  # reached the Mock; +went+ is filled once the guest goes on past it.
+  def lookup_while(gvl, went = [], open_timeout: OPEN_TIMEOUT, &poke)
     mock = Kobako::Network::Mock.new
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl, timeout: 10, network: mock)
-                             .network(:web) { |net| net.endpoint "stall.test", port: 80 }
+    sandbox = stalled_sandbox(gvl, mock, went)
     script = format(LOOKUP, open_timeout: open_timeout)
     runner = Thread.new { mock.hold("stall.test") { sandbox.eval(script).value } }
-    sleep 0.2
+    runner.report_on_exception = false
+    wait_until("the guest's lookup never reached the Mock") { mock.lookups.any? || !runner.alive? }
     poke.call(runner)
     runner.value
   end
 
-  # What a lookup with a 5 s open_timeout raised, its Thread taking
-  # Thread#raise(Stop) 0.2 s in, and how many seconds the run lasted.
+  def stalled_sandbox(gvl, mock, went)
+    Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl, timeout: 30, network: mock)
+                   .network(:web) { |net| net.endpoint "stall.test", port: 80 }
+                   .bind("Host::Went", -> { went << true })
+  end
+
+  # What a lookup with an open_timeout far past the test raised once its
+  # Thread took Thread#raise(Stop), and whether the guest went on past the
+  # lookup, as it would only once the open_timeout ended it.
   def stopped_lookup(gvl)
-    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    raised = begin
-      lookup_while(gvl, open_timeout: 5) { |runner| runner.raise(Stop) }
-    rescue Stop => e
-      e
-    end
-    [raised, Process.clock_gettime(Process::CLOCK_MONOTONIC) - started]
+    went = []
+    lookup_while(gvl, went, open_timeout: 20) { |runner| runner.raise(Stop) }
+    [nil, went.any?]
+  rescue Stop => e
+    [e, went.any?]
   end
 
   # What the guest's write answers while another Sandbox's mount block holds
-  # the directory, the run's Thread woken 0.2 s in.
+  # the directory, the run's Thread woken while it waits, then the block let
+  # go.
   def write_while_held(gvl)
     tmpfs = Kobako::Filesystem::Tmpfs.new
-    holder = holding(tmpfs)
-    waiting = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl, timeout: 10)
+    release = Thread::Queue.new
+    holder = holding(tmpfs, release)
+    waiting = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl, timeout: 30)
                              .mount("/data", tmpfs, access: :read_write)
     runner = Thread.new { waiting.eval('File.write("/data/b", "2")').value }
     sleep 0.2
     runner.wakeup
+    release << true
     runner.value.tap { holder.join }
   end
 
-  # A Thread whose run holds +tmpfs+'s root for 0.6 s from its mount's
-  # block, started once the block holds it.
-  def holding(tmpfs)
-    asking = Queue.new
+  # A Thread whose run holds +tmpfs+'s root from its mount's block until
+  # +release+ is filled, started once the block holds it.
+  def holding(tmpfs, release)
+    asking = Thread::Queue.new
     holder = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: :release)
     holder.mount("/data", tmpfs, access: :read_write) do |_path, access|
-      (asking << true) && sleep(0.6) if access == :read_write
+      (asking << true) && release.pop if access == :read_write
       true
     end
     Thread.new { holder.eval('File.write("/data/a", "1")') }.tap { asking.pop }
@@ -89,11 +104,11 @@ class TestE2EWakeupDuringWait < Minitest::Test
 
     # @behavior S-222
     define_method(:"test_a_wakeup_that_raises_ends_the_run_under_#{gvl}") do
-      raised, spent = stopped_lookup(gvl)
-      assert_equal [Stop, true], [raised.class, spent < 3],
-                   "a Thread#raise(Stop) 0.2 s into a guest's Net::HTTP lookup the Mock holds with a 5 s " \
-                   "open_timeout, with gvl: :#{gvl}, must end the run at once and raise Stop in the Host App, " \
-                   "got #{raised.inspect} after #{spent.round(2)} s"
+      raised, went = stopped_lookup(gvl)
+      assert_equal [Stop, false], [raised.class, went],
+                   "a Thread#raise(Stop) into a guest's Net::HTTP lookup the Mock holds, with gvl: :#{gvl}, " \
+                   "must end the run before the lookup's own open_timeout and raise Stop in the Host App, " \
+                   "got #{raised.inspect}"
     end
   end
 
@@ -102,10 +117,10 @@ class TestE2EWakeupDuringWait < Minitest::Test
     $hits = 0
     trap("USR1") { $hits += 1 }
     mock = Kobako::Network::Mock.new
-    sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: ARGV[0].to_sym, timeout: 10, network: mock)
-                             .network(:web) { |net| net.endpoint "stall.test", port: 80 }
-    poker = Thread.new { sleep 0.2; Process.kill("USR1", Process.pid) }
-    answer = mock.hold("stall.test") { sandbox.eval(#{format(LOOKUP, open_timeout: 0.8).dump}).value }
+    sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: ARGV[0].to_sym, timeout: 30, network: mock)
+                             .network(:web) { |net| net.endpoint "stall.test", port: 80 }.bind("Host::Went", -> {})
+    poker = Thread.new { sleep 0.001 while mock.lookups.empty?; Process.kill("USR1", Process.pid) }
+    answer = mock.hold("stall.test") { sandbox.eval(#{format(LOOKUP, open_timeout: OPEN_TIMEOUT).dump}).value }
     poker.join
     print answer, " hits=", $hits
   RUBY

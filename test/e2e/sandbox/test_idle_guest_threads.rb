@@ -18,7 +18,9 @@ class TestE2EIdleGuestThreads < Minitest::Test
     sandbox.bind("Host::Wait", ->(seconds) { sleep(seconds) })
     Array.new(3) { Thread.new { sandbox.eval("Host::Wait.call(0.3)") } }.each(&:join)
     kept = guest_threads
-    sleep 11
+    # The idle limit is the product's ten seconds; past twenty, they never end.
+    give_up = Process.clock_gettime(Process::CLOCK_MONOTONIC) + 20
+    sleep 0.05 until guest_threads.zero? || Process.clock_gettime(Process::CLOCK_MONOTONIC) > give_up
     ended = guest_threads
     answer = sandbox.eval("1 + 1").value
     print [kept, ended, answer, guest_threads].inspect
