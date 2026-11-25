@@ -42,6 +42,24 @@ stuck() {
 }
 
 cd "$root"
+
+# The tree a run judges: HEAD, every tracked change, and each untracked file
+# git would not ignore. A stop finding the tree a green run already judged
+# runs nothing, so a stop that changed nothing costs no second run.
+tree_key() {
+  {
+    git rev-parse HEAD
+    git diff HEAD
+    git ls-files --others --exclude-standard -z | xargs -0 shasum 2>/dev/null
+  } | shasum | cut -d' ' -f1
+}
+green="$STOP_LOG_DIR/rake.green"
+key="$(tree_key)"
+if [ -f "$green" ] && [ "$(cat "$green")" = "$key" ]; then
+  echo "[rake] this tree passed already — skipping" >&2
+  exit 0
+fi
+
 # A process group of its own, so the watch below reaches every process the
 # run spawns.
 set -m
@@ -54,3 +72,5 @@ while kill -0 "$run" 2>/dev/null; do
   sleep 1
 done
 wait "$run" || gate_fail rake < <(failures)
+# Only a tree no edit touched during the run counts as the one it judged.
+if [ "$(tree_key)" = "$key" ]; then echo "$key" >"$green"; fi
