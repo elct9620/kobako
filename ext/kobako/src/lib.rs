@@ -15,6 +15,12 @@ mod pinned_value;
 mod runtime;
 mod wire;
 
+// Native memory a Ruby object owns, as a Tmpfs's files, goes only when Ruby
+// collects that object, so Ruby's GC must count it to know when to collect.
+// Every allocation reports its size, from any thread; what a run or the
+// process frees on its own nets out.
+rb_sys::set_global_tracking_allocator!();
+
 #[magnus::init]
 fn init(ruby: &Ruby) -> Result<(), Error> {
     let kobako = ruby.define_module("Kobako")?;

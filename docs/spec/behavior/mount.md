@@ -45,6 +45,7 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 - `test/e2e/test_mount_root.rb`
 - `test/e2e/test_host_exception.rb`
 - `test/e2e/test_mount_limit.rb`
+- `test/e2e/test_mount_collected.rb`
 - `test/e2e/test_mount_rename.rb`
 - `test/e2e/test_overlay_threads.rb`
 - `test/e2e/test_directory_lock_threads.rb`
@@ -683,3 +684,16 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 | Given | a Sandbox mounting a Tmpfs created without a size |
 | When | the script writes 4 MiB, and then one byte more |
 | Then | the 4 MiB land and the byte more raises `Errno::ENOSPC` |
+
+## `MT-066` A Tmpfs the Host App lets go is collected without being asked
+
+| Attribute | Value |
+| --- | --- |
+| relates | `MT-013`, `FS-227` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Host App that mounts a fresh Tmpfs for each run and keeps none |
+| Given | the guest's thread holding the GVL or not |
+| When | forty runs each fill theirs and end, and nothing calls `GC.start` |
+| Then | fewer than half of the forty are still alive |
