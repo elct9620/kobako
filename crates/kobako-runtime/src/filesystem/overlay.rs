@@ -964,7 +964,10 @@ mod tests {
         let lower: Tmpfs = [(format!("{deep}/file"), "x")].into_iter().collect();
         let overlay = Overlay::new(
             vec![Filesystem::new(lower).expect("the instance must stand")],
-            Some(Filesystem::new(Tmpfs::new()).expect("the instance must stand")),
+            Some(
+                Filesystem::new(Tmpfs::new().with_nr_inodes(None))
+                    .expect("the instance must stand"),
+            ),
         )
         .unwrap_or_else(|_| panic!("the Overlay must make"));
         let made = std::thread::Builder::new()

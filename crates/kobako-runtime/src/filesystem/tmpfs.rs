@@ -470,8 +470,9 @@ const BOGO_DIRENT_SIZE: u64 = 20;
 
 impl Tmpfs {
     /// The most bytes a Tmpfs's files hold unless given a limit of their
-    /// own: the size Docker gives a `--tmpfs` mount.
-    pub const DEFAULT_SIZE: usize = 64 * 1024 * 1024;
+    /// own: room for a script's scratch files, as most scripts need far
+    /// less, while a Host App that needs more says so.
+    pub const DEFAULT_SIZE: usize = 4 * 1024 * 1024;
 
     pub fn new() -> Self {
         let space = Space {
@@ -1378,14 +1379,14 @@ mod tests {
     fn a_tmpfs_holds_its_default_size() {
         let tmpfs = at(Tmpfs::new());
         let _file = writable(&tmpfs, "file");
-        let mib_64 = 64 * 1024 * 1024;
+        let mib_4 = 4 * 1024 * 1024;
         assert_eq!(
             (
-                tmpfs.truncate("file", mib_64),
-                tmpfs.truncate("file", mib_64 + 1)
+                tmpfs.truncate("file", mib_4),
+                tmpfs.truncate("file", mib_4 + 1)
             ),
             (Ok(()), Err(Errno::StorageFull)),
-            "a Tmpfs given no limit through Tmpfs::new must hold 64 MiB and refuse a byte more"
+            "a Tmpfs given no limit through Tmpfs::new must hold 4 MiB and refuse a byte more"
         );
     }
 
@@ -1397,7 +1398,7 @@ mod tests {
         assert_eq!(
             tmpfs.truncate("file", Tmpfs::DEFAULT_SIZE as u64 + 1),
             Ok(()),
-            "a Tmpfs given no limit through Tmpfs::with_size(None) must grow past 64 MiB"
+            "a Tmpfs given no limit through Tmpfs::with_size(None) must grow past 4 MiB"
         );
     }
 
@@ -1495,6 +1496,21 @@ mod tests {
             (Ok(()), Ok(()), Err(Errno::StorageFull)),
             "a Tmpfs given only a limit through Tmpfs::with_size must hold one entry for each \
              4 KiB of it and the root"
+        );
+    }
+
+    // @behavior FS-238
+    #[test]
+    fn a_tmpfs_holds_its_default_entries() {
+        let tmpfs = at(Tmpfs::new());
+        let created: Vec<_> = (0..1025)
+            .map(|index| create(&tmpfs, &format!("{index}")))
+            .collect();
+        assert_eq!(
+            (created[..1024].iter().all(Result::is_ok), &created[1024]),
+            (true, &Err(Errno::StorageFull)),
+            "a Tmpfs given neither a size nor inodes through Tmpfs::new must hold 1024 files \
+             beside its root and refuse the next as out of space"
         );
     }
 

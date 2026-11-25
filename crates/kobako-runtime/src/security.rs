@@ -296,7 +296,7 @@ mod tests {
         .collect();
         let mount = Mount::new(
             "/data",
-            Filesystem::new(tmpfs).expect("the instance must stand"),
+            Filesystem::new(tmpfs.with_nr_inodes(None)).expect("the instance must stand"),
             Access::ReadWrite,
         )
         .expect("/data is a guest path");
