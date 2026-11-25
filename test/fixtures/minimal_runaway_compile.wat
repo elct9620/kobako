@@ -1,6 +1,8 @@
 ;; A guest whose compile never finishes: it grows memory by 16 MiB, then
-;; spins until a cap stops it. Every other downcall answers a nil Result at
-;; once, so an invocation's own cost stays near zero beside the compile's.
+;; spins until a cap stops it. A growth the budget refuses fails, and the
+;; guest traps, as one whose allocator has no room does. Every other downcall
+;; answers a nil Result at once, so an invocation's own cost stays near zero
+;; beside the compile's.
 ;;
 ;; The version is the one in the export name; update it by hand on a bump,
 ;; same as `minimal_abi_ok.wat`.
@@ -21,6 +23,7 @@
   (func (export "kobako:abi/guest@0.6.0#downcall") (param $ptr i32) (param $len i32) (result i32)
     (if (i32.eq (i32.load8_u (local.get $ptr)) (i32.const 0x08))
       (then
-        (drop (memory.grow (i32.const 256)))
+        (if (i32.eq (memory.grow (i32.const 256)) (i32.const -1))
+          (then (unreachable)))
         (loop $spin (br $spin))))
     (i32.const 992)))

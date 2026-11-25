@@ -137,7 +137,7 @@ Hand-written text-format module whose compile never finishes, so a cap has to st
 
 | Downcall | What it does |
 |---|---|
-| compile | grows memory by 16 MiB, then spins |
+| compile | grows memory by 16 MiB, then spins; traps if the growth fails |
 | any other | answers a nil Result at once |
 
 ## `minimal_compile_ambient.wat`
