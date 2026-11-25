@@ -21,7 +21,8 @@ class TestE2EForkAfterCollection < Minitest::Test
         parked.resume
         WeakRef.new(parked)
       end.value
-      GC.start while fiber.weakref_alive?
+      100.times { fiber.weakref_alive? ? GC.start : break }
+      abort "100 collections kept a Fiber whose Thread ended; something else reaches it" if fiber.weakref_alive?
       pid = fork do
         Thread.new { sleep 2; exit!(1) }
         writer.eval('File.write("/data/b", "2")')
