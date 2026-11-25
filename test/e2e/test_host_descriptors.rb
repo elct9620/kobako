@@ -7,21 +7,20 @@ require "test_helper"
 class TestE2EHostDescriptors < Minitest::Test
   include DescriptorChild
 
-  # Each Bind holds its root from Bind.new, so the room is read once they
-  # stand and while the Sandbox is held: only the kept directories count,
-  # whatever Ruby collects meanwhile.
+  # Each Bind holds its root from Bind.new, so the descriptors are counted
+  # once they stand and while the Sandbox is held: only the kept directories
+  # count, whatever Ruby collects meanwhile.
   # @behavior FS-151
   def test_binds_reading_many_directories_leave_the_host_its_descriptors
-    room = run_descriptor_child(<<~RUBY)
+    before, after = run_descriptor_child(<<~RUBY).scan(/\d+/).map(&:to_i)
       sandboxed = sandbox(**(0...4).to_h { |at| [:"b\#{at}", tree("b\#{at}", count: 100)] })
-      before = room
+      before = held
       sandboxed.eval('4.times { |b| 100.times { |d| File.read("/b" + b.to_s + "/d" + d.to_s + "/note.txt") } }')
-      print [before, room].inspect
+      print [before, held].inspect
     RUBY
-    before, after = room.scan(/\d+/).map(&:to_i)
-    assert_operator after, :>=, before - 64,
-                    "Sandbox#eval reading 100 directories beneath each of 4 Binds must leave the Host App all " \
-                    "but 64 of the #{before} files it could open, leaving #{after}"
+    assert_operator after, :<=, before + 64,
+                    "Sandbox#eval reading 100 directories beneath each of 4 Binds must keep at most 64 host " \
+                    "descriptors, holding #{after} against #{before} before"
   end
 
   # @behavior FS-217
@@ -58,13 +57,12 @@ class TestE2EHostDescriptors < Minitest::Test
   # Descriptors the process holds before and after its Binds kept 100
   # directories, and in a child forked after that.
   FORKED = <<~RUBY
-    held = -> { Dir.children("/dev/fd").size }
     sandboxed = sandbox(b0: tree("b0", count: 100))
-    before = held.call
+    before = held
     sandboxed.eval('100.times { |d| File.read("/b0/d" + d.to_s + "/note.txt") }')
-    kept = held.call
+    kept = held
     reader, writer = IO.pipe
-    pid = fork { reader.close; writer.print(held.call); exit!(0) }
+    pid = fork { reader.close; writer.print(held); exit!(0) }
     writer.close
     child = reader.read.to_i
     Process.wait(pid)
