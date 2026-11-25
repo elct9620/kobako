@@ -8,12 +8,16 @@ require "test_helper"
 class TestE2ERubyFilesystemListing < Minitest::Test
   include E2eGuestHelper
 
+  # Room for the guest to reach its first stat.
+  TIMEOUT = 0.2
+
   Stat = Data.define(:directory, :size, :ino) do
     def directory? = directory
   end
 
-  # The files +a+, +b+, and +c+ at its root, the stat of +a+ outlasting the
-  # run's timeout, each stat of a file recorded.
+  # The files +a+, +b+, and +c+ at its root, the stat of +a+ taking as long
+  # as the run's timeout from its own call, past the timeout that began
+  # before it, each stat of a file recorded.
   class SlowFirstStat
     attr_reader :asked
 
@@ -29,7 +33,7 @@ class TestE2ERubyFilesystemListing < Minitest::Test
       return Stat.new(directory: true, size: 0, ino: 1) if path.empty?
 
       @asked << path
-      sleep 0.3 if path == "a"
+      sleep TIMEOUT if path == "a"
       Stat.new(directory: false, size: 1, ino: path.ord)
     end
   end
@@ -37,7 +41,7 @@ class TestE2ERubyFilesystemListing < Minitest::Test
   # @behavior RT-425
   def test_a_listing_past_its_timeout_asks_no_further_stat
     filesystem = SlowFirstStat.new
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.1).mount("/", filesystem)
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: TIMEOUT).mount("/", filesystem)
 
     assert_raises(Kobako::TimeoutError, "a guest listing past its timeout must raise Kobako::TimeoutError") do
       sandbox.eval('Dir.children("/")')

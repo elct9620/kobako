@@ -9,10 +9,14 @@ require "test_helper"
 class TestE2EDeadlineHostTime < Minitest::Test
   include E2eGuestHelper
 
+  # Room for the guest to reach its Service, which then waits as long again,
+  # so the deadline passes inside the Service whenever the guest got there.
+  DEADLINE = 0.2
+
   # @behavior S-169
   def test_the_deadline_never_interrupts_a_service
     finished = []
-    sandbox = slow_service_sandbox(timeout: 0.05, finished: finished)
+    sandbox = slow_service_sandbox(timeout: DEADLINE, finished: finished)
 
     assert_raises(Kobako::TimeoutError) { sandbox.eval("Slow::Wait.call; :after") }
 
@@ -23,7 +27,7 @@ class TestE2EDeadlineHostTime < Minitest::Test
   # there is the deadline having counted the Service's time.
   # @behavior S-170
   def test_the_deadline_cuts_the_run_once_control_returns_to_the_guest
-    sandbox = slow_service_sandbox(timeout: 0.05, finished: [])
+    sandbox = slow_service_sandbox(timeout: DEADLINE, finished: [])
 
     assert_raises(Kobako::TimeoutError,
                   "a Service running past the deadline through #eval must cut the run short " \
@@ -44,11 +48,12 @@ class TestE2EDeadlineHostTime < Minitest::Test
 
   private
 
-  # Sleeps well past the deadline, then records that it finished.
+  # Sleeps as long as the deadline from its own call, past the deadline that
+  # began before it, then records that it finished.
   def slow_service_sandbox(timeout:, finished:)
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: timeout)
     sandbox.bind("Slow::Wait", lambda do
-      sleep 0.2
+      sleep DEADLINE
       finished << true
       :done
     end)

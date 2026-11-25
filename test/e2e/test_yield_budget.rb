@@ -9,11 +9,12 @@ require "test_helper"
 class TestE2EYieldBudget < Minitest::Test
   include E2eGuestHelper
 
-  # The Service sleeps past the deadline before yielding to a block that
-  # does nothing, so only the time spent around the yield can end the run.
+  # The Service sleeps as long as the deadline from its own call, past the
+  # deadline that began before it, then yields to a block that does nothing,
+  # so only the time spent around the yield can end the run.
   # @behavior T-248
   def test_time_in_and_around_a_yield_counts_against_the_deadline
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.05)
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.2)
     sandbox.bind("Probe::Yields", lambda do |&blk|
       sleep 0.2
       blk.call

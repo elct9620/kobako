@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "timeout"
 
 # E2E — what a Host App's callback raises beyond StandardError, through
 # the real Guest Binary. Each script rescues every failure it can, then
@@ -9,6 +8,7 @@ require "timeout"
 # +went_on+ even though the run still raises in the end.
 class TestE2EHostException < Minitest::Test
   include E2eGuestHelper
+  include Handshake
 
   RESCUING_OPEN = 'begin; File.read("/data/note.txt"); rescue Exception; end; Host::Mark.call'
   RESCUING_STOP = "begin; Host::Stop.call; rescue Exception; end; Host::Mark.call"
@@ -35,16 +35,22 @@ class TestE2EHostException < Minitest::Test
     assert_empty @went_on, "an Interrupt from a Ruby Filesystem's open through Sandbox#eval must end the run"
   end
 
-  # The Timeout a Host App wraps the run in fires inside the Filesystem's
-  # open, which a guest answer would swallow.
+  # Raised into the run's Thread, outside StandardError, as a Timeout or a
+  # signal raises its own, once the Filesystem's open has begun, where a guest
+  # answer would swallow it.
   # @behavior RF-014
-  def test_a_timeout_firing_in_a_ruby_filesystem_reaches_the_host_app
-    sandbox = marking_sandbox.mount("/data", RaisingFilesystem.new { sleep 1 })
+  def test_an_exception_raised_into_a_ruby_filesystems_open_reaches_the_host_app
+    entered = Queue.new
+    sandbox = marking_sandbox.mount("/data", RaisingFilesystem.new { wait_in_open(entered) })
+    run = Thread.new { sandbox.eval(RESCUING_OPEN) }
+    wait_until("the guest never reached the Ruby Filesystem's open") { !entered.empty? }
+    run.raise(Interrupt)
 
-    assert_raises(Timeout::Error,
-                  "a Timeout firing in a Ruby Filesystem's open through Sandbox#eval must reach the Host App") do
-      Timeout.timeout(0.1) { sandbox.eval(RESCUING_OPEN) }
+    assert_raises(Interrupt,
+                  "an exception raised into a Ruby Filesystem's open through Sandbox#eval must reach the Host App") do
+      run.value
     end
+    assert_empty @went_on, "an exception raised into a Ruby Filesystem's open through Sandbox#eval must end the run"
   end
 
   # @behavior RF-014
@@ -92,6 +98,12 @@ class TestE2EHostException < Minitest::Test
   end
 
   private
+
+  # Say on +entered+ that the open began, then wait for what is raised into it.
+  def wait_in_open(entered)
+    entered << true
+    sleep
+  end
 
   def marking_sandbox
     went_on = @went_on
