@@ -48,7 +48,7 @@ module DescriptorChild
 
     # How many descriptors the process holds, read from its listing, so the
     # count opens no file and Ruby collects nothing to make room for one.
-    def held = Dir.children("/dev/fd").size
+    def open_descriptors = Dir.children("/dev/fd").size
 
     # How many files the host can still open, none of them kept.
     def room

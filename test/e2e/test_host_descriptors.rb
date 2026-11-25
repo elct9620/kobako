@@ -14,9 +14,9 @@ class TestE2EHostDescriptors < Minitest::Test
   def test_binds_reading_many_directories_leave_the_host_its_descriptors
     before, after = run_descriptor_child(<<~RUBY).scan(/\d+/).map(&:to_i)
       sandboxed = sandbox(**(0...4).to_h { |at| [:"b\#{at}", tree("b\#{at}", count: 100)] })
-      before = held
+      before = open_descriptors
       sandboxed.eval('4.times { |b| 100.times { |d| File.read("/b" + b.to_s + "/d" + d.to_s + "/note.txt") } }')
-      print [before, held].inspect
+      print [before, open_descriptors].inspect
     RUBY
     assert_operator after, :<=, before + 64,
                     "Sandbox#eval reading 100 directories beneath each of 4 Binds must keep at most 64 host " \
@@ -58,11 +58,11 @@ class TestE2EHostDescriptors < Minitest::Test
   # directories, and in a child forked after that.
   FORKED = <<~RUBY
     sandboxed = sandbox(b0: tree("b0", count: 100))
-    before = held
+    before = open_descriptors
     sandboxed.eval('100.times { |d| File.read("/b0/d" + d.to_s + "/note.txt") }')
-    kept = held
+    kept = open_descriptors
     reader, writer = IO.pipe
-    pid = fork { reader.close; writer.print(held); exit!(0) }
+    pid = fork { reader.close; writer.print(open_descriptors); exit!(0) }
     writer.close
     child = reader.read.to_i
     Process.wait(pid)
