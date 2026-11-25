@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::io;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 use std::task::Waker;
 use std::thread;
 use std::time::{Duration, Instant};
@@ -75,7 +75,17 @@ impl Reactor {
 
     fn start() -> io::Result<Arc<Self>> {
         let mut poll = mio::Poll::new()?;
-        let reactor = Arc::new(Self {
+        let reactor = Self::on(&poll)?;
+        let running = reactor.clone();
+        thread::Builder::new()
+            .name("kobako-reactor".into())
+            .spawn(move || running.run(|events, wait| poll.poll(events, wait)))?;
+        Ok(reactor)
+    }
+
+    /// A reactor registering on `poll`, whose events nobody reads yet.
+    fn on(poll: &mio::Poll) -> io::Result<Arc<Self>> {
+        Ok(Arc::new(Self {
             registry: poll.registry().try_clone()?,
             waker: mio::Waker::new(poll.registry(), WAKE_TOKEN)?,
             next: AtomicUsize::new(1),
@@ -83,34 +93,30 @@ impl Reactor {
             repoll: Mutex::default(),
             stopped: AtomicBool::new(false),
             timers: Mutex::default(),
-        });
-        let running = reactor.clone();
-        thread::Builder::new()
-            .name("kobako-reactor".into())
-            .spawn(move || running.run(&mut poll))?;
-        Ok(reactor)
+        }))
     }
 
-    fn run(&self, poll: &mut mio::Poll) {
+    /// Serve each round of the events `poll` waits for, until it fails.
+    fn run(&self, mut poll: impl FnMut(&mut Events, Option<Duration>) -> io::Result<()>) {
         let _stopping = Stopping(self);
         let mut events = Events::with_capacity(256);
         loop {
-            // What asked for another turn before this round runs after its
-            // events, as `net_rx_action` takes the polls newly scheduled
-            // ahead of its repoll list; what asks during the round waits for
-            // the next.
-            let again =
-                std::mem::take(&mut *self.repoll.lock().unwrap_or_else(PoisonError::into_inner));
-            let wait = match again.is_empty() {
+            let wait = match self.repoll().is_empty() {
                 true => self.poll_timeout(),
                 false => Some(Duration::ZERO),
             };
-            if let Err(err) = poll.poll(&mut events, wait) {
+            if let Err(err) = poll(&mut events, wait) {
                 if err.kind() == io::ErrorKind::Interrupted {
                     continue;
                 }
                 return;
             }
+            // What asked for another turn before this round runs after its
+            // events, as `net_rx_action` takes the polls newly scheduled
+            // ahead of its repoll list; what asks during the round waits for
+            // the next. A poll a signal interrupted takes none, so each
+            // waits on in place, as `poll_list` keeps its entries.
+            let again = std::mem::take(&mut *self.repoll());
             let ready: Vec<Arc<dyn Ready>> = {
                 let sockets = self.sockets.lock().unwrap_or_else(PoisonError::into_inner);
                 events
@@ -157,6 +163,10 @@ impl Reactor {
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .retain(|(_, armed)| !armed.will_wake(waker));
+    }
+
+    fn repoll(&self) -> MutexGuard<'_, Vec<Weak<dyn Ready>>> {
+        self.repoll.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// How long the poll may wait before the soonest timer is due.
@@ -273,11 +283,7 @@ impl Registration {
     /// spent its weight with more to take and `NAPI_STATE_SCHED` keeps it
     /// queued once; no further event may come for what already waits.
     pub(crate) fn repoll(&self, ready: Weak<dyn Ready>) {
-        let mut repoll = self
-            .reactor
-            .repoll
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner);
+        let mut repoll = self.reactor.repoll();
         if !repoll.iter().any(|queued| queued.ptr_eq(&ready)) {
             repoll.push(ready);
         }
@@ -414,6 +420,46 @@ mod tests {
             (vec!["the socket", "the timer"], true),
             "a reactor whose thread stops must abort each socket registered on it, wake each \
              timer at once, and mark itself stopped so no later socket registers on it"
+        );
+    }
+
+    /// A socket that counts each turn it is given.
+    #[derive(Default)]
+    struct Counts(AtomicUsize);
+
+    impl Ready for Counts {
+        fn on_event(&self) {
+            self.0.fetch_add(1, Ordering::SeqCst);
+        }
+
+        fn abort(&self) {}
+    }
+
+    // A socket that spent its turn's bound waits for its next turn, and a
+    // signal interrupting the reactor's wait in between must not drop it:
+    // with no further event to come, it would wait until its deadline.
+    // @behavior NW-174
+    #[test]
+    fn a_repoll_runs_once_past_an_interrupted_wait() {
+        let poll = mio::Poll::new().expect("a poll opens");
+        let reactor = Reactor::on(&poll).expect("a reactor is made");
+        let counts = Arc::new(Counts::default());
+        let ready: Arc<dyn Ready> = counts.clone();
+        reactor.repoll().push(Arc::downgrade(&ready));
+        // Interrupted, then a round with no event, then a failure that stops
+        // the thread.
+        let mut waits = [
+            Err(io::ErrorKind::Interrupted.into()),
+            Ok(()),
+            Err(io::ErrorKind::Other.into()),
+        ]
+        .into_iter();
+        reactor.run(|_, _| waits.next().expect("the reactor stopped at the failure"));
+        assert_eq!(
+            counts.0.load(Ordering::SeqCst),
+            1,
+            "a socket asking for another turn must get it once in the round after a reactor \
+             wait a signal interrupted"
         );
     }
 
