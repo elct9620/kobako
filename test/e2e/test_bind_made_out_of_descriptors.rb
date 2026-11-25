@@ -19,20 +19,6 @@ class TestE2EBindMadeOutOfDescriptors < Minitest::Test
     end
   RUBY
 
-  # @behavior FS-225
-  def test_a_bind_reads_the_directory_standing_where_it_was_made
-    answer = run_descriptor_child(<<~RUBY)
-      root = tree("b0")
-      sandboxed = sandbox(b0: root)
-      File.rename(root, root + ".moved")
-      FileUtils.mkdir_p(File.join(root, "d0"))
-      File.write(File.join(root, "d0", "note.txt"), "other")
-      print answer(sandboxed, 'File.read("/b0/d0/note.txt")')
-    RUBY
-    assert_equal "hello", answer,
-                 "File.read through a Bind whose host directory was moved and replaced must read the first one"
-  end
-
   # @behavior FS-226
   def test_a_bind_is_made_while_other_binds_directories_fill_the_host
     answer = run_descriptor_child(<<~RUBY)

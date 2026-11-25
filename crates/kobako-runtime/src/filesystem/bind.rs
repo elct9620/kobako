@@ -1508,6 +1508,42 @@ mod tests {
         );
     }
 
+    // A Windows host refuses to move a directory a process holds open.
+    // @behavior FS-225
+    #[cfg(unix)]
+    #[test]
+    fn a_bind_reads_the_directory_standing_where_it_was_made() {
+        use crate::mount::Mount;
+        use crate::vfs::{self, OpenHow};
+        let host = HostDir::new("made-over");
+        let (made, moved) = (host.0.join("root"), host.0.join("moved"));
+        fs::create_dir_all(made.join("d0")).expect("the host directory must be made");
+        fs::write(made.join("d0/note.txt"), "hello").expect("the host file must be written");
+        let filesystem =
+            crate::filesystem::Filesystem::new(Bind::new(&made).expect("the root must open"))
+                .expect("the instance must stand");
+        let mount = Mount::new("/data", filesystem, crate::mount::Access::Read)
+            .expect("/data is a guest path");
+        fs::rename(&made, &moved).expect("the host must move it");
+        fs::create_dir_all(made.join("d0")).expect("the host must make another");
+        fs::write(made.join("d0/note.txt"), "other").expect("the other file must be written");
+        let read = OpenHow {
+            read: true,
+            ..OpenHow::default()
+        };
+        let root = vfs::Path::root(mount.mnt());
+        let mut note = vfs::kern_path::filp_open(&Arc::default(), &root, "d0/note.txt", &read)
+            .unwrap_or_else(|err| panic!("the note must open, got {err:?}"));
+        let mut text = [0; 5];
+        let read = note.read(&mut text);
+        assert_eq!(
+            (read, &text),
+            (Ok(5), b"hello"),
+            "a file read through a Bind whose host directory was moved away and replaced by \
+             another must read the directory the Bind was made over"
+        );
+    }
+
     /// A Policy refusing everything beneath `/data/refused`.
     #[cfg(unix)]
     struct RefusesRefused;

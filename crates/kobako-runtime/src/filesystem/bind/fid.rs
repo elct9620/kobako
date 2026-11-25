@@ -282,6 +282,32 @@ mod tests {
         );
     }
 
+    // The guest's open directory holds its own host directory, as a Bind's
+    // open of one does, so giving way lets go of the cache's alone.
+    // @behavior FS-220
+    #[test]
+    fn a_directory_held_open_answers_after_the_kept_ones_give_way() {
+        let sb = SuperBlock::new(Tmpfs::new()).expect("the instance must stand");
+        let owner = FidOwner;
+        let (cache, _kept) = holding_one(&owner, &sb);
+        let held_dentry = sb.dentries().alloc_pseudo();
+        let held = host_dir();
+        cache.put(&owner, &held_dentry, &held);
+        OpenDirFid::set(&held_dentry, &held);
+        let mut refused = true;
+        let answer = cache.open(|| match std::mem::take(&mut refused) {
+            true => Err(Errno::TooManyOpenFiles),
+            false => Ok(()),
+        });
+        let listed = OpenDirFid::get(&held_dentry).map(|dir| dir.entries().is_ok());
+        assert_eq!(
+            (answer, cache.len(), listed),
+            (Ok(()), 0, Some(true)),
+            "a directory a guest holds open must still list once an open refused as EMFILE \
+             made every kept directory give way"
+        );
+    }
+
     // @behavior FS-218
     #[test]
     fn an_open_refused_again_after_giving_way_answers_the_refusal() {
