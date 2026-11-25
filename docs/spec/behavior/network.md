@@ -3203,3 +3203,16 @@ endpoint "api.example.com", port: 443
 | Given | a Sandbox whose `connection_limit` is 1 |
 | When | the guest makes attempts a policy or the endpoints refuse, and looks up an address or a name it translated |
 | Then | each answers as it would under no limit, and the next connect still dials. The host app's code it asks is the host app's to bound |
+
+## `NW-256` One look at a request moves it a bounded way
+
+| Attribute | Value |
+| --- | --- |
+| refines | `NW-037` |
+| relates | `NW-205` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a request whose connection always has more to read, as a peer sending endless informational responses |
+| When | its guest looks at the request, or waits on it |
+| Then | each look reads at most 128 times, as tokio's budget bounds one poll of a task. The request wakes its own wait, so the wait looks again. Its timeouts and its run's stop so come in between looks |
