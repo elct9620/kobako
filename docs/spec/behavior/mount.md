@@ -670,3 +670,16 @@ A mount Linux would refuse fails the run, and so does one whose path passes a li
 | Given | either `gvl:` mode |
 | When | another run looks up and creates names there 10 times |
 | Then | it answers each call while each neighbour goes on. How long it takes is the host's, as each slice of the GVL is |
+
+## `MT-065` A Tmpfs created in Ruby without a size holds 4 MiB
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-023` |
+| relates | `MT-013` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox mounting a Tmpfs created without a size |
+| When | the script writes 4 MiB, and then one byte more |
+| Then | the 4 MiB land and the byte more raises `Errno::ENOSPC` |

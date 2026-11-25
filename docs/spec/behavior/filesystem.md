@@ -262,7 +262,7 @@ both live in the upper and never show, so no name is reserved
 | When | a write would grow its files past that size |
 | Then | the write is refused as out of space, and the file holds what it held |
 
-## `FS-023` A Tmpfs given no size of its own holds 64 MiB
+## `FS-023` A Tmpfs given no size of its own holds 4 MiB
 
 | Attribute | Value |
 | --- | --- |
@@ -271,7 +271,7 @@ both live in the upper and never show, so no name is reserved
 | Step | Statement |
 | --- | --- |
 | Given | a Tmpfs created without a size |
-| When | a file grows to 64 MiB, and then one byte past it |
+| When | a file grows to 4 MiB, and then one byte past it |
 | Then | the first growth lands and the second is refused as out of space |
 
 ## `FS-024` A Tmpfs whose size is set to none is not bounded by it
@@ -283,7 +283,7 @@ both live in the upper and never show, so no name is reserved
 | Step | Statement |
 | --- | --- |
 | Given | a Tmpfs whose size is set to none |
-| When | a file grows one byte past 64 MiB |
+| When | a file grows one byte past 4 MiB |
 | Then | the growth lands |
 
 ## `FS-025` A removed file gives its space back
@@ -2595,3 +2595,16 @@ both live in the upper and never show, so no name is reserved
 | Given | a host directory holding `a`, in a run past its deadline |
 | When | a Bind lists it for how it spells `a` |
 | Then | the search answers EINTR |
+
+## `FS-238` A Tmpfs given neither a size nor inodes holds 1025 entries
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-031` |
+| relates | `FS-023` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Tmpfs created without a size or a count of inodes |
+| When | 1025 files are created |
+| Then | the first 1024 land beside the root and the last is refused as out of space |

@@ -405,7 +405,7 @@ A Filesystem held in memory and shared by every invocation, seeded with files. A
 module Kobako
   module Filesystem
     class Tmpfs
-      def self.new(files = {}, size: 64 << 20, nr_inodes: size && (size.ceildiv(4096) + 1), **seeded)
+      def self.new(files = {}, size: 4 << 20, nr_inodes: size && (size.ceildiv(4096) + 1), **seeded)
       end
     end
   end

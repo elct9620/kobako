@@ -1715,7 +1715,7 @@ its own.
 
 ```rust
 impl Tmpfs {
-    pub const DEFAULT_SIZE: usize = 64 * 1024 * 1024;
+    pub const DEFAULT_SIZE: usize = 4 * 1024 * 1024;
 }
 ```
 
