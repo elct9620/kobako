@@ -1091,11 +1091,10 @@ mod tests {
         // A guest sees nothing of a link but that it is one, so its times are no more
         // its to set than where it points is to read.
         // @behavior FS-187
-        #[cfg(unix)]
         #[test]
         fn a_link_keeps_its_own_times() {
             let host = host_with_a_file("link-time");
-            std::os::unix::fs::symlink("dir", host.0.join("link")).expect("the link must be made");
+            crate::filesystem::testing::symlink("dir", host.0.join("link"));
             assert_eq!(
                 do_utimes_path(
                     &Arc::default(),
@@ -2616,12 +2615,11 @@ mod tests {
     // The link's target is a readable file, so only the refusal of the
     // link itself keeps the open from reaching it.
     // @behavior FS-047
-    #[cfg(unix)]
     #[test]
     fn a_directory_opens_no_link() {
         let host = HostDir::new("nofollow");
         fs::write(host.0.join("target"), "x").expect("the host file must be written");
-        std::os::unix::fs::symlink("target", host.0.join("link")).expect("the link must be made");
+        crate::filesystem::testing::symlink("target", host.0.join("link"));
         let opened = bind_host(&host.0)
             .open(
                 "link",
@@ -2641,12 +2639,11 @@ mod tests {
     // The VFS refuses a link it found before asking the Bind, so only the
     // Bind's own open sees a link the host put in place after the lookup.
     // @behavior FS-047
-    #[cfg(unix)]
     #[test]
     fn a_directory_refuses_a_link_put_in_place_of_what_it_opens() {
         let host = HostDir::new("nofollow-swapped");
         fs::write(host.0.join("target"), "x").expect("the host file must be written");
-        std::os::unix::fs::symlink("target", host.0.join("link")).expect("the link must be made");
+        crate::filesystem::testing::symlink("target", host.0.join("link"));
         let dir = Dir::open_ambient_dir(&host.0, ambient_authority()).expect("the host directory");
         let read = OpenHow {
             read: true,
@@ -2663,12 +2660,11 @@ mod tests {
     // The target's five bytes would show as the link's size if a lookup
     // that follows none still followed it.
     // @behavior FS-048
-    #[cfg(unix)]
     #[test]
     fn a_directory_reports_a_link_a_lookup_does_not_follow_as_a_link() {
         let host = HostDir::new("lstat");
         fs::write(host.0.join("target"), "hello").expect("the host file must be written");
-        std::os::unix::fs::symlink("target", host.0.join("link")).expect("the link must be made");
+        crate::filesystem::testing::symlink("target", host.0.join("link"));
         let directory = bind_host(&host.0);
         let listed = directory
             .iterate_dir()
@@ -2721,22 +2717,19 @@ mod tests {
 
     /// A host directory holding `dir/sub/y` and `secret`, with `dir/in`
     /// linking to `sub` and `dir/up` to `../secret`.
-    #[cfg(unix)]
     fn make_links(name: &str) -> HostDir {
         let host = HostDir::new(name);
         fs::create_dir_all(host.0.join("dir/sub")).expect("the host directory must be created");
         fs::write(host.0.join("dir/sub/y"), "inner").expect("the inner file must be written");
         fs::write(host.0.join("secret"), "outer").expect("the outer file must be written");
-        std::os::unix::fs::symlink("sub", host.0.join("dir/in")).expect("the link must be made");
-        std::os::unix::fs::symlink("../secret", host.0.join("dir/up"))
-            .expect("the link must be made");
+        crate::filesystem::testing::symlink("sub", host.0.join("dir/in"));
+        crate::filesystem::testing::symlink("../secret", host.0.join("dir/up"));
         host
     }
 
     // The link leads to a directory inside the host directory, so only
     // refusing the link itself keeps it from being opened.
     // @behavior FS-099
-    #[cfg(unix)]
     #[test]
     fn a_directory_opens_no_link_as_a_directory_where_asked_not_to_follow() {
         let host = make_links("open-dir-nofollow");
@@ -2750,7 +2743,6 @@ mod tests {
     }
 
     // @behavior FS-114
-    #[cfg(unix)]
     #[test]
     fn a_directory_reads_where_a_link_points() {
         let host = make_links("read-link");
@@ -2765,14 +2757,12 @@ mod tests {
     }
 
     // @behavior FS-007
-    #[cfg(unix)]
     #[test]
     fn a_directory_reaches_nothing_outside_its_host_directory() {
         let outside = HostDir::new("outside");
         fs::write(outside.0.join("secret"), "host").expect("the outside file must be written");
         let host = HostDir::new("confined");
-        std::os::unix::fs::symlink(outside.0.join("secret"), host.0.join("escape"))
-            .expect("the link must be created");
+        crate::filesystem::testing::symlink(outside.0.join("secret"), host.0.join("escape"));
 
         let directory = bind_host(&host.0);
         assert!(

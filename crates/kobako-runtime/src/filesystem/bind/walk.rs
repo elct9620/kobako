@@ -178,8 +178,7 @@ mod tests {
             let _ = fs::remove_dir_all(&path);
             fs::create_dir_all(path.join("a/b/c")).expect("the tree must be made");
             fs::write(path.join("a/file"), "x").expect("the file must be made");
-            #[cfg(unix)]
-            std::os::unix::fs::symlink("b", path.join("a/link")).expect("the link must be made");
+            crate::filesystem::testing::symlink("b", path.join("a/link"));
             Self(path)
         }
 
@@ -229,11 +228,14 @@ mod tests {
     fn the_kernel_and_each_name_answer_alike() {
         let tree = Tree::new("alike");
         let dir = tree.dir();
-        let mut paths = vec!["a/b/c", "a/missing/c", "a/file/c", "a/file"];
-        if cfg!(unix) {
-            paths.extend(["a/link/c", "a/link"]);
-        }
-        for path in paths {
+        for path in [
+            "a/b/c",
+            "a/missing/c",
+            "a/file/c",
+            "a/file",
+            "a/link/c",
+            "a/link",
+        ] {
             assert_eq!(
                 answer(walk, &dir, path),
                 answer(by_name, &dir, path),
@@ -245,9 +247,6 @@ mod tests {
 
     #[test]
     fn a_link_on_the_way_is_a_loop() {
-        if !cfg!(unix) {
-            return;
-        }
         let tree = Tree::new("link");
         assert_eq!(
             answer(walk, &tree.dir(), "a/link/c"),

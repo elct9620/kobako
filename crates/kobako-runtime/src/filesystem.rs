@@ -9,6 +9,8 @@ mod bind;
 mod overlay;
 mod pipe;
 mod rdir;
+#[cfg(test)]
+pub(crate) mod testing;
 mod tmpfs;
 #[cfg(test)]
 pub(crate) mod wrap;

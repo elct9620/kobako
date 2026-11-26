@@ -675,10 +675,8 @@ mod tests {
     /// A host directory holding `target`, `dir/inner`, and the links `link`
     /// to `target`, `dirlink` to `dir`, and `dangling` to nothing, removed
     /// when it drops.
-    #[cfg(unix)]
     struct LinkTree(std::path::PathBuf);
 
-    #[cfg(unix)]
     impl LinkTree {
         fn new(name: &str) -> Self {
             let path =
@@ -692,7 +690,7 @@ mod tests {
                 ("dir", "dirlink"),
                 ("missing", "dangling"),
             ] {
-                std::os::unix::fs::symlink(target, path.join(link)).expect("the link must be made");
+                crate::filesystem::testing::symlink(target, path.join(link));
             }
             Self(path)
         }
@@ -716,7 +714,6 @@ mod tests {
     // so only merging directory over directory keeps the lower link's
     // target out of the view.
     // @behavior FS-113
-    #[cfg(unix)]
     #[test]
     fn a_lower_layers_link_beneath_an_upper_directory_is_not_merged() {
         let tree = LinkTree::new("not-merged");
@@ -735,7 +732,6 @@ mod tests {
         );
     }
 
-    #[cfg(unix)]
     impl Drop for LinkTree {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
@@ -745,7 +741,6 @@ mod tests {
     // The link stands in the Bind Layer beneath a Tmpfs one, so only
     // the Overlay asking that Layer without following refuses it.
     // @behavior FS-100
-    #[cfg(unix)]
     #[test]
     fn an_overlay_opens_no_link_as_a_directory_where_asked_not_to_follow() {
         let host = LinkTree::new("nofollow");
@@ -762,7 +757,6 @@ mod tests {
     }
 
     // @behavior FS-049
-    #[cfg(unix)]
     #[test]
     fn an_overlay_reports_a_link_its_layer_holds_as_a_link() {
         let host = LinkTree::new("lstat");
@@ -779,7 +773,6 @@ mod tests {
     // A link to a directory follows to one, and a dangling link follows to
     // nothing, so only judging each link itself lets both go.
     // @behavior FS-050
-    #[cfg(unix)]
     #[test]
     fn an_overlay_removes_a_link_its_read_only_layer_holds_as_itself() {
         let host = LinkTree::new("unlink");
@@ -991,7 +984,6 @@ mod tests {
 
     // The upper is a Tmpfs, which holds no link, so a link cannot land there.
     // @behavior FS-051
-    #[cfg(unix)]
     #[test]
     fn an_overlay_refuses_to_move_a_link_its_read_only_layer_holds() {
         let host = LinkTree::new("through");
@@ -1010,7 +1002,6 @@ mod tests {
     // The lower Tmpfs holds a readable `dangling`, so only the upper
     // link standing at that path can keep the read from reaching it.
     // @behavior FS-053
-    #[cfg(unix)]
     #[test]
     fn a_link_a_layer_holds_hides_what_the_layers_below_hold_there() {
         let host = LinkTree::new("shadow");
@@ -1037,7 +1028,6 @@ mod tests {
     // The lower Tmpfs holds `dirlink/x` beside where the upper link points,
     // so only the link hiding everything beneath it keeps `x` out.
     // @behavior FS-057
-    #[cfg(unix)]
     #[test]
     fn a_link_a_layer_holds_hides_what_the_layers_below_hold_beneath_it() {
         let host = LinkTree::new("shadow-beneath");
@@ -1147,7 +1137,6 @@ mod tests {
     // The link points at nothing, so only the link itself can be what an
     // exclusive create or a new directory finds there.
     // @behavior FS-052
-    #[cfg(unix)]
     #[test]
     fn an_overlay_finds_a_dangling_link_where_a_new_entry_would_go() {
         let host = LinkTree::new("dangling");
@@ -1585,7 +1574,6 @@ mod tests {
     // Bind reports the same identity for both names, so without the view keeping
     // them apart the VFS would answer the move as having nothing to do.
     // @behavior FS-170
-    #[cfg(unix)]
     #[test]
     fn a_lower_layers_hard_link_moves_onto_the_other_as_two_entries() {
         let host = LinkTree::new("hard-link");

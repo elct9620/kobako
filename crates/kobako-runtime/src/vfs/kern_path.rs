@@ -167,7 +167,6 @@ impl KernPath {
         Ok(lookup_one_qstr_excl(nd.mnt.sb(), nd.dentry(), &nd.last)?.name())
     }
 
-    #[cfg(unix)]
     pub(crate) fn vfs_readlink(&self, path: &str) -> Result<String, Errno> {
         self.resolve(path)?.path()?.get_link()
     }
