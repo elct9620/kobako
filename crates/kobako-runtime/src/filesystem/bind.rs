@@ -2522,16 +2522,24 @@ mod tests {
         }
     }
 
-    // Only Linux keeps a name that is not UTF-8; macOS refuses to make one.
+    // Linux keeps a name of any bytes and Windows one of a lone UTF-16
+    // surrogate, which no UTF-8 spells; macOS refuses to make either.
     // @behavior FS-066
-    #[cfg(target_os = "linux")]
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn a_directory_refuses_to_list_a_host_name_that_is_not_utf8() {
-        use std::os::unix::ffi::OsStrExt;
-
+        #[cfg(unix)]
+        let name = {
+            use std::os::unix::ffi::OsStrExt;
+            std::ffi::OsStr::from_bytes(b"\xff").to_os_string()
+        };
+        #[cfg(windows)]
+        let name = {
+            use std::os::windows::ffi::OsStringExt;
+            std::ffi::OsString::from_wide(&[0xD800])
+        };
         let host = HostDir::new("ilseq");
-        fs::write(host.0.join(std::ffi::OsStr::from_bytes(b"\xff")), "")
-            .expect("the host file must be written");
+        fs::write(host.0.join(name), "").expect("the host file must be written");
         let directory = bind_host(&host.0);
         assert_eq!(
             directory.iterate_dir().map(drop),
@@ -2732,6 +2740,27 @@ mod tests {
             (Ok(()), true, true),
             "vfs_unlink of a link to a directory beneath a Bind must remove the link and leave \
              the directory it leads to and what that holds"
+        );
+    }
+
+    // A link to a directory is no directory, so rename(2) replaces it as it
+    // would a file; a host taking it for its target would refuse the move.
+    // @behavior FS-241
+    #[test]
+    fn a_directory_moves_a_file_onto_a_link_to_a_directory() {
+        let host = make_links("rename-onto-dir-link");
+        fs::write(host.0.join("dir/f"), "moved").expect("the host file must be written");
+        let directory = bind_host(&host.0);
+        let dir = directory.open_dir("dir").expect("the directory must open");
+        assert_eq!(
+            (
+                dir.rename("f", &dir, "in"),
+                fs::read_to_string(host.0.join("dir/in")).ok(),
+                host.0.join("dir/sub/y").is_file()
+            ),
+            (Ok(()), Some("moved".to_string()), true),
+            "a rename beneath a Bind of a file onto a link to a directory must put the file \
+             in the link's place and leave the directory it led to"
         );
     }
 

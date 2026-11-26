@@ -708,7 +708,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind on a Linux host whose host directory holds a name that is not UTF-8 |
+| Given | a Bind whose host directory holds a name no UTF-8 spells, as Linux and Windows hosts keep one |
 | When | the directory is listed |
 | Then | the listing fails as an illegal byte sequence, not as an unnamed failure |
 
@@ -2619,3 +2619,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind holding a link to a directory it also holds |
 | When | the link is removed as a file |
 | Then | the link is gone, and the directory and what it holds stay |
+
+## `FS-241` A Bind moves a file onto a link to a directory in the link's place
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-240` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind holding a file and a link to a directory it also holds |
+| When | the file is renamed onto the link |
+| Then | the file stands at the link's name, and the directory and what it holds stay |
