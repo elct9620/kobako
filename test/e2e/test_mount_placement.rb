@@ -21,7 +21,6 @@ class TestE2EMountPlacement < Minitest::Test
 
   # @behavior MT-042
   def test_two_mounts_landing_on_one_directory_show_the_later
-    skip "a Bind on this host refuses a spelling its listing lacks" if Gem.win_platform?
     TestPaths.host_directory do |host|
       assert_equal %w[later later], read_notes(mount_twice_on_real(host), %w[/data/real /data/./REAL]),
                    "of two Sandbox#mounts landing on one directory, every spelling must reach the later"
@@ -30,7 +29,6 @@ class TestE2EMountPlacement < Minitest::Test
 
   # @behavior MT-043
   def test_a_mount_beneath_a_hidden_one_stands_in_the_mount_over_it
-    skip "a Bind on this host refuses a spelling its listing lacks" if Gem.win_platform?
     TestPaths.host_directory do |host|
       sandbox = mount_twice_on_real(host).mount("/data/real/x", Kobako::Filesystem::Tmpfs.new(INNER), access: :read)
 

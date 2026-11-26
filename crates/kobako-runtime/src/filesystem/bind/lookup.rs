@@ -3,9 +3,8 @@
 //! dentry per name as asked would hold one entry under several.
 //!
 //! macOS answers the stored name for any spelling. Elsewhere a listing
-//! finds the entry by its inode, skipped on a Linux filesystem known to
-//! match names exactly; without an inode, a spelling the listing lacks is
-//! refused.
+//! finds the entry by its inode, Windows' file index, skipped on a Linux
+//! filesystem known to match names exactly.
 
 #[cfg(not(target_os = "macos"))]
 use std::io;
@@ -36,7 +35,8 @@ pub(super) fn lookup(parent: &Dir, name: &str) -> Result<String, Errno> {
 
 /// The name a listing of `parent` holds for `name`: itself when listed,
 /// else the entry sharing its inode. A spelling the listing lacks and no
-/// inode ties to a listed name is refused as `EACCES`.
+/// inode ties to a listed name, as a filesystem naming no inodes leaves it,
+/// is refused as `EACCES`.
 #[cfg(not(target_os = "macos"))]
 fn lookup_by_listing(parent: &Dir, name: &str) -> Result<String, Errno> {
     let found = match parent.symlink_metadata(name) {
@@ -53,12 +53,14 @@ fn lookup_by_listing(parent: &Dir, name: &str) -> Result<String, Errno> {
         }
         names.push(entry);
     }
-    stored_by_inode(names, &found)
+    stored_by_inode(parent, names, &found)
 }
 
-/// The name among `names` sharing the inode of `found`.
+/// The name among `names` sharing the inode of `found`, which each listed
+/// entry carries.
 #[cfg(all(unix, not(target_os = "macos")))]
 fn stored_by_inode(
+    _parent: &Dir,
     names: Vec<cap_std::fs::DirEntry>,
     found: &cap_std::fs::Metadata,
 ) -> Result<String, Errno> {
@@ -73,12 +75,24 @@ fn stored_by_inode(
         .map_err(|_| Errno::IllegalSequence)
 }
 
-/// Without an inode nothing ties a spelling to a listed name.
+/// The name among `names` sharing the file index of `found`. A listed entry
+/// carries no file index, so each name is stated as `found` was, from a
+/// handle the stat opens.
 #[cfg(not(unix))]
 fn stored_by_inode(
-    _names: Vec<cap_std::fs::DirEntry>,
-    _found: &cap_std::fs::Metadata,
+    parent: &Dir,
+    names: Vec<cap_std::fs::DirEntry>,
+    found: &cap_std::fs::Metadata,
 ) -> Result<String, Errno> {
+    use cap_fs_ext::MetadataExt;
+    for entry in names {
+        crate::sched::stop_if_fatal()?;
+        let name = entry.file_name();
+        let listed = parent.symlink_metadata(&name);
+        if listed.is_ok_and(|listed| listed.ino() == found.ino()) {
+            return name.into_string().map_err(|_| Errno::IllegalSequence);
+        }
+    }
     Err(Errno::PermissionDenied)
 }
 
@@ -213,7 +227,7 @@ mod linux {
                 .expect("the host directory must list")
                 .collect::<Result<Vec<_>, _>>()
                 .expect("each listed name must be read");
-            let answered = stored_by_inode(names, &found);
+            let answered = stored_by_inode(&dir, names, &found);
             let _ = std::fs::remove_dir_all(&path);
             assert_eq!(
                 answered,

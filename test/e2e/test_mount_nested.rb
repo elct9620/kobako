@@ -52,7 +52,6 @@ class TestE2EMountNested < Minitest::Test
   # stands on, so the read reaches the mount rather than what it hides.
   # @behavior MT-033
   def test_a_nested_mount_is_reached_by_a_spelling_its_folding_host_answers
-    skip "a Bind on this host refuses a spelling its listing lacks" if Gem.win_platform?
     TestPaths.host_directory do |host|
       outer = hiding(host)
       skip "the host directory matches names exactly" unless File.exist?(File.join(host, "INNER"))
@@ -87,7 +86,6 @@ class TestE2EMountNested < Minitest::Test
 
   # @behavior MT-037
   def test_a_nested_mount_is_reached_by_a_folded_spelling_above_it
-    skip "a Bind on this host refuses a spelling its listing lacks" if Gem.win_platform?
     TestPaths.host_directory do |host|
       sandbox = deep(host)
       skip "the host directory matches names exactly" unless File.exist?(File.join(host, "A"))
