@@ -3,9 +3,9 @@
 
 use std::io;
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream};
+use std::sync::atomic::Ordering;
 use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
 
 use kobako_runtime::grant::Grant;
 use kobako_runtime::net::{Backends, IpProtocol, Mock, ProtocolFamily, Resolver, Resolving};
@@ -191,33 +191,35 @@ fn a_mocks_held_name_answers_once_its_hold_ends() {
         return;
     }
     let hold = mock.hold("held.test").unwrap();
+    let (counted, counts) = mpsc::channel();
     let (done, finished) = mpsc::channel();
     let running = mock.clone();
     thread::spawn(move || {
+        let _ = counted.send(support::count_waits());
         let _ = done.send(connect_each(&running, &["held.test"]));
     });
-    let asked = wait_until(|| !mock.lookups().is_empty());
-    let waited = finished.recv_timeout(Duration::from_millis(200)).is_err();
-    drop(hold);
-    let answered = finished.recv_timeout(Duration::from_secs(10)).ok();
-    assert_eq!(
-        (asked, waited, answered.as_deref()),
-        (true, true, Some("[:connected]")),
-        "a lookup of a name a Mock holds must wait while the hold lasts, then connect once the \
-         hold drops"
-    );
-}
-
-/// Whether `ready` holds within ten seconds, asked every ten milliseconds.
-fn wait_until(ready: impl Fn() -> bool) -> bool {
-    let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(10) {
-        if ready() {
-            return true;
+    let waits = counts
+        .recv_timeout(support::MAX_WAIT)
+        .expect("the guest's thread starts");
+    let mut answer = None;
+    support::wait_until("held.test's connect waiting or ending", || {
+        if answer.is_none() {
+            answer = finished.try_recv().ok();
         }
-        thread::sleep(Duration::from_millis(10));
-    }
-    false
+        answer.is_some() || waits.load(Ordering::SeqCst) > 0
+    });
+    let while_held = (answer.is_none(), mock.lookups(), mock.dialed_addresses());
+    drop(hold);
+    let answered = answer.or_else(|| finished.recv_timeout(support::MAX_WAIT).ok());
+    assert_eq!(
+        (while_held, answered.as_deref()),
+        (
+            (true, vec!["held.test".to_string()], Vec::new()),
+            Some("[:connected]")
+        ),
+        "a lookup of a name a Mock holds must wait while the hold lasts, dialing nothing, then \
+         connect once the hold drops"
+    );
 }
 
 // @behavior NW-211

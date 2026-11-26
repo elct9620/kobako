@@ -8,6 +8,7 @@ require "test_helper"
 class TestE2ENetworkMock < Minitest::Test
   include E2eGuestHelper
   include NetworkLoopback
+  include Handshake
 
   PUBLIC = "93.184.216.34"
   OTHER_PUBLIC = "93.184.216.35"
@@ -91,11 +92,13 @@ class TestE2ENetworkMock < Minitest::Test
   end
 
   # Start the guest's connect to `held.test` on a Thread, answering whether
-  # it still waits once its lookup reached +mock+, and the Thread.
+  # it is still under way, having dialed nothing, once it waits or ends, and
+  # the Thread.
   def connect_while_held(mock)
-    running = Thread.new { connect_each(mock, "held.test") }
-    sleep 0.01 until mock.lookups.any? || !running.alive?
-    [running.join(0.2).nil?, running]
+    sandbox = mock_sandbox(mock) { |net| add_tcp_hosts(net, "held.test") }
+    running = Thread.new { sandbox.eval(format(CONNECT_EACH, hosts: ["held.test"])).value }
+    wait_until("held.test's connect neither waited nor ended") { sandbox.stat(:runs_waiting) == 1 || !running.alive? }
+    [running.alive? && mock.dialed_addresses.empty?, running]
   end
 
   def test_refuse_with_an_errno_kobako_never_answers_raises_argument_error
