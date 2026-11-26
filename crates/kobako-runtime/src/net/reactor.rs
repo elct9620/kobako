@@ -18,12 +18,35 @@ use mio::event::Source;
 use mio::{Events, Interest, Registry, Token};
 
 use crate::fork::{Pid, ProcessLocal};
+use crate::vfs::PollMask;
+
+/// The poll mask `event` reports: a hang-up once both directions closed, as
+/// a reset or two FINs leave a socket, which Windows' AFD reports alone.
+fn poll_mask_of(event: &mio::event::Event) -> PollMask {
+    let mut mask = PollMask::default();
+    if event.is_readable() {
+        mask = mask | PollMask::IN;
+    }
+    if event.is_writable() {
+        mask = mask | PollMask::OUT;
+    }
+    if event.is_error() {
+        mask = mask | PollMask::ERR;
+    }
+    if event.is_read_closed() && event.is_write_closed() {
+        mask = mask | PollMask::HUP;
+    }
+    mask
+}
 
 /// What a host socket does once the reactor saw it change, as a socket's
 /// `sk_data_ready` and `sk_write_space` do: move what it can without blocking,
-/// then wake whoever waits on it.
+/// then wake whoever waits on it. `events` is what the change reported, as a
+/// wakeup's key carries the poll mask; a repoll reports nothing. A socket
+/// that stops short of `WouldBlock` hears of the host socket again only
+/// through `events`, a repoll, or its guest's next call.
 pub(crate) trait Ready: Send + Sync {
-    fn on_event(&self);
+    fn on_event(&self, events: PollMask);
 
     /// Fail the socket from outside, as the reactor stopping does, and wake
     /// whoever waits on it, as `tcp_abort` and `udp_abort` end one.
@@ -117,18 +140,23 @@ impl Reactor {
             // the next. A poll a signal interrupted takes none, so each
             // waits on in place, as `poll_list` keeps its entries.
             let again = std::mem::take(&mut *self.repoll());
-            let ready: Vec<Arc<dyn Ready>> = {
+            let ready: Vec<(Arc<dyn Ready>, PollMask)> = {
                 let sockets = self.sockets.lock().unwrap_or_else(PoisonError::into_inner);
                 events
                     .iter()
-                    .filter_map(|event| sockets.get(&event.token()).and_then(Weak::upgrade))
+                    .filter_map(|event| {
+                        let socket = sockets.get(&event.token()).and_then(Weak::upgrade)?;
+                        Some((socket, poll_mask_of(event)))
+                    })
                     .collect()
             };
-            ready.iter().for_each(|socket| socket.on_event());
+            ready
+                .iter()
+                .for_each(|(socket, events)| socket.on_event(*events));
             again
                 .iter()
                 .filter_map(Weak::upgrade)
-                .for_each(|socket| socket.on_event());
+                .for_each(|socket| socket.on_event(PollMask::default()));
             self.wake_due_timers();
         }
     }
@@ -339,7 +367,7 @@ mod tests {
     struct Tells(Mutex<mpsc::Sender<()>>);
 
     impl Ready for Tells {
-        fn on_event(&self) {
+        fn on_event(&self, _events: PollMask) {
             let _ = self.0.lock().unwrap().send(());
         }
 
@@ -350,7 +378,7 @@ mod tests {
     struct TellsAbort(Mutex<mpsc::Sender<&'static str>>);
 
     impl Ready for TellsAbort {
-        fn on_event(&self) {}
+        fn on_event(&self, _events: PollMask) {}
 
         fn abort(&self) {
             let _ = self.0.lock().unwrap().send("the socket");
@@ -363,7 +391,7 @@ mod tests {
     struct PanicsOnceArmed(AtomicBool);
 
     impl Ready for PanicsOnceArmed {
-        fn on_event(&self) {
+        fn on_event(&self, _events: PollMask) {
             if self.0.load(Ordering::Acquire) {
                 panic!("a socket's callback failed on the reactor");
             }
@@ -428,7 +456,7 @@ mod tests {
     struct CountsTurns(AtomicUsize);
 
     impl Ready for CountsTurns {
-        fn on_event(&self) {
+        fn on_event(&self, _events: PollMask) {
             self.0.fetch_add(1, Ordering::SeqCst);
         }
 

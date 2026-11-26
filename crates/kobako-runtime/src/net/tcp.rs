@@ -316,6 +316,27 @@ impl TcpSock {
         state.inet.err = Some(err);
     }
 
+    /// End a socket whose peer's end was read on the reset `events` report,
+    /// as `tcp_reset` sets `sk_err` whatever the socket last read: no read
+    /// asks the host socket past the end, so only the event tells. The host
+    /// socket's pending error names the failure where it holds one, and
+    /// otherwise EPIPE, as `tcp_reset` answers a socket in `TCP_CLOSE_WAIT`.
+    fn reset_past_end(state: &mut State, events: PollMask) {
+        if state.phase != Phase::Connected || !state.received_end {
+            return;
+        }
+        let pending = state
+            .host
+            .as_ref()
+            .and_then(|(stream, _)| stream.take_error().ok().flatten());
+        let err = match pending {
+            Some(err) => Errno::from_io_error(&err),
+            None if events.contains(PollMask::HUP) && !state.fin_sent => Errno::BrokenPipe,
+            None => return,
+        };
+        Self::done_with_error(state, err);
+    }
+
     /// End the socket, as `tcp_done` does: `TCP_CLOSE`, both sides shut
     /// down, its port given back. Linux ends one whose FIN left once the
     /// peer's arrived and its own was acknowledged; no acknowledgement shows
@@ -385,14 +406,6 @@ impl TcpSock {
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => {}
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
                 Err(err) => return Err(Errno::from_io_error(&err)),
-            }
-        }
-        // Past the peer's end no read asks the host socket, so a reset
-        // arriving then is its pending error, as `tcp_reset` sets `sk_err`
-        // whatever the socket last read.
-        if state.received_end {
-            if let Ok(Some(err)) = stream.take_error() {
-                return Err(Errno::from_io_error(&err));
             }
         }
         let queued = state.write_queue.len();
@@ -571,8 +584,11 @@ impl TcpSock {
 }
 
 impl Ready for TcpSock {
-    fn on_event(&self) {
-        let state = self.state();
+    fn on_event(&self, events: PollMask) {
+        let mut state = self.state();
+        if events.contains(PollMask::HUP) || events.contains(PollMask::ERR) {
+            Self::reset_past_end(&mut state, events);
+        }
         self.pump_and_wake(state);
     }
 
@@ -1485,6 +1501,29 @@ mod tests {
              sk_err, File::read must answer zero ahead of the failure, as SOCK_DONE stops \
              tcp_recvmsg before sk_err, and File::write the failure; got {read:?} and {write:?}"
         );
+    }
+
+    // A host whose socket holds no pending error after a reset, as Windows'
+    // may not, tells of it only through the event: the hang-up alone ends
+    // the socket.
+    // @behavior RT-376
+    #[test]
+    fn a_hang_up_past_the_peers_end_fails_a_socket_its_host_holds_no_error_for() {
+        let (sock, mut file, peer) = connected_socket();
+        peer.shutdown(Shutdown::Write).unwrap();
+        wait_for(|table| file.poll(table), PollMask::IN);
+        sock.on_event(PollMask::HUP);
+        let found = file.poll(None);
+        let mut buf = [0; 8];
+        let (read, write) = (file.read(&mut buf), file.write(b"x"));
+        assert_eq!(
+            (found.contains(PollMask::ERR), read, write),
+            (true, Ok(0), Err(Errno::BrokenPipe)),
+            "a socket whose peer's FIN was read, then an event reported a hang-up its host \
+             socket holds no error for, must poll ERR, read zero, and answer File::write EPIPE, \
+             as tcp_reset sets sk_err in TCP_CLOSE_WAIT"
+        );
+        drop(peer);
     }
 
     // @behavior RT-377

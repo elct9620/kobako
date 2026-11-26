@@ -243,7 +243,7 @@ impl UdpSock {
 impl Ready for UdpSock {
     /// What arrived reads into the queue, and the host socket may take a send
     /// again.
-    fn on_event(&self) {
+    fn on_event(&self, _events: PollMask) {
         let mut state = self.state();
         state.writable = true;
         self.pump_and_wake(state);
@@ -713,7 +713,7 @@ mod tests {
     struct TellsOnEvent(Mutex<Option<std::sync::mpsc::Sender<()>>>);
 
     impl Ready for TellsOnEvent {
-        fn on_event(&self) {
+        fn on_event(&self, _events: PollMask) {
             if let Some(tell) = self.0.lock().unwrap().take() {
                 let _ = tell.send(());
             }
@@ -755,7 +755,7 @@ mod tests {
     fn drain_host_socket(sock: &UdpSock) {
         let started = Instant::now();
         while started.elapsed() < crate::sched::testing::MAX_WAIT {
-            sock.on_event();
+            sock.on_event(PollMask::IN);
             let state = sock.state();
             let (socket, _) = state.host.as_ref().expect("a connected socket");
             match socket.peek_from(&mut [0; 8]) {

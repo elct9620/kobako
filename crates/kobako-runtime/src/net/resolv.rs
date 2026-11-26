@@ -130,7 +130,7 @@ impl ReadyWaker {
 
 #[cfg(unix)]
 impl Ready for ReadyWaker {
-    fn on_event(&self) {
+    fn on_event(&self, _events: crate::vfs::PollMask) {
         self.wake(|state| state.changed = true);
     }
 

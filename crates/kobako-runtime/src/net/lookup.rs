@@ -333,7 +333,7 @@ mod tests {
     struct TellsEvents(Mutex<mpsc::Sender<()>>);
 
     impl Ready for TellsEvents {
-        fn on_event(&self) {
+        fn on_event(&self, _events: PollMask) {
             let _ = self.0.lock().unwrap().send(());
         }
 
