@@ -2595,3 +2595,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Tmpfs created without a size or a count of inodes |
 | When | 1025 files are created |
 | Then | the first 1024 land beside the root and the last is refused as out of space |
+
+## `FS-239` A Bind reads a Windows host link as a guest path
+
+| Attribute | Value |
+| --- | --- |
+| refines | `FS-114` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind over a Windows host directory holding a link whose target separates names with `\` |
+| When | the link is read, with a relative target and with a target on a drive |
+| Then | each `\` reads as `/`, and the drive's target reads as a path from `/` |

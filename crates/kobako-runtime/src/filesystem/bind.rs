@@ -275,6 +275,24 @@ fn to_host_name(name: &str) -> Result<&str, Errno> {
     Ok(name)
 }
 
+/// A link's `target` as a guest path spells it. Windows separates names
+/// with `\` and roots an absolute path at a drive or a share, so there each
+/// `\` reads as `/` and the drive or share drops, leaving a path rooted at
+/// `/` as on unix.
+fn to_guest_target(target: String) -> String {
+    #[cfg(windows)]
+    {
+        use std::path::{Component, Path};
+        let prefix = match Path::new(&target).components().next() {
+            Some(Component::Prefix(prefix)) => prefix.as_os_str().len(),
+            _ => 0,
+        };
+        target[prefix..].replace('\\', "/")
+    }
+    #[cfg(not(windows))]
+    target
+}
+
 /// Whether Windows reads `name` as something else: a `\` as a separator, a `:`
 /// as a stream of a file, a trailing `.` or space as nothing, a wildcard as a
 /// pattern, or a device's name, whatever extension follows, as the device.
@@ -651,11 +669,13 @@ impl InodeOperations for BindLink {
     /// is one.
     fn get_link(&self, dentry: &Dentry) -> Result<String, Errno> {
         self.0.at(dentry, |dir, name| {
-            dir.read_link_contents(name)
+            let target = dir
+                .read_link_contents(name)
                 .map_err(to_error)?
                 .into_os_string()
                 .into_string()
-                .map_err(|_| Errno::IllegalSequence)
+                .map_err(|_| Errno::IllegalSequence)?;
+            Ok(to_guest_target(target))
         })
     }
 }
@@ -2753,6 +2773,28 @@ mod tests {
             (Ok("../secret".to_string()), Err(Errno::InvalidInput)),
             "vfs_readlink beneath a Bind must answer where a link points as stored, and refuse \
              a directory with EINVAL"
+        );
+    }
+
+    // Windows stores each link's target with `\`, so only the Bind's reading
+    // spells it as a guest path.
+    // @behavior FS-239
+    #[cfg(windows)]
+    #[test]
+    fn a_directory_reads_a_windows_link_as_a_guest_path() {
+        let host = make_links("read-windows-link");
+        crate::filesystem::testing::symlink(host.0.join("secret"), host.0.join("dir/far"));
+        let directory = bind_host(&host.0);
+        let dir = directory.open_dir("dir").expect("the directory must open");
+        let far = dir.vfs_readlink("far").expect("the link must read");
+        assert_eq!(
+            (
+                dir.vfs_readlink("up"),
+                far.starts_with('/') && !far.contains('\\') && far.ends_with("/secret")
+            ),
+            (Ok("../secret".to_string()), true),
+            "vfs_readlink of a Windows host link beneath a Bind must read `..\\secret` as \
+             `../secret`, and a target on a drive as a path from `/`, not `{far}`"
         );
     }
 
