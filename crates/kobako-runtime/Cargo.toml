@@ -93,10 +93,11 @@ rustix = { version = "1.1.4", features = ["fs", "system"] }
 
 # rustix reads which Winsock error a host call failed with, which std
 # names no kind for, as on POSIX. windows-sys asks Windows for a name through
-# GetAddrInfoExW, whose query a lookup can cancel, which std cannot.
+# GetAddrInfoExW, whose query a lookup can cancel, which std cannot, and
+# reopens a Bind's open file to set its times, which std cannot either.
 [target.'cfg(windows)'.dependencies]
 rustix = { version = "1.1.4", features = ["net"] }
-windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_System_IO"] }
+windows-sys = { version = "0.61.2", features = ["Win32_Foundation", "Win32_Networking_WinSock", "Win32_Storage_FileSystem", "Win32_System_IO"] }
 
 # simple-dns reads and writes the DNS messages the Linux stub resolver sends
 # to a name server, its compression loops refused; it pulls in only bitflags.

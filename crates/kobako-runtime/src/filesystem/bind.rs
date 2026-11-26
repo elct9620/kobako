@@ -389,6 +389,43 @@ fn to_host_time(time: Option<SetTime>) -> Option<SystemTimeSpec> {
     })
 }
 
+/// Set `times` on the file `held` holds, as `futimens` does on any open
+/// descriptor.
+#[cfg(unix)]
+fn set_held_times(held: &std::fs::File, times: std::fs::FileTimes) -> io::Result<()> {
+    held.set_times(times)
+}
+
+/// Set `times` on the file `held` holds, as `futimens` does on any open
+/// descriptor. Windows sets a time only through a handle granted to change
+/// attributes, which one opened to read lacks, so the time goes through a
+/// handle reopened from `held` for that alone, reaching the same file
+/// whatever now stands at its name.
+#[cfg(windows)]
+fn set_held_times(held: &std::fs::File, times: std::fs::FileTimes) -> io::Result<()> {
+    use std::os::windows::io::{AsRawHandle, FromRawHandle};
+    use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
+    use windows_sys::Win32::Storage::FileSystem::{
+        ReOpenFile, FILE_FLAG_BACKUP_SEMANTICS, FILE_SHARE_DELETE, FILE_SHARE_READ,
+        FILE_SHARE_WRITE, FILE_WRITE_ATTRIBUTES,
+    };
+
+    // SAFETY: `held` owns a live handle for the call's length; the handle
+    // ReOpenFile answers is a new one, owned from here by the File made of it.
+    let reopened = unsafe {
+        ReOpenFile(
+            held.as_raw_handle(),
+            FILE_WRITE_ATTRIBUTES,
+            FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+            FILE_FLAG_BACKUP_SEMANTICS,
+        )
+    };
+    if reopened == INVALID_HANDLE_VALUE {
+        return Err(io::Error::last_os_error());
+    }
+    unsafe { std::fs::File::from_raw_handle(reopened) }.set_times(times)
+}
+
 /// The descriptors open on one file, and which were opened to write, as 9p
 /// keeps open fids on `i_private`.
 #[derive(Default)]
@@ -590,7 +627,7 @@ impl InodeOperations for BindRegular {
             if let Some(mtime) = attr.mtime {
                 times = times.set_modified(attr.time_of(mtime));
             }
-            return file.set_times(times).map_err(to_error);
+            return set_held_times(&file, times).map_err(to_error);
         }
         let (atime, mtime) = (to_host_time(attr.atime), to_host_time(attr.mtime));
         self.0.at(dentry, |dir, name| {
