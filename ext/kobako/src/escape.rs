@@ -343,9 +343,9 @@ pub(super) fn forget(fiber: FiberId, line: &Arc<Line>) {
     });
 }
 
-/// A Fiber as a run knows it: the Fiber itself, which the run's `Run` keeps on
-/// the Fiber's own stack, so the collector, scanning that stack, never moves
-/// it while the run lasts.
+/// A Fiber as a run knows it: the Fiber itself, which the run's `RunCaller`
+/// keeps on the Fiber's own stack, so the collector, scanning that stack,
+/// never moves it while the run lasts.
 pub(crate) type FiberId = rb_sys::VALUE;
 
 /// The calling Fiber, asked while holding the GVL.
