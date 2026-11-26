@@ -149,7 +149,7 @@ class TestE2EYieldUnwind < Minitest::Test
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM)
     sandbox.bind("Probe::Stash", Class.new do
       def stash(&block) = (@blk = block)
-      def replay = @blk.call
+      def replay(&_ignored) = @blk.call
     end.new)
     sandbox
   end
