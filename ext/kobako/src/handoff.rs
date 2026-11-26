@@ -397,14 +397,14 @@ impl<F: FnOnce()> AssertSend<F> {
     }
 }
 
-/// A run a guest's thread takes, which hands back the report that it ended.
-/// The thread is listed idle before its caller gets that report, so a caller
-/// that runs again at once finds it.
-type Run = Box<dyn FnOnce() -> Job + Send>;
+/// The job a guest's thread takes to carry out one run, which hands back the
+/// report that the run ended. The thread is listed idle before its caller
+/// gets that report, so a caller that runs again at once finds it.
+type GuestJob = Box<dyn FnOnce() -> Job + Send>;
 
 /// A guest's thread waiting for the next run.
 struct Worker {
-    runs: Arc<Mailbox<Run>>,
+    jobs: Arc<Mailbox<GuestJob>>,
 }
 
 /// The guest threads waiting for a run, this process's own.
@@ -433,7 +433,7 @@ pub(crate) fn start(
         waiting,
     });
     let guest_line = line.clone();
-    let guest_run: Run = Box::new(move || {
+    let guest_job: GuestJob = Box::new(move || {
         LINE.with(|held| *held.borrow_mut() = Some(guest_line.clone()));
         let panic = catch_unwind(AssertUnwindSafe(|| task.carry(run))).err();
         LINE.with(|held| *held.borrow_mut() = None);
@@ -442,43 +442,43 @@ pub(crate) fn start(
     });
     let idle = IDLE.with(|idle| idle.get_or_insert_with(Vec::new).pop());
     match idle {
-        Some(worker) => worker.runs.put(guest_run),
-        None => spawn(guest_run)?,
+        Some(worker) => worker.jobs.put(guest_job),
+        None => spawn(guest_job)?,
     }
     Ok(line)
 }
 
-fn spawn(first: Run) -> io::Result<()> {
-    let runs = Arc::new(Mailbox::new());
-    runs.put(first);
+fn spawn(first: GuestJob) -> io::Result<()> {
+    let jobs = Arc::new(Mailbox::new());
+    jobs.put(first);
     thread::Builder::new()
         .name("kobako-guest".into())
         .stack_size(GUEST_STACK)
         .spawn(move || loop {
-            let run = match runs.take_within(IDLE_LIMIT) {
-                Some(run) => run,
-                None if leave_idle(&runs) => return,
-                // A caller took this thread as the limit passed; its run comes.
-                None => runs.take(),
+            let job = match jobs.take_within(IDLE_LIMIT) {
+                Some(job) => job,
+                None if leave_idle(&jobs) => return,
+                // A caller took this thread as the limit passed; its job comes.
+                None => jobs.take(),
             };
-            let report = run();
+            let report = job();
             IDLE.with(|idle| {
                 idle.get_or_insert_with(Vec::new)
-                    .push(Worker { runs: runs.clone() })
+                    .push(Worker { jobs: jobs.clone() })
             });
             report();
         })?;
     Ok(())
 }
 
-/// Take the thread waiting on `runs` off the idle list, unless a caller took
+/// Take the thread waiting on `jobs` off the idle list, unless a caller took
 /// it first; both happen under the list's lock, so never both.
-fn leave_idle(runs: &Arc<Mailbox<Run>>) -> bool {
+fn leave_idle(jobs: &Arc<Mailbox<GuestJob>>) -> bool {
     IDLE.with(|idle| {
         let idle = idle.get_or_insert_with(Vec::new);
         match idle
             .iter()
-            .position(|worker| Arc::ptr_eq(&worker.runs, runs))
+            .position(|worker| Arc::ptr_eq(&worker.jobs, jobs))
         {
             Some(at) => {
                 idle.swap_remove(at);
