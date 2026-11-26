@@ -2,6 +2,8 @@
 
 The words this project keeps, and the ones it turns down in their place.
 
+A term binds a name only where the name means it. A common word, such as job, is neither kept nor turned down.
+
 ## Everywhere
 
 ### Includes
