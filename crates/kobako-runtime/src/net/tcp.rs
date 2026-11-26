@@ -1359,9 +1359,7 @@ mod tests {
     // @behavior RT-364
     #[test]
     fn a_socket_whose_connect_failed_answers_the_failure_then_connects_afresh() {
-        let closed = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
-        let refused_at = closed.local_addr().unwrap();
-        drop(closed);
+        let refused_at = SocketAddr::from(([127, 0, 0, 1], 1));
         // One place, which the failed socket still holds, so connecting
         // afresh must reuse it rather than ask the full cap for another.
         let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
@@ -1692,9 +1690,7 @@ mod tests {
     // @behavior RT-358
     #[test]
     fn a_reset_or_refused_socket_polls_hung_up() {
-        let closed = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
-        let addr = closed.local_addr().unwrap();
-        drop(closed);
+        let addr = SocketAddr::from(([127, 0, 0, 1], 1));
         let refused = sock_alloc_file(dial(addr), &Arc::default());
         wait_for(|table| refused.poll(table), PollMask::ERR);
         let every = PollMask::IN | PollMask::OUT | PollMask::ERR | PollMask::HUP;
@@ -1794,10 +1790,7 @@ mod tests {
     // @behavior RT-345
     #[test]
     fn a_refused_connect_answers_econnrefused() {
-        let addr = TcpListener::bind("127.0.0.1:0")
-            .and_then(|listener| listener.local_addr())
-            .unwrap();
-        let sock = dial(addr);
+        let sock = dial(SocketAddr::from(([127, 0, 0, 1], 1)));
         let file = sock_alloc_file(sock.clone(), &Arc::default());
         wait_for(|table| file.poll(table), PollMask::OUT);
         assert_eq!(

@@ -2214,11 +2214,7 @@ mod tests {
     fn a_tcp_socket_reads_its_own_end_only_once_connected() {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let open = listener.local_addr().unwrap().port();
-        let closed = std::net::TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
+        let closed = 1;
         let tcp = |port| {
             network::Endpoint::new("127.0.0.1", port)
                 .unwrap()
