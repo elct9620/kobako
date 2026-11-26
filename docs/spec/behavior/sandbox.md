@@ -55,7 +55,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 - `test/e2e/sandbox/test_first_run_interrupt.rb`
 - `test/e2e/sandbox/test_interrupted_run.rb`
 - `test/e2e/sandbox/test_service_throw.rb`
-- `test/e2e/sandbox/test_wakeup_during_wait.rb`
+- `test/e2e/sandbox/test_wakeup_during_*.rb`
 - `test/e2e/sandbox/test_forked_deadline.rb`
 - `test/e2e/sandbox/test_forked_thread.rb`
 - `test/e2e/sandbox/test_fork_*.rb`

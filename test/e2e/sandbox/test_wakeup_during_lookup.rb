@@ -2,10 +2,10 @@
 
 require "test_helper"
 
-# E2E — a run waiting on the host, its thread woken by Ruby, through the real
-# guest binary. Ruby wakes a thread for an exception, a trap, or
-# Thread#wakeup alike, so the wait goes on unless the wakeup raises.
-class TestE2EWakeupDuringWait < Minitest::Test
+# E2E — a run whose network lookup the Mock holds, its thread woken by Ruby,
+# through the real guest binary. Ruby wakes a thread for an exception, a
+# trap, or Thread#wakeup alike, so the wait goes on unless the wakeup raises.
+class TestE2EWakeupDuringLookup < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
   include Handshake
@@ -59,47 +59,12 @@ class TestE2EWakeupDuringWait < Minitest::Test
     [e, went.any?]
   end
 
-  # What the guest's write answers while another sandbox's mount block holds
-  # the directory, the run's thread woken once it waits, then the block let
-  # go.
-  def write_while_held(gvl)
-    tmpfs = Kobako::Filesystem::Tmpfs.new
-    release = Thread::Queue.new
-    holder = hold_root(tmpfs, release)
-    waiting = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl, timeout: 30)
-                             .mount("/data", tmpfs, access: :read_write)
-    runner = Thread.new { waiting.eval('File.write("/data/b", "2")').value }
-    wait_until("the write never waited on the held directory") { waiting.stat(:runs_waiting) == 1 }
-    runner.wakeup
-    release << true
-    runner.value.tap { holder.join }
-  end
-
-  # A thread whose run holds +tmpfs+'s root from its mount's block until
-  # +release+ is filled, started once the block holds it.
-  def hold_root(tmpfs, release)
-    asking = Thread::Queue.new
-    holder = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: :release)
-    holder.mount("/data", tmpfs, access: :read_write) do |_path, access|
-      (asking << true) && release.pop if access == :read_write
-      true
-    end
-    Thread.new { holder.eval('File.write("/data/a", "1")') }.tap { asking.pop }
-  end
-
   %i[hold release].each do |gvl|
     # @behavior S-222
     define_method(:"test_a_lookup_goes_on_through_a_wakeup_under_#{gvl}") do
       assert_equal "Net::OpenTimeout", lookup_while(gvl, &:wakeup),
                    "a guest's Net::HTTP lookup the Mock holds, with gvl: :#{gvl}, its Thread taking " \
                    "Thread#wakeup, must go on waiting until its own open_timeout"
-    end
-
-    # @behavior S-222
-    define_method(:"test_a_directory_wait_goes_on_through_a_wakeup_under_#{gvl}") do
-      assert_equal 1, write_while_held(gvl),
-                   "a guest's File.write to a directory another run holds, with gvl: :#{gvl}, its Thread " \
-                   "taking Thread#wakeup, must go on waiting and write once the other lets go"
     end
 
     # @behavior S-222
