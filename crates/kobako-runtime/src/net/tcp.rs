@@ -1025,13 +1025,8 @@ mod tests {
     }
 
     // @behavior RT-367
-    // Windows sets keepalive timing through SIO_KEEPALIVE_VALS, which reads
-    // nothing back, so only the hosts that read it witness the dialed values.
-    #[cfg(not(windows))]
     #[test]
-    fn a_socket_bounds_its_keepalive_probes_as_linux_and_dials_with_them() {
-        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
-        let addr = listener.local_addr().unwrap();
+    fn a_socket_bounds_its_keepalive_probes_as_linux() {
         let sock = TcpSock::new(Arc::new(HostInet));
         let get = |opt| sock.getsockopt(opt).unwrap();
         let defaults = (
@@ -1045,6 +1040,23 @@ mod tests {
             sock.setsockopt(SockOpt::KeepIntvl, 32768),
             sock.setsockopt(SockOpt::KeepCnt, 128),
         ];
+        assert_eq!(
+            (defaults, refused),
+            ((7200, 75, 9), [(); 4].map(|()| Err(Errno::InvalidInput))),
+            "a socket must read Linux's keepalive defaults and refuse with EINVAL an idle time or \
+             interval outside 1 to 32767 and a count outside 1 to 127"
+        );
+    }
+
+    // @behavior RT-367
+    // Windows sets keepalive timing through SIO_KEEPALIVE_VALS, which reads
+    // nothing back, so only the hosts that read it witness the dialed values.
+    #[cfg(not(windows))]
+    #[test]
+    fn a_socket_dials_with_the_keepalive_probes_it_was_set() {
+        let listener = TcpListener::bind("127.0.0.1:0").expect("a loopback listener");
+        let addr = listener.local_addr().unwrap();
+        let sock = TcpSock::new(Arc::new(HostInet));
         sock.setsockopt(SockOpt::KeepIdle, 30)
             .expect("an idle time Linux takes");
         sock.setsockopt(SockOpt::KeepIntvl, 10)
@@ -1067,15 +1079,10 @@ mod tests {
             )
         });
         assert_eq!(
-            (defaults, refused, host),
-            (
-                (7200, 75, 9),
-                [(); 4].map(|()| Err(Errno::InvalidInput)),
-                Some((Duration::from_secs(30), Duration::from_secs(10), 3))
-            ),
-            "a socket must read Linux's keepalive defaults, refuse with EINVAL an idle time or \
-             interval outside 1 to 32767 and a count outside 1 to 127, and give the host stream it \
-             dials the probes it was set"
+            host,
+            Some((Duration::from_secs(30), Duration::from_secs(10), 3)),
+            "a socket set to keepalive probes Linux takes must give the host stream it dials \
+             those probes"
         );
     }
 
