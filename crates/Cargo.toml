@@ -48,3 +48,8 @@ members = [
     "kobako-wasmtime",
 ]
 resolver = "2"
+
+# The ext's release profile, so the oracles built into its target directory
+# reuse the dependencies its build compiled.
+[profile.release]
+strip = true

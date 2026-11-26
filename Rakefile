@@ -28,12 +28,14 @@ end
 namespace :test do
   # The Rust oracles the suite drives, built once before its processes start:
   # a cargo build re-links a binary even when nothing changed, and one process
-  # re-linking it fails another spawning it. Without cargo the oracle checks
-  # say so themselves.
+  # re-linking it fails another spawning it. They build into the ext's target
+  # directory, reusing the release dependencies its build compiled. Without
+  # cargo the oracle checks say so themselves.
   task :oracles do
     next unless system("cargo", "--version", out: File::NULL, err: File::NULL)
 
-    sh "cargo", "build", "--release", "--manifest-path", "crates/kobako-parity/Cargo.toml", "--bins"
+    sh "cargo", "build", "--release", "--manifest-path", "crates/kobako-parity/Cargo.toml",
+       "--target-dir", "target", "--bins"
   end
 
   desc "Run only the release-tooling suites (test/tasks/)."

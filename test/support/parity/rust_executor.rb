@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 module Parity
   # Drives the `crates/kobako-parity` runner — the Rust half of the
   # differential harness — over the CargoOracle framed protocol: one

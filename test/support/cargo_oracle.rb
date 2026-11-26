@@ -1,6 +1,5 @@
 # frozen_string_literal: true
 
-require "json"
 require "open3"
 require "rbconfig"
 
@@ -24,6 +23,10 @@ require "rbconfig"
 # +flunk+ on +:build_failed+ (build broken — surface the captured output).
 class CargoOracle
   ERROR_FLAG = 0x8000_0000
+
+  # The ext's target directory, so an oracle's release build reuses the
+  # dependencies the ext's build compiled rather than compiling them again.
+  TARGET_DIR = TestPaths.source("target")
 
   # Outcome of a one-shot +cargo build --release+ for a single binary.
   # +status+ is one of +:ok+, +:no_cargo+, +:build_failed+; +error+
@@ -50,13 +53,11 @@ class CargoOracle
 
   attr_reader :bin_name
 
-  # Lazily-resolved absolute path to the oracle binary. The lookup
-  # delegates to +cargo metadata+ so workspace members emit into the
-  # workspace-shared +target/+ directory rather than the per-crate one.
-  # The host's executable suffix follows the name, so on Windows it is
-  # the +.exe+ cargo wrote.
+  # Absolute path to the oracle binary under +TARGET_DIR+. The host's
+  # executable suffix follows the name, so on Windows it is the +.exe+
+  # cargo wrote.
   def binary_path
-    @binary_path ||= File.join(target_directory, "release", "#{@bin_name}#{RbConfig::CONFIG["EXEEXT"]}")
+    @binary_path ||= File.join(TARGET_DIR, "release", "#{@bin_name}#{RbConfig::CONFIG["EXEEXT"]}")
   end
 
   # Memoised build of the oracle binary. Returns a +BuildResult+. Safe
@@ -96,6 +97,7 @@ class CargoOracle
     out, status = Open3.capture2e(
       "cargo", "build", "--release",
       "--manifest-path", manifest_path,
+      "--target-dir", TARGET_DIR,
       "--bin", @bin_name
     )
     return BuildResult.new(status: :ok, error: nil) if status.success? && File.executable?(binary_path)
@@ -113,20 +115,6 @@ class CargoOracle
   # Asks cargo itself rather than a POSIX shell, which Windows lacks.
   def cargo_on_path?
     system("cargo", "--version", out: File::NULL, err: File::NULL)
-  end
-
-  # Resolve the cargo +target_directory+ for the crate's manifest. For a
-  # workspace member this is the workspace-shared +target/+ at the
-  # workspace root, not the per-crate +<crate_dir>/target/+ that cargo
-  # would synthesise for a standalone crate.
-  def target_directory
-    out, status = Open3.capture2(
-      "cargo", "metadata", "--no-deps", "--format-version", "1",
-      "--manifest-path", manifest_path
-    )
-    raise "cargo metadata failed for #{manifest_path}" unless status.success?
-
-    JSON.parse(out).fetch("target_directory")
   end
 
   def manifest_path
