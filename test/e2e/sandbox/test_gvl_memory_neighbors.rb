@@ -7,6 +7,7 @@ require "test_helper"
 # own memory_limit and answers.
 class TestE2EGvlMemoryNeighbors < Minitest::Test
   include E2eGuestHelper
+  include Handshake
 
   GVL_MODES = %i[hold release].freeze
 
@@ -51,20 +52,29 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
 
   private
 
-  # What a short script answers beside the flood, and whether the flood still
-  # ran as it answered. Both sandboxes are built first, so the first compile of
-  # the guest binary in a process with a cold artifact cache plays no part.
+  # What a short script answers beside the flood, once the flood began, and
+  # whether the flood still ran as it answered. Both sandboxes are built first,
+  # so the first compile of the guest binary in a process with a cold artifact
+  # cache plays no part.
   def eval_beside_flood(mode)
     neighbour = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode)
-    flooder = Kobako::Sandbox.new(wasm_path: TestPaths.fixture("minimal_random_flood.wat"),
-                                  profile: :permissive, gvl: mode, timeout: JAMMED_AFTER, memory_limit: nil)
+    begun = Thread::Queue.new
+    flooder = new_flooder(mode, begun)
     flooding = Thread.new { flood(flooder) }
-    sleep 0.05
+    wait_until("the flood never opened /data, so its run failed first") { !begun.empty? || !flooding.alive? }
     answer = neighbour.eval("1").value
     still = flooding.alive?
     flooding.raise(Stop)
     flooding.join
     [answer, still]
+  end
+
+  # A sandbox whose run floods entropy under +mode+, filling +begun+ once
+  # its guest opened /data on the way to the flood.
+  def new_flooder(mode, begun)
+    Kobako::Sandbox.new(wasm_path: TestPaths.fixture("minimal_random_flood.wat"),
+                        profile: :permissive, gvl: mode, timeout: JAMMED_AFTER, memory_limit: nil)
+                   .mount("/data", Kobako::Filesystem::Tmpfs.new, access: :read) { begun << true }
   end
 
   def eval_beside_greedy(mode)
