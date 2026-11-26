@@ -60,7 +60,7 @@ class TestE2EWakeupDuringWait < Minitest::Test
   end
 
   # What the guest's write answers while another sandbox's mount block holds
-  # the directory, the run's thread woken while it waits, then the block let
+  # the directory, the run's thread woken once it waits, then the block let
   # go.
   def write_while_held(gvl)
     tmpfs = Kobako::Filesystem::Tmpfs.new
@@ -69,7 +69,7 @@ class TestE2EWakeupDuringWait < Minitest::Test
     waiting = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl, timeout: 30)
                              .mount("/data", tmpfs, access: :read_write)
     runner = Thread.new { waiting.eval('File.write("/data/b", "2")').value }
-    sleep 0.2
+    wait_until("the write never waited on the held directory") { waiting.stat(:runs_waiting) == 1 }
     runner.wakeup
     release << true
     runner.value.tap { holder.join }
