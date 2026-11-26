@@ -1490,7 +1490,7 @@ mod tests {
 
     /// A socket file whose peer sent its FIN, which the socket read, then
     /// reset it, as a close with bytes unread does.
-    fn reset_past_its_end() -> File {
+    fn socket_reset_past_its_end() -> File {
         let (_sock, mut file, peer) = connected_socket();
         file.write(b"unread").unwrap();
         peer.shutdown(Shutdown::Write).unwrap();
@@ -1503,7 +1503,7 @@ mod tests {
     // @behavior RT-376
     #[test]
     fn a_socket_its_peer_ended_reads_the_end_then_a_write_answers_the_reset() {
-        let mut file = reset_past_its_end();
+        let mut file = socket_reset_past_its_end();
         let read = file.read(&mut [0; 8]);
         let started = std::time::Instant::now();
         let write = loop {
@@ -1531,7 +1531,7 @@ mod tests {
     #[cfg(not(windows))]
     #[test]
     fn a_socket_reset_past_its_end_polls_err_before_any_write() {
-        let mut file = reset_past_its_end();
+        let mut file = socket_reset_past_its_end();
         wait_for(|table| file.poll(table), PollMask::ERR);
         let mut buf = [0; 8];
         let (read, write) = (file.read(&mut buf), file.write(b"x"));
