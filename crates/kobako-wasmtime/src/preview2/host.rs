@@ -1565,15 +1565,15 @@ mod tests {
     #[test]
     fn a_clock_wait_on_the_hermetic_profile_ends_at_once() {
         let (mut store, instance) = guest(Profile::Hermetic, None);
-        let started = Instant::now();
         let pollable = call::<i64, i32>(&mut store, &instance, "subscribe", 10_000_000_000)
             .expect("a pollable");
+        let waits = crate::waits::count_waits();
         call::<i32, ()>(&mut store, &instance, "block", pollable).expect("the wait answers");
-        assert!(
-            started.elapsed() < Duration::from_secs(1),
+        assert_eq!(
+            waits.load(std::sync::atomic::Ordering::SeqCst),
+            0,
             "pollable.block on ten seconds of subscribe-duration on the hermetic profile must \
-             return at once, not after {:?}",
-            started.elapsed()
+             return without the host waiting"
         );
     }
 

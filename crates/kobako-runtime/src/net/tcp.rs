@@ -964,11 +964,11 @@ mod tests {
     fn a_socket_file_never_waits() {
         let (_sock, mut file, _peer) = connected_socket();
         file.setfl(false, false);
-        let started = std::time::Instant::now();
+        let waits = crate::sched::testing::count_waits();
         let read = crate::sched::testing::within_max_wait(|| file.read(&mut [0; 8]));
         assert_eq!(
-            (read, started.elapsed() < Duration::from_secs(1)),
-            (Err(Errno::WouldBlock), true),
+            (read, waits.load(std::sync::atomic::Ordering::SeqCst)),
+            (Err(Errno::WouldBlock), 0),
             "File::read of a connected socket whose peer sent nothing must answer EAGAIN at \
              once, its non-blocking flag cleared or not, since WASI's sockets never block"
         );
