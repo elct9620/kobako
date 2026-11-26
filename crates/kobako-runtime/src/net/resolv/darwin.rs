@@ -128,7 +128,8 @@ impl Query {
             });
         }
         let fd = unsafe { DNSServiceRefSockFD(sd_ref) };
-        match reactor.register(&mut SourceFd(&fd), waker) {
+        // The daemon's replies arrive on the descriptor; nothing writes to it.
+        match reactor.register(&mut SourceFd(&fd), waker, false) {
             Ok(registration) => Ok(Self {
                 sd_ref,
                 fd,

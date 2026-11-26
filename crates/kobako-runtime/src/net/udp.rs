@@ -151,7 +151,7 @@ impl UdpSock {
         let mut socket = mio::net::UdpSocket::from_std(host);
         let ready: Weak<dyn Ready> = self.this.clone();
         let registration = reactor
-            .register(&mut socket, ready)
+            .register(&mut socket, ready, false)
             .map_err(|err| Errno::from_io_error(&err))?;
         let mut state = self.state();
         // What the old peer sent reads as its own, so it is taken in before
@@ -242,10 +242,13 @@ impl UdpSock {
 
 impl Ready for UdpSock {
     /// What arrived reads into the queue, and the host socket may take a send
-    /// again.
+    /// again, so the reactor stops watching for room.
     fn on_event(&self, _events: PollMask) {
         let mut state = self.state();
         state.writable = true;
+        if let Some((socket, registration)) = state.host.as_mut() {
+            registration.set_nospace(socket, false);
+        }
         self.pump_and_wake(state);
     }
 
@@ -339,7 +342,7 @@ impl ProtoOps for UdpSock {
         if state.inet.send_shutdown {
             return Err(Errno::BrokenPipe);
         }
-        let Some((socket, _)) = state.host.as_ref() else {
+        let Some((socket, registration)) = state.host.as_mut() else {
             return Err(Errno::WouldBlock);
         };
         let sent = loop {
@@ -351,6 +354,7 @@ impl ProtoOps for UdpSock {
         match sent {
             Ok(_) => Ok(buf.len()),
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                registration.set_nospace(socket, true);
                 state.writable = false;
                 Err(Errno::WouldBlock)
             }
@@ -479,6 +483,24 @@ mod tests {
         peer.send_to(b"hello", host.unwrap().unwrap()).unwrap();
         wait_for(|table| sock.poll(table), PollMask::IN);
         (sock, peer)
+    }
+
+    // @behavior NW-257
+    #[test]
+    fn a_quiet_udp_socket_leaves_its_waiter_asleep() {
+        let peer = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let sock = connected_socket(peer.local_addr().unwrap());
+        let waited = crate::net::socket::testing::looks_waiting_to_read(
+            |table| sock.poll(table),
+            Duration::from_millis(200),
+        );
+        assert_eq!(
+            waited,
+            (2, false),
+            "a guest waiting to read a UDP socket whose peer sends nothing must look once as its \
+             wait starts and once as it ends, woken by nothing in between; (looks, found) was \
+             {waited:?}"
+        );
     }
 
     // @behavior NW-125

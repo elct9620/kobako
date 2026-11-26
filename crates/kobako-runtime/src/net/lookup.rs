@@ -366,7 +366,7 @@ mod tests {
         let mut socket = mio::net::UdpSocket::bind(addr).expect("a UDP socket binds");
         let _registration = Reactor::current()
             .expect("a reactor starts")
-            .register(&mut socket, Arc::downgrade(&ready))
+            .register(&mut socket, Arc::downgrade(&ready), false)
             .expect("the socket registers");
         while rx.try_recv().is_ok() {}
         std::net::UdpSocket::bind(addr)

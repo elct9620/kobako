@@ -292,7 +292,8 @@ impl TcpSock {
             let _ = Self::set_options(SockRef::from(&stream), state);
             let mut stream = mio::net::TcpStream::from_std(stream);
             let ready: Weak<dyn Ready> = self.this.clone();
-            let registration = reactor.register(&mut stream, ready)?;
+            // A connect settles as the host socket turns writable.
+            let registration = reactor.register(&mut stream, ready, true)?;
             Ok((stream, registration))
         });
         match dialed {
@@ -373,18 +374,22 @@ impl TcpSock {
         }
     }
 
-    /// Move what the host socket takes and holds now, without blocking.
+    /// Move what the host socket takes and holds now, without blocking, then
+    /// have the reactor watch for room only while something waits for it.
     fn pump(&self, state: &mut State) {
         if state.phase == Phase::Connecting {
             self.settle_connect(state);
         }
-        if state.phase != Phase::Connected {
-            return;
+        if state.phase == Phase::Connected {
+            match Self::move_bytes(state) {
+                Ok(()) if state.fin_sent && state.received_end => Self::done(state),
+                Ok(()) => {}
+                Err(err) => Self::done_with_error(state, err),
+            }
         }
-        match Self::move_bytes(state) {
-            Ok(()) if state.fin_sent && state.received_end => Self::done(state),
-            Ok(()) => {}
-            Err(err) => Self::done_with_error(state, err),
+        let nospace = state.phase == Phase::Connecting || !state.write_queue.is_empty();
+        if let Some((stream, registration)) = state.host.as_mut() {
+            registration.set_nospace(stream, nospace);
         }
     }
 
@@ -933,6 +938,25 @@ mod tests {
              reads; refused {refused:?}, queued {queued}, writable {writable_while_full}"
         );
         reader.join().unwrap();
+    }
+
+    // A connected socket stays writable, so a reactor watching it for room it
+    // never waited on would hear of it again on every turn.
+    // @behavior NW-257
+    #[test]
+    fn a_quiet_connection_leaves_its_waiter_asleep() {
+        let (_sock, file, _peer) = connected_socket();
+        let waited = crate::net::socket::testing::looks_waiting_to_read(
+            |table| file.poll(table),
+            Duration::from_millis(200),
+        );
+        assert_eq!(
+            waited,
+            (2, false),
+            "a guest waiting to read a TCP socket whose peer sends nothing and which has nothing \
+             left to send must look once as its wait starts and once as it ends, woken by nothing in \
+             between; (looks, found) was {waited:?}"
+        );
     }
 
     // @behavior RT-381

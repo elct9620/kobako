@@ -3216,3 +3216,15 @@ endpoint "api.example.com", port: 443
 | Given | a request whose connection always has more to read, as a peer sending endless informational responses |
 | When | its guest looks at the request, or waits on it |
 | Then | each look reads at most 128 times, as tokio's budget bounds one poll of a task. The request wakes its own wait, so the wait looks again. Its timeouts and its run's stop so come in between looks |
+
+## `NW-257` A quiet socket leaves its waiter asleep
+
+| Attribute | Value |
+| --- | --- |
+| relates | `NW-174` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a TCP or UDP socket whose peer sends nothing, with nothing of its own left to send |
+| When | its guest waits on it to read |
+| Then | the wait sleeps until its deadline, woken by nothing in between. Linux wakes its waiters as data arrives, or as room returns to a writer that found none (`SOCK_NOSPACE`) |

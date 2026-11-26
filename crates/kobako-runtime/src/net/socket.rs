@@ -811,6 +811,27 @@ pub(crate) mod testing {
             within_max_wait(|| do_poll(|| None, |table| poll(table).contains(mask).then_some(())));
         assert_eq!(found, Ok(Some(())), "the socket's poll must find {mask:?}");
     }
+
+    /// How many times a wait on `poll` to read woke over `quiet`, and whether
+    /// it found something: each wake asks `poll` again, so a wait nothing
+    /// woke asks it once as it starts and once as it ends.
+    pub(crate) fn looks_waiting_to_read(
+        poll: impl Fn(Option<&mut PollTable>) -> PollMask,
+        quiet: std::time::Duration,
+    ) -> (usize, bool) {
+        let end = std::time::Instant::now() + quiet;
+        let mut looks = 0;
+        let found = within_max_wait(|| {
+            do_poll(
+                || Some(end),
+                |table| {
+                    looks += 1;
+                    poll(table).contains(PollMask::IN).then_some(())
+                },
+            )
+        });
+        (looks, found == Ok(Some(())))
+    }
 }
 
 #[cfg(test)]

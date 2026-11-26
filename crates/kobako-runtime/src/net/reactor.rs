@@ -53,6 +53,18 @@ pub(crate) trait Ready: Send + Sync {
     fn abort(&self);
 }
 
+/// What the reactor watches a socket for: what arrives, always, and room to
+/// write only while a writer found none, as Linux wakes a socket's writers
+/// once `SOCK_NOSPACE` marks it. A socket that always has room would
+/// otherwise be reported again each time a host re-arms its watch, as
+/// Windows' AFD does after every read that would block.
+fn interest(nospace: bool) -> Interest {
+    match nospace {
+        true => Interest::READABLE | Interest::WRITABLE,
+        false => Interest::READABLE,
+    }
+}
+
 /// The token that wakes the reactor to read its timers and repolls again.
 const WAKE_TOKEN: Token = Token(0);
 
@@ -217,23 +229,22 @@ impl Reactor {
         due.into_iter().for_each(Waker::wake);
     }
 
-    /// Watch `source` for reading and writing, handing each change to `ready`'s
-    /// `on_event`; a reactor that stopped refuses it with `ECONNABORTED`, as
-    /// nobody would wake its socket.
+    /// Watch `source` for what arrives, and for room to write while `nospace`
+    /// holds, handing each change to `ready`'s `on_event`; a reactor that
+    /// stopped refuses it with `ECONNABORTED`, as nobody would wake its
+    /// socket.
     pub(crate) fn register(
         self: &Arc<Self>,
         source: &mut impl Source,
         ready: Weak<dyn Ready>,
+        nospace: bool,
     ) -> io::Result<Registration> {
         let token = Token(self.next.fetch_add(1, Ordering::Relaxed));
         self.sockets
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .insert(token, ready);
-        if let Err(err) =
-            self.registry
-                .register(source, token, Interest::READABLE | Interest::WRITABLE)
-        {
+        if let Err(err) = self.registry.register(source, token, interest(nospace)) {
             self.forget(token);
             return Err(err);
         }
@@ -248,6 +259,7 @@ impl Reactor {
             token,
             reactor: self.clone(),
             pid: Pid::current(),
+            nospace,
         })
     }
 
@@ -293,9 +305,27 @@ pub(crate) struct Registration {
     token: Token,
     reactor: Arc<Reactor>,
     pid: Pid,
+    nospace: bool,
 }
 
 impl Registration {
+    /// Watch `source` for room to write while `nospace` holds, as a writer
+    /// that found none sets `SOCK_NOSPACE` and one that wrote clears it. A
+    /// forked child leaves its parent's watch as it was, as `deregister` does.
+    pub(crate) fn set_nospace(&mut self, source: &mut impl Source, nospace: bool) {
+        if self.nospace == nospace || !self.pid.is_current() {
+            return;
+        }
+        if self
+            .reactor
+            .registry
+            .reregister(source, self.token, interest(nospace))
+            .is_ok()
+        {
+            self.nospace = nospace;
+        }
+    }
+
     /// Stop watching `source`, which the socket closes next; the token goes
     /// once the registration drops. A forked child leaves its parent's
     /// registration be: the epoll instance is shared, and removing the one
@@ -425,10 +455,10 @@ mod tests {
         let mut watched = mio::net::UdpSocket::bind(addr).expect("a UDP socket binds");
         let mut failed = mio::net::UdpSocket::bind(addr).expect("a UDP socket binds");
         let _watching = reactor
-            .register(&mut watched, Arc::downgrade(&waiting))
+            .register(&mut watched, Arc::downgrade(&waiting), false)
             .expect("the socket registers");
         let _failing = reactor
-            .register(&mut failed, Arc::downgrade(&failing))
+            .register(&mut failed, Arc::downgrade(&failing), false)
             .expect("the socket registers");
         let _timer = reactor.wake_at(
             Instant::now() + Duration::from_secs(30),
@@ -503,7 +533,7 @@ mod tests {
         let addr = "127.0.0.1:0".parse().unwrap();
         let mut socket = mio::net::UdpSocket::bind(addr).expect("a UDP socket binds");
         let mut registration = reactor
-            .register(&mut socket, Arc::downgrade(&ready))
+            .register(&mut socket, Arc::downgrade(&ready), false)
             .expect("the socket registers");
         while rx.recv_timeout(Duration::from_millis(50)).is_ok() {}
         registration.pid = Pid::parent();

@@ -388,14 +388,19 @@ impl WatchedSocket<mio::net::UdpSocket> {
         let socket = mio::net::UdpSocket::bind(super::any_address_of(server))
             .map_err(|err| io::Error::other(Unopened(err)))?;
         socket.connect(server)?;
-        Self::watch(socket)
+        Self::watch(socket, false)
     }
 
     async fn send(&mut self, bytes: &[u8], deadline: Instant) -> io::Result<()> {
         loop {
             match self.socket.send(bytes) {
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                sent => return sent.map(drop),
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                    self.registration.set_nospace(&mut self.socket, true);
+                }
+                sent => {
+                    self.registration.set_nospace(&mut self.socket, false);
+                    return sent.map(drop);
+                }
             }
             if !self.wait_for_change(deadline).await {
                 return Err(io::ErrorKind::TimedOut.into());
@@ -444,8 +449,10 @@ impl WatchedSocket<mio::net::UdpSocket> {
 }
 
 impl WatchedSocket<mio::net::TcpStream> {
+    /// Watched for room until it reads, as its connect and its question
+    /// both wait on the stream turning writable.
     fn connect_tcp(server: SocketAddr) -> io::Result<Self> {
-        Self::watch(mio::net::TcpStream::connect(server)?)
+        Self::watch(mio::net::TcpStream::connect(server)?, true)
     }
 
     async fn write_all(&mut self, mut bytes: &[u8], deadline: Instant) -> io::Result<()> {
@@ -472,6 +479,7 @@ impl WatchedSocket<mio::net::TcpStream> {
     /// Fill `buffer`; `false` when the stream ends or the deadline passes
     /// first.
     async fn read_exact(&mut self, mut buffer: &mut [u8], deadline: Instant) -> io::Result<bool> {
+        self.registration.set_nospace(&mut self.socket, false);
         while !buffer.is_empty() {
             match self.socket.read(buffer) {
                 Ok(0) => return Ok(false),
@@ -489,10 +497,10 @@ impl WatchedSocket<mio::net::TcpStream> {
 }
 
 impl<S: Source> WatchedSocket<S> {
-    fn watch(mut socket: S) -> io::Result<Self> {
+    fn watch(mut socket: S, nospace: bool) -> io::Result<Self> {
         let waker = Arc::new(ReadyWaker::default());
         let ready = Arc::downgrade(&waker) as Weak<dyn Ready>;
-        let registration = Reactor::current()?.register(&mut socket, ready)?;
+        let registration = Reactor::current()?.register(&mut socket, ready, nospace)?;
         Ok(Self {
             socket,
             registration,
