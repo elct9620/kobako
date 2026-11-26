@@ -513,18 +513,8 @@ mod tests {
             .as_ref()
             .map(|(socket, _)| (socket.ttl().unwrap(), socket.local_addr().unwrap()));
         let (host_ttl, local) = host.expect("the socket holds its host socket");
-        for _ in 0..4 {
-            peer.send_to(&[1; 1000], local).unwrap();
-        }
-        // Loopback hands datagrams over a moment apart, so wait for the two
-        // the buffer fits, then give the rest time to arrive and be dropped.
-        let started = Instant::now();
-        while sock.state().receive_queue.len() < 2 && started.elapsed() < Duration::from_secs(5) {
-            sock.on_event();
-            thread::sleep(Duration::from_millis(1));
-        }
-        thread::sleep(Duration::from_millis(50));
-        sock.on_event();
+        send_witnessed(&peer, local, [[1; 1000]; 4]);
+        drain_host_socket(&sock);
         let held = sock.state().receive_queue.len();
         assert_eq!(
             (
@@ -571,16 +561,8 @@ mod tests {
             .as_ref()
             .map(|(socket, _)| socket.local_addr().unwrap())
             .expect("the socket holds its host socket");
-        for _ in 0..200 {
-            peer.send_to(&[], local).unwrap();
-        }
-        let started = Instant::now();
-        while sock.state().receive_queue.len() < 41 && started.elapsed() < Duration::from_secs(5) {
-            sock.on_event();
-            thread::sleep(Duration::from_millis(1));
-        }
-        thread::sleep(Duration::from_millis(50));
-        sock.on_event();
+        send_witnessed(&peer, local, [[0u8; 0]; 200]);
+        drain_host_socket(&sock);
         assert_eq!(
             sock.state().receive_queue.len(),
             41,
@@ -612,16 +594,8 @@ mod tests {
             .as_ref()
             .map(|(socket, _)| socket.local_addr().unwrap())
             .expect("the socket holds its host socket");
-        for _ in 0..2 {
-            peer.send_to(&[7; 3000], local).unwrap();
-        }
-        let started = Instant::now();
-        while sock.state().receive_queue.is_empty() && started.elapsed() < Duration::from_secs(5) {
-            sock.on_event();
-            thread::sleep(Duration::from_millis(1));
-        }
-        thread::sleep(Duration::from_millis(50));
-        sock.on_event();
+        send_witnessed(&peer, local, [[7; 3000]; 2]);
+        drain_host_socket(&sock);
         let lengths = sock
             .state()
             .receive_queue
@@ -749,21 +723,50 @@ mod tests {
     }
 
     /// Send `count` one-byte datagrams numbered from 0 from `peer` to
-    /// `local`, then one to a witness socket, and wait until the witness
-    /// hears it: loopback hands one sender's datagrams over in order, so
-    /// every datagram before it waits in the host socket's queue by then.
+    /// `local`, all waiting in the host socket's queue once it returns.
     fn send_numbered(peer: &UdpSocket, local: SocketAddr, count: u8) {
+        send_witnessed(peer, local, (0..count).map(|i| [i]));
+    }
+
+    /// Send each of `datagrams` from `peer` to `local`, then one to a witness
+    /// socket, and wait until the witness hears it: loopback hands one
+    /// sender's datagrams over in order, so every datagram before it waits in
+    /// the host socket's queue by then.
+    fn send_witnessed(
+        peer: &UdpSocket,
+        local: SocketAddr,
+        datagrams: impl IntoIterator<Item = impl AsRef<[u8]>>,
+    ) {
         let witness = UdpSocket::bind("127.0.0.1:0").unwrap();
         witness
             .set_read_timeout(Some(crate::sched::testing::MAX_WAIT))
             .unwrap();
-        for i in 0..count {
-            peer.send_to(&[i], local).unwrap();
+        for datagram in datagrams {
+            peer.send_to(datagram.as_ref(), local).unwrap();
         }
         peer.send_to(b"w", witness.local_addr().unwrap()).unwrap();
         witness
             .recv_from(&mut [0; 1])
-            .expect("the datagram sent after the numbered ones never reached its witness");
+            .expect("the datagram sent after the others never reached its witness");
+    }
+
+    /// Hand `sock` its events until its host socket holds nothing, so each
+    /// datagram that waited there was queued or dropped.
+    fn drain_host_socket(sock: &UdpSock) {
+        let started = Instant::now();
+        while started.elapsed() < crate::sched::testing::MAX_WAIT {
+            sock.on_event();
+            let state = sock.state();
+            let (socket, _) = state.host.as_ref().expect("a connected socket");
+            match socket.peek_from(&mut [0; 8]) {
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => return,
+                _ => {}
+            }
+        }
+        panic!(
+            "the host socket still held datagrams past the longest a test waits, so the socket's \
+             events never take what arrived"
+        );
     }
 
     /// Wait until a datagram waits in `sock`'s host socket.
