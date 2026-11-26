@@ -16,9 +16,9 @@ class TestE2ECaps < Minitest::Test
   def test_timeout_cap_traps_infinite_loop
     sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, timeout: 0.05)
 
-    started = Time.now
+    started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
     err = assert_raises(Kobako::TimeoutError) { sandbox.eval("loop { }") }
-    elapsed = Time.now - started
+    elapsed = Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
 
     assert_kind_of Kobako::TrapError, err,
                    "TimeoutError must be a TrapError subclass"
