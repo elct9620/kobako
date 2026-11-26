@@ -391,9 +391,14 @@ impl<F: FnOnce()> AssertSend<F> {
     }
 }
 
+/// A run a guest's thread takes, which hands back the word that it ended.
+/// The thread is listed idle before its caller hears that word, so a caller
+/// that runs again at once finds it.
+type Run = Box<dyn FnOnce() -> Job + Send>;
+
 /// A guest's thread waiting for the next run.
 struct Worker {
-    runs: Arc<Mailbox<Job>>,
+    runs: Arc<Mailbox<Run>>,
 }
 
 /// The guest threads waiting for a run, this process's own.
@@ -422,12 +427,12 @@ pub(crate) fn start(
         waiting,
     });
     let guest_line = line.clone();
-    let job: Job = Box::new(move || {
+    let job: Run = Box::new(move || {
         LINE.with(|held| *held.borrow_mut() = Some(guest_line.clone()));
         let panic = catch_unwind(AssertUnwindSafe(|| task.carry(run))).err();
         LINE.with(|held| *held.borrow_mut() = None);
         guest_line.ended.store(true, Ordering::SeqCst);
-        guest_line.to_caller.put(Message::Done(panic));
+        Box::new(move || guest_line.to_caller.put(Message::Done(panic)))
     });
     let idle = IDLE.with(|idle| idle.get_or_insert_with(Vec::new).pop());
     match idle {
@@ -437,7 +442,7 @@ pub(crate) fn start(
     Ok(line)
 }
 
-fn spawn(first: Job) -> io::Result<()> {
+fn spawn(first: Run) -> io::Result<()> {
     let runs = Arc::new(Mailbox::new());
     runs.put(first);
     thread::Builder::new()
@@ -450,18 +455,19 @@ fn spawn(first: Job) -> io::Result<()> {
                 // A caller took this thread as the limit passed; its run comes.
                 None => runs.take(),
             };
-            run();
+            let ended = run();
             IDLE.with(|idle| {
                 idle.get_or_insert_with(Vec::new)
                     .push(Worker { runs: runs.clone() })
             });
+            ended();
         })?;
     Ok(())
 }
 
 /// Take the thread waiting on `runs` off the idle list, unless a caller took
 /// it first; both happen under the list's lock, so never both.
-fn leave_idle(runs: &Arc<Mailbox<Job>>) -> bool {
+fn leave_idle(runs: &Arc<Mailbox<Run>>) -> bool {
     IDLE.with(|idle| {
         let idle = idle.get_or_insert_with(Vec::new);
         match idle

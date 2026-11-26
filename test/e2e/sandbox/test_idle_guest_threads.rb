@@ -26,6 +26,26 @@ class TestE2EIdleGuestThreads < Minitest::Test
     print [kept, ended, answer, guest_threads].inspect
   RUBY
 
+  ONE_AFTER_ANOTHER = <<~RUBY
+    require "kobako"
+    def guest_threads = Dir.glob("/proc/self/task/*/comm").count { |comm| (File.read(comm) rescue "").strip == "kobako-guest" }
+    counts = %i[hold release].map do |gvl|
+      sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: gvl)
+      200.times { sandbox.eval("1") }
+      guest_threads
+    end
+    print counts.inspect
+  RUBY
+
+  # @behavior S-232
+  def test_runs_one_after_another_take_the_thread_the_last_one_left
+    skip "only Linux names each thread in /proc" unless File.directory?("/proc/self/task")
+
+    assert_equal "[1, 1]", run_ruby(ONE_AFTER_ANOTHER, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 40),
+                 "200 Sandbox#eval runs one after another, under gvl: :hold and then :release, must leave the " \
+                 "process one guest thread, each run taking the thread the run before it left"
+  end
+
   # @behavior S-232
   def test_a_run_after_the_guest_threads_were_left_idle_still_answers
     skip "only Linux names each thread in /proc" unless File.directory?("/proc/self/task")

@@ -66,7 +66,7 @@ Some contention shows only under `:release` or a long `:hold` run, such as a `..
 
 #### Idle Threads
 
-A guest's thread waits idle for the next run, and ends once ten seconds pass, as tokio's blocking pool keeps one. A run that takes it at that moment must still get its job run, or the run waits forever.
+A guest's thread waits idle for the next run, and ends once ten seconds pass, as tokio's blocking pool keeps one. A run that takes it at that moment must still get its job run, or the run waits forever. A thread rejoins the idle list before its caller hears the run ended, so a caller that runs again at once takes it rather than starting another.
 
 ```
 guest thread           idle list            run

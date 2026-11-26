@@ -2143,7 +2143,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | --- | --- |
 | Given | a process whose runs at once left three guest threads waiting for the next run |
 | When | no run starts for ten seconds, and then one does |
-| Then | the run answers on a thread it starts, and the idle threads have ended. A run taking a thread as it ends still gets its own job run. An idle thread is kept as long as a blocking pool keeps one |
+| Then | the run answers on a thread it starts, and the idle threads have ended. A run taking a thread as it ends still gets its own job run. A run started once another has returned takes the thread that run left. An idle thread is kept as long as a blocking pool keeps one |
 
 ## `S-233` A run on a Fiber a callback starts holds locks as the callback's run
 
