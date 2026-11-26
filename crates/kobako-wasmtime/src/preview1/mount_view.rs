@@ -3660,13 +3660,16 @@ fn a_files_access_is_checked_before_a_buffer_outside_memory_is_bounded() {
     );
 }
 
+#[cfg(unix)]
 const PUB_X: (i32, i32) = (1150, 5);
 
 /// A Policy allowing `/pub/` alone, which swaps `pub` for a link to
 /// `secret` the first time it is asked, as another writer could between
 /// its judgment and the call.
+#[cfg(unix)]
 struct SwapsWhileAsked(std::path::PathBuf, std::sync::atomic::AtomicBool);
 
+#[cfg(unix)]
 impl Policy<MountRequest<'_>> for SwapsWhileAsked {
     fn allows(&self, request: &MountRequest<'_>) -> bool {
         if self.1.swap(false, Ordering::SeqCst) {
@@ -3679,8 +3682,10 @@ impl Policy<MountRequest<'_>> for SwapsWhileAsked {
 
 // The swap happens inside the Policy's own judgment, after the walk opened
 // `pub`, so only a call acting on the directory it walked to, rather than
-// on the path again, keeps from reading `secret/x`.
+// on the path again, keeps from reading `secret/x`. Windows refuses to move a
+// directory the walk holds open, so there no swap can be staged.
 // @behavior RT-145
+#[cfg(unix)]
 #[test]
 fn a_link_swapped_in_after_a_policy_judges_a_path_is_not_followed() {
     let host = std::env::temp_dir().join(format!("kobako-swapped-{}", std::process::id()));
