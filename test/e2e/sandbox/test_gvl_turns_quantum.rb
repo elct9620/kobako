@@ -10,10 +10,17 @@ class TestE2EGvlTurnsQuantum < Minitest::Test
   include ChildProcess
 
   DEADLINE = 30
+  # Longer than a 1 ms sleep takes with the GVL free, and shorter than any
+  # quantum a Ruby keeps.
+  FREE = 0.05
+  # How long the waits go on while each still finds the GVL free.
+  LONGEST = 2
 
-  # Prints the longest of a few waits for the GVL beside a thread that never
-  # gives it up of its own accord: a guest that never ends, or plain Ruby.
-  STALL = <<~RUBY
+  # Prints the longest wait for the GVL beside a thread that never gives it
+  # up of its own accord: a guest that never ends, or plain Ruby. The file
+  # stands before the guest's write returns, and the GVL is free until it
+  # does, so the waits go on until one is past FREE or LONGEST has gone by.
+  STALL = <<~RUBY.freeze
     require "kobako"
     require "tmpdir"
     dir = Dir.mktmpdir
@@ -25,12 +32,15 @@ class TestE2EGvlTurnsQuantum < Minitest::Test
       Thread.new { sandbox.eval('File.write("/t/in", "1"); loop { }') }
     end
     sleep 0.01 until File.exist?(File.join(dir, "in"))
-    waits = Array.new(2) do
-      started = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+    clock = -> { Process.clock_gettime(Process::CLOCK_MONOTONIC) }
+    until_at = clock.call + #{LONGEST}
+    longest = 0.0
+    while longest <= #{FREE} && clock.call < until_at
+      started = clock.call
       sleep 0.001
-      Process.clock_gettime(Process::CLOCK_MONOTONIC) - started
+      longest = [longest, clock.call - started].max
     end
-    print waits.max
+    print longest
     $stdout.flush
     exit!(0)
   RUBY
