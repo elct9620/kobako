@@ -13,7 +13,7 @@
 //! since no run would raise it again.
 
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, PoisonError, Weak};
 
 use kobako_runtime::fork::ProcessLocal;
@@ -205,9 +205,10 @@ impl Run {
     /// callback started on the same Thread is known to locks as the run whose
     /// callback it is, as the Fiber inherits that run's mark.
     ///
-    /// An outermost run waits while a fork is under way, and raises what
-    /// interrupts that wait.
-    pub(super) fn enter(ruby: &Ruby) -> Result<Self, MagnusError> {
+    /// An outermost run waits while a fork is under way, counted in
+    /// `waiting`, its Sandbox's runs waiting, and raises what interrupts that
+    /// wait.
+    pub(super) fn enter(ruby: &Ruby, waiting: &AtomicUsize) -> Result<Self, MagnusError> {
         let fiber = fiber_id();
         let state = match with_runs(|runs| runs.by_fiber.get(&fiber).cloned()) {
             Some(state) => state,
@@ -222,7 +223,7 @@ impl Run {
                     runs.forks == 0
                 });
                 if !entered {
-                    wait_for_forks(ruby, fiber)?;
+                    handoff::count_waiting(waiting, || wait_for_forks(ruby, fiber))?;
                 }
                 state
             }

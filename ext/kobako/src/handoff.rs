@@ -210,9 +210,7 @@ impl Line {
     /// Run `wait`, counted among the runs of the caller's Sandbox waiting
     /// until it returns, whatever way it ends.
     fn counting(&self, wait: &mut dyn FnMut()) {
-        self.waiting.fetch_add(1, Ordering::SeqCst);
-        let _ends = WaitEnd(&self.waiting);
-        wait();
+        count_waiting(&self.waiting, wait)
     }
 
     fn is_abandoned(&self) -> bool {
@@ -364,6 +362,14 @@ pub(crate) fn wait_releasing(wait: &mut dyn FnMut()) {
     line.to_caller.put(Message::Wait(true));
     line.counting(wait);
     line.ask(Message::Wait(false));
+}
+
+/// Run `wait`, counted in `waiting`, a Sandbox's runs waiting, until it
+/// returns, whatever way it ends.
+pub(crate) fn count_waiting<R>(waiting: &AtomicUsize, wait: impl FnOnce() -> R) -> R {
+    waiting.fetch_add(1, Ordering::SeqCst);
+    let _ends = WaitEnd(waiting);
+    wait()
 }
 
 /// Takes a wait off the count of its Sandbox's runs waiting once it goes.

@@ -11,6 +11,31 @@ module ForkingChild
 
   BOUND = 30
 
+  # A +_fork+ hook a script prepends before its first sandbox, so it runs
+  # inside kobako's own: +pause_a_fork+ starts a fork that stops there, runs
+  # held back, until the script fills +$resume+.
+  PAUSING_HOOK = <<~RUBY
+    $pause = false
+    $paused = Queue.new
+    $resume = Queue.new
+    Process.singleton_class.prepend(Module.new do
+      def _fork
+        if $pause
+          $paused << 1
+          $resume.pop
+        end
+        super
+      end
+    end)
+    def pause_a_fork
+      $pause = true
+      forking = Thread.new { fork_outcome }
+      $paused.pop
+      $pause = false
+      forking
+    end
+  RUBY
+
   PRELUDE = <<~RUBY.freeze
     require "kobako"
     require "stringio"

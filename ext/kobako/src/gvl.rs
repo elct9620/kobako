@@ -295,7 +295,7 @@ where
     R: Send + 'static,
     F: FnOnce() -> R + Send + 'static,
 {
-    let run = escape::Run::enter(ruby)?;
+    let run = escape::Run::enter(ruby, waiting)?;
     let f = setup()?;
     let ran = serve(ruby, release, waiting, run.state(), f)?;
     fork::tell_pitchfork_past_trust(ruby);

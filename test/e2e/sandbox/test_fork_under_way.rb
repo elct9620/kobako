@@ -8,40 +8,18 @@ require "test_helper"
 class TestE2EForkUnderWay < Minitest::Test
   include ForkingChild
 
-  PAUSING_HOOK = <<~RUBY
-    $pause = false
-    $paused = Queue.new
-    $resume = Queue.new
-    Process.singleton_class.prepend(Module.new do
-      def _fork
-        if $pause
-          $paused << 1
-          $resume.pop
-        end
-        super
-      end
-    end)
-    def pause_a_fork
-      $pause = true
-      forking = Thread.new { fork_outcome }
-      $paused.pop
-      $pause = false
-      forking
-    end
-  RUBY
-
   RUN_DURING_A_FORK = <<~RUBY
     waiting = sandbox
     forking = pause_a_fork
     run = Thread.new { waiting.eval("1").value }
-    Thread.pass until run.status == "sleep"
+    Thread.pass until waiting.stat(:runs_waiting) == 1
     beside = fork_within(2)
     interrupted = Thread.new do
       waiting.eval("2").value
     rescue ArgumentError => e
       e.message
     end
-    Thread.pass until interrupted.status == "sleep"
+    Thread.pass until waiting.stat(:runs_waiting) == 2
     interrupted.raise(ArgumentError, "stop")
     held = run.alive?
     $resume << 1
@@ -76,7 +54,7 @@ class TestE2EForkUnderWay < Minitest::Test
     print(Array.new(20) do
       forking = pause_a_fork
       run = Thread.new { blocked.eval("Blocker.wait; :ended").value }
-      Thread.pass until run.status == "sleep"
+      Thread.pass until blocked.stat(:runs_waiting) == 1
       $again = true
       $resume << 1
       forking.value

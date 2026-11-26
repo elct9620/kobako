@@ -2516,3 +2516,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox whose run waits on a directory another run holds |
 | When | the Host App reads `Sandbox#stat` while it waits, and after it ends |
 | Then | `:runs_waiting` counts that run while it waits, and no run once it ends. `Sandbox#stat(:runs_waiting)` answers the count alone, as `GC.stat` does |
+
+## `S-265` A Sandbox counts a run waiting on a fork
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-264` |
+| relates | `S-249` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Sandbox whose run waits on a fork under way |
+| When | the Host App reads `Sandbox#stat(:runs_waiting)` while it waits, and after the fork returns |
+| Then | the count holds that run while it waits, and no run once it enters |
