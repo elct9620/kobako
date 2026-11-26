@@ -13,7 +13,7 @@ class TestE2EForkWaitingCount < Minitest::Test
     blocked = sandbox.bind("Blocker", blocker)
     forking = pause_a_fork
     run = Thread.new { blocked.eval("Blocker.wait; :ended").value }
-    Thread.pass until blocked.stat(:runs_waiting) == 1
+    sleep 0.001 until blocked.stat(:runs_waiting) == 1
     $resume << 1
     forking.value
     blocker.await_arrival

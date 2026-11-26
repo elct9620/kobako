@@ -12,14 +12,14 @@ class TestE2EForkUnderWay < Minitest::Test
     waiting = sandbox
     forking = pause_a_fork
     run = Thread.new { waiting.eval("1").value }
-    Thread.pass until waiting.stat(:runs_waiting) == 1
+    sleep 0.001 until waiting.stat(:runs_waiting) == 1
     beside = fork_within(2)
     interrupted = Thread.new do
       waiting.eval("2").value
     rescue ArgumentError => e
       e.message
     end
-    Thread.pass until waiting.stat(:runs_waiting) == 2
+    sleep 0.001 until waiting.stat(:runs_waiting) == 2
     interrupted.raise(ArgumentError, "stop")
     held = run.alive?
     $resume << 1
@@ -54,7 +54,7 @@ class TestE2EForkUnderWay < Minitest::Test
     print(Array.new(20) do
       forking = pause_a_fork
       run = Thread.new { blocked.eval("Blocker.wait; :ended").value }
-      Thread.pass until blocked.stat(:runs_waiting) == 1
+      sleep 0.001 until blocked.stat(:runs_waiting) == 1
       $again = true
       $resume << 1
       forking.value
