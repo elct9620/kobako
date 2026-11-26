@@ -11,6 +11,7 @@ use std::io;
 
 use cap_std::fs::Dir;
 
+use super::unicode::to_guest_name;
 use super::{to_error, Errno};
 
 /// The name `parent` stores for the entry `name` reaches, a link reached
@@ -18,10 +19,7 @@ use super::{to_error, Errno};
 pub(super) fn lookup(parent: &Dir, name: &str) -> Result<String, Errno> {
     #[cfg(target_os = "macos")]
     {
-        macos::lookup(parent, name)
-            .map_err(to_error)?
-            .into_string()
-            .map_err(|_| Errno::IllegalSequence)
+        to_guest_name(macos::lookup(parent, name).map_err(to_error)?)
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -66,13 +64,13 @@ fn stored_by_inode(
 ) -> Result<String, Errno> {
     use cap_std::fs::MetadataExt;
     use std::os::unix::fs::DirEntryExt;
-    names
-        .into_iter()
-        .find(|entry| entry.ino() == found.ino())
-        .ok_or(Errno::PermissionDenied)?
-        .file_name()
-        .into_string()
-        .map_err(|_| Errno::IllegalSequence)
+    to_guest_name(
+        names
+            .into_iter()
+            .find(|entry| entry.ino() == found.ino())
+            .ok_or(Errno::PermissionDenied)?
+            .file_name(),
+    )
 }
 
 /// The name among `names` sharing the file index of `found`. A listed entry
@@ -90,7 +88,7 @@ fn stored_by_inode(
         let name = entry.file_name();
         let listed = parent.symlink_metadata(&name);
         if listed.is_ok_and(|listed| listed.ino() == found.ino()) {
-            return name.into_string().map_err(|_| Errno::IllegalSequence);
+            return to_guest_name(name);
         }
     }
     Err(Errno::PermissionDenied)

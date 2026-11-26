@@ -7,9 +7,27 @@
 //! path itself, which refuses a `..` or a link leading out of the
 //! directory whatever a caller hands over, and answers alike on every
 //! host, Windows among them.
+//!
+//! A Windows host differs from Linux in each row below, and a Bind answers
+//! there as Linux does:
+//!
+//! | What Windows does apart | How a Bind answers | Where |
+//! |---|---|---|
+//! | spells names and link targets its own way | as a guest spells them | `unicode` |
+//! | folds a name's case | the name the directory stores | `lookup` |
+//! | names an entry by volume and file index | that pair as its identity | `to_kstat` |
+//! | keeps no time a status changed | no such time | `to_kstat` |
+//! | removes a link to a directory only as a directory | the link removed as itself | `unlink` |
+//! | appends only by one write at the end | one such write | `BindFile::append` |
+//! | sets a time only through a handle granted to | a handle reopened for it | `set_held_times` |
+//! | refuses a file another process holds unshared | permission denied | `to_error` |
+//!
+//! A directory a process holds open cannot move there, so what a guest
+//! would see of one moved is never staged on Windows.
 
 mod fid;
 mod lookup;
+mod unicode;
 mod walk;
 
 use std::any::Any;
@@ -30,6 +48,7 @@ use crate::vfs::{
     generic_file_llseek, generic_read_dir, Dentry, DirContext, Identity, Inode, Whence,
 };
 use fid::{FidOwner, OpenDirFid, FIDS};
+use unicode::{to_guest_name, to_guest_target, to_host_name};
 
 /// A host directory and everything beneath it. What a guest writes lands
 /// on the host and lasts as long as the directory does.
@@ -224,10 +243,7 @@ fn entries_of(dir: &Dir) -> Result<Vec<DirEntry>, Errno> {
         .map(|entry| {
             crate::sched::stop_if_fatal()?;
             let entry = entry.map_err(to_error)?;
-            let name = entry
-                .file_name()
-                .into_string()
-                .map_err(|_| Errno::IllegalSequence)?;
+            let name = to_guest_name(entry.file_name())?;
             let listed = DirEntry::new(name, to_file_type(entry.file_type().map_err(to_error)?));
             #[cfg(unix)]
             let listed = {
@@ -263,50 +279,6 @@ fn nofollow_error(dir: &Dir, name: &str, err: io::Error) -> Errno {
         Ok(metadata) if metadata.file_type().is_symlink() => Errno::FilesystemLoop,
         _ => to_error(err),
     }
-}
-
-/// `name` as `cap_std` takes it. Windows reads some names as other names or as
-/// devices, so there one is refused rather than reached as an entry a Mount's
-/// Policy never saw.
-fn to_host_name(name: &str) -> Result<&str, Errno> {
-    if cfg!(windows) && is_windows_alias(name) {
-        return Err(Errno::InvalidInput);
-    }
-    Ok(name)
-}
-
-/// A link's `target` as a guest path spells it. Windows separates names
-/// with `\` and roots an absolute path at a drive or a share, so there each
-/// `\` reads as `/` and the drive or share drops, leaving a path rooted at
-/// `/` as on unix.
-fn to_guest_target(target: String) -> String {
-    #[cfg(windows)]
-    {
-        use std::path::{Component, Path};
-        let prefix = match Path::new(&target).components().next() {
-            Some(Component::Prefix(prefix)) => prefix.as_os_str().len(),
-            _ => 0,
-        };
-        target[prefix..].replace('\\', "/")
-    }
-    #[cfg(not(windows))]
-    target
-}
-
-/// Whether Windows reads `name` as something else: a `\` as a separator, a `:`
-/// as a stream of a file, a trailing `.` or space as nothing, a wildcard as a
-/// pattern, or a device's name, whatever extension follows, as the device.
-fn is_windows_alias(name: &str) -> bool {
-    const DEVICES: [&str; 33] = [
-        "CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$", "CLOCK$", "COM0", "COM1", "COM2", "COM3",
-        "COM4", "COM5", "COM6", "COM7", "COM8", "COM9", "COM¹", "COM²", "COM³", "LPT0", "LPT1",
-        "LPT2", "LPT3", "LPT4", "LPT5", "LPT6", "LPT7", "LPT8", "LPT9", "LPT¹", "LPT²", "LPT³",
-    ];
-    let reserved = |c: char| c.is_ascii_control() || "\\:*?\"<>|".contains(c);
-    let stem = name.split('.').next().unwrap_or(name).trim_end();
-    name.contains(reserved)
-        || name.ends_with(['.', ' '])
-        || DEVICES.contains(&stem.to_uppercase().as_str())
 }
 
 /// The Errno a host failure names. cap-std's own refusal of a path
@@ -669,13 +641,11 @@ impl InodeOperations for BindLink {
     /// is one.
     fn get_link(&self, dentry: &Dentry) -> Result<String, Errno> {
         self.0.at(dentry, |dir, name| {
-            let target = dir
-                .read_link_contents(name)
-                .map_err(to_error)?
-                .into_os_string()
-                .into_string()
-                .map_err(|_| Errno::IllegalSequence)?;
-            Ok(to_guest_target(target))
+            to_guest_target(
+                dir.read_link_contents(name)
+                    .map_err(to_error)?
+                    .into_os_string(),
+            )
         })
     }
 }
@@ -2160,41 +2130,6 @@ mod tests {
             ),
             "a path holding a backslash opened through a Bind on Windows must be refused as \
              invalid input"
-        );
-    }
-
-    // Judged on every host, as only Windows's own CI reaches the refusal, and
-    // what the host would do with each name is what no other host can show.
-    // @behavior FS-153
-    #[test]
-    fn a_name_windows_reads_as_another_is_told_apart() {
-        let aliases = [
-            "secret.",
-            "secret ",
-            "file:stream",
-            r"d\f",
-            "con",
-            "NUL.txt",
-            "conin$",
-            "com1 .log",
-            "a?",
-            "a*",
-            "a<",
-            "a|",
-            "a\"",
-            "a\u{1}",
-        ];
-        let plain = ["secret", "file.txt", "console", "com10", ".hidden", "a.b.c"];
-        assert_eq!(
-            (
-                aliases
-                    .iter()
-                    .filter(|name| !is_windows_alias(name))
-                    .count(),
-                plain.iter().filter(|name| is_windows_alias(name)).count(),
-            ),
-            (0, 0),
-            "is_windows_alias must name every spelling Windows reads as another, and no plain name"
         );
     }
 
