@@ -2541,19 +2541,18 @@ fn a_create_of_what_already_stands_changes_nothing() {
 // The host file only reads, so a host open asking to create, and so to
 // write, would be refused where the guest asked only to read.
 // @behavior RT-103
-#[cfg(unix)]
 #[test]
 fn a_create_of_a_host_file_that_only_reads_opens_it() {
-    use std::os::unix::fs::PermissionsExt;
     let host = std::env::temp_dir().join(format!("kobako-granted-creat-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&host);
     std::fs::create_dir_all(&host).expect("the host directory must be created");
-    std::fs::write(host.join("file.txt"), "granted").expect("the host file must be written");
-    std::fs::set_permissions(
-        host.join("file.txt"),
-        std::fs::Permissions::from_mode(0o444),
-    )
-    .expect("the host file must become read-only");
+    let file = host.join("file.txt");
+    std::fs::write(&file, "granted").expect("the host file must be written");
+    let mut read_only = std::fs::metadata(&file)
+        .expect("the host file must stand")
+        .permissions();
+    read_only.set_readonly(true);
+    std::fs::set_permissions(&file, read_only).expect("the host file must become read-only");
     let directory = Bind::new(&host).expect("the host directory must open");
     let answer = Guest::new(&[grant(Arc::new(directory), Access::ReadWrite, None)]).call_flagged(
         FILE,

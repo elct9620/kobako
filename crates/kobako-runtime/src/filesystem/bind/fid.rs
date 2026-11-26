@@ -162,7 +162,7 @@ impl FidCache {
 
     /// How many directories are kept through the owner `id` names, which
     /// may since have been let go.
-    #[cfg(all(test, unix))]
+    #[cfg(test)]
     pub(super) fn kept_by(&self, id: usize) -> usize {
         self.with(|kept| kept.fids.iter().filter(|(_, fid)| fid.owner == id).count())
     }

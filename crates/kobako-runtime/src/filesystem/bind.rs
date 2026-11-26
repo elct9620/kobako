@@ -1127,7 +1127,6 @@ mod tests {
 
     /// A Bind over `depth` nested directories each named `d`, with the file
     /// `f` at the bottom, and the path to that file.
-    #[cfg(unix)]
     fn nested_tree(host: &HostDir, depth: usize) -> (Arc<Bind>, String) {
         let path = vec!["d"; depth].join("/");
         fs::create_dir_all(host.0.join(&path)).expect("the host tree must be made");
@@ -1172,7 +1171,6 @@ mod tests {
     // bound each walk still lands, so nothing a guest reaches depends on what
     // was kept.
     // @behavior FS-151
-    #[cfg(unix)]
     #[test]
     fn the_binds_of_a_process_keep_a_bounded_number_of_host_directories_open() {
         use crate::vfs::{self, OpenHow, Path as VfsPath};
@@ -1207,7 +1205,6 @@ mod tests {
     }
 
     // @behavior FS-221
-    #[cfg(unix)]
     #[test]
     fn a_bind_let_go_closes_the_directories_its_walks_kept() {
         let host = HostDir::new("released-fids");
@@ -2214,13 +2211,14 @@ mod tests {
 
     // Which offset a host refuses depends on its filesystem: tmpfs, XFS and
     // overlay keep files up to `i64::MAX`. The host's own EFBIG, 27 on Linux
-    // and macOS alike, is what the Bind must name.
+    // and macOS alike and `ERROR_FILE_TOO_LARGE` on Windows, is what the Bind
+    // must name.
     // @behavior FS-068
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
     #[test]
     fn a_directory_answers_a_host_file_too_large_as_too_large() {
+        let too_large = if cfg!(windows) { 223 } else { 27 };
         assert_eq!(
-            to_error(io::Error::from_raw_os_error(27)),
+            to_error(io::Error::from_raw_os_error(too_large)),
             Errno::FileTooLarge,
             "a host EFBIG through Bind's error mapping must fail as FileTooLarge, \
              not as an unnamed failure"
@@ -2589,14 +2587,16 @@ mod tests {
     // The host file only reads, so a host open asking to write, as one that
     // creates must, would be refused where nothing is to be created.
     // @behavior FS-064
-    #[cfg(unix)]
     #[test]
     fn a_directory_opens_a_file_already_there_without_writing_to_create_it() {
-        use std::os::unix::fs::PermissionsExt;
         let host = HostDir::new("create-existing");
-        fs::write(host.0.join("note"), "x").expect("the host file must be written");
-        fs::set_permissions(host.0.join("note"), fs::Permissions::from_mode(0o444))
-            .expect("the host file must become read-only");
+        let note = host.0.join("note");
+        fs::write(&note, "x").expect("the host file must be written");
+        let mut read_only = fs::metadata(&note)
+            .expect("the host file must stand")
+            .permissions();
+        read_only.set_readonly(true);
+        fs::set_permissions(&note, read_only).expect("the host file must become read-only");
         let directory = bind_host(&host.0);
         let creates = OpenHow {
             read: true,
@@ -2790,22 +2790,44 @@ mod tests {
         );
     }
 
-    // @behavior FS-071
+    /// The device and inode numbers the host gives `path`.
     #[cfg(unix)]
+    fn host_identity(path: &Path) -> (u64, u64) {
+        use std::os::unix::fs::MetadataExt;
+        let found = fs::metadata(path).expect("the host must stat it");
+        (found.dev(), found.ino())
+    }
+
+    /// The volume serial number and file index the host gives `path`, which
+    /// Windows names only on a handle opened to it; std reads them on nightly
+    /// alone.
+    #[cfg(windows)]
+    fn host_identity(path: &Path) -> (u64, u64) {
+        use cap_fs_ext::MetadataExt;
+        let parent = cap_std::fs::Dir::open_ambient_dir(
+            path.parent().expect("the path has a parent"),
+            cap_std::ambient_authority(),
+        )
+        .expect("the host directory must open");
+        let found = parent
+            .metadata(path.file_name().expect("the path names an entry"))
+            .expect("the host must stat it");
+        (found.dev(), found.ino())
+    }
+
+    // @behavior FS-071
     #[test]
     fn a_directory_reports_the_identity_its_host_gives_a_path() {
-        use std::os::unix::fs::MetadataExt;
-
         let host = HostDir::new("identity");
         fs::create_dir(host.0.join("dir")).expect("the host directory must be made");
-        let expected = fs::metadata(host.0.join("dir")).expect("the host must stat it");
+        let expected = host_identity(&host.0.join("dir"));
         let directory = bind_host(&host.0);
         let reported = directory
             .vfs_lstat("dir")
             .expect("the directory must stand");
         assert_eq!(
             (reported.dev, reported.ino),
-            (expected.dev(), expected.ino()),
+            expected,
             "a host directory beneath a Bind looked up through vfs_lstat must carry the device \
              and inode numbers the host reports"
         );
