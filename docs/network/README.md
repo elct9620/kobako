@@ -249,6 +249,16 @@ One reactor thread per process waits on every host socket, as a softirq fills a 
 
 A lookup, a response, and a request body are each a file on one anonymous inode, as an eventfd is. A Wasm Driver therefore waits on files alone, and the profile decides when a clock beside them is due. An exchange keeps no timer: its timeout ends a wait by its deadline, which the exchange answers when asked. The reactor's timers bound only the resolver's own retries. A timeout the request leaves unset lasts 600 seconds, as wasmtime-wasi-http's does, so a wait ends even in a run with no deadline. A wait the deadline ends traps the run, and the run's end aborts every socket it held.
 
+### Host Events
+
+Each event reaches its socket with the poll mask it reported, as a wakeup's key carries one. mio promises a further event only once a call answered `WouldBlock`, and Windows gives no more than that. A socket that stops short of it must hear the host again some other way.
+
+| A socket stops short | It hears the host again through |
+|---|---|
+| UDP, past its turn's datagrams | a repoll |
+| TCP, its receive buffer full | its guest's next read |
+| TCP, past the peer's end | the event's hang-up, as `tcp_reset` sets `sk_err` |
+
 ### Request Progress
 
 The reactor only wakes. A request moves on its guest's thread, as that guest polls or reads it.
