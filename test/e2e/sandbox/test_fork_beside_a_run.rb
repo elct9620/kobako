@@ -12,9 +12,10 @@ class TestE2EForkBesideARun < Minitest::Test
   BESIDE_A_WAITING_RUN = <<~RUBY
     print(%i[hold release].map do |gvl|
       queue = Queue.new
-      blocked = Kobako::Sandbox.new(wasm_path: WASM, gvl: gvl).bind("Blocker", Blocker.new(queue))
+      blocker = Blocker.new(queue)
+      blocked = Kobako::Sandbox.new(wasm_path: WASM, gvl: gvl).bind("Blocker", blocker)
       run = Thread.new { blocked.eval("Blocker.wait; :ended").value }
-      Thread.pass until run.status == "sleep"
+      blocker.await_arrival
       outcome = fork_within(2)
       queue << 1
       [Array(outcome).first, run.value, child_answers?(blocked)]

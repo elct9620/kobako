@@ -8,10 +8,24 @@ require "tempfile"
 # runs in a child instead.
 module ChildProcess
   # A child script's service that blocks a run on a Queue until the script
-  # fills it, so the run stays in progress as long as the script needs.
+  # fills it, so the run stays in progress as long as the script needs. The
+  # run tells the script it arrived, as a Thread's status reads "sleep" once
+  # its run lets the GVL go, before the guest reaches the service.
   BLOCKER = <<~RUBY
-    Blocker = Struct.new(:queue) do
-      def wait = queue.pop
+    class Blocker
+      def initialize(queue)
+        @queue = queue
+        @arrived = Queue.new
+      end
+
+      def wait
+        @arrived << true
+        @queue.pop
+      end
+
+      # Returns once a run waits in the service, or after +seconds+ for one
+      # that never comes, so the script goes on to show what that run raised.
+      def await_arrival(seconds = 10) = @arrived.pop(timeout: seconds)
     end
   RUBY
 

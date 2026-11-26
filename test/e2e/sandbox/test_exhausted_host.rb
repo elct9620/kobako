@@ -10,9 +10,10 @@ class TestE2EExhaustedHost < Minitest::Test
 
   NO_THREAD_FOR_A_RUN = <<~RUBY
     queue = Queue.new
-    sandbox = Kobako::Sandbox.new(wasm_path: WASM, gvl: %<gvl>s).bind("Blocker", Blocker.new(queue))
+    blocker = Blocker.new(queue)
+    sandbox = Kobako::Sandbox.new(wasm_path: WASM, gvl: %<gvl>s).bind("Blocker", blocker)
     neighbour = Thread.new { sandbox.eval("Blocker.wait; :ended").value }
-    Thread.pass until neighbour.status == "sleep"
+    blocker.await_arrival
     refused, failed = without_threads { outcome(sandbox, "1") }
     queue << 1
     print [refused, failed, neighbour.value, outcome(sandbox, "2")].inspect
@@ -48,9 +49,10 @@ class TestE2EExhaustedHost < Minitest::Test
 
   NO_ROOM_FOR_AN_INSTANCE = <<~RUBY
     queue = Queue.new
-    sandbox = Kobako::Sandbox.new(wasm_path: WASM, gvl: %<gvl>s).bind("Blocker", Blocker.new(queue))
+    blocker = Blocker.new(queue)
+    sandbox = Kobako::Sandbox.new(wasm_path: WASM, gvl: %<gvl>s).bind("Blocker", blocker)
     neighbour = Thread.new { sandbox.eval("Blocker.wait; :ended").value }
-    Thread.pass until neighbour.status == "sleep"
+    blocker.await_arrival
     outcome(sandbox, "0")
     failed = within_address_space { outcome(sandbox, "1") }
     queue << 1
