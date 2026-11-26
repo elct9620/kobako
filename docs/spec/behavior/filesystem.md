@@ -2607,3 +2607,15 @@ both live in the upper and never show, so no name is reserved
 | Given | a Bind over a Windows host directory holding a link whose target separates names with `\` |
 | When | the link is read, with a relative target and with a target on a drive |
 | Then | each `\` reads as `/`, and the drive's target reads as a path from `/` |
+
+## `FS-240` A Bind removes a link to a directory as itself
+
+| Attribute | Value |
+| --- | --- |
+| relates | `FS-050` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Bind holding a link to a directory it also holds |
+| When | the link is removed as a file |
+| Then | the link is gone, and the directory and what it holds stay |

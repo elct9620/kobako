@@ -768,8 +768,12 @@ impl InodeOperations for Bind {
         self.at(dentry, |dir, name| dir.remove_dir(name).map_err(to_error))
     }
 
+    /// Whatever stands at the name and is no directory goes, a link to a
+    /// directory included, which Windows removes as a directory.
     fn unlink(&self, dentry: &Dentry) -> Result<(), Errno> {
-        self.at(dentry, |dir, name| dir.remove_file(name).map_err(to_error))
+        self.at(dentry, |dir, name| {
+            dir.remove_file_or_symlink(name).map_err(to_error)
+        })
     }
 
     /// A host directory takes no lock the runtime's check of the source
@@ -2773,6 +2777,26 @@ mod tests {
             (Ok("../secret".to_string()), Err(Errno::InvalidInput)),
             "vfs_readlink beneath a Bind must answer where a link points as stored, and refuse \
              a directory with EINVAL"
+        );
+    }
+
+    // Windows removes a link to a directory only as a directory, so a file's
+    // removal alone would leave it standing there.
+    // @behavior FS-240
+    #[test]
+    fn a_directory_removes_a_link_to_a_directory_as_itself() {
+        let host = make_links("unlink-dir-link");
+        let directory = bind_host(&host.0);
+        let dir = directory.open_dir("dir").expect("the directory must open");
+        assert_eq!(
+            (
+                dir.vfs_unlink("in"),
+                host.0.join("dir/in").symlink_metadata().is_err(),
+                host.0.join("dir/sub/y").is_file()
+            ),
+            (Ok(()), true, true),
+            "vfs_unlink of a link to a directory beneath a Bind must remove the link and leave \
+             the directory it leads to and what that holds"
         );
     }
 
