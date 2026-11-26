@@ -85,8 +85,13 @@ class CargoOracle
 
   private
 
+  # Under parallel_tests, which names each process in +TEST_ENV_NUMBER+, the
+  # suite's rake task built the oracles before any process started, so a
+  # process only finds the binary: a build of its own would re-link the one
+  # another process is spawning.
   def cargo_build
     return BuildResult.new(status: :no_cargo, error: nil) unless cargo_on_path?
+    return built_beforehand if ENV.key?("TEST_ENV_NUMBER")
 
     out, status = Open3.capture2e(
       "cargo", "build", "--release",
@@ -96,6 +101,13 @@ class CargoOracle
     return BuildResult.new(status: :ok, error: nil) if status.success? && File.executable?(binary_path)
 
     BuildResult.new(status: :build_failed, error: out)
+  end
+
+  def built_beforehand
+    return BuildResult.new(status: :ok, error: nil) if File.executable?(binary_path)
+
+    BuildResult.new(status: :build_failed,
+                    error: "#{binary_path} is missing; `rake test` builds it before the processes start")
   end
 
   # Asks cargo itself rather than a POSIX shell, which Windows lacks.

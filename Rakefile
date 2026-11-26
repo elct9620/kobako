@@ -7,7 +7,7 @@ require "bundler/gem_tasks"
 # at a time, one process per available CPU. It finds the files itself, as
 # naming every one would pass Windows' command-line limit.
 desc "Run the Ruby suite"
-task :test do
+task test: "test:oracles" do
   sh({ "RUBYOPT" => "-w -Ilib -Itest -I." }, "parallel_test", "test", "--type", "test", "--suffix", '/test_[^/]*\.rb$')
 end
 
@@ -15,6 +15,16 @@ end
 # the release tooling and the benchmarks, runnable alone; a test needing a
 # Guest Binary skips.
 namespace :test do
+  # The Rust oracles the suite drives, built once before its processes start:
+  # a cargo build re-links a binary even when nothing changed, and one process
+  # re-linking it fails another spawning it. Without cargo the oracle checks
+  # say so themselves.
+  task :oracles do
+    next unless system("cargo", "--version", out: File::NULL, err: File::NULL)
+
+    sh "cargo", "build", "--release", "--manifest-path", "crates/kobako-parity/Cargo.toml", "--bins"
+  end
+
   desc "Run only the release-tooling suites (test/tasks/)."
   task :tasks do
     ruby "-Ilib", "-Itest", "-e", %(Dir["test/tasks/test_*.rb"].each { |f| require File.expand_path(f) })
