@@ -262,7 +262,6 @@ A StandardError belongs to the guest, which may raise it further. Anything else,
 | Attribute | Value |
 | --- | --- |
 | refines | `RF-018` |
-| relates | `FS-093` |
 
 | Step | Statement |
 | --- | --- |

@@ -744,7 +744,7 @@ both live in the upper and never show, so no name is reserved
 
 | Step | Statement |
 | --- | --- |
-| Given | a Bind file on a unix host, open through two handles |
+| Given | a Bind file open through two handles |
 | When | both handles append at the same time |
 | Then | every append keeps its bytes, and none lands over another |
 
@@ -937,19 +937,6 @@ both live in the upper and never show, so no name is reserved
 | Given | an Overlay over a lower Bind holding a FIFO |
 | When | the FIFO is written or renamed through the Overlay |
 | Then | the write is refused as permission denied, the rename as crossing devices |
-
-## `FS-093` A Bind on Windows refuses to append
-
-| Attribute | Value |
-| --- | --- |
-| refines | `FS-069` |
-| relates | `FS-029` |
-
-| Step | Statement |
-| --- | --- |
-| Given | a Bind file on a Windows host |
-| When | it is appended to |
-| Then | the append is refused as unsupported, and the file stays as it was |
 
 ## `FS-094` A Tmpfs holds each entry under its own name
 

@@ -63,10 +63,6 @@ module GuestGuard
     skip "Windows has no ps to report a process's start time" if Gem.win_platform?
   end
 
-  # Whether a Bind appends to a host file in one step. Windows has no append
-  # to switch one handle to for a single write, so a Bind there refuses one.
-  def bind_appends? = !Gem.win_platform?
-
   # A host whose Ruby defines +File::NOFOLLOW+, which a Ruby Filesystem's
   # open is handed so it follows no link. Windows defines none, so a test
   # needing the flag skips there.

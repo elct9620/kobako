@@ -50,12 +50,11 @@ class TestE2EFileOpenMatrix < Minitest::Test
 
   def directory = Kobako::Filesystem::Bind.new(seeded_root)
 
-  # On Windows a Bind refuses each append write, as a Ruby Filesystem does.
   # @behavior FL-034 FL-035
   def test_a_read_write_directory_answers_as_cruby_does
-    assert_equal as_bind(READ_WRITE), up_to_refusal(answers(directory, access: :read_write)),
+    assert_equal READ_WRITE, answers(directory, access: :read_write),
                  "File.open and IO.new beneath a read-write Bind Mount through Sandbox#eval must answer " \
-                 "as CRuby does over a read-write Linux directory, but for the rules its host imposes"
+                 "as CRuby does over a read-write Linux directory"
   end
 
   # @behavior FL-034
@@ -91,17 +90,16 @@ class TestE2EFileOpenMatrix < Minitest::Test
 
   # @behavior FL-034
   def test_a_block_allowing_every_change_answers_as_cruby_does
-    assert_equal as_bind(READ_WRITE),
-                 up_to_refusal(answers(directory, access: :read_write) { |_path, _access| true }),
+    assert_equal READ_WRITE, answers(directory, access: :read_write) { |_path, _access| true },
                  "File.open beneath a Sandbox#mount block allowing every change must answer as CRuby does " \
-                 "over a read-write Linux directory, but for the rules its host imposes"
+                 "over a read-write Linux directory"
   end
 
   # A block refuses a change as EACCES where a read-only Mount answers
   # EROFS; every other answer is the read-only one.
   # @behavior FL-034
   def test_a_block_allowing_only_reads_refuses_each_change_as_eacces
-    assert_equal as_bind(READ_ONLY.map { |line| line.gsub("EROFS", "EACCES") }),
+    assert_equal READ_ONLY.map { |line| line.gsub("EROFS", "EACCES") },
                  answers(directory, access: :read_write) { |_path, access| access == :read },
                  "File.open beneath a Sandbox#mount block allowing only reads must answer EACCES where CRuby " \
                  "over a read-only Linux directory answers EROFS"
@@ -128,11 +126,5 @@ class TestE2EFileOpenMatrix < Minitest::Test
   # +lines+ cut after a write refused as ENOTSUP, as +refusing_appends+ writes them.
   def up_to_refusal(lines)
     lines.map { |line| line.sub(/( write=Errno::ENOTSUP) .*/, '\1') }
-  end
-
-  # What a Bind answers beside CRuby's +table+ on this host: Windows refuses
-  # an append write.
-  def as_bind(table)
-    bind_appends? ? table : refusing_appends(table)
   end
 end

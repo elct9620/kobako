@@ -851,11 +851,16 @@ struct BindFile {
 }
 
 impl BindFile {
-    /// Windows has no append to switch one handle to for a single write,
-    /// so an append that could land over another writer's is refused.
-    #[cfg(not(unix))]
-    fn append(&mut self, _iocb: &mut Kiocb, _buf: &[u8]) -> Result<usize, Errno> {
-        Err(Errno::Unsupported)
+    /// The host places the write at the file's end: a write at the offset of
+    /// all ones bits does, as a handle opened with `FILE_APPEND_DATA` would,
+    /// so another writer's append lands before or after it, never over it.
+    #[cfg(windows)]
+    fn append(&mut self, iocb: &mut Kiocb, buf: &[u8]) -> Result<usize, Errno> {
+        use std::os::windows::fs::FileExt;
+
+        let written = self.file.seek_write(buf, u64::MAX).map_err(to_error)?;
+        iocb.pos = (&*self.file).stream_position().map_err(to_error)?;
+        Ok(written)
     }
 
     /// The host places the write at the file's end as `O_APPEND` does, so
@@ -925,7 +930,7 @@ impl FileOperations for BindFile {
 
     /// Reserve the room on the host, as `v9fs_file_fallocate` asks its server. Only
     /// Linux grows a file in one step without shortening one a peer just grew, so
-    /// elsewhere this refuses, as an append that cannot land in one step does.
+    /// elsewhere this refuses rather than take two steps a peer could land between.
     #[cfg(target_os = "linux")]
     fn fallocate(&mut self, offset: u64, len: u64) -> Result<(), Errno> {
         let flags = rustix::fs::FallocateFlags::empty();
@@ -2078,36 +2083,6 @@ mod tests {
         );
     }
 
-    // The file is opened to write, so only the refusal keeps the append
-    // from taking the two steps another writer could land between.
-    // @behavior FS-093
-    #[cfg(windows)]
-    #[test]
-    fn a_directory_on_windows_refuses_to_append() {
-        let host = HostDir::new("append");
-        fs::write(host.0.join("f"), "x").expect("the host file must be written");
-        let directory = bind_host(&host.0);
-        let mut file = directory
-            .open(
-                "f",
-                &OpenHow {
-                    write: true,
-                    ..OpenHow::default()
-                },
-            )
-            .expect("the host file must open");
-        assert_eq!(
-            (
-                file.write_iter(&mut Kiocb::new(0).with_append(), b"y")
-                    .err(),
-                fs::read(host.0.join("f")).expect("the host file must read")
-            ),
-            (Some(Errno::Unsupported), b"x".to_vec()),
-            "an append through a Bind file on Windows must be refused as unsupported and \
-             leave the file as it was"
-        );
-    }
-
     // The host file exists beneath `d`, so only the refusal can keep the
     // open from reaching it.
     // @behavior FS-029
@@ -2824,7 +2799,6 @@ mod tests {
     // length, then write there) loses about half the bytes to the other
     // handle's writes, so only an append the host places keeps them all.
     // @behavior FS-069
-    #[cfg(unix)]
     #[test]
     fn a_directory_appends_at_its_host_files_end_in_one_step() {
         let host = HostDir::new("append");
@@ -2861,8 +2835,7 @@ mod tests {
                 written.iter().filter(|&&b| b == b'b').count()
             ),
             (10_000, 10_000),
-            "two handles appending to one host file through a Bind's FileOperations::write_iter must each \
-             keep every byte"
+            "two handles appending to one host file through a Bind must each keep every byte"
         );
     }
 
