@@ -427,7 +427,7 @@ pub(crate) fn start(
         waiting,
     });
     let guest_line = line.clone();
-    let job: Run = Box::new(move || {
+    let guest_run: Run = Box::new(move || {
         LINE.with(|held| *held.borrow_mut() = Some(guest_line.clone()));
         let panic = catch_unwind(AssertUnwindSafe(|| task.carry(run))).err();
         LINE.with(|held| *held.borrow_mut() = None);
@@ -436,8 +436,8 @@ pub(crate) fn start(
     });
     let idle = IDLE.with(|idle| idle.get_or_insert_with(Vec::new).pop());
     match idle {
-        Some(worker) => worker.runs.put(job),
-        None => spawn(job)?,
+        Some(worker) => worker.runs.put(guest_run),
+        None => spawn(guest_run)?,
     }
     Ok(line)
 }
