@@ -387,6 +387,14 @@ impl TcpSock {
                 Err(err) => return Err(Errno::from_io_error(&err)),
             }
         }
+        // Past the peer's end no read asks the host socket, so a reset
+        // arriving then is its pending error, as `tcp_reset` sets `sk_err`
+        // whatever the socket last read.
+        if state.received_end {
+            if let Ok(Some(err)) = stream.take_error() {
+                return Err(Errno::from_io_error(&err));
+            }
+        }
         let queued = state.write_queue.len();
         while !state.write_queue.is_empty() {
             match stream.write(state.write_queue.front()) {
@@ -1468,16 +1476,14 @@ mod tests {
         wait_for(|table| file.poll(table), PollMask::IN);
         wait_until_arrived(&peer);
         drop(peer);
-        std::thread::sleep(Duration::from_millis(20));
-        let _ = file.write(b"after the reset");
         wait_for(|table| file.poll(table), PollMask::ERR);
         let mut buf = [0; 8];
         let (read, write) = (file.read(&mut buf), file.write(b"x"));
         assert!(
             read == Ok(0) && write.is_err(),
-            "File::read of a socket whose peer sent its FIN, then reset it, must answer zero \
-             ahead of the failure, as SOCK_DONE stops tcp_recvmsg before sk_err, and \
-             File::write the failure; got {read:?} and {write:?}"
+            "a socket whose peer sent its FIN, then reset it, must poll ERR as tcp_poll reads \
+             sk_err, File::read must answer zero ahead of the failure, as SOCK_DONE stops \
+             tcp_recvmsg before sk_err, and File::write the failure; got {read:?} and {write:?}"
         );
     }
 
