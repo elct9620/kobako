@@ -33,11 +33,6 @@ class TestE2EFileStatHost < Minitest::Test
     [File.stat("/d/secret").size, File.lstat("/d/secret").size, File.size?("/d/secret"), opened]
   RUBY
 
-  def setup
-    super
-    skip "this host has no links, FIFOs, sockets, or /dev/null" if Gem.win_platform?
-  end
-
   def bind_sandbox(host, &block)
     Kobako::Sandbox.new(wasm_path: REAL_WASM).mount("/d", Kobako::Filesystem::Bind.new(host), &block)
   end
@@ -62,6 +57,7 @@ class TestE2EFileStatHost < Minitest::Test
   # so the guest reads it as what it cannot tell, and defines no +pipe?+.
   # @behavior FL-048
   def test_a_special_file_reads_as_preview1_names_it
+    skip "this host has no FIFOs, socket files, or /dev/null" if Gem.win_platform?
     answer = Dir.mktmpdir do |host|
       File.mkfifo(File.join(host, "pipe"))
       UNIXServer.open(File.join(host, "sock")) do

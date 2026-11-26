@@ -92,7 +92,6 @@ class TestE2EDirGlob < Minitest::Test
 
   # @behavior FL-094
   def test_a_pattern_walk_follows_a_link_only_where_a_wildcard_names_it
-    skip "this host makes no links" if Gem.win_platform?
     TestPaths.host_directory do |host|
       assert_equal [%w[sub/deep/e.rb], %w[link/ sub/], %w[link/deep/e.rb sub/deep/e.rb]],
                    linked(host).eval('Dir.chdir("/t"); ["**/e.rb", "*/", "*/**/e.rb"].map { |p| Dir.glob(p) }').value,

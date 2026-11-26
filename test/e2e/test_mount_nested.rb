@@ -38,7 +38,6 @@ class TestE2EMountNested < Minitest::Test
 
   # @behavior MT-033
   def test_a_nested_mount_is_reached_through_a_link_beside_it
-    skip "this host makes no links" if Gem.win_platform?
     TestPaths.host_directory do |host|
       File.symlink("inner/note", File.join(host, "link"))
       sandbox = inside(hiding(host), Kobako::Filesystem::Tmpfs.new("note" => "inner"))
@@ -74,7 +73,6 @@ class TestE2EMountNested < Minitest::Test
 
   # @behavior MT-037
   def test_a_nested_mount_is_reached_through_a_link_above_it
-    skip "this host makes no links" if Gem.win_platform?
     TestPaths.host_directory do |host|
       sandbox = deep(host)
       File.symlink("a", File.join(host, "x"))

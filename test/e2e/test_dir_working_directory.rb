@@ -68,7 +68,6 @@ class TestE2EDirWorkingDirectory < Minitest::Test
   # reads no link's target, so it names the path it was given.
   # @behavior FL-100
   def test_a_directory_reached_through_a_link_is_named_by_the_links_path
-    skip "this host makes no links" if Gem.win_platform?
     TestPaths.host_directory do |host|
       Dir.mkdir(File.join(host, "sub"))
       File.symlink("sub", File.join(host, "link"))

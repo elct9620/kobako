@@ -28,7 +28,6 @@ class TestE2EMountUnreached < Minitest::Test
 
   # @behavior MT-041
   def test_a_mount_whose_path_passes_a_link_fails_the_run
-    skip "this host makes no links" if Gem.win_platform?
     OUTERS.each do |kind, outer|
       %w[/data/inner /data/inner/x].each do |at|
         TestPaths.host_directory do |host|
