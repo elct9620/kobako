@@ -1490,29 +1490,63 @@ mod tests {
         );
     }
 
-    // @behavior RT-376
-    #[test]
-    fn a_socket_its_peer_ended_reads_the_end_before_a_later_failure() {
+    /// A socket file whose peer sent its FIN, which the socket read, then
+    /// reset it, as a close with bytes unread does.
+    fn reset_past_its_end() -> File {
         let (_sock, mut file, peer) = connected_socket();
         file.write(b"unread").unwrap();
         peer.shutdown(Shutdown::Write).unwrap();
         wait_for(|table| file.poll(table), PollMask::IN);
         wait_until_arrived(&peer);
         drop(peer);
+        file
+    }
+
+    // @behavior RT-376
+    #[test]
+    fn a_socket_its_peer_ended_reads_the_end_then_a_write_answers_the_reset() {
+        let mut file = reset_past_its_end();
+        let read = file.read(&mut [0; 8]);
+        let started = std::time::Instant::now();
+        let write = loop {
+            match file.write(b"x") {
+                Ok(_) | Err(Errno::WouldBlock)
+                    if started.elapsed() < crate::sched::testing::MAX_WAIT =>
+                {
+                    std::thread::sleep(Duration::from_millis(1));
+                }
+                answered => break answered,
+            }
+        };
+        assert!(
+            read == Ok(0) && write.is_err(),
+            "a socket whose peer sent its FIN, then reset it, must answer File::read zero ahead \
+             of the failure, as SOCK_DONE stops tcp_recvmsg before sk_err, and a File::write \
+             the failure once the reset arrived; got {read:?} and {write:?}"
+        );
+    }
+
+    // mio reports a closed side only as a best effort, and Windows' AFD
+    // reports nothing past a read side's end, so only the other hosts tell
+    // of the reset before a write.
+    // @behavior RT-376
+    #[cfg(not(windows))]
+    #[test]
+    fn a_socket_reset_past_its_end_polls_err_before_any_write() {
+        let mut file = reset_past_its_end();
         wait_for(|table| file.poll(table), PollMask::ERR);
         let mut buf = [0; 8];
         let (read, write) = (file.read(&mut buf), file.write(b"x"));
         assert!(
             read == Ok(0) && write.is_err(),
-            "a socket whose peer sent its FIN, then reset it, must poll ERR as tcp_poll reads \
-             sk_err, File::read must answer zero ahead of the failure, as SOCK_DONE stops \
-             tcp_recvmsg before sk_err, and File::write the failure; got {read:?} and {write:?}"
+            "a socket whose peer sent its FIN, then reset it, must poll ERR before any write \
+             where the host reports the reset, then answer File::read zero and File::write the \
+             failure; got {read:?} and {write:?}"
         );
     }
 
-    // A host whose socket holds no pending error after a reset, as Windows'
-    // may not, tells of it only through the event: the hang-up alone ends
-    // the socket.
+    // A host may tell of a reset only through its event, its socket holding
+    // no pending error: the hang-up alone ends the socket.
     // @behavior RT-376
     #[test]
     fn a_hang_up_past_the_peers_end_fails_a_socket_its_host_holds_no_error_for() {

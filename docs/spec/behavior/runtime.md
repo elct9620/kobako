@@ -4135,8 +4135,8 @@ An artifact can satisfy the whole invocation ABI while doing no guest work. That
 | Step | Statement |
 | --- | --- |
 | Given | a connected socket whose peer sent its FIN, then reset it |
-| When | the reset arrives, and the guest reads, then writes |
-| Then | the socket file's poll finds ERR, as `tcp_poll` reads `sk_err` past `SOCK_DONE`. The read answers zero, as `SOCK_DONE` stops `tcp_recvmsg` before `sk_err`, and the write answers the failure |
+| When | the guest reads, then writes until a write fails |
+| Then | the read answers zero, as `SOCK_DONE` stops `tcp_recvmsg` before `sk_err`. A write answers the failure, at the latest the first once the reset arrives. Where the host reports the reset, the socket file's poll finds ERR before any write |
 
 ## `RT-377` A socket shut down while it connects disconnects
 
