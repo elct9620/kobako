@@ -229,7 +229,6 @@ mod tests {
     }
 
     // @behavior NW-228
-    #[cfg(unix)]
     #[test]
     fn a_name_no_query_can_carry_answers_no_name() {
         let long_label = format!("{}.test.", "a".repeat(64));

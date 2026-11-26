@@ -1069,7 +1069,6 @@ mod tests {
 
         // Another file takes the name, so a time reaching it by name would be seen.
         // @behavior FS-188
-        #[cfg(unix)]
         #[test]
         fn a_time_set_through_a_descriptor_reaches_the_file_it_holds() {
             use crate::vfs::kern_path::filp_open;
@@ -1092,8 +1091,8 @@ mod tests {
             assert_eq!(
             (answer, held_time, host_modified(&file) == other_before),
             (Ok(()), Some(moment()), true),
-            "vfs::do_utimes_fd through a Bind's descriptor must set the file it holds, and leave \
-             what took its name"
+            "a time set through a Bind's descriptor must reach the file it holds, and leave what \
+             took its name"
         );
         }
     }
@@ -1611,7 +1610,6 @@ mod tests {
 
     /// The roots of a Tmpfs, a Bind, and an Overlay, each holding a five byte
     /// `f`, by name.
-    #[cfg(unix)]
     fn each_holding_five_bytes(host: &HostDir) -> [(&'static str, crate::vfs::Path); 3] {
         use crate::filesystem::Filesystem;
         use crate::filesystem::{Overlay, Tmpfs};
@@ -1645,7 +1643,6 @@ mod tests {
     }
 
     // @behavior FS-141
-    #[cfg(unix)]
     #[test]
     fn a_file_removed_while_open_still_reports_itself() {
         use crate::vfs::{self, OpenHow};
@@ -1667,14 +1664,13 @@ mod tests {
                     &buf
                 ),
                 (Some(5), Ok(5), b"hello"),
-                "File::getattr and File::pread of a file whose name \
-                 vfs::filename_unlinkat removed on a {name} must answer what it holds"
+                "a stat and a read of an open file on a {name} whose name was removed must \
+                 answer what it holds"
             );
         }
     }
 
     // @behavior FS-142
-    #[cfg(unix)]
     #[test]
     fn a_file_removed_while_open_can_still_be_sized() {
         use crate::vfs::{self, OpenHow};
@@ -1695,8 +1691,8 @@ mod tests {
                     file.getattr().map(|found| found.size).ok()
                 ),
                 (Ok(()), Some(2)),
-                "File::truncate of a file whose name vfs::filename_unlinkat removed on a {name} \
-                 must size what it holds"
+                "a truncate of an open file on a {name} whose name was removed must size what it \
+                 holds"
             );
         }
     }
@@ -1704,7 +1700,6 @@ mod tests {
     // A dentry the host replaced is dropped by its identity, so the path
     // reaches the new file while the open one keeps its own descriptor.
     // @behavior FS-143
-    #[cfg(unix)]
     #[test]
     fn a_file_replaced_while_open_answers_apart_from_its_path() {
         use crate::vfs::{self, OpenHow};
@@ -1727,8 +1722,8 @@ mod tests {
                 file.getattr().map(|found| found.size).ok()
             ),
             (Some(7), Some(5)),
-            "vfs::vfs_fstatat of a path the host replaced under an open File must answer the new \
-             file, and File::getattr the one it holds"
+            "a stat of a path the host replaced under an open file must answer the new file, and \
+             a stat of the open file the one it holds"
         );
     }
 
@@ -2368,7 +2363,6 @@ mod tests {
     // Eviction leaves a walk to reach a directory from one far above it, so only
     // a path past what the host takes in one call shows it goes on by name.
     // @behavior FS-190
-    #[cfg(unix)]
     #[test]
     fn a_directory_past_the_hosts_path_limit_is_reached() {
         let host = HostDir::new("past-path-max");
