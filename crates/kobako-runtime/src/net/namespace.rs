@@ -688,13 +688,10 @@ mod tests {
         let held = held.unwrap_or_default();
         // The reactor may hold the socket a moment longer for an event
         // already under way.
-        let deadline = std::time::Instant::now() + Duration::from_secs(2);
-        while held.strong_count() > 0 && std::time::Instant::now() < deadline {
-            std::thread::sleep(Duration::from_millis(1));
-        }
+        let let_go = crate::sched::testing::holds_within_max_wait(|| held.strong_count() == 0);
         assert_eq!(
-            (orphaned, held.strong_count() > 0),
-            (true, false),
+            (orphaned, let_go),
+            (true, true),
             "a socket released with bytes still queued to send must hold itself while it sends, \
              and the Invocation's namespace dropping must let it go"
         );

@@ -1578,30 +1578,22 @@ mod tests {
             for upstream in &upstreams {
                 upstream.lock_host_send_buffer(4096);
             }
-            let give_up = Instant::now() + Duration::from_secs(5);
             // Each look moves the request on, as its guest's poll does.
-            while exchange.response().is_none()
-                && upstreams.iter().all(|upstream| upstream.is_drained())
-            {
-                assert!(
-                    Instant::now() < give_up,
-                    "the request's body never queued on its upstream in five seconds"
-                );
-                thread::sleep(Duration::from_millis(1));
-            }
+            crate::sched::testing::wait_until(
+                "the request's body queueing on its upstream",
+                || {
+                    exchange.response().is_some()
+                        || upstreams.iter().any(|upstream| !upstream.is_drained())
+                },
+            );
             exchange.release();
             let while_sending =
                 crate::net::send(&namespace, &cred, greeting_request(&authority)).err();
             let still_sending = upstreams.iter().any(|upstream| !upstream.is_drained());
             drop(peer);
-            let deadline = Instant::now() + Duration::from_secs(5);
-            let once_closed = loop {
-                match crate::net::send(&namespace, &cred, greeting_request(&authority)) {
-                    Ok(_) => break true,
-                    Err(_) if Instant::now() < deadline => thread::sleep(Duration::from_millis(1)),
-                    Err(_) => break false,
-                }
-            };
+            let once_closed = crate::sched::testing::holds_within_max_wait(|| {
+                crate::net::send(&namespace, &cred, greeting_request(&authority)).is_ok()
+            });
             still_sending.then_some((while_sending, once_closed))
         };
         assert_eq!(
@@ -1725,16 +1717,11 @@ mod tests {
             .expect("the guest's lookup reaches the resolver");
         let past_lookup = connect().err();
         drop(lookup);
-        let deadline = std::time::Instant::now() + Duration::from_secs(5);
-        let request = loop {
-            match crate::net::send(&namespace, &cred, greeting_request("api.example.com")) {
-                Ok(request) => break request,
-                Err(_) if std::time::Instant::now() < deadline => {
-                    thread::sleep(Duration::from_millis(1))
-                }
-                Err(err) => panic!("the lookup's place never came back: {err:?}"),
-            }
-        };
+        let mut request = None;
+        crate::sched::testing::wait_until("the lookup's place coming back", || {
+            request = crate::net::send(&namespace, &cred, greeting_request("api.example.com")).ok();
+            request.is_some()
+        });
         resolving
             .recv_timeout(Duration::from_secs(5))
             .expect("the request's lookup reaches the resolver");
@@ -2777,10 +2764,9 @@ mod tests {
         .expect("an endpoint names the authority");
         // Each look moves the exchange on, as its guest's poll does, until a
         // frame waits for room in the body's full buffer.
-        let started = std::time::Instant::now();
-        while exchange.state().pending.is_none() && started.elapsed() < Duration::from_secs(10) {
-            thread::sleep(Duration::from_millis(1));
-        }
+        crate::sched::testing::wait_until("a frame waiting for room in the body's buffer", || {
+            exchange.state().pending.is_some()
+        });
         let held = {
             let state = exchange.state();
             state.body.len() + state.pending.as_ref().map_or(0, Vec::len)
@@ -2894,11 +2880,11 @@ mod tests {
             greeting_request(&format!("127.0.0.1:{port}")),
         )
         .expect("the endpoint names the authority");
-        let give_up = Instant::now() + Duration::from_secs(10);
-        while exchange.connected.get().is_none() && Instant::now() < give_up {
+        // Each look moves the request on, as its guest's poll does.
+        crate::sched::testing::wait_until("the request connecting to the peer", || {
             let _ = exchange.response();
-            thread::sleep(Duration::from_millis(1));
-        }
+            exchange.connected.get().is_some()
+        });
         let _ = go.send(());
         // Once the reactor queued every byte the peer sent, the connection
         // stays readable for each look that follows.
@@ -2907,6 +2893,7 @@ mod tests {
             upstreams.iter().any(|upstream| upstream.unread() == SENT)
         });
         let (mut most, mut last) = (0, reads.load(Ordering::SeqCst));
+        let give_up = Instant::now() + crate::sched::testing::MAX_WAIT;
         let answer = crate::wait::do_poll(
             || Some(give_up),
             |table| {
@@ -3099,7 +3086,6 @@ mod tests {
 
     mod stress {
         use std::task::Context;
-        use std::time::Instant;
 
         use super::*;
 
@@ -3169,12 +3155,8 @@ mod tests {
                 let _ = exchange.read(&mut [0; 1]);
             }
             let last = send();
-            let deadline = Instant::now() + Duration::from_secs(5);
-            while last.response().is_none() && Instant::now() < deadline {
-                thread::sleep(Duration::from_millis(1));
-            }
             assert!(
-                last.response().is_some(),
+                crate::sched::testing::holds_within_max_wait(|| last.response().is_some()),
                 "a request sent after 20,000 exchanges let go while their bodies fill must still \
                  be answered, so no exchange's release leaves anything held"
             );

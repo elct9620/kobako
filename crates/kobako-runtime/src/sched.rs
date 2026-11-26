@@ -372,6 +372,19 @@ pub(crate) mod testing {
         }
     }
 
+    /// Whether `holds` comes true within `MAX_WAIT`, looking as `wait_until`
+    /// does, for a promise the test's own assertion states.
+    pub(crate) fn holds_within_max_wait(mut holds: impl FnMut() -> bool) -> bool {
+        let started = Instant::now();
+        while !holds() {
+            if started.elapsed() >= MAX_WAIT {
+                return false;
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
+        true
+    }
+
     /// What the thread `handle` runs answers, failing the test with `what` past
     /// `MAX_WAIT`, so a thread stuck on a lock fails rather than hangs.
     pub(crate) fn join<T>(what: &str, handle: std::thread::JoinHandle<T>) -> T {

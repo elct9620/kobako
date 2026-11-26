@@ -449,7 +449,6 @@ mod tests {
     use std::net::UdpSocket;
 
     use super::*;
-    use std::thread;
     use std::time::{Duration, Instant};
 
     use crate::net::socket::testing::wait_for;
@@ -793,17 +792,11 @@ mod tests {
 
     /// Wait until a datagram waits in `sock`'s host socket.
     fn wait_until_queued(sock: &UdpSock) {
-        let started = Instant::now();
-        while started.elapsed() < Duration::from_secs(5) {
+        crate::sched::testing::wait_until("the peer's datagram reaching the host socket", || {
             let state = sock.state();
             let (socket, _) = state.host.as_ref().expect("a connected socket");
-            if socket.peek_from(&mut [0; 8]).is_ok() {
-                return;
-            }
-            drop(state);
-            thread::sleep(Duration::from_millis(1));
-        }
-        panic!("the peer's datagram never reached the host socket's queue within 5 s");
+            socket.peek_from(&mut [0; 8]).is_ok()
+        });
     }
 
     // @behavior NW-174
@@ -819,18 +812,17 @@ mod tests {
             sock.pump(&mut state);
             state.receive_queue.len()
         };
-        let started = Instant::now();
-        while sock.state().receive_queue.len() < 100 && started.elapsed() < Duration::from_secs(5) {
-            thread::sleep(Duration::from_millis(1));
-        }
+        let rest_taken = crate::sched::testing::holds_within_max_wait(|| {
+            sock.state().receive_queue.len() == 100
+        });
         let mut read = Vec::new();
         let mut buf = [0; 1];
         while let Ok((1, _)) = sock.recvmsg(&mut buf) {
             read.push(buf[0]);
         }
         assert_eq!(
-            (one_turn, read),
-            (64, (0..100u8).collect::<Vec<_>>()),
+            (one_turn, rest_taken, read),
+            (64, true, (0..100u8).collect::<Vec<_>>()),
             "a UDP socket whose peer sent 100 datagrams must take 64 in one turn, as \
              NAPI_POLL_WEIGHT bounds one poll, and read all 100 in order once a later turn takes \
              the rest"
@@ -845,13 +837,10 @@ mod tests {
         let local = stop_reactor_for(&sock);
         send_numbered(&peer, local, 100);
         sock.pump(&mut sock.state());
-        let started = Instant::now();
-        while sock.state().receive_queue.len() < 100 && started.elapsed() < Duration::from_secs(5) {
-            thread::sleep(Duration::from_millis(1));
-        }
-        assert_eq!(
-            sock.state().receive_queue.len(),
-            100,
+        assert!(
+            crate::sched::testing::holds_within_max_wait(|| {
+                sock.state().receive_queue.len() == 100
+            }),
             "a UDP socket whose turn took 64 of 100 datagrams must take the rest in a later turn \
              with no read and no further event, as NAPI repolls a device that spent its weight"
         );

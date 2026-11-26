@@ -4500,12 +4500,9 @@ mod tests {
                     renamed.lock().expect("unpoisoned").send(()).ok();
                     // Bounded, so a make that never waits fails the assertion
                     // rather than hanging the test.
-                    for _ in 0..2000 {
-                        if counts.load(Ordering::SeqCst) > 0 {
-                            break;
-                        }
-                        thread::sleep(Duration::from_millis(1));
-                    }
+                    crate::sched::testing::holds_within_max_wait(|| {
+                        counts.load(Ordering::SeqCst) > 0
+                    });
                     Ok(())
                 }
             })),
@@ -4546,12 +4543,9 @@ mod tests {
                     removed.lock().expect("unpoisoned").send(()).ok();
                     // Bounded, so a call that never waits fails the count
                     // rather than hanging the test.
-                    for _ in 0..2000 {
-                        if counts.load(Ordering::SeqCst) > 0 {
-                            break;
-                        }
-                        thread::sleep(Duration::from_millis(1));
-                    }
+                    crate::sched::testing::holds_within_max_wait(|| {
+                        counts.load(Ordering::SeqCst) > 0
+                    });
                     Ok(())
                 }
             })),
@@ -4591,12 +4585,7 @@ mod tests {
                 reached.lock().expect("unpoisoned").send(()).ok();
                 // Bounded, so a removal that never waits fails the count
                 // rather than hanging the test.
-                for _ in 0..2000 {
-                    if counts.load(Ordering::SeqCst) > 0 {
-                        break;
-                    }
-                    thread::sleep(Duration::from_millis(1));
-                }
+                crate::sched::testing::holds_within_max_wait(|| counts.load(Ordering::SeqCst) > 0);
                 Ok(())
             }
         }));
