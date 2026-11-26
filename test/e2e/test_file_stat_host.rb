@@ -1,7 +1,6 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "tmpdir"
 require "socket"
 
 # E2E — what +File::Stat+ reads of the links and special files a Bind's host
@@ -46,7 +45,7 @@ class TestE2EFileStatHost < Minitest::Test
 
   # @behavior FL-039
   def test_a_stat_follows_a_link_and_an_lstat_reports_it
-    answer = Dir.mktmpdir { |host| linked(host).eval(LINKS).value }
+    answer = TestPaths.host_directory { |host| linked(host).eval(LINKS).value }
 
     assert_equal [["link", true, false], ["file", false, true, 5], "link", true, [true, false, false, true]], answer,
                  "File.lstat, File.ftype, and File.symlink? through a Bind must read a link as itself, and File.stat " \
@@ -58,7 +57,7 @@ class TestE2EFileStatHost < Minitest::Test
   # @behavior FL-048
   def test_a_special_file_reads_as_preview1_names_it
     skip "this host has no FIFOs, socket files, or /dev/null" if Gem.win_platform?
-    answer = Dir.mktmpdir do |host|
+    answer = TestPaths.host_directory do |host|
       File.mkfifo(File.join(host, "pipe"))
       UNIXServer.open(File.join(host, "sock")) do
         bind_sandbox(host).mount("/dev", Kobako::Filesystem::Bind.new("/dev")).eval(SPECIAL).value
@@ -73,7 +72,7 @@ class TestE2EFileStatHost < Minitest::Test
   # report shows no more of a refused path than +File.size+ already does.
   # @behavior FL-049
   def test_a_block_leaves_a_stat_alone_and_still_refuses_the_open
-    answer = Dir.mktmpdir do |host|
+    answer = TestPaths.host_directory do |host|
       File.write(File.join(host, "secret"), "x")
       bind_sandbox(host) { |path, _access| path != "/d/secret" }.eval(BENEATH_A_BLOCK).value
     end
