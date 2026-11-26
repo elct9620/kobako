@@ -340,9 +340,9 @@ fn to_special_file_type(_host: cap_std::fs::FileType) -> FileType {
 }
 
 /// What a host entry is, with the size the host reports. The host names
-/// its identity and link count everywhere, and its times on unix. Windows
-/// names the identity by volume and file index, which cap-std reads from the
-/// handle each of its stats opens.
+/// its identity, link count, and times everywhere. Windows names the
+/// identity by volume and file index, which cap-std reads from the handle
+/// each of its stats opens, and keeps no time an entry's status changed.
 fn to_kstat(metadata: cap_std::fs::Metadata) -> Kstat {
     let file_type = to_file_type(metadata.file_type());
     let size = metadata.len();
@@ -364,6 +364,11 @@ fn to_kstat(metadata: cap_std::fs::Metadata) -> Kstat {
         Kstat::new(file_type, size)
             .with_identity(metadata.dev(), metadata.ino())
             .with_nlink(metadata.nlink())
+            .with_times(
+                metadata.accessed().ok().map(|at| at.into_std()),
+                metadata.modified().ok().map(|at| at.into_std()),
+                None,
+            )
     }
 }
 
@@ -938,13 +943,11 @@ mod tests {
     use crate::vfs::kern_path::{kern_path, KernPath};
 
     /// A Bind reports times only where the host names them.
-    #[cfg(unix)]
     mod set_times {
         use super::*;
         use crate::filesystem::{Overlay, Tmpfs};
         use crate::mount::{Access, Mount};
-        use crate::vfs::kern_path::filp_open;
-        use crate::vfs::{do_utimes_fd, do_utimes_path, vfs_fstatat, OpenHow, Path as VfsPath};
+        use crate::vfs::{do_utimes_path, vfs_fstatat, Path as VfsPath};
 
         /// One second past the Unix epoch, which no clock is at.
         fn moment() -> std::time::SystemTime {
@@ -1024,8 +1027,8 @@ mod tests {
             assert_eq!(
                 (answers, host_modified(&host.0.join("dir/file.txt"))),
                 ([(set, set); 3], set),
-                "vfs::do_utimes_pathon a file and a directory of a Tmpfs, a Bind, and an Overlay must \
-             keep the time, a Bind's on the host"
+                "a modified time set on a file and a directory of a Tmpfs, a Bind, and an Overlay \
+                 must read back from a stat, and a Bind's must reach its host entry"
             );
         }
 
@@ -1038,14 +1041,15 @@ mod tests {
             assert_eq!(
             (seen, host_modified(&host.0.join("dir")) == before),
             (Some(moment()), true),
-            "vfs::do_utimes_pathon a directory through an Overlay must show the time and leave the \
-             lower Layer's directory as it was"
+            "a modified time set on a directory through an Overlay must read back from a stat and \
+             leave the lower Layer's directory as it was"
         );
         }
 
         // A guest sees nothing of a link but that it is one, so its times are no more
         // its to set than where it points is to read.
         // @behavior FS-187
+        #[cfg(unix)]
         #[test]
         fn a_link_keeps_its_own_times() {
             let host = host_with_a_file("link-time");
@@ -1059,14 +1063,18 @@ mod tests {
                     &set_modified(),
                 ),
                 Err(Errno::Unsupported),
-                "vfs::do_utimes_pathfollowing no link of a Bind's link must answer ENOTSUP"
+                "setting the times of a Bind's link without following it must answer ENOTSUP"
             );
         }
 
         // Another file takes the name, so a time reaching it by name would be seen.
         // @behavior FS-188
+        #[cfg(unix)]
         #[test]
         fn a_time_set_through_a_descriptor_reaches_the_file_it_holds() {
+            use crate::vfs::kern_path::filp_open;
+            use crate::vfs::{do_utimes_fd, OpenHow};
+
             let host = host_with_a_file("held-time");
             let root = root_of(Arc::new(bind_of(&host)));
             let how = OpenHow {
