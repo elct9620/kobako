@@ -391,8 +391,8 @@ impl<F: FnOnce()> AssertSend<F> {
     }
 }
 
-/// A run a guest's thread takes, which hands back the word that it ended.
-/// The thread is listed idle before its caller hears that word, so a caller
+/// A run a guest's thread takes, which hands back the report that it ended.
+/// The thread is listed idle before its caller gets that report, so a caller
 /// that runs again at once finds it.
 type Run = Box<dyn FnOnce() -> Job + Send>;
 
@@ -455,12 +455,12 @@ fn spawn(first: Run) -> io::Result<()> {
                 // A caller took this thread as the limit passed; its run comes.
                 None => runs.take(),
             };
-            let ended = run();
+            let report = run();
             IDLE.with(|idle| {
                 idle.get_or_insert_with(Vec::new)
                     .push(Worker { runs: runs.clone() })
             });
-            ended();
+            report();
         })?;
     Ok(())
 }

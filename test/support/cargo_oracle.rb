@@ -91,7 +91,7 @@ class CargoOracle
   # another process is spawning.
   def cargo_build
     return BuildResult.new(status: :no_cargo, error: nil) unless cargo_on_path?
-    return built_beforehand if ENV.key?("TEST_ENV_NUMBER")
+    return existing_build if ENV.key?("TEST_ENV_NUMBER")
 
     out, status = Open3.capture2e(
       "cargo", "build", "--release",
@@ -103,7 +103,7 @@ class CargoOracle
     BuildResult.new(status: :build_failed, error: out)
   end
 
-  def built_beforehand
+  def existing_build
     return BuildResult.new(status: :ok, error: nil) if File.executable?(binary_path)
 
     BuildResult.new(status: :build_failed,
