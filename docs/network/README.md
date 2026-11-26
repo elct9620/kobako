@@ -251,13 +251,13 @@ A lookup, a response, and a request body are each a file on one anonymous inode,
 
 ### Host Events
 
-Each event reaches its socket with the poll mask it reported, as a wakeup's key carries one. mio promises a further event only once a call answered `WouldBlock`, and Windows gives no more than that. A socket that stops short of it must hear the host again some other way.
+Each event reaches its socket with the poll mask it reported, as a wakeup's key carries one. mio promises a further event only once a call answered `WouldBlock`, and Windows gives no more than that. A socket that stops short of it must hear the host again some other way. mio reports a closed side only as a best effort, so a hang-up can come sooner but never stands alone.
 
 | A socket stops short | It hears the host again through |
 |---|---|
 | UDP, past its turn's datagrams | a repoll |
 | TCP, its receive buffer full | its guest's next read |
-| TCP, past the peer's end | the event's hang-up, as `tcp_reset` sets `sk_err` |
+| TCP, past the peer's end | its guest's next write, or sooner a hang-up where the host reports one |
 
 ### Request Progress
 
