@@ -2512,18 +2512,11 @@ mod tests {
             .expect("the host directory must list")
             .map(|entry| entry.expect("the entry must read").file_name())
             .collect();
-        // Windows reports no inode, so nothing ties `A` to the stored `a` and
-        // the spelling is refused rather than followed.
-        let answered = match cfg!(windows) {
-            true => Err(Errno::PermissionDenied),
-            false => Ok(()),
-        };
         assert_eq!(
             (renamed, stored),
-            (answered, vec![std::ffi::OsString::from("a")]),
-            "vfs::filename_renameat2 of `a` to `A` on a Bind of a host that folds case must \
-             leave `a` spelled as it was, as vfs_rename finds one entry, refusing it only \
-             where the host ties no spelling to the entry"
+            (Ok(()), vec![std::ffi::OsString::from("a")]),
+            "a rename of `a` to `A` on a Bind of a host that folds case must succeed and leave \
+             `a` spelled as it was, since both spellings name one entry"
         );
     }
 

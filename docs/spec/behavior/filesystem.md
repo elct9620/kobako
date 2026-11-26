@@ -2226,7 +2226,7 @@ both live in the upper and never show, so no name is reserved
 | --- | --- |
 | Given | a Bind of a host that folds case, holding `a` |
 | When | a caller renames `a` to `A` |
-| Then | `a` keeps its spelling, as `vfs_rename` finds one entry; a host tying no spelling to it, as Windows, answers EACCES |
+| Then | the rename succeeds and `a` keeps its spelling, as `vfs_rename` finds one entry |
 
 ## `FS-206` An Overlay asks a Layer's permission where overlayfs does
 
