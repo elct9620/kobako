@@ -56,13 +56,9 @@ jobs:
         uses: ./.github/actions/setup-rust
         with:
           targets: wasm32-wasip1
-      - name: Cache cargo
-        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
-        with:
-          workspaces: |
-            .
-            crates
-            wasm/kobako-wasm
+      # No cargo cache: one saved here is reachable from its pull request
+      # alone, and each would take its share of the repository's quota from
+      # the caches main's runs share.
       - name: Benchmark PR head vs base (same-runner A/B)
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
