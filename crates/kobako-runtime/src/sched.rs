@@ -359,7 +359,8 @@ pub(crate) mod testing {
     /// the test instead of hanging the suite.
     pub(crate) const MAX_WAIT: Duration = Duration::from_secs(10);
 
-    /// Wait until `arrived`, failing the test with `what` past `MAX_WAIT`.
+    /// Wait until `arrived`, sleeping a millisecond between looks so the thread
+    /// awaited has the CPU, and fail the test with `what` past `MAX_WAIT`.
     pub(crate) fn wait_until(what: &str, mut arrived: impl FnMut() -> bool) {
         let started = Instant::now();
         while !arrived() {
@@ -367,7 +368,7 @@ pub(crate) mod testing {
                 started.elapsed() < MAX_WAIT,
                 "{what} did not happen within {MAX_WAIT:?}"
             );
-            std::thread::yield_now();
+            std::thread::sleep(Duration::from_millis(1));
         }
     }
 
