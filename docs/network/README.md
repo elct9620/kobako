@@ -259,6 +259,14 @@ Each event reaches its socket with the poll mask it reported, as a wakeup's key 
 | TCP, its receive buffer full | its guest's next read |
 | TCP, past the peer's end | its guest's next write, or sooner a hang-up where the host reports one |
 
+The reactor watches a socket for room to write only while a writer found none, as Linux wakes writers once `SOCK_NOSPACE` marks the socket. Windows re-arms a watch after each read that would block. A socket watched for room it always has would so be reported on every turn, and wake its waiters for nothing.
+
+| A socket waits for room | Until |
+|---|---|
+| TCP, connecting or with bytes queued | the connect settles and the queue drains |
+| UDP, a send refused for room | its next event |
+| the resolver's TCP stream, connecting or asking | it reads the reply |
+
 ### Request Progress
 
 The reactor only wakes. A request moves on its guest's thread, as that guest polls or reads it.
