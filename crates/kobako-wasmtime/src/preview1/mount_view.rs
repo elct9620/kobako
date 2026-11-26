@@ -68,7 +68,6 @@ const ERRNO_MFILE: i32 = 33;
 const ERRNO_INVAL: i32 = 28;
 const ERRNO_IO: i32 = 29;
 const ERRNO_ISDIR: i32 = 31;
-#[cfg(unix)]
 const ERRNO_LOOP: i32 = 32;
 const ERRNO_NOENT: i32 = 44;
 const ERRNO_OVERFLOW: i32 = 61;
@@ -457,7 +456,6 @@ const THROUGH_MISSING: (i32, i32) = (760, 19);
 const OUT_OF_FILE: (i32, i32) = (780, 11);
 const FILE_AS_DIRECTORY: (i32, i32) = (800, 9);
 const NEW_AS_DIRECTORY: (i32, i32) = (820, 8);
-#[cfg(unix)]
 const THROUGH_FILE: (i32, i32) = (860, 12);
 const DIR_DOT: (i32, i32) = (880, 5);
 const DIR_DOT_DOT: (i32, i32) = (890, 6);
@@ -465,16 +463,12 @@ const BENEATH_FILE: (i32, i32) = (900, 10);
 const MOVED: (i32, i32) = (920, 5);
 const DIR: (i32, i32) = (930, 3);
 const MISSING_DOT: (i32, i32) = (940, 9);
-#[cfg(unix)]
 const LINK_DOT: (i32, i32) = (970, 10);
-#[cfg(unix)]
 const OUT_OF_LINK: (i32, i32) = (990, 20);
 const HOLDING_NUL: (i32, i32) = (1010, 9);
 const NOT_UTF8: (i32, i32) = (1440, 1);
 const DIR_FILE: (i32, i32) = (1030, 12);
-#[cfg(unix)]
 const DIR_AS_DIRECTORY: (i32, i32) = (1050, 4);
-#[cfg(unix)]
 const GONE_AS_DIRECTORY: (i32, i32) = (1060, 5);
 const ERRNO_EXIST: i32 = 20;
 const OFLAGS_EXCL: i32 = 1 << 2;
@@ -1766,23 +1760,18 @@ fn an_append_lands_after_another_writers_append() {
 
 #[cfg(unix)]
 const FILETYPE_UNKNOWN: u8 = 0;
-#[cfg(unix)]
 const FILETYPE_DIRECTORY: u8 = 3;
-#[cfg(unix)]
 const FILETYPE_REGULAR_FILE: u8 = 4;
-#[cfg(unix)]
 const FILETYPE_SYMBOLIC_LINK: u8 = 7;
 
 /// A host directory of its own holding `file.txt` as a link to `target`,
 /// made by `make_target`, and a guest handed it as a read-only Bind
 /// Mount.
-#[cfg(unix)]
 fn mount_link(name: &str, make_target: fn(&std::path::Path)) -> (std::path::PathBuf, Guest) {
     mount_link_under(name, make_target, Access::Read, None)
 }
 
 /// As `linked`, the Mount taking `access` and `policy`.
-#[cfg(unix)]
 fn mount_link_under(
     name: &str,
     make_target: fn(&std::path::Path),
@@ -1793,7 +1782,7 @@ fn mount_link_under(
     let _ = std::fs::remove_dir_all(&host);
     std::fs::create_dir_all(&host).expect("the host directory must be created");
     make_target(&host.join("target"));
-    std::os::unix::fs::symlink("target", host.join("file.txt")).expect("the link must be made");
+    super::testing::symlink("target", host.join("file.txt"));
     let directory = Bind::new(&host).expect("the host directory must open");
     let guest = Guest::new(&[grant(Arc::new(directory), access, policy)]);
     (host, guest)
@@ -1802,7 +1791,6 @@ fn mount_link_under(
 /// What each stat of `path` with the given lookupflags answers, and the
 /// filetype it wrote, beneath a Bind Mount whose host directory
 /// holds `file.txt` as a link to `target`, made by `make_target`.
-#[cfg(unix)]
 fn stat_link(
     name: &str,
     make_target: fn(&std::path::Path),
@@ -1890,7 +1878,6 @@ fn a_guest_sees_a_socket_as_one_and_cannot_open_it() {
 // The link points at a regular file, so only a stat that follows none
 // can answer a link.
 // @behavior RT-097
-#[cfg(unix)]
 #[test]
 fn a_stat_following_no_link_reports_the_link_itself() {
     let answers = stat_link(
@@ -1909,7 +1896,6 @@ fn a_stat_following_no_link_reports_the_link_itself() {
 // A host link reports the length of where it points, so only what the runtime
 // shows a guest keeps that length from it.
 // @behavior RT-173
-#[cfg(unix)]
 #[test]
 fn a_link_reports_no_size_however_its_filesystem_sizes_it() {
     let (host, mut guest) = mount_link("link-size", |target| {
@@ -2038,7 +2024,6 @@ fn a_file_time_past_what_a_timestamp_holds_answers_overflow() {
 // The stat follows no link, so only the trailing `/` can make it reach
 // the directory the link points at, as Linux's `lstat` does.
 // @behavior RT-098
-#[cfg(unix)]
 #[test]
 fn a_stat_of_a_link_named_with_a_trailing_slash_reports_its_directory() {
     let answers = stat_link(
@@ -2059,7 +2044,6 @@ fn a_stat_of_a_link_named_with_a_trailing_slash_reports_its_directory() {
 /// `file.txt/` to a directory beneath a read-write Bind Mount taking
 /// `policy`, and whether the link stays; `name` keeps its host directory
 /// its own.
-#[cfg(unix)]
 fn change_link_named_as_directory(
     name: &str,
     policy: Option<Arc<dyn for<'a> Policy<MountRequest<'a>>>>,
@@ -2078,7 +2062,6 @@ fn change_link_named_as_directory(
 // directory, so a Policy, refusing only a link a call follows, changes
 // neither answer.
 // @behavior RT-123
-#[cfg(unix)]
 #[test]
 fn a_link_named_with_a_trailing_slash_is_neither_removed_nor_moved() {
     assert_eq!(
@@ -2096,7 +2079,6 @@ fn a_link_named_with_a_trailing_slash_is_neither_removed_nor_moved() {
 // The link points at nothing, so only an unlink that follows no link
 // finds it there to answer ENOTDIR rather than ENOENT.
 // @behavior RT-134
-#[cfg(unix)]
 #[test]
 fn an_unlink_with_a_trailing_slash_answers_for_the_name_itself() {
     let host = std::env::temp_dir().join(format!(
@@ -2106,7 +2088,7 @@ fn an_unlink_with_a_trailing_slash_answers_for_the_name_itself() {
     let _ = std::fs::remove_dir_all(&host);
     std::fs::create_dir_all(host.join("dir")).expect("the host directory must be created");
     std::fs::write(host.join("file.txt"), "granted").expect("the host file must be written");
-    std::os::unix::fs::symlink("nowhere", host.join("gone")).expect("the link must be made");
+    super::testing::symlink("nowhere", host.join("gone"));
     let directory = Bind::new(&host).expect("the host directory must open");
     let mut guest = Guest::new(&[grant(Arc::new(directory), Access::ReadWrite, None)]);
     let answers = [
@@ -2242,7 +2224,6 @@ fn an_allocation_past_a_tmpfs_size_answers_enospc() {
 // The probe's opens follow no link, so only the trailing `/` can make one
 // reach the directory the link points at, as Linux's `open` does.
 // @behavior RT-100
-#[cfg(unix)]
 #[test]
 fn an_open_following_no_link_refuses_a_link_to_a_directory() {
     let (host, mut guest) = mount_link("open-nofollow", |target| {
@@ -2262,7 +2243,6 @@ fn an_open_following_no_link_refuses_a_link_to_a_directory() {
 }
 
 /// A host directory linked in as `file.txt`, holding `key`.
-#[cfg(unix)]
 fn directory_with_key(target: &std::path::Path) {
     std::fs::create_dir(target).expect("the host directory must be created");
     std::fs::write(target.join("key"), "secret").expect("the host file must be written");
@@ -2271,7 +2251,6 @@ fn directory_with_key(target: &std::path::Path) {
 // The link itself is allowed; only judging where it leads refuses the key, so
 // a walk that took the link's own path for the answer would hand it over.
 // @behavior RT-101
-#[cfg(unix)]
 #[test]
 fn a_path_through_a_link_beneath_a_mount_with_a_policy_is_judged_where_it_leads() {
     let refuses_key: Arc<dyn for<'a> Policy<MountRequest<'a>>> = Arc::new(Refuses("/target/key"));
@@ -2312,7 +2291,6 @@ fn a_path_through_a_link_beneath_a_mount_with_a_policy_is_judged_where_it_leads(
 // it and one into itself loops, as beneath a Mount without a Policy, and an unlink
 // acts on the link itself.
 // @behavior RT-125
-#[cfg(unix)]
 #[test]
 fn a_link_out_of_a_directory_or_into_a_loop_answers_as_without_a_policy() {
     let outside = std::env::temp_dir().join(format!("kobako-outside-{}", std::process::id()));
@@ -2332,8 +2310,7 @@ fn a_link_out_of_a_directory_or_into_a_loop_answers_as_without_a_policy() {
             ));
             let _ = std::fs::remove_dir_all(&host);
             std::fs::create_dir_all(&host).expect("the host directory must be created");
-            std::os::unix::fs::symlink(target, host.join("file.txt"))
-                .expect("the link must be made");
+            super::testing::symlink(target, host.join("file.txt"));
             let directory = Bind::new(&host).expect("the host directory must open");
             let policy: Arc<dyn for<'a> Policy<MountRequest<'a>>> = Arc::new(AllowsAll);
             let mut guest =
@@ -2398,7 +2375,6 @@ impl Hook for FailsLookingUpDir {
 // Each path lands on what the link's target or its parent holds, so only a
 // walk taking `.` and `..` from where the link led answers.
 // @behavior RT-119
-#[cfg(unix)]
 #[test]
 fn a_step_out_of_a_link_lands_where_it_leads() {
     assert_eq!(
@@ -2570,17 +2546,15 @@ fn a_create_of_a_host_file_that_only_reads_opens_it() {
 /// A host directory of the test's own beneath a read-write Bind Mount,
 /// `dir` a link to the directory `real` and `gone` a link to nothing,
 /// removed when it drops.
-#[cfg(unix)]
 struct LinkedHost(std::path::PathBuf);
 
-#[cfg(unix)]
 impl LinkedHost {
     fn new(name: &str) -> Self {
         let host = std::env::temp_dir().join(format!("kobako-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&host);
         std::fs::create_dir_all(host.join("real/inner")).expect("the host tree must be made");
-        std::os::unix::fs::symlink("real", host.join("dir")).expect("the link must be made");
-        std::os::unix::fs::symlink("nowhere", host.join("gone")).expect("the link must be made");
+        super::testing::symlink("real", host.join("dir"));
+        super::testing::symlink("nowhere", host.join("gone"));
         Self(host)
     }
 
@@ -2590,7 +2564,6 @@ impl LinkedHost {
     }
 }
 
-#[cfg(unix)]
 impl Drop for LinkedHost {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
@@ -2601,7 +2574,6 @@ impl Drop for LinkedHost {
 // link that is not the last name, and the dot answers as one through a
 // directory does.
 // @behavior RT-161
-#[cfg(unix)]
 #[test]
 fn a_path_ending_in_a_dot_through_a_link_is_neither_removed_nor_moved() {
     let host = LinkedHost::new("dot-link");
@@ -2624,7 +2596,6 @@ fn a_path_ending_in_a_dot_through_a_link_is_neither_removed_nor_moved() {
 // The dot is the last name, which these act on rather than land on, so
 // nothing of where the link points shows, and the answers are Linux's.
 // @behavior RT-219
-#[cfg(unix)]
 #[test]
 fn a_change_naming_a_dot_through_a_link_answers_as_linux() {
     let host = LinkedHost::new("dot-change");
@@ -2643,7 +2614,6 @@ fn a_change_naming_a_dot_through_a_link_answers_as_linux() {
 }
 
 /// The root of `host` beneath a Bind Mount, as the VFS walks it.
-#[cfg(unix)]
 fn bind_root(host: &std::path::Path) -> Path {
     let directory = Bind::new(host).expect("the host directory must open");
     let mount = Mount::new(
@@ -2658,7 +2628,6 @@ fn bind_root(host: &std::path::Path) -> Path {
 // No security module is registered, so were the link followed the file would
 // be made where it points, and only `O_EXCL` keeps that from happening.
 // @behavior RT-220
-#[cfg(unix)]
 #[test]
 fn an_exclusive_create_follows_no_link_at_the_end() {
     let host = LinkedHost::new("excl-link");
@@ -2684,7 +2653,6 @@ fn an_exclusive_create_follows_no_link_at_the_end() {
 // The trailing `/` follows the link, so what is read stands at the directory,
 // where the walk that reports a link as itself would answer ENOTDIR.
 // @behavior RT-221
-#[cfg(unix)]
 #[test]
 fn a_trailing_slash_on_a_link_to_a_directory_reads_no_link() {
     let host = LinkedHost::new("readlink-slash");
@@ -2699,7 +2667,6 @@ fn a_trailing_slash_on_a_link_to_a_directory_reads_no_link() {
 // Linux answers the trailing slash of a create before it would follow the
 // link, which points at nothing a create could make.
 // @behavior RT-162
-#[cfg(unix)]
 #[test]
 fn a_create_through_a_trailing_slash_answers_eisdir_before_following_a_link() {
     let host = LinkedHost::new("slash-link");
@@ -3241,7 +3208,6 @@ fn a_file_moved_beneath_itself_is_no_directory() {
 // The link points at nothing, so only the link itself, not a file it
 // would follow to, can be what each open finds there.
 // @behavior RT-106
-#[cfg(unix)]
 #[test]
 fn an_open_following_no_link_finds_a_dangling_link_as_itself() {
     let (host, mut guest) = mount_link_under("dangling", |_| {}, Access::ReadWrite, None);
@@ -3443,39 +3409,25 @@ fn an_open_of_a_directory_answers_its_other_flags_as_linux_does() {
     );
 }
 
-#[cfg(unix)]
 const UP: (i32, i32) = (1070, 2);
-#[cfg(unix)]
 const THROUGH_UPDIR: (i32, i32) = (1080, 7);
-#[cfg(unix)]
 const IN_LINKED: (i32, i32) = (1090, 4);
-#[cfg(unix)]
 const TWISTY: (i32, i32) = (1100, 6);
-#[cfg(unix)]
 const DANGLE: (i32, i32) = (1110, 6);
-#[cfg(unix)]
 const DIR_UP: (i32, i32) = (1120, 6);
-#[cfg(unix)]
 const NOWHERE: (i32, i32) = (1130, 7);
-#[cfg(unix)]
 const OUT_OF_IN: (i32, i32) = (1160, 20);
-#[cfg(unix)]
 const LOOP: (i32, i32) = (1184, 4);
-#[cfg(unix)]
 const DIR_SUB: (i32, i32) = (1190, 7);
-#[cfg(unix)]
 const DIR_IN_Y: (i32, i32) = (1400, 8);
-#[cfg(unix)]
 const DIR_SUB_Y: (i32, i32) = (1420, 9);
 
 /// A host directory whose `dir` holds links staying within it (`in`,
 /// `twisty`), links leading out of it (`up`, `updir`), links pointing at
 /// nothing out of it (`dangle`) and within it (`nowhere`), and a link
 /// pointing at itself (`loop`).
-#[cfg(unix)]
 struct LinkedBeneath(std::path::PathBuf);
 
-#[cfg(unix)]
 impl LinkedBeneath {
     fn new(name: &str) -> Self {
         let host =
@@ -3496,7 +3448,7 @@ impl LinkedBeneath {
             ("missing", "dir/nowhere"),
             ("loop", "dir/loop"),
         ] {
-            std::os::unix::fs::symlink(target, host.join(link)).expect("the link must be made");
+            super::testing::symlink(target, host.join(link));
         }
         Self(host)
     }
@@ -3520,7 +3472,6 @@ impl LinkedBeneath {
     }
 }
 
-#[cfg(unix)]
 impl Drop for LinkedBeneath {
     fn drop(&mut self) {
         let _ = std::fs::remove_dir_all(&self.0);
@@ -3530,7 +3481,6 @@ impl Drop for LinkedBeneath {
 // Each link names a real file outside `dir` yet inside the Mount, so only
 // a link kept within the descriptor, not the Mount's root, is refused.
 // @behavior RT-140
-#[cfg(unix)]
 #[test]
 fn a_link_leading_out_of_an_opened_directory_escapes_it() {
     let host = LinkedBeneath::new("out");
@@ -3560,7 +3510,6 @@ fn a_link_leading_out_of_an_opened_directory_escapes_it() {
 // The second `..` leaves `sub`, where `in` led, two names after the link, so
 // only a walk standing where the link led reaches `sub/y` from `dir`.
 // @behavior RT-119
-#[cfg(unix)]
 #[test]
 fn a_step_out_of_where_a_link_led_lands_beside_it() {
     let host = LinkedBeneath::new("led");
@@ -3578,7 +3527,6 @@ fn a_step_out_of_where_a_link_led_lands_beside_it() {
 // on its own, so only a rename recognised as onto its own path, rather
 // than by the directory each walk opened, changes nothing and succeeds.
 // @behavior RT-155
-#[cfg(unix)]
 #[test]
 fn a_directory_renamed_onto_its_own_path_beneath_a_policy_stays() {
     let host = LinkedBeneath::new("onto-itself");
@@ -3602,7 +3550,6 @@ fn a_directory_renamed_onto_its_own_path_beneath_a_policy_stays() {
 // The two paths differ, so only the walk ending on one dentry tells the
 // rename it is onto itself; otherwise it waits on that name's lock twice.
 // @behavior RT-168
-#[cfg(unix)]
 #[test]
 fn a_file_renamed_onto_itself_through_a_link_stays() {
     let host = LinkedBeneath::new("onto-itself-linked");
@@ -3619,7 +3566,6 @@ fn a_file_renamed_onto_itself_through_a_link_stays() {
 }
 
 // @behavior RT-154
-#[cfg(unix)]
 #[test]
 fn a_link_loop_answers_eloop() {
     let host = LinkedBeneath::new("loop");
@@ -3633,7 +3579,6 @@ fn a_link_loop_answers_eloop() {
 }
 
 // @behavior RT-141
-#[cfg(unix)]
 #[test]
 fn a_link_staying_within_an_opened_directory_is_followed() {
     let host = LinkedBeneath::new("in");
@@ -3654,7 +3599,6 @@ fn a_link_staying_within_an_opened_directory_is_followed() {
 
 // An Overlay's change lands in its upper, so only a Bind shows it on the host.
 // @behavior RT-142
-#[cfg(unix)]
 #[test]
 fn a_create_through_a_dangling_link_beneath_an_opened_directory_makes_its_target() {
     let answers = |name, overlay| {
@@ -3676,7 +3620,6 @@ fn a_create_through_a_dangling_link_beneath_an_opened_directory_makes_its_target
 // The link names a file outside the host directory by an absolute path, so
 // the walk refuses it before any host call is made.
 // @behavior RT-143
-#[cfg(unix)]
 #[test]
 fn a_link_leading_out_of_a_mount_escapes_it() {
     let host = LinkedBeneath::new("mount");
@@ -3684,7 +3627,7 @@ fn a_link_leading_out_of_a_mount_escapes_it() {
         std::env::temp_dir().join(format!("kobako-beneath-outside-{}", std::process::id()));
     std::fs::write(&outside, "host").expect("the outside file must be written");
     std::fs::remove_file(host.0.join("dir/up")).expect("the link must be removed");
-    std::os::unix::fs::symlink(&outside, host.0.join("dir/up")).expect("the link must be made");
+    super::testing::symlink(&outside, host.0.join("dir/up"));
     let errno = host.guest(false).call("open_following", DIR_UP);
     let _ = std::fs::remove_file(&outside);
     assert_eq!(
@@ -3717,22 +3660,18 @@ fn a_files_access_is_checked_before_a_buffer_outside_memory_is_bounded() {
     );
 }
 
-#[cfg(unix)]
 const PUB_X: (i32, i32) = (1150, 5);
 
 /// A Policy allowing `/pub/` alone, which swaps `pub` for a link to
 /// `secret` the first time it is asked, as another writer could between
 /// its judgment and the call.
-#[cfg(unix)]
 struct SwapsWhileAsked(std::path::PathBuf, std::sync::atomic::AtomicBool);
 
-#[cfg(unix)]
 impl Policy<MountRequest<'_>> for SwapsWhileAsked {
     fn allows(&self, request: &MountRequest<'_>) -> bool {
         if self.1.swap(false, Ordering::SeqCst) {
             std::fs::rename(self.0.join("pub"), self.0.join("pub_old")).expect("pub must move");
-            std::os::unix::fs::symlink("secret", self.0.join("pub"))
-                .expect("the link must be made");
+            super::testing::symlink("secret", self.0.join("pub"));
         }
         request.path.starts_with("/pub/")
     }
@@ -3742,7 +3681,6 @@ impl Policy<MountRequest<'_>> for SwapsWhileAsked {
 // `pub`, so only a call acting on the directory it walked to, rather than
 // on the path again, keeps from reading `secret/x`.
 // @behavior RT-145
-#[cfg(unix)]
 #[test]
 fn a_link_swapped_in_after_a_policy_judges_a_path_is_not_followed() {
     let host = std::env::temp_dir().join(format!("kobako-swapped-{}", std::process::id()));

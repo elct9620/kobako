@@ -229,10 +229,8 @@ impl HostDir {
         fs::create_dir_all(path.join("d/e")).expect("the host directory must be created");
         fs::write(path.join("a"), "hello").expect("the host file must be written");
         fs::write(path.join("d/f"), "inner").expect("the host file must be written");
-        #[cfg(unix)]
         for (target, link) in [("a", "l"), ("d/e", "n"), ("nowhere", "g")] {
-            std::os::unix::fs::symlink(target, path.join(link))
-                .expect("the host link must be made");
+            crate::preview1::testing::symlink(target, path.join(link));
         }
         Self(path)
     }

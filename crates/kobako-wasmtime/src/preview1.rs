@@ -26,6 +26,8 @@ mod differential;
 #[cfg(test)]
 mod mount_view;
 #[cfg(test)]
+mod testing;
+#[cfg(test)]
 mod testsuite;
 
 use wasmtime::Linker;
