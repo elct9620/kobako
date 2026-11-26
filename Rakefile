@@ -6,10 +6,20 @@ require "bundler/gem_tasks"
 # turns, a fork, or the GC, so each process runs its share of the files one
 # at a time, one process per available CPU. It finds the files itself, as
 # naming every one would pass Windows' command-line limit, by a pattern
-# holding none of the characters cmd.exe reads as its own, as `^`.
+# holding none of the characters cmd.exe reads as its own, as `^`. A run
+# that selected no file fails, as passing it would report a suite that
+# checked nothing.
 desc "Run the Ruby suite"
 task test: "test:oracles" do
-  sh({ "RUBYOPT" => "-w -Ilib -Itest -I." }, "parallel_test", "test", "--type", "test", "--suffix", '/test_\w+\.rb$')
+  command = ["parallel_test", "test", "--type", "test", "--suffix", '/test_\w+\.rb$']
+  selected = IO.popen({ "RUBYOPT" => "-w -Ilib -Itest -I." }, command, err: %i[child out]) do |output|
+    output.each_line.filter_map do |line|
+      print line
+      line[/\A\d+ process(?:es)? for (\d+) tests?,/, 1]&.to_i
+    end.sum
+  end
+  raise "parallel_test exited with #{Process.last_status.exitstatus}" unless Process.last_status.success?
+  raise "parallel_test selected no test file" if selected.zero?
 end
 
 # Grouped subsets of the suite the main +test+ task already runs whole:
