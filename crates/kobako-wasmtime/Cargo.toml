@@ -75,8 +75,8 @@ wiggle = { version = "50.0.1", default-features = false, features = ["wasmtime"]
 sha2 = "0.11"
 
 [dev-dependencies]
-# wasmparser walks the bundled Guest Binary's code to witness what each ABI
-# export can call; the version is the one wasmtime-environ already links.
+# wasmparser reads the bundled Guest Binary, to witness what each ABI export
+# can call and what the binary imports.
 wasmparser = "0.263.0"
 
 # libc forks a test's process, to witness what a child keeps of its parent.
