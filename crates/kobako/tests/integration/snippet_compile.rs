@@ -165,9 +165,13 @@ fn a_compile_that_panics_leaves_the_source_replaying() {
     );
 }
 
-// The second evaluation is given far longer than it needs; past that it is
-// waiting on the first one's compile, and the compile is let go so both
-// threads end and the assertion reports it.
+/// The longest a test waits for another thread, so what never arrives fails
+/// the test instead of hanging the suite.
+const MAX_WAIT: Duration = Duration::from_secs(10);
+
+// A second evaluation still running past MAX_WAIT is waiting on the first
+// one's compile, and the compile is let go so both threads end and the
+// assertion reports it.
 // @behavior S-261
 #[test]
 fn a_compile_holds_up_no_other_invocation_of_its_sandbox() {
@@ -187,15 +191,16 @@ fn a_compile_holds_up_no_other_invocation_of_its_sandbox() {
         let sandbox = sandbox.clone();
         move || sandbox.eval("A").is_ok()
     });
-    compiling
-        .recv()
-        .expect("the first Sandbox::eval must reach the engine's compile, or nothing is held");
+    compiling.recv_timeout(MAX_WAIT).expect(
+        "the first Sandbox::eval must reach the engine's compile, or nothing is held; \
+         look at what it returned before the compile",
+    );
     let (done, finished) = mpsc::channel();
     let second = thread::spawn({
         let sandbox = sandbox.clone();
         move || done.send(sandbox.eval("A").is_ok()).unwrap()
     });
-    let second_ok = finished.recv_timeout(Duration::from_secs(10)).ok();
+    let second_ok = finished.recv_timeout(MAX_WAIT).ok();
     release.send(()).unwrap();
     let first_ok = first.join().unwrap();
     second.join().unwrap();
