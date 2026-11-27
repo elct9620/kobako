@@ -2854,6 +2854,36 @@ mod tests {
     // @behavior NW-155
     #[test]
     fn a_flushing_streams_pollable_waits_until_what_it_flushes_has_left() {
+        for _ in 0..MAX_HOLD_ATTEMPTS {
+            let (while_held, room_then, after) = flush_beside_a_full_host();
+            // The host was still moving what the fill wrote on to the peer,
+            // and then took the flush: the stream offers room, so nothing was
+            // held, and another attempt is needed.
+            if while_held.contains(&0) && room_then.is_some_and(|room| room > 0) {
+                continue;
+            }
+            assert!(
+                while_held == [1] && after.is_some_and(|room| room > 0),
+                "output-stream.subscribe after a flush the peer has not taken must not be ready, \
+                 only the zero-length clock beside it, and once the peer reads, it must be ready \
+                 with check-write offering bytes; polled {while_held:?} offering {room_then:?}, \
+                 then offered {after:?}"
+            );
+            return;
+        }
+        panic!(
+            "the host took each of {MAX_HOLD_ATTEMPTS} flushes at once, so none was held; \
+             FillsHostSendBuffer::fill must leave the host's send buffer full"
+        );
+    }
+
+    /// How many times a flush is tried beside a host that may still drain.
+    const MAX_HOLD_ATTEMPTS: usize = 10;
+
+    /// Flush a stream whose bytes the host cannot take, its peer reading
+    /// nothing, answering what a poll beside a zero-length clock found ready,
+    /// what check-write offered then, and what it offered once the peer read.
+    fn flush_beside_a_full_host() -> (Vec<u32>, Option<u64>, Option<u64>) {
         let (mut guest, listener, family) = guest_filling_host_send_buffer();
         let port = listener.local_addr().unwrap().port();
         let answers = run_task(Some(Instant::now() + MAX_WAIT), || {
@@ -2888,6 +2918,13 @@ mod tests {
             let writable = guest.streams_output_stream_subscribe(output)?;
             let now = guest.monotonic_clock_subscribe_duration(0)?;
             let while_held = guest.poll_poll(vec![writable, now])?;
+            let room_then = guest
+                .streams_output_stream_check_write(output)
+                .into_answer()?
+                .ok();
+            if while_held.contains(&0) {
+                return Ok::<_, wasmtime::Error>((while_held, room_then, None, None));
+            }
             let reader = std::thread::spawn(move || {
                 let mut sink = [0u8; 65536];
                 while std::io::Read::read(&mut peer, &mut sink).is_ok_and(|n| n > 0) {}
@@ -2897,16 +2934,11 @@ mod tests {
                 .streams_output_stream_check_write(output)
                 .into_answer()?
                 .ok();
-            Ok::<_, wasmtime::Error>((while_held, after, reader))
+            Ok((while_held, room_then, after, Some(reader)))
         })
         .expect("the stream fills and drains");
-        let (while_held, after, _reader) = answers;
-        assert!(
-            while_held == [1] && after.is_some_and(|room| room > 0),
-            "output-stream.subscribe after a flush the peer has not taken must not be ready, \
-             only the zero-length clock beside it, and once the peer reads, it must be ready \
-             with check-write offering bytes; polled {while_held:?}, then offered {after:?}"
-        );
+        let (while_held, room_then, after, _reader) = answers;
+        (while_held, room_then, after)
     }
 
     // @behavior NW-089
