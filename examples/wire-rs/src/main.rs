@@ -19,7 +19,7 @@
 //! a `MyService::KV` constant the guest reaches like any other, and a
 //! hand-written `DispatchHandler` answers every Call the guest makes
 //! against it: read the routing fields the runtime already decoded,
-//! route to an in-process store, answer with a `Reply`. The handler
+//! route to an in-process store, answer with a `CallReply`. The handler
 //! honours the one hard rule of the dispatch contract — it never fails,
 //! folding every error into the Reply's fault arm, which the guest
 //! re-raises as a rescuable exception rather than a wasm trap.
@@ -41,7 +41,7 @@ use kobako_runtime::{
     Snapshot, Trap, Yielder,
 };
 use kobako_transport::envelope::{
-    Bindings, Call, Fault, FaultKind, Outcome, Panic, Preamble, Reply, Target,
+    Bindings, Call, CallReply, Fault, FaultKind, Outcome, Panic, Preamble, Target,
 };
 use kobako_wasmtime::{Config, Driver};
 
@@ -74,12 +74,12 @@ fn main() -> ExitCode {
     // The caps a Ruby host passes as Sandbox options; `Hermetic` is the
     // full ambient-denial posture — frozen clocks and entropy.
     let mut config = Config::default();
-    config.timeout = Some(Duration::from_secs(5));
-    config.memory_limit = Some(64 * 1024 * 1024);
-    config.stdout_limit = Some(64 * 1024);
-    config.stderr_limit = Some(64 * 1024);
+    config.limits.timeout = Some(Duration::from_secs(5));
+    config.limits.memory_limit = Some(64 * 1024 * 1024);
+    config.limits.stdout_limit = Some(64 * 1024);
+    config.limits.stderr_limit = Some(64 * 1024);
     config.profile = Profile::Hermetic;
-    let driver = match Driver::new(&wasm_path, config) {
+    let driver = match Driver::from_file(&wasm_path, config) {
         Ok(driver) => driver,
         Err(setup) => {
             report_setup_error(&setup);
@@ -159,7 +159,7 @@ impl KvHandler {
     /// The routing fields arrive already decoded — reading the target and
     /// method costs no codec, which is why the payload is not touched
     /// until a method has been chosen.
-    fn handle(&self, call: &Call<'_>) -> Reply {
+    fn handle(&self, call: &Call<'_>) -> CallReply {
         let Target::Path(path) = call.target else {
             return fault(
                 FaultKind::Undefined,
@@ -222,7 +222,7 @@ impl DispatchHandler for KvHandler {
     /// The envelope is already decoded on the way in and encoded on the
     /// way out, so there is no longer a malformed-Call arm here — a Call
     /// the runtime could not read never reaches a handler.
-    fn dispatch(&self, call: Call<'_>, _yielder: &mut dyn Yielder) -> Option<Reply> {
+    fn dispatch(&self, call: Call<'_>, _yielder: &mut dyn Yielder) -> Option<CallReply> {
         Some(self.handle(&call))
     }
 }
@@ -230,17 +230,17 @@ impl DispatchHandler for KvHandler {
 /// A successful Reply carrying one value under this host's payload
 /// schema. A value the wire cannot carry back — nested past the depth cap
 /// — folds into a fault like every other failure.
-fn ok(value: &Value) -> Reply {
+fn ok(value: &Value) -> CallReply {
     match Encoder::encode(value) {
-        Ok(bytes) => Reply::Ok(bytes),
+        Ok(bytes) => CallReply::Ok(bytes),
         Err(err) => fault(FaultKind::Runtime, format!("value not encodable: {err}")),
     }
 }
 
 /// A refusal. Typed on the envelope, so the category and the message are
 /// the whole of it and no payload codec is involved.
-fn fault(kind: FaultKind, message: impl Into<String>) -> Reply {
-    Reply::Fault(Fault::new(kind, message))
+fn fault(kind: FaultKind, message: impl Into<String>) -> CallReply {
+    CallReply::Fault(Fault::new(kind, message))
 }
 
 /// Print every observable of a completed invocation — captures, usage,
@@ -332,13 +332,13 @@ fn report_trap(trap: &Trap) {
 }
 
 /// A failure that produced no invocation: the artifact is absent or
-/// unusable (`ModuleNotBuilt` / `Dead`) or a host-side pre-call step
+/// unusable (`GuestBinaryNotFound` / `Dead`) or a host-side pre-call step
 /// failed with the runtime still live (`Intact`).
 fn report_setup_error(setup: &SetupError) {
     // Open for the same reason `Trap` is; an unrecognised state is still
     // a setup failure.
     let kind = match setup {
-        SetupError::ModuleNotBuilt(_) => "guest artifact not built",
+        SetupError::GuestBinaryNotFound(_) => "guest binary not found",
         SetupError::Dead(_) => "runtime dead",
         _ => "setup failed",
     };
