@@ -11,9 +11,13 @@ class TestE2EIdleGuestThreads < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
 
-  CHILD = <<~RUBY
+  GUEST_THREADS = <<~RUBY
     require "kobako"
     def guest_threads = Dir.glob("/proc/self/task/*/comm").count { |comm| (File.read(comm) rescue "").strip == "kobako-guest" }
+  RUBY
+
+  CHILD = <<~RUBY.freeze
+    #{GUEST_THREADS}
     sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release)
     sandbox.bind("Host::Wait", ->(seconds) { sleep(seconds) })
     Array.new(3) { Thread.new { sandbox.eval("Host::Wait.call(0.3)") } }.each(&:join)
@@ -26,9 +30,8 @@ class TestE2EIdleGuestThreads < Minitest::Test
     print [kept, ended, answer, guest_threads].inspect
   RUBY
 
-  ONE_AFTER_ANOTHER = <<~RUBY
-    require "kobako"
-    def guest_threads = Dir.glob("/proc/self/task/*/comm").count { |comm| (File.read(comm) rescue "").strip == "kobako-guest" }
+  ONE_AFTER_ANOTHER = <<~RUBY.freeze
+    #{GUEST_THREADS}
     counts = %i[hold release].map do |gvl|
       sandbox = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: gvl)
       200.times { sandbox.eval("1") }
