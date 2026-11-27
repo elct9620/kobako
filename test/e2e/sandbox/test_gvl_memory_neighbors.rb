@@ -59,7 +59,7 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
   def eval_beside_flood(mode)
     neighbour = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: mode)
     begun = Thread::Queue.new
-    flooder = new_flooder(mode, begun)
+    flooder = flooding_sandbox(mode, begun)
     flooding = Thread.new { flood(flooder) }
     wait_until("the flood never opened /data, so its run failed first") { !begun.empty? || !flooding.alive? }
     answer = neighbour.eval("1").value
@@ -71,7 +71,7 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
 
   # A sandbox whose run floods entropy under +mode+, filling +begun+ once
   # its guest opened /data on the way to the flood.
-  def new_flooder(mode, begun)
+  def flooding_sandbox(mode, begun)
     Kobako::Sandbox.new(wasm_path: TestPaths.fixture("minimal_random_flood.wat"),
                         profile: :permissive, gvl: mode, timeout: MAX_RUN_TIME, memory_limit: nil)
                    .mount("/data", Kobako::Filesystem::Tmpfs.new, access: :read) { begun << true }

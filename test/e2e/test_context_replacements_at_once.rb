@@ -29,7 +29,7 @@ class TestE2EContextReplacementsAtOnce < Minitest::Test
   # @behavior MT-063
   def test_invocations_at_once_each_reach_only_the_mount_their_own_context_gave
     shared = Kobako::Filesystem::Tmpfs.new("who.txt" => "shared")
-    sandbox = new_releasing_sandbox.mount("/data", shared, access: :read_write)
+    sandbox = releasing_sandbox.mount("/data", shared, access: :read_write)
 
     assert_equal expected_views, at_once { |tenant, round| read_own_mount(sandbox, tenant, round) },
                  "invocations at once on one shared Sandbox, each with its own ctx.mount, must each read and " \
@@ -41,7 +41,7 @@ class TestE2EContextReplacementsAtOnce < Minitest::Test
   # @behavior NW-234
   def test_invocations_at_once_each_reach_only_the_entry_their_own_context_gave
     judged = Queue.new
-    sandbox = new_releasing_sandbox.network(:api, RecordingEntry.new(:shared, judged))
+    sandbox = releasing_sandbox.network(:api, RecordingEntry.new(:shared, judged))
     at_once { |tenant, round| look_up_through_own_entry(sandbox, tenant, round, judged) }
 
     assert_equal expected_lookups, drain(judged),
@@ -54,7 +54,7 @@ class TestE2EContextReplacementsAtOnce < Minitest::Test
 
   private
 
-  def new_releasing_sandbox
+  def releasing_sandbox
     Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: :release)
   end
 
