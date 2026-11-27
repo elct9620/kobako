@@ -1,18 +1,22 @@
 # Serverless Demo
 
-A self-contained Rack application that dispatches `GET /:name` to an operator-supplied mruby script. Each route's script defines a named entrypoint constant; the app preloads it into a `Kobako::Sandbox` and invokes it via `#run(:Entrypoint, GuestRequest.new(env))`, and the script returns a Rack response triplet `[status, headers, body]` directly. The Sandbox is either built fresh per request (default) or reused from a pool of preloaded Sandboxes (`--pool`).
+A self-contained Rack application that dispatches `GET /:name` to an operator-supplied mruby script. Each route's script defines a named entrypoint constant. The app preloads it into a fresh `Kobako::Sandbox` per request and calls it as shown below.
 
-This is the canonical demonstration of the `#preload` + `#run(:Entrypoint, ...)` pattern combined with kobako's host→guest auto-wrap: the request — a `Rack::Request` subclass — is not wire-representable, so kobako transparently allocates a `Kobako::Handle` for it and the guest interacts with the request through the Rack API calls it declares, each round-tripping back to the host as RPC. A fixed set of entrypoints, many user scripts behind them, and a Wasm-isolated mruby interpreter (`mrb_state`) freshly created for every invocation.
+```
+GET /hello ─> Sandbox.new ─> #preload(Hello) ─> #run(:Hello, GuestRequest) ─> [status, headers, body]
+                                                         │
+                                       req.params ─> Handle ─> host Rack::Request
+```
+
+It demonstrates `#preload` plus `#run(:Entrypoint, ...)` with kobako's host→guest auto-wrap. The request is a `Rack::Request` subclass with no wire form. So kobako allocates a `Kobako::Handle` for it, and each Rack call the guest makes round-trips to the host. Every invocation gets a freshly created, Wasm-isolated mruby interpreter (`mrb_state`).
 
 ## Running
 
 The script uses `bundler/inline`, so it resolves its own dependencies on first run — no `Gemfile` is required in the working directory.
 
 ```bash
-ruby examples/serverless/app.rb                # Puma, per-request sandbox (default)
+ruby examples/serverless/app.rb                # Puma (default)
 ruby examples/serverless/app.rb --type falcon
-ruby examples/serverless/app.rb --pool         # reuse a pool of preloaded Sandboxes
-ruby examples/serverless/app.rb --pool --pool-size 8
 ```
 
 From a clone of the kobako repository, prefix with `bundle exec` so the local kobako checkout is used.
@@ -26,13 +30,13 @@ Serverless demo on http://127.0.0.1:9292 (handler: Rackup::Handler::Puma)
 
 ## Configuration
 
-| Flag / Variable | Purpose                                                                                      | Default     |
-|-----------------|----------------------------------------------------------------------------------------------|-------------|
-| `--type TYPE`   | Rack handler to start. Accepts `puma` or `falcon`. Unknown values fail.                      | `puma`      |
-| `--pool`        | Reuse a pool of preloaded Sandboxes instead of building one per request.                     | off         |
-| `--pool-size N` | Number of pooled Sandboxes when `--pool` is set. Ignored otherwise.                          | `5`         |
-| `HOST` env      | Interface the server binds to.                                                               | `127.0.0.1` |
-| `PORT` env      | TCP port the server listens on.                                                              | `9292`      |
+One flag picks the server, and two variables pick where it listens. An unknown `--type` fails at startup.
+
+| Flag / Variable | Purpose                         | Default     |
+|-----------------|---------------------------------|-------------|
+| `--type TYPE`   | Rack handler: `puma` or `falcon` | `puma`      |
+| `HOST` env      | Interface the server binds to   | `127.0.0.1` |
+| `PORT` env      | TCP port the server listens on  | `9292`      |
 
 ## Trying it out
 
@@ -56,9 +60,9 @@ curl 'http://127.0.0.1:9292/shout?msg=ready'
 
 Unknown routes return `404`, and non-GET requests return `405 Method Not Allowed`. Any error inside the guest — `SandboxError` (script raised), `ServiceError` (no services bound here, but reserved), or `TrapError` (timeout / memory cap) — is rendered as `500` with the error class and message in the body.
 
-## Adding your own script
+## Custom Scripts
 
-Edit the `Serverless::ROUTES` Hash in `app.rb`. Each entry's key is the URL segment after `/`, and the value is a `[Entrypoint, source]` pair: `Entrypoint` is the constant the `source` defines (used as both the `#preload` name and the `#run` target), and the entrypoint is a callable accepting one argument — a `Kobako::Handle` proxy of the host-side `Rack::Request`. Names must be unique across routes so a single pooled Sandbox can preload them all:
+Edit the `Serverless::ROUTES` Hash in `app.rb`. Each key is the URL segment after `/`, and each value is an `[Entrypoint, source]` pair. `Entrypoint` is the constant `source` defines, both the `#preload` name and the `#run` target. It is a callable taking one argument, a `Kobako::Handle` proxy of the host-side `Rack::Request`:
 
 ```ruby
 "greet" => [:Greet, <<~'MRUBY'],
@@ -69,18 +73,22 @@ Edit the `Serverless::ROUTES` Hash in `app.rb`. Each entry's key is the URL segm
 MRUBY
 ```
 
-The guest does not see the Rack env as data — it sees a Handle, and every method call on `req` dispatches back to the host as one RPC round-trip against the real request object. A Handle exposes only what its object declares, so `GuestRequest` names the Rack methods a script may call through a private `respond_to_guest?`, and each access pays a guest→host round-trip (~5.8 µs amortised, kobako benchmark `2d-1000-calls-in-one-eval`):
-
-| Call in guest          | Runs on host                 | Returns                  |
-|------------------------|------------------------------|--------------------------|
-| `req.request_method`   | `Rack::Request#request_method` | `"GET"`                 |
-| `req.path`             | `Rack::Request#path`           | `"/hello"`              |
-| `req.params`           | `Rack::Request#params`         | `Hash[String,String]`   |
-| `req.get_header("…")` | `Rack::Request#get_header`     | `String` or `nil`       |
-
-The Handle is invalidated at the end of the invocation, so a script cannot stash `req` for the next request — the host owns the lifecycle. Anything the script does not call is never marshalled, so passing the request costs no extra wire bytes upfront; the cost lands at access time. For scripts that touch only one or two fields this is a wash against the older "build a small Hash up front" shape; for scripts that touch the request many times, cache the result of `req.params` (or any other method that returns a wire-representable Hash) in a local to avoid repeated round-trips.
-
 The script must return a Rack 3 triplet: an Integer status, a Hash of lowercase-keyed String headers, and an Array of String body parts. Anything else raises on the host side after the guest returns.
+
+### Request Handle
+
+The guest sees the request as a Handle, not as data. Each call on `req` is one round-trip to the real request object on the host. A Handle exposes only what its object declares, so `GuestRequest` names the callable methods through a private `respond_to_guest?`:
+
+| Call in guest          | Runs on host                   | Returns               |
+|------------------------|--------------------------------|-----------------------|
+| `req.request_method`   | `Rack::Request#request_method` | `"GET"`               |
+| `req.path`             | `Rack::Request#path`           | `"/hello"`            |
+| `req.params`           | `Rack::Request#params`         | `Hash[String,String]` |
+| `req.get_header("…")`  | `Rack::Request#get_header`     | `String` or `nil`     |
+
+Each access costs about 5.8 µs amortised (kobako benchmark `2d-1000-calls-in-one-eval`). Nothing the script skips is marshalled, so the cost lands at access time. A script that reads the request many times keeps `req.params` in a local.
+
+The Handle is invalidated when the invocation ends, so a script cannot stash `req` for the next request.
 
 ## Switching the application server
 
@@ -93,41 +101,22 @@ ruby examples/serverless/app.rb --type falcon
 
 The same `Serverless::App` and the same wire path serve both — switching handlers exercises Rack 3 compatibility without changing any application code.
 
-## Per-request vs pooled sandboxes
+## Per-request Sandboxes
 
-By default each `GET /:name` constructs a fresh `Kobako::Sandbox`, preloads exactly one snippet, and invokes it once. The canonical boot state is baked into the artifact, so warm construction is only ~3 µs (`Sandbox.new` steady state, root [`benchmark/README.md`](../../benchmark/README.md)) and the per-request `#preload` plus the `#run` that replays that one snippet and dispatches into it adds ~80 µs on top. Each `req.params` / `req.request_method` / `req.path` call is a guest→host Handle round-trip — a few µs amortised — the trade kobako's auto-wrap makes in exchange for not marshalling the Rack env into a wire-friendly Hash up front. Scripts that read the request once and cache locally pay that cost once; scripts that re-read repeatedly should hoist the result into a local variable.
+Each `GET /:name` constructs a fresh `Kobako::Sandbox`, preloads one snippet, and invokes it once. The boot state is baked into the artifact, so the request pays little for it:
 
-When the script set is fixed and the process serves many requests, rebuilding the Sandbox every time looks like wasted work. `--pool` builds a `Kobako::Pool` of long-lived Sandboxes — each constructed lazily on first checkout and preloaded with *every* route's entrypoint in the Pool's setup block — and a request checks one out and dispatches `#run` on it, leaving construction and registration off the hot path. What pooling cannot move off it is snippet replay: every invocation replays each snippet its Sandbox preloaded against a fresh boot state, so a pooled Sandbox holding all four routes replays four snippets per request where a per-request Sandbox replays one. At ~7 µs per snippet that outweighs the ~4 µs of construction and registration the pool saves, which is why the appendix measures the pool *slower* here.
+| Step | Cost |
+|---|---|
+| `Sandbox.new`, warm | about 3 µs |
+| `#preload` plus the `#run` that replays the snippet | about 80 µs |
 
-Pooling does not weaken isolation. Every `#run` executes against a fresh `mrb_state` whether the Sandbox is new or reused, so a script's globals, instance variables, and class-level mutation never survive into the next invocation on the same Sandbox. What the pool reuses is the *host-side* Sandbox object, which holds no state from any run — each invocation owns its captures and Handle table, so threads sharing one Sandbox would be isolated just as well. Exclusive checkout is the Pool's own contract, and what it buys here is bounded warm reuse: a request holds one Sandbox for the duration of the call, and when all are busy it waits up to the Pool's `checkout_timeout` (5 s by default) before `#with` raises `Kobako::PoolTimeoutError`, which the app renders as `503`. The [multi-tenant demo](../multi-tenant/README.md) takes the other route — one shared Sandbox, each invocation naming its own identity.
+The construction figure is the `Sandbox.new` steady state in the root [`benchmark/README.md`](../../benchmark/README.md).
+
+Every `#run` executes against a fresh `mrb_state`, whether its Sandbox is new or reused. So a script's globals, instance variables, and class-level changes never reach the next invocation. A Sandbox holds no state from any run, so Threads may share one. The [multi-tenant demo](../multi-tenant/README.md) takes that route, each invocation naming its own identity.
 
 ## Security caveats
 
 This demo binds to `127.0.0.1` by default so the server is not reachable from the network. The mruby guest has no I/O, network, sleep, or random-seed gems built in (see `build_config/wasi.rb` for the allowlist), and no Services are bound — guest scripts can compute over the request env and that is all. Adding capabilities means binding host objects via `Sandbox#bind("MyService::KV", object)`, at which point the operator owns the trust boundary; see `examples/codemode/` for that pattern.
-
-## Appendix: per-request vs pooled throughput
-
-These numbers are a *perceived* comparison for orienting a sizing decision, not a gated guarantee — they are hardware-dependent and are not part of the `rake bench` suite. Boot each mode and drive it with `ab` against the same route:
-
-```bash
-# per-request (default)
-ruby examples/serverless/app.rb &
-ab -n 2000 -c 10 'http://127.0.0.1:9292/hello?name=alice'
-
-# pooled
-ruby examples/serverless/app.rb --pool --pool-size 5 &
-ab -n 2000 -c 10 'http://127.0.0.1:9292/hello?name=alice'
-```
-
-Measured with `ab -n 2000 -c <conc>` against `GET /hello?name=alice` on macOS arm64, Ruby 3.4.7, YJIT off, kobako 0.26.0, single-process Puma (5 threads), pool size 5. Each server takes a 500-request warm-up first, and each cell is the median of three runs taken in alternating order across the two modes — zero failed requests in every run:
-
-| Concurrency | Per-request req/s | Per-request p99 | Pooled req/s | Pooled p99 |
-|-------------|-------------------|-----------------|--------------|------------|
-| 1           | 4,150             | <1 ms           | 3,750        | 1 ms       |
-| 10          | 5,010             | 2 ms            | 4,460        | 3 ms       |
-| 50          | 4,970             | 12 ms           | 4,300        | 15 ms      |
-
-Both modes run under the default `gvl: :hold`, so the wasm segment is serialised process-wide (an invocation holds the GVL for its whole span) and throughput plateaus once concurrency exceeds the thread count. The pool sits ~10-13% *below* per-request at every concurrency, and its p99 is no tighter: the extra snippet replay each pooled request carries ([above](#per-request-vs-pooled-sandboxes)) is GVL-held work the pool adds rather than removes. It is a per-request constant, not a concurrency effect, so the gap persists under load. In this demo the pool buys bounded warm reuse, not throughput; it pays off only where what it keeps off the hot path outweighs the snippets it replays. A pool sized below the server's thread count reintroduces a queue on checkout; sizing it to the thread count (Puma's default is 5) is the sane starting point.
 
 ## Appendix: Puma vs Falcon under this design
 

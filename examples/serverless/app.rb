@@ -6,16 +6,8 @@
 # entrypoint constant and invoked via #run(:Entrypoint, GuestRequest.new(env)),
 # returning a Rack response triplet [status, headers, body] directly.
 #
-# Two sandbox strategies, selected by --pool:
-#
-#   * default (per-request): each request builds a fresh Kobako::Sandbox,
-#     preloads only the matched route, and invokes it once. The strongest
-#     isolation kobako offers; Sandbox.new + #preload sit on the hot path.
-#   * --pool: a Kobako::Pool of long-lived Sandboxes, each preloaded with
-#     every route on first checkout; each request checks one out and
-#     dispatches #run on it. Per-invocation guest isolation is unchanged —
-#     every #run still runs a fresh mrb_state — while
-#     Sandbox.new + #preload move off the hot path.
+# Each request builds a fresh Kobako::Sandbox, preloads only the matched
+# route, and invokes it once; every #run runs a fresh mrb_state.
 #
 # The request is a non-wire-representable host object, so kobako's
 # #run host→guest auto-wrap allocates a Handle for
@@ -26,10 +18,8 @@
 # script.
 #
 # Usage:
-#   ruby examples/serverless/app.rb                       # Puma, per-request
+#   ruby examples/serverless/app.rb                # Puma
 #   ruby examples/serverless/app.rb --type falcon
-#   ruby examples/serverless/app.rb --pool                # reuse a pool of Sandboxes
-#   ruby examples/serverless/app.rb --pool --pool-size 8
 #
 # Parsing CLI flags before bundler/inline runs is deliberate: only the
 # server gem the operator picked is added to the inline Gemfile, so
@@ -38,20 +28,13 @@
 require "optparse"
 
 SERVER_TYPES = %w[puma falcon].freeze
-DEFAULT_POOL_SIZE = 5
 
-options = { type: "puma", pool: false, pool_size: DEFAULT_POOL_SIZE }
+options = { type: "puma" }
 OptionParser.new do |opts|
   opts.banner = "Usage: ruby examples/serverless/app.rb [options]"
   opts.on("--type TYPE", SERVER_TYPES,
           "Rack handler to start (#{SERVER_TYPES.join(", ")}; default: puma)") do |type|
     options[:type] = type
-  end
-  opts.on("--pool", "Reuse a pool of preloaded Sandboxes instead of building one per request") do
-    options[:pool] = true
-  end
-  opts.on("--pool-size N", Integer, "Number of pooled Sandboxes (default: #{DEFAULT_POOL_SIZE})") do |size|
-    options[:pool_size] = size
   end
   opts.on("-h", "--help", "Show this help") do
     warn opts
@@ -63,7 +46,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.29.0"
+  gem "kobako", "~> 0.32.0"
   gem "rack", "~> 3.2"
   gem "rackup", "~> 2.3"
   gem options[:type]
@@ -123,53 +106,14 @@ module Serverless
     MRUBY
   }.freeze
 
-  # Builds a fresh +Kobako::Sandbox+ per request, preloads only the matched
-  # route's entrypoint, and invokes it once — the original per-request
-  # demo behaviour, selected when +--pool+ is off. Concurrent requests
-  # cannot share guest state because each gets its own +mrb_state+.
-  class PerRequestInvoker
-    def invoke(entry, rack_env)
-      entrypoint, source = entry
-      sandbox = Kobako::Sandbox.new
-      sandbox.preload(code: source, name: entrypoint)
-      sandbox.run(entrypoint, GuestRequest.new(rack_env)).value
-    end
-  end
-
-  # Hands each request a warm +Kobako::Sandbox+ from a +Kobako::Pool+,
-  # each preloaded with every route's entrypoint, and dispatches +#run+ on
-  # the checked-out Sandbox. Reuse keeps the same per-invocation guest
-  # isolation (each +#run+ runs a fresh +mrb_state+) while
-  # moving +Sandbox.new+ + +#preload+ off the hot path. The Pool block is
-  # the per-Sandbox setup window — it runs once per constructed Sandbox.
-  # Exclusive checkout is the Pool's own contract, not a safety
-  # requirement: a Sandbox holds no state from any run, so threads sharing
-  # one would be equally isolated.
-  class PooledInvoker
-    def initialize(routes, size:)
-      @pool = Kobako::Pool.new(slots: size) do |sandbox|
-        routes.each_value { |entrypoint, source| sandbox.preload(code: source, name: entrypoint) }
-      end
-    end
-
-    def invoke(entry, rack_env)
-      entrypoint, = entry
-      @pool.with { |sandbox| sandbox.run(entrypoint, GuestRequest.new(rack_env)).value }
-    end
-  end
-
   # Rack-compatible application. Routes +GET /:name+ to +ROUTES[name]+ and
-  # delegates the matched entrypoint's execution to an injected invoker
-  # (+PerRequestInvoker+ or +PooledInvoker+), so the routing and error
-  # mapping here are identical regardless of the sandbox strategy. The
-  # root path +/+ lists the available scripts so the demo is
-  # self-discoverable.
+  # runs the matched entrypoint in a Sandbox of its own. The root path +/+
+  # lists the available scripts so the demo is self-discoverable.
   class App
     PLAIN = { "content-type" => "text/plain" }.freeze
 
-    def initialize(routes, invoker)
+    def initialize(routes)
       @routes = routes
-      @invoker = invoker
     end
 
     def call(env)
@@ -181,14 +125,21 @@ module Serverless
       entry = @routes[name]
       return not_found(name) unless entry
 
-      @invoker.invoke(entry, env)
-    rescue Kobako::PoolTimeoutError => e
-      pool_exhausted(e)
+      invoke(entry, env)
     rescue Kobako::TrapError, Kobako::SandboxError, Kobako::ServiceError => e
       sandbox_error(e)
     end
 
     private
+
+    # Builds a fresh Sandbox, preloads only the matched route's entrypoint,
+    # and invokes it once, so concurrent requests share no guest state.
+    def invoke(entry, rack_env)
+      entrypoint, source = entry
+      sandbox = Kobako::Sandbox.new
+      sandbox.preload(code: source, name: entrypoint)
+      sandbox.run(entrypoint, GuestRequest.new(rack_env)).value
+    end
 
     def index
       list = @routes.keys.map { |n| "  GET /#{n}" }.join("\n")
@@ -206,11 +157,6 @@ module Serverless
     def sandbox_error(error)
       [500, PLAIN, ["#{error.class}: #{error.message}\n"]]
     end
-
-    def pool_exhausted(error)
-      [503, { "content-type" => "text/plain", "retry-after" => "1" },
-       ["sandbox pool exhausted: #{error.message}\n"]]
-    end
   end
 end
 
@@ -218,16 +164,9 @@ if __FILE__ == $PROGRAM_NAME
   port = Integer(ENV.fetch("PORT", "9292"))
   host = ENV.fetch("HOST", "127.0.0.1")
 
-  invoker =
-    if options[:pool]
-      Serverless::PooledInvoker.new(Serverless::ROUTES, size: options[:pool_size])
-    else
-      Serverless::PerRequestInvoker.new
-    end
-  app = Serverless::App.new(Serverless::ROUTES, invoker)
+  app = Serverless::App.new(Serverless::ROUTES)
 
   handler = Rackup::Handler.get(options[:type])
-  mode = options[:pool] ? "pool=#{options[:pool_size]}" : "per-request"
-  warn "Serverless demo on http://#{host}:#{port} (handler: #{handler.name}, sandbox: #{mode})"
+  warn "Serverless demo on http://#{host}:#{port} (handler: #{handler.name})"
   handler.run(app, Host: host, Port: port)
 end
