@@ -1,16 +1,38 @@
-# Plugin Host (Rust SDK)
+# Plugin Host
 
-A note-taking host, written in Rust on the [`kobako`](https://crates.io/crates/kobako) SDK crate, that runs untrusted mruby **plugins** to batch-edit its notes. The plugin is arbitrary user code, so it runs inside a `kobako::Sandbox` and can touch the host only through the capabilities the host chose to grant — the Rust counterpart of what the Ruby gem's `Kobako::Sandbox` does, behind an idiomatic Rust API.
+A note-taking host, written in Rust on the [`kobako`](https://crates.io/crates/kobako) SDK crate, runs untrusted mruby **plugins** that batch-edit its notes. Each plugin is arbitrary user code, so it runs inside a `kobako::Sandbox`. It touches the host only through the capabilities the host grants:
 
-This is the narrative tour of the three SDK conveniences a lower-level host would otherwise assemble by hand (see the [`wire-rs`](../wire-rs) example for that seam):
+```
+plugin ─> Notes::Store.open("welcome") ─> Service ─> host Store
+       <─ note (Handle) ──────────────────────────── host Note
+plugin ─> note.tag / note.each_tag { } ─> Handle ──> host Note (a)
+```
 
-A **Service** is a host object the plugin calls like a constant. The host binds one as `Notes::Store`, and the plugin reaches it as `Notes::Store.open("welcome")` with no import or setup.
+a. The same `Note` the Service handed back, never a copy.
 
-A **capability Handle** is a live host object the plugin holds but can never serialize or forge. `Store.open` hands back a `Note`; the plugin calls `note.title`, `note.append`, and `note.tag` on it, and every call dispatches back to the same host object. When the plugin returns the note, the host resolves the returned Handle back to the very `Note` it mutated and reads the final state — the Rust spelling of restore-to-original-object.
+This is the Rust counterpart of the Ruby gem's `Kobako::Sandbox`, behind an idiomatic Rust API.
 
-A **block yield** runs a guest block the host drives. `note.each_tag { |name| … }` yields each tag into the plugin's block one at a time; a `break` in the block ends the iteration, and its value becomes the call's result.
+## SDK Conveniences
 
-What `eval` hands back is an **`Execution`** — the record of one run. Whether the plugin returned a value or raised rides `Execution::value`, while the run's captured output and usage stay readable on either arm, so the host prints what a failing plugin managed to write before it raised. Only a refusal that never reached the guest is the outer `Err`.
+The example tours three things the SDK assembles for a host. The [`wire-rs`](../wire-rs) example builds the same seam by hand.
+
+| Convenience | The plugin writes | The host gets |
+|---|---|---|
+| **Service** | `Notes::Store.open("welcome")`, with no import or setup | a call on the object bound as `Notes::Store` |
+| **capability Handle** | `note.title`, `note.append`, `note.tag` | every call on the same `Note`, which the plugin can never serialize or forge |
+| **block yield** | `note.each_tag { \|name\| … }` | a guest block it drives, one tag at a time |
+
+When the plugin returns the note, the host resolves the returned Handle to the very `Note` it changed, and reads the final state. A `break` in the block ends the iteration, and its value becomes the call's result.
+
+### Execution
+
+`eval` hands back an **`Execution`**, the record of one run. Its parts stay readable whichever way the run ended:
+
+| Part | Holds |
+|---|---|
+| `Execution::value` | the plugin's value, or what it raised |
+| captured output and usage | what the plugin wrote, even before it raised |
+| the outer `Err` | only a refusal that never reached the guest |
 
 ## Guest Binary
 
@@ -39,9 +61,9 @@ cargo run -- kobako-0.32.0.wasm 'begin; Notes::Store.frobnicate; rescue => e; e.
 cargo run -- kobako-0.32.0.wasm 'raise ArgumentError, "boom"'
 ```
 
-## What the plugin can reach
+## Plugin Reach
 
-The plugin has no I/O, network, or filesystem capability by construction — only the host constant the example binds and the note Handle it hands back.
+The plugin has no I/O, network, or filesystem capability by construction. It reaches only the constant the example binds and the note Handle that constant hands back.
 
 | Reachable as        | Kind       | Methods                                              |
 |---------------------|------------|------------------------------------------------------|
@@ -60,6 +82,21 @@ The caps the host hard-codes are the same knobs the Ruby gem exposes as `Kobako:
 | `stderr_limit`  | 64 KiB       | Captured-stderr cap.                           |
 | `profile`       | `Hermetic`   | Ambient-denial posture: frozen clocks and entropy. |
 
-The host objects here implement `ValueReceiver`, the overlay the SDK's bundled MessagePack schema puts on its byte-level `Receiver` seam — so a dispatch arrives as decoded values rather than payload bytes. A host speaking its own schema implements `Receiver` directly and owns its own bytes instead; [`fixed-schema-rs`](../fixed-schema-rs) is that case.
+## Payload Schema
 
-This example is a standalone cargo workspace depending on the crates.io release, so it builds and runs from this directory alone — the Guest Binary is the only artifact it needs. It requires Rust 1.98, inherited from the SDK.
+The host objects here implement `ValueReceiver`, so a dispatch arrives as decoded values rather than payload bytes:
+
+| A host that | Implements | Example |
+|---|---|---|
+| speaks the SDK's bundled MessagePack schema | `ValueReceiver`, the overlay on the byte-level `Receiver` seam | this one |
+| speaks its own schema | `Receiver` directly, owning its own bytes | [`fixed-schema-rs`](../fixed-schema-rs) |
+
+## Standalone Workspace
+
+This example is a standalone cargo workspace on the crates.io release, so it builds and runs from this directory alone:
+
+| Needs | Source |
+|---|---|
+| the crates | crates.io, `kobako = "0.22"` |
+| the Guest Binary | the GitHub Release, the only artifact downloaded |
+| Rust | 1.98, inherited from the SDK |

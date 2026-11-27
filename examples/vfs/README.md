@@ -6,9 +6,12 @@ code can freely "edit" files while the directory on the host stays
 untouched.
 
 ```
-guest File.write("/disk/sample.txt") ─> Overlay ─┬─ upper  Tmpfs  ─> takes the copy, this run only
-guest File.read("/disk/sample.txt")  ─>          └─ lower  Bind   ─> examples/vfs, never written
+File.write ─> Overlay ─┬─ upper: Tmpfs (a)
+File.read  ─>          └─ lower: Bind  (b)
 ```
+
+a. Takes the copy of a changed file, for this run only.
+b. The `examples/vfs` directory, never written.
 
 ## Mount Shape
 

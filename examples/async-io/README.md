@@ -12,10 +12,14 @@ A self-contained script that overlaps many invocations' external I/O on a **sing
 Each request is one `#run`. The guest plans and renders, and a Service it calls does the fetch:
 
 ```
-guest  Request.(id)              ->  plan: decide what to fetch
-host   Resource::Fetcher.fetch   ->  the fiber yields here; another request runs
-guest  (same run)                ->  render the final result
+guest  Request.(id)              ->  plan         (a)
+host   Resource::Fetcher.fetch   ->  fiber yields (b)
+guest  (same run)                ->  render       (c)
 ```
+
+a. Decide what to fetch.
+b. Another request runs while this one waits.
+c. Build the final result.
 
 Each guest runs on a thread kobako keeps. So a Fiber whose run waits inside a Service leaves its own Thread free for another Fiber's run. A Service waiting on scheduler-aware I/O thus yields the Fiber, and the reactor runs a peer meanwhile.
 
@@ -82,18 +86,44 @@ Whether a run lets the Thread's other Fibers go on depends on what the run waits
 
 A guest keeping the GVL leaves the Thread's other Fibers waiting until its run ends. A guest releasing it hands its wait to a scheduler offering `blocking_operation_wait`. Async offers that hook with its worker pool on Ruby 4.0, set by `ASYNC_SCHEDULER_WORKER_POOL=true`. A run hands its wait over only once its guest outlasts a short spin, so a brief run never needs the pool.
 
-### Compute Traces
+### Runs Taking Turns
 
-The two compute cases differ in when each run starts. Without the hook the runs take turns; with it they start together. The excerpts drop the thread id and the result:
+With the guest keeping the GVL, each run starts only once the one before it ends. The total is five runs end to end:
 
 ```
---compute (gvl: hold)                         --compute --gvl release, Ruby 4.0, worker pool
-[+  276ms] [req 0] run:start                  [+  275ms] [req 0] run:start
-[+  549ms] [req 0] run:done                   [+  276ms] [req 1] run:start
-[+  550ms] [req 1] run:start                  ...
-[+  824ms] [req 1] run:done                   [+  560ms] [req 0] run:done
-...                                           [+  560ms] [req 1] run:done
+$ ruby examples/async-io/app.rb --compute
+mode: async reactor (single thread), gvl: hold, ruby 3.4.7, ASYNC_SCHEDULER_WORKER_POOL=false
+
+[+  276ms] [thread 672] [req 0] run:start
+[+  549ms] [thread 672] [req 0] run:done     -> work/0 => 4000000
+[+  550ms] [thread 672] [req 1] run:start
+[+  824ms] [thread 672] [req 1] run:done     -> work/1 => 4000000
+[+  824ms] [thread 672] [req 2] run:start
+...
+total wall time:         1374ms
+serialized would spend:  1367ms (count x latency)
 ```
+
+### Runs Overlapping
+
+With the guest releasing the GVL to Async's worker pool on Ruby 4.0, all five runs start at once and end together. The total is one run:
+
+```
+$ ASYNC_SCHEDULER_WORKER_POOL=true ruby examples/async-io/app.rb --compute --gvl release
+mode: async reactor (single thread), gvl: release, ruby 4.0.10, ASYNC_SCHEDULER_WORKER_POOL=true
+
+[+  275ms] [thread 688] [req 0] run:start
+[+  276ms] [thread 688] [req 1] run:start
+...
+[+  276ms] [thread 688] [req 4] run:start
+[+  560ms] [thread 688] [req 0] run:done     -> work/0 => 4000000
+[+  560ms] [thread 688] [req 1] run:done     -> work/1 => 4000000
+...
+total wall time:          286ms
+serialized would spend:  1364ms (count x latency)
+```
+
+Both traces stay on one thread id: the overlap comes from the guests, never from more Ruby Threads.
 
 ## Shared Sandbox
 

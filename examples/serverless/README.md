@@ -42,7 +42,9 @@ Three flags pick the server and how Sandboxes run, and two variables pick where 
 | `HOST` env       | Interface the server binds to      | `127.0.0.1` |
 | `PORT` env       | TCP port the server listens on     | `9292`      |
 
-## Trying it out
+## Example Requests
+
+Each route answers a curl with the script's own response:
 
 ```bash
 # List available scripts
@@ -62,7 +64,15 @@ curl 'http://127.0.0.1:9292/sum?a=2&b=40'
 curl 'http://127.0.0.1:9292/shout?msg=ready'
 ```
 
-Unknown routes return `404`, and non-GET requests return `405 Method Not Allowed`. Any error inside the guest — `SandboxError` (script raised), `ServiceError` (no services bound here, but reserved), or `TrapError` (timeout / memory cap) — is rendered as `500` with the error class and message in the body.
+A request the routes do not cover, or a run that fails, gets one of these:
+
+| Request | Response |
+|---|---|
+| an unknown route | `404` |
+| a method other than GET | `405 Method Not Allowed` |
+| a script that raised (`SandboxError`) | `500`, with the error class and message |
+| a Service that failed (`ServiceError`), though none is bound here | `500`, as above |
+| a run past its timeout or memory cap (`TrapError`) | `500`, as above |
 
 ## Custom Scripts
 
@@ -94,9 +104,9 @@ Each access costs about 5.8 µs amortised (kobako benchmark `2d-1000-calls-in-on
 
 The Handle is invalidated when the invocation ends, so a script cannot stash `req` for the next request.
 
-## Switching the application server
+## Server Choice
 
-The `--type` flag controls which Rack handler the demo starts. The CLI is parsed before `bundler/inline` runs, and the chosen gem name is interpolated into the inline Gemfile, so only that server is installed on first launch.
+The `--type` flag controls which Rack handler the demo starts. The CLI is parsed before `bundler/inline` runs, and the chosen gem name goes into the inline Gemfile. So only that server is installed on first launch.
 
 ```bash
 ruby examples/serverless/app.rb --type puma
@@ -116,9 +126,17 @@ The invocation is the unit of isolation, and the Sandbox is the unit of reuse. E
 
 `SandboxCache` keeps one Sandbox per route, with only that route preloaded, so a run replays one snippet. A Sandbox may serve many Threads at once, so a request takes it without a checkout, and the lock guards only the table. Past `--cache-size`, the route used longest ago gives its Sandbox up. The [multi-tenant demo](../multi-tenant/README.md) shares one Sandbox the same way, each invocation naming its own identity.
 
-## Security caveats
+## Security Notes
 
-This demo binds to `127.0.0.1` by default so the server is not reachable from the network. The mruby guest has no I/O, network, sleep, or random-seed gems built in (see `build_config/wasi.rb` for the allowlist), and no Services are bound — guest scripts can compute over the request env and that is all. Adding capabilities means binding host objects via `Sandbox#bind("MyService::KV", object)`, at which point the operator owns the trust boundary; see `examples/codemode/` for that pattern.
+Each boundary below holds by default, so a script computes over the request and nothing more:
+
+| Boundary | In this demo |
+|---|---|
+| the network | the server binds to `127.0.0.1`, so nothing beyond the host reaches it |
+| the guest's gems | no I/O, network, sleep, or random-seed gem; `build_config/wasi.rb` holds the allowlist |
+| Services | none bound |
+
+Binding a host object with `Sandbox#bind("MyService::KV", object)` adds a capability. From then on the operator owns that trust boundary, as [`codemode`](../codemode/README.md) shows.
 
 ## Puma vs Falcon
 

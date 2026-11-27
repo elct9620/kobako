@@ -69,4 +69,4 @@ The caps the host hard-codes are the same knobs the Ruby gem exposes as `Kobako:
 | `stderr_limit`  | 64 KiB     | Captured-stderr cap.                               |
 | `profile`       | `Hermetic` | Ambient-denial posture: frozen clocks and entropy. |
 
-This example is a standalone cargo workspace depending on the crates.io releases, so it builds and runs from this directory alone — the Guest Binary is the only artifact it needs.
+This example is a standalone cargo workspace on the crates.io releases, so it builds and runs from this directory alone. The Guest Binary is the only artifact it needs.
