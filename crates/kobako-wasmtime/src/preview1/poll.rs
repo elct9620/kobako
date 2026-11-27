@@ -358,16 +358,18 @@ mod tests {
     // @behavior RT-073
     #[test]
     fn a_hermetic_wait_ends_without_the_host_waiting() {
-        let (ended, spent) = wait_ten_seconds(Profile::Hermetic, None, None);
+        let waits = crate::waits::count_waits();
+        let (ended, _) = wait_ten_seconds(Profile::Hermetic, None, None);
         assert_eq!(
             ended.ok(),
             Some(0),
             "a ten-second clock wait through a hermetic guest's poll_oneoff must succeed"
         );
-        assert!(
-            spent < Duration::from_secs(1),
-            "a ten-second clock wait through a hermetic guest's poll_oneoff must return at once, \
-             not after {spent:?}"
+        assert_eq!(
+            waits.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "a ten-second clock wait through a hermetic guest's poll_oneoff must return without \
+             the host waiting"
         );
     }
 
@@ -458,16 +460,18 @@ mod tests {
     // @behavior RT-371
     #[test]
     fn a_hermetic_wait_on_two_clocks_fires_both_at_once() {
-        let (ended, spent) = call_wait(
+        let waits = crate::waits::count_waits();
+        let (ended, _) = call_wait(
             "events_of_two_clocks",
             Profile::Hermetic,
             Some(Duration::from_secs(20)),
             None,
         );
+        let waited = waits.load(std::sync::atomic::Ordering::SeqCst);
         assert!(
-            matches!(ended, Ok(2)) && spent < Duration::from_secs(1),
-            "a hermetic poll_oneoff on a one- and a two-second clock must report both events at \
-             once, not {ended:?} after {spent:?}"
+            matches!(ended, Ok(2)) && waited == 0,
+            "a hermetic poll_oneoff on a one- and a two-second clock must report both events \
+             without the host waiting, not {ended:?} after {waited} waits"
         );
     }
 
