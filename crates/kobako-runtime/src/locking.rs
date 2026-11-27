@@ -53,18 +53,27 @@ impl From<DownError> for Errno {
 /// `_killable`.
 #[derive(Default)]
 pub(crate) struct RwSemaphore {
-    holders: Mutex<Holders>,
+    state: Mutex<State>,
     freed: Condvar,
 }
 
+/// What rwsem keeps in its `count`, `owner`, and `wait_list`, under one lock.
+/// `readers`, `granted`, and `tickets` go beyond that shape, for a
+/// Condvar to stand in for Linux's wakeups and for a task to be refused
+/// what only its own shared hold keeps out; they may yet move to a structure
+/// of their own.
 #[derive(Default)]
-struct Holders {
-    writer: Option<TaskId>,
+struct State {
+    /// The writer holding it, as a writer puts its task into rwsem's `owner`.
+    owner: Option<TaskId>,
     /// One entry for each shared hold, a thread holding it shared twice
-    /// standing twice.
+    /// standing twice. Linux keeps only a hint of the last reader, since
+    /// tracking every one costs too much there; each is kept here so a task
+    /// holding it shared is refused it exclusive, and takes it shared again
+    /// past a waiting writer that waits on that task anyway.
     readers: Vec<TaskId>,
     /// Who waits, first in line first, as rwsem's `wait_list`.
-    waiters: VecDeque<Waiter>,
+    wait_list: VecDeque<Waiter>,
     /// The waiters a release let in, holding it before they woke, as
     /// `rwsem_mark_wake` grants a reader before it runs.
     granted: Vec<u64>,
@@ -87,29 +96,29 @@ struct Waiter {
 /// first.
 pub(crate) struct RwSemaphoreGuard {
     semaphore: Arc<RwSemaphore>,
-    holder: TaskId,
+    owner: TaskId,
     exclusive: bool,
 }
 
-impl Holders {
+impl State {
     fn free(&self) -> bool {
-        self.writer.is_none() && self.readers.is_empty()
+        self.owner.is_none() && self.readers.is_empty()
     }
 
     /// Whether the first waiter holds it at once, letting every waiting reader
     /// in with a reader.
     fn take_first(&mut self) -> bool {
-        let Some(first) = self.waiters.front() else {
+        let Some(first) = self.wait_list.front() else {
             return false;
         };
         let (task, exclusive) = (first.task, first.exclusive);
-        if self.writer.is_some() || (exclusive && !self.readers.is_empty()) {
+        if self.owner.is_some() || (exclusive && !self.readers.is_empty()) {
             return false;
         }
-        self.waiters.pop_front();
+        self.wait_list.pop_front();
         self.handoff = false;
         if exclusive {
-            self.writer = Some(task);
+            self.owner = Some(task);
         } else {
             self.readers.push(task);
             self.grant_readers(MAX_READERS_WAKEUP - 1);
@@ -121,7 +130,7 @@ impl Holders {
     /// `rwsem_mark_wake` wakes the readers once one stands first.
     fn grant_readers(&mut self, most: usize) {
         let mut left = most;
-        self.waiters.retain(|waiter| {
+        self.wait_list.retain(|waiter| {
             if waiter.exclusive || left == 0 {
                 return true;
             }
@@ -130,7 +139,7 @@ impl Holders {
             self.granted.push(waiter.ticket);
             false
         });
-        self.handoff &= !self.waiters.is_empty();
+        self.handoff &= !self.wait_list.is_empty();
     }
 
     /// Whether a release let the waiter `ticket` in.
@@ -145,74 +154,74 @@ impl Holders {
     /// Take the waiter `ticket` out of line, the handoff staying with whoever
     /// still waits, as `rwsem_del_waiter` clears it only once nobody does.
     fn leave(&mut self, ticket: u64) {
-        self.waiters.retain(|waiter| waiter.ticket != ticket);
-        self.handoff &= !self.waiters.is_empty();
+        self.wait_list.retain(|waiter| waiter.ticket != ticket);
+        self.handoff &= !self.wait_list.is_empty();
     }
 }
 
 impl RwSemaphore {
-    fn holders(&self) -> MutexGuard<'_, Holders> {
-        self.holders.lock().unwrap_or_else(PoisonError::into_inner)
+    fn state(&self) -> MutexGuard<'_, State> {
+        self.state.lock().unwrap_or_else(PoisonError::into_inner)
     }
 
     /// Hold it shared, waiting while a writer holds it or the line keeps the
     /// thread out.
     pub(crate) fn down_read(self: &Arc<Self>) -> Result<RwSemaphoreGuard, DownError> {
         let current = sched::current();
-        let mut holders = self.holders();
-        match holders.writer {
+        let mut state = self.state();
+        match state.owner {
             Some(writer) if writer == current => return Err(DownError::Deadlock),
             Some(_) => {}
-            None if holders.readers.contains(&current) || holders.waiters.is_empty() => {
-                holders.readers.push(current);
+            None if state.readers.contains(&current) || state.wait_list.is_empty() => {
+                state.readers.push(current);
                 return Ok(self.guard(current, false));
             }
             // A reader steals it from the line only where it would hold it alone,
             // as `rwsem_down_read_slowpath` steals, then lets in the readers
             // standing first.
-            None if holders.readers.is_empty() && !holders.handoff => {
-                holders.readers.push(current);
-                if holders
-                    .waiters
+            None if state.readers.is_empty() && !state.handoff => {
+                state.readers.push(current);
+                if state
+                    .wait_list
                     .front()
                     .is_some_and(|first| !first.exclusive)
                 {
-                    holders.grant_readers(MAX_READERS_WAKEUP - 1);
+                    state.grant_readers(MAX_READERS_WAKEUP - 1);
                     self.freed.notify_all();
                 }
                 return Ok(self.guard(current, false));
             }
             None => {}
         }
-        self.down_slowpath(holders, current, false)
+        self.down_slowpath(state, current, false)
     }
 
     /// Hold it exclusive, waiting while anyone holds it or the line keeps the
     /// thread out.
     pub(crate) fn down_write(self: &Arc<Self>) -> Result<RwSemaphoreGuard, DownError> {
         let current = sched::current();
-        let mut holders = self.holders();
-        if holders.writer == Some(current) || holders.readers.contains(&current) {
+        let mut state = self.state();
+        if state.owner == Some(current) || state.readers.contains(&current) {
             return Err(DownError::Deadlock);
         }
         // A writer steals it nobody holds unless it was handed on, as
         // `rwsem_optimistic_spin` takes it.
-        if holders.free() && !holders.handoff {
-            holders.writer = Some(current);
+        if state.free() && !state.handoff {
+            state.owner = Some(current);
             return Ok(self.guard(current, true));
         }
-        self.down_slowpath(holders, current, true)
+        self.down_slowpath(state, current, true)
     }
 
     /// Hold it shared where nobody holds it exclusive or waits for it, without
     /// waiting, as `down_read_trylock` fails on `RWSEM_READ_FAILED_MASK`.
     pub(crate) fn down_read_trylock(self: &Arc<Self>) -> Option<RwSemaphoreGuard> {
         let current = sched::current();
-        let mut holders = self.holders();
-        if holders.writer.is_some() || !holders.waiters.is_empty() {
+        let mut state = self.state();
+        if state.owner.is_some() || !state.wait_list.is_empty() {
             return None;
         }
-        holders.readers.push(current);
+        state.readers.push(current);
         Some(self.guard(current, false))
     }
 
@@ -221,18 +230,18 @@ impl RwSemaphore {
     /// one caller takes `rename_mutex`, which Linux keeps as a mutex.
     pub(crate) fn down_write_trylock(self: &Arc<Self>) -> Option<RwSemaphoreGuard> {
         let current = sched::current();
-        let mut holders = self.holders();
-        if !holders.free() || holders.handoff {
+        let mut state = self.state();
+        if !state.free() || state.handoff {
             return None;
         }
-        holders.writer = Some(current);
+        state.owner = Some(current);
         Some(self.guard(current, true))
     }
 
-    fn guard(self: &Arc<Self>, holder: TaskId, exclusive: bool) -> RwSemaphoreGuard {
+    fn guard(self: &Arc<Self>, owner: TaskId, exclusive: bool) -> RwSemaphoreGuard {
         RwSemaphoreGuard {
             semaphore: self.clone(),
-            holder,
+            owner,
             exclusive,
         }
     }
@@ -245,78 +254,78 @@ impl RwSemaphore {
     /// waiter's place.
     fn down_slowpath(
         self: &Arc<Self>,
-        mut holders: MutexGuard<'_, Holders>,
-        holder: TaskId,
+        mut state: MutexGuard<'_, State>,
+        owner: TaskId,
         exclusive: bool,
     ) -> Result<RwSemaphoreGuard, DownError> {
-        holders.tickets += 1;
-        let ticket = holders.tickets;
-        holders.waiters.push_back(Waiter {
+        state.tickets += 1;
+        let ticket = state.tickets;
+        state.wait_list.push_back(Waiter {
             ticket,
-            task: holder,
+            task: owner,
             exclusive,
             timeout: Instant::now() + RWSEM_WAIT_TIMEOUT,
         });
-        drop(holders);
+        drop(state);
         let mut taken = Ok(());
         sched::schedule(&mut || {
-            let mut holders = self.holders();
+            let mut state = self.state();
             loop {
-                if holders.take_granted(ticket) {
+                if state.take_granted(ticket) {
                     break;
                 }
-                let first = holders
-                    .waiters
+                let first = state
+                    .wait_list
                     .front()
                     .filter(|first| first.ticket == ticket);
                 let timeout = first.map(|first| first.timeout);
-                if first.is_some() && holders.take_first() {
+                if first.is_some() && state.take_first() {
                     if !exclusive {
                         self.freed.notify_all();
                     }
                     break;
                 }
                 if sched::fatal_signal_pending() {
-                    holders.leave(ticket);
+                    state.leave(ticket);
                     self.freed.notify_all();
                     taken = Err(DownError::Interrupted);
                     break;
                 }
                 if sched::signal_pending() {
-                    drop(holders);
+                    drop(state);
                     sched::handle_signal();
-                    holders = self.holders();
+                    state = self.state();
                     continue;
                 }
                 let mut slice = sched::sleep_slice();
-                if let Some(timeout) = timeout.filter(|_| !holders.handoff) {
+                if let Some(timeout) = timeout.filter(|_| !state.handoff) {
                     let now = Instant::now();
                     if now >= timeout {
-                        holders.handoff = true;
+                        state.handoff = true;
                         continue;
                     }
                     slice = slice.min(timeout - now);
                 }
-                holders = self
+                state = self
                     .freed
-                    .wait_timeout(holders, slice)
+                    .wait_timeout(state, slice)
                     .unwrap_or_else(PoisonError::into_inner)
                     .0;
             }
         });
-        taken.map(|()| self.guard(holder, exclusive))
+        taken.map(|()| self.guard(owner, exclusive))
     }
 
     /// How many threads wait in line, for a test to see each one queued.
     #[cfg(test)]
     pub(crate) fn queued(&self) -> usize {
-        self.holders().waiters.len()
+        self.state().wait_list.len()
     }
 
     /// Whether the first waiter was handed it, for a test to see the handoff.
     #[cfg(test)]
     pub(crate) fn handed_off(&self) -> bool {
-        self.holders().handoff
+        self.state().handoff
     }
 }
 
@@ -329,18 +338,18 @@ impl RwSemaphoreGuard {
 
 impl Drop for RwSemaphoreGuard {
     fn drop(&mut self) {
-        let mut holders = self.semaphore.holders();
+        let mut state = self.semaphore.state();
         if self.exclusive {
-            holders.writer = None;
-        } else if let Some(at) = holders
+            state.owner = None;
+        } else if let Some(at) = state
             .readers
             .iter()
-            .position(|reader| *reader == self.holder)
+            .position(|reader| *reader == self.owner)
         {
-            holders.readers.swap_remove(at);
+            state.readers.swap_remove(at);
         }
-        let waiting = !holders.waiters.is_empty();
-        drop(holders);
+        let waiting = !state.wait_list.is_empty();
+        drop(state);
         if waiting {
             self.semaphore.freed.notify_all();
         }
@@ -478,7 +487,7 @@ mod tests {
     #[test]
     fn a_reader_takes_a_free_directory_past_a_writer_waiting_for_it() {
         let rwsem: Arc<RwSemaphore> = Arc::default();
-        let held = rwsem.down_write().expect("the holder holds it");
+        let held = rwsem.down_write().expect("the owner holds it");
         let writer = Asker::spawn(true, {
             let rwsem = rwsem.clone();
             move || rwsem.down_write().map(drop)
@@ -500,7 +509,7 @@ mod tests {
     fn a_release_with_a_reader_first_lets_every_waiting_reader_in() {
         let rwsem: Arc<RwSemaphore> = Arc::default();
         let order = Order::default();
-        let held = rwsem.down_write().expect("the holder holds it");
+        let held = rwsem.down_write().expect("the owner holds it");
         let first = thread::spawn(bound_to_max_wait(note(&rwsem, false, &order, "reader")));
         wait_until_queued(&rwsem, 1);
         let writer = thread::spawn(bound_to_max_wait(note(&rwsem, true, &order, "writer")));
@@ -526,7 +535,7 @@ mod tests {
     fn a_waiter_past_its_time_is_handed_the_directory() {
         let rwsem: Arc<RwSemaphore> = Arc::default();
         let order = Order::default();
-        let held = rwsem.down_write().expect("the holder holds it");
+        let held = rwsem.down_write().expect("the owner holds it");
         let first = Asker::spawn(false, note(&rwsem, true, &order, "first"));
         wait_until("the first waiter being handed it", || rwsem.handed_off());
         first.task.signal();
@@ -560,7 +569,7 @@ mod tests {
     fn a_waiter_leaving_with_the_handoff_passes_it_on() {
         let rwsem: Arc<RwSemaphore> = Arc::default();
         let order = Order::default();
-        let held = rwsem.down_write().expect("the holder holds it");
+        let held = rwsem.down_write().expect("the owner holds it");
         let first = Asker::spawn(false, note(&rwsem, true, &order, "first"));
         wait_until("the first waiter being handed it", || rwsem.handed_off());
         let behind = Asker::spawn(true, note(&rwsem, true, &order, "behind"));
@@ -593,7 +602,7 @@ mod tests {
     fn a_waiter_granted_as_it_is_interrupted_lets_the_directory_go() {
         let rwsem: Arc<RwSemaphore> = Arc::default();
         let order = Order::default();
-        let held = rwsem.down_write().expect("the holder holds it");
+        let held = rwsem.down_write().expect("the owner holds it");
         let first = thread::spawn(bound_to_max_wait(note(&rwsem, false, &order, "first")));
         wait_until_queued(&rwsem, 1);
         let granted = Asker::spawn(true, note(&rwsem, false, &order, "granted"));

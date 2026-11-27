@@ -5740,7 +5740,7 @@ mod tests {
 
     // Linux's waits on a directory and on a name in lookup are killable, so a
     // run whose deadline passed or whose thread was interrupted stops waiting
-    // while the holder still holds.
+    // while the owner still holds.
     // @behavior RT-267
     #[test]
     fn a_wait_ends_once_its_run_is_to_stop() {
@@ -5926,7 +5926,7 @@ mod tests {
         )
         .expect("every mount stands");
         let root = Path::root(mount.mnt());
-        let holder = {
+        let owner = {
             let root = root.clone();
             thread::spawn(move || {
                 vfs::filename_renameat2(&Arc::default(), &root, "c/k", &root, "d/k")
@@ -5951,7 +5951,7 @@ mod tests {
         });
         let renamed = vfs::filename_renameat2(&Arc::default(), &root, "a/x", &root, "a/moved");
         go_on.send(()).expect("the held move must be waiting");
-        crate::sched::testing::join("the holder", holder)
+        crate::sched::testing::join("the owner", owner)
             .unwrap_or_else(|_| panic!("the held move must land"));
         let moved = crate::sched::testing::join("the mover", mover);
         let stands = |path| vfs::vfs_fstatat(&cred, &root, path, false).is_ok();

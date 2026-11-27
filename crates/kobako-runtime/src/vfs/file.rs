@@ -879,7 +879,7 @@ mod tests {
         let dentry = file.path.dentry().clone();
         let (held, holding) = mpsc::channel();
         let (release, releasing) = mpsc::channel::<()>();
-        let holder = std::thread::spawn(move || {
+        let owner = std::thread::spawn(move || {
             let _held = dentry.inode_lock().expect("the lock is free");
             held.send(()).ok();
             releasing.recv_timeout(crate::sched::testing::MAX_WAIT).ok();
@@ -892,7 +892,7 @@ mod tests {
             file.iterate_dir(&mut DirContext::new(0, &mut |_| true))
         });
         release.send(()).ok();
-        crate::sched::testing::join("the holder", holder);
+        crate::sched::testing::join("the owner", owner);
         assert_eq!(
             (listed, waits.load(Ordering::SeqCst)),
             (Err(Errno::NotADirectory), 0),

@@ -351,7 +351,7 @@ mod tests {
         let (held, taken) = std::sync::mpsc::channel();
         let (release, released) = std::sync::mpsc::channel::<()>();
         std::thread::scope(|scope| {
-            let holder = scope.spawn(move || {
+            let owner = scope.spawn(move || {
                 let _lock = work
                     .dentry()
                     .inode_lock()
@@ -359,12 +359,12 @@ mod tests {
                 held.send(()).expect("the test must wait for the lock");
                 released.recv().ok();
             });
-            taken.recv().expect("the holder must take the lock");
+            taken.recv().expect("the owner must take the lock");
             crate::sched::run_task(Some(Instant::now()), || fs.cleanup_temp(work, &temp));
             release
                 .send(())
-                .expect("the holder must wait for its release");
-            crate::sched::testing::join_scoped("the lock holder", holder);
+                .expect("the owner must wait for its release");
+            crate::sched::testing::join_scoped("the lock owner", owner);
         });
         let left = names_in(work);
         fs.tempname()
