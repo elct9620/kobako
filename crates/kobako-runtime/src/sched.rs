@@ -64,7 +64,7 @@ pub(crate) fn current() -> TaskId {
 pub struct TaskId(u64);
 
 impl TaskId {
-    fn fresh() -> Self {
+    fn new() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(0);
         Self(NEXT.fetch_add(1, Ordering::Relaxed))
     }
@@ -90,20 +90,22 @@ thread_local! {
     // What the thread carries out in another's place, while it does.
     static CARRIED: RefCell<Option<Current>> = const { RefCell::new(None) };
     // The thread's own task, carried whenever it carries out no other.
-    static OWN: Current = Current::fresh();
+    static OWN: Current = Current::default();
 }
 
-impl Current {
+impl Default for Current {
     /// A task nobody carries out yet.
-    pub fn fresh() -> Self {
+    fn default() -> Self {
         Self(Arc::new(Mutex::new(State {
-            id: TaskId::fresh(),
+            id: TaskId::new(),
             task: Task::default(),
             deadline: None,
             depth: 0,
         })))
     }
+}
 
+impl Current {
     /// A task nobody carries out yet that every lock knows as this one, as a
     /// run its frontend starts inside this one's work: it holds what this one
     /// holds and is refused what this one would wait on itself, while its

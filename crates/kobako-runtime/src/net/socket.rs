@@ -444,17 +444,18 @@ impl Default for Buffers {
     /// A datagram socket's, Linux's `rmem_default` and `wmem_default`, both
     /// past the cap.
     fn default() -> Self {
-        Self::within_cap(MAX_SOCKET_BUFFER, MAX_SOCKET_BUFFER)
+        Self::new(MAX_SOCKET_BUFFER, MAX_SOCKET_BUFFER)
     }
 }
 
 impl Buffers {
     /// A TCP socket's, until it connects.
     pub(crate) fn tcp() -> Self {
-        Self::within_cap(TCP_RMEM_DEFAULT, TCP_WMEM_DEFAULT)
+        Self::new(TCP_RMEM_DEFAULT, TCP_WMEM_DEFAULT)
     }
 
-    fn within_cap(rcvbuf: usize, sndbuf: usize) -> Self {
+    /// Ones of `rcvbuf` and `sndbuf` bytes, each held to the cap.
+    fn new(rcvbuf: usize, sndbuf: usize) -> Self {
         Self {
             rcvbuf: rcvbuf.min(MAX_SOCKET_BUFFER),
             sndbuf: sndbuf.min(MAX_SOCKET_BUFFER),

@@ -283,7 +283,7 @@ fn start(ruby: &Ruby) -> Arc<RunState> {
     let within = running_mark(ruby, thread);
     let task = within
         .as_ref()
-        .map_or_else(Current::fresh, |within| within.task.fresh_as());
+        .map_or_else(Current::default, |within| within.task.fresh_as());
     let state = Arc::new(RunState {
         task,
         held: Mutex::new(None),

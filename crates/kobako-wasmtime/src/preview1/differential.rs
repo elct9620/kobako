@@ -283,7 +283,7 @@ fn through_kobako(call: &str, fd: i32, limit: Option<usize>) -> Observation {
     let mut config = Config::for_profile(Profile::Hermetic);
     config.limits.stdout_limit = limit;
     config.limits.stderr_limit = limit;
-    let wasi = Wasi::reading_stdin(&config, STDIN.to_vec());
+    let wasi = Wasi::with_stdin(&config, STDIN.to_vec());
     let mut store = Store::new(engine, Invocation::new(wasi));
     store.set_epoch_deadline(NO_TIMEOUT_EPOCH_DELTA);
     let linker = imports::linker().expect("host imports must link");

@@ -46,14 +46,14 @@ impl Default for Cred {
 impl Cred {
     /// One with `security` registered, its memory unbounded.
     pub(crate) fn new(security: Vec<Arc<dyn SecurityOperations>>) -> Arc<Self> {
-        Self::within(security, MemoryBudget::new(None))
+        Self::with_memory(security, MemoryBudget::new(None))
     }
 
     /// One with `security` registered, charging what is held on its behalf to
     /// `memory`, seeing entries as the hermetic profile does until told
     /// otherwise, and numbering them afresh, which every Cred restricted from
     /// it shares.
-    pub(crate) fn within(
+    pub(crate) fn with_memory(
         security: Vec<Arc<dyn SecurityOperations>>,
         memory: Arc<MemoryBudget>,
     ) -> Arc<Self> {

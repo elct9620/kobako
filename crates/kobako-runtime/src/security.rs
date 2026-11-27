@@ -140,7 +140,7 @@ pub fn prepare_creds(
 ) -> Arc<Cred> {
     let mut security: Vec<Arc<dyn SecurityOperations>> = vec![Arc::new(KobakoSecurity)];
     security.extend(modules.iter().cloned());
-    Cred::within(security, MemoryBudget::new(memory_limit))
+    Cred::with_memory(security, MemoryBudget::new(memory_limit))
 }
 
 /// `cred` with each Mount's Policy and each network entry's connect policy

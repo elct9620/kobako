@@ -600,7 +600,7 @@ mod tests {
         use crate::preview2::bindings::IoHost as _;
 
         let config = crate::config::Config::for_profile(kobako_runtime::profile::Profile::Hermetic);
-        let mut guest = Invocation::new(Wasi::reading_stdin(&config, b"hi".to_vec()));
+        let mut guest = Invocation::new(Wasi::with_stdin(&config, b"hi".to_vec()));
         let read = guest.streams_input_stream_read(InputStream(1), 16).ok();
         let dropped_while_open = guest.streams_output_stream_drop(OutputStream(2)).is_ok();
         let closed = errno(super::close(guest.wasi_mut(), 1));

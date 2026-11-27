@@ -71,7 +71,7 @@ impl Wasi {
     /// An invocation's context with no grants whose descriptor 0 reads
     /// `stdin`, for comparing a stdin read with wasmtime-wasi's.
     #[cfg(test)]
-    pub(crate) fn reading_stdin(config: &Config, stdin: Vec<u8>) -> Self {
+    pub(crate) fn with_stdin(config: &Config, stdin: Vec<u8>) -> Self {
         Self::new(
             stdin,
             config.limits.stdout_limit,
