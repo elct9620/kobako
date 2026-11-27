@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.22.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.21.0...kobako-io-v0.22.0) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **dir:** `Dir.glob` and `Dir[]` raise the `Errno` a listing fails with, such as `Errno::EMFILE` past the open-file cap, where they answered the paths found so far; a script relying on the partial answer rescues `SystemCallError` around the glob.
+
+### Features
+
+* **http:** stream a request body as the guest writes it ([ed2b571](https://github.com/elct9620/kobako/commit/ed2b571820d46b1fdfff577b3c8257fd7c63ce71))
+* **io:** define File.identical? as CRuby's compares two stats ([a64cebe](https://github.com/elct9620/kobako/commit/a64cebe71fa77fb13ec9b46745c3c756e58aaa6c))
+
+
+### Bug Fixes
+
+* **dir:** raise when a glob cannot list a directory it walks to ([e07464b](https://github.com/elct9620/kobako/commit/e07464bcc313fa2147e23fb9c8db5dbebc90c8da))
+
 ## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-io-v0.20.0...kobako-io-v0.21.0) (2026-11-18)
 
 

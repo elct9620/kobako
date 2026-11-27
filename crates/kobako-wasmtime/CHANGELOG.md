@@ -1,5 +1,52 @@
 # Changelog
 
+## [0.22.0](https://github.com/elct9620/kobako/compare/kobako-wasmtime-v0.21.0...kobako-wasmtime-v0.22.0) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **runtime:** vfs::cp_new_stat returns Result<Kstat, Errno> and vfs::ino_of returns Result<u64, Errno> in place of Kstat and u64; a Wasm Driver passes their EOVERFLOW to the guest.
+* **wasmtime:** a guest no longer reads EINTR from a call its run's deadline or interrupt ended; the run ends there as a timeout or an interrupt.
+* **runtime:** memory_limit measures the guest's own memory only; host buffers no longer answer ENOMEM or fail a request as internal.
+* **memcg:** a run whose start function, global initializers, table growth, or request grow past memory_limit now raises Kobako::MemoryLimitError, growth of several memories and the GC heap adds up, and Usage#memory_peak includes them. Raise memory_limit by that growth to keep the earlier headroom.
+* **filesystem:** an Overlay directory over N Bind Layers takes N of an invocation's `open_file_limit`; raise the limit by the Layers each held directory spans.
+* **net:** TcpSock::send_room counts the Invocation's memory, and MemoryBudget::peak, and so Usage::memory_peak, can pass the limit by a permitted write as well as a forced read, at most 68 KiB more per open connection.
+* **vfs:** a FileOperations implementing iterate_shared must also return true from has_iterate_shared, or its listings answer NotADirectory.
+* **vfs:** a guest now holds one preopen, `/`, at descriptor 3, instead of one per outermost Mount named by its path. A Guest Binary built on wasi-libc is unaffected; one that reads a Mount through descriptor 3 directly walks from `/` now, or the Host App mounts its Filesystem at `/`. `kobako_runtime::mount::outermost_of` is removed; a Wasm Driver opens `Cred::root` instead.
+
+### Features
+
+* **http:** stream a request body as the guest writes it ([ed2b571](https://github.com/elct9620/kobako/commit/ed2b571820d46b1fdfff577b3c8257fd7c63ce71))
+* **runtime:** tell how many datagrams a UDP socket holds unread ([48df527](https://github.com/elct9620/kobako/commit/48df52794238e2c13e27cc45f78e31e24101d82e))
+* **vfs:** preopen the guest's root alone, beneath which every Mount stands ([2a6d18d](https://github.com/elct9620/kobako/commit/2a6d18d78814f0529b15e109bbcd50f8b372e51b))
+* **wasmtime:** bound what one host call copies out of the guest by memory_limit ([044090e](https://github.com/elct9620/kobako/commit/044090eef9430584d970b0bd0a773fd37ce61ffc))
+* **wasmtime:** let a forked child on macOS run Sandboxes on any Thread ([a78375a](https://github.com/elct9620/kobako/commit/a78375a440614eb14dee722365702bb3bab5a23c))
+
+
+### Bug Fixes
+
+* **filesystem:** charge each host directory an Overlay holds to the caller ([437ada0](https://github.com/elct9620/kobako/commit/437ada00b268cf793cee8e7fadee1067dd0a4bf7))
+* **memcg:** charge every growth from the run's Store past what the binary declares ([44c7a8b](https://github.com/elct9620/kobako/commit/44c7a8bdc444b96a5d34a137a72b4e2f3c292d80))
+* **net:** keep an output stream's permit whole once its memory fills ([2b641cc](https://github.com/elct9620/kobako/commit/2b641ccee300a160d39c5edf691487d05ac4e365))
+* **net:** move each request on the thread that waits for it ([425f82a](https://github.com/elct9620/kobako/commit/425f82abc5fc0b78774d0ae4e448a13a547bac29))
+* **runtime:** count only the guest's descriptors against the open-file cap ([b0deca2](https://github.com/elct9620/kobako/commit/b0deca26519684729f37bf288a6a40f28968f9d0))
+* **runtime:** hold what the host keeps for a run by counts, not memory ([5428293](https://github.com/elct9620/kobako/commit/54282932e5f8a523d3d9e79275b846265102a22f))
+* **runtime:** number a hermetic invocation's entries in the order it meets them ([4e23399](https://github.com/elct9620/kobako/commit/4e23399eca979ae4526735c72e34133907dceeb3))
+* **vfs:** keep each Filesystem's moves to the walks on it ([42062b9](https://github.com/elct9620/kobako/commit/42062b9c2f22e00f6317fa92ebd6abe2b3fd76b0))
+* **vfs:** refuse a listing of a file without iterate_shared before locking it ([34eb327](https://github.com/elct9620/kobako/commit/34eb3273cd537ccbd2b7a3592ece38da79d60d2f))
+* **wasmtime:** answer random_get a page at a time into the guest's buffer ([d55aa1d](https://github.com/elct9620/kobako/commit/d55aa1da4082902e3b3f6b664b64ac50ee25d9b0))
+* **wasmtime:** ask the OS for a permissive guest's entropy on each draw ([fcfaca4](https://github.com/elct9620/kobako/commit/fcfaca49d0067d1d372e24e680004d04cd0f41ee))
+* **wasmtime:** end a run as a host call returns once the run is to stop ([f5840c6](https://github.com/elct9620/kobako/commit/f5840c687f91d18fb01bb426d577f9c4e208b277))
+* **wasmtime:** fail a refused growth as memory.grow does, not by ending the run ([8cd50be](https://github.com/elct9620/kobako/commit/8cd50bed12c18ea0b906b3e2fe1d6310194e34f2))
+* **wasmtime:** fail the caller when the host has no thread or room ([855734f](https://github.com/elct9620/kobako/commit/855734fcaf97cae11e80a6e9f83492bc2c292a2b))
+* **wasmtime:** open a cached artifact on Windows as wasmtime maps one ([4be7e9b](https://github.com/elct9620/kobako/commit/4be7e9b8b371f3dc95490da024ca72fa1a0c7597))
+* **wasmtime:** stop a guest that only computes once its run takes a fatal signal ([32990b6](https://github.com/elct9620/kobako/commit/32990b63cd6ae16c5d8a0e473a218d46d29c8919))
+
+
+### Performance Improvements
+
+* **wasmtime:** cache compiled Guest Binaries on disk on Windows too ([76ca86e](https://github.com/elct9620/kobako/commit/76ca86e3aab83d239e1d0b4ebbcd21e2aec14bf3))
+
 ## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-wasmtime-v0.20.0...kobako-wasmtime-v0.21.0) (2026-11-18)
 
 

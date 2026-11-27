@@ -1,5 +1,95 @@
 # Changelog
 
+## [0.22.0](https://github.com/elct9620/kobako/compare/kobako-runtime-v0.21.0...kobako-runtime-v0.22.0) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **runtime:** vfs::cp_new_stat returns Result<Kstat, Errno> and vfs::ino_of returns Result<u64, Errno> in place of Kstat and u64; a Wasm Driver passes their EOVERFLOW to the guest.
+* **runtime:** Tmpfs::new() and Tmpfs::DEFAULT_SIZE hold 4 MiB and 1025 entries instead of 64 MiB and 16385. Call
+* **runtime:** a listing, a walk, or a copy up in a run past its deadline or interrupted now answers EINTR mid-way instead of finishing.
+* **runtime:** a reader may now take a free directory ahead of a writer already waiting for it, and a trylock fails while any thread waits, so calls on a contended directory land in another order.
+* **runtime:** connection_limit now also counts name lookups, failed dials, and each further address an HTTP request dials, so a run reaches the default 50 sooner; a socket to a new name spends two. Raise connection_limit for a script that needs more.
+* **codec:** kobako-runtime drops Limits::value_budget; read kobako_codec::msgpack::codec::MAX_PAYLOAD_VALUES instead. A Sandbox whose memory_limit is above 4 MiB or None, or one built with_runtime, no longer accepts a guest payload of more than 262144 values.
+* **runtime:** memory_limit measures the guest's own memory only; host buffers no longer answer ENOMEM or fail a request as internal.
+* **memcg:** a run whose start function, global initializers, table growth, or request grow past memory_limit now raises Kobako::MemoryLimitError, growth of several memories and the GC heap adds up, and Usage#memory_peak includes them. Raise memory_limit by that growth to keep the earlier headroom.
+* **net:** on Windows, a dropped lookup keeps its place against `open_connection_limit` until the host's query finishes.
+* **runtime:** `Limits::default().open_file_limit` is `Some(16)` instead of `Some(1024)`; set `open_file_limit` for an invocation that holds more at once.
+* **net:** a connection the guest closes with bytes the peer has not taken counts against `open_file_limit` until it closes, and resets when no open file is left for it.
+* **filesystem:** an Overlay directory over N Bind Layers takes N of an invocation's `open_file_limit`; raise the limit by the Layers each held directory spans.
+* **net:** TcpSock::send_room counts the Invocation's memory, and MemoryBudget::peak, and so Usage::memory_peak, can pass the limit by a permitted write as well as a forced read, at most 68 KiB more per open connection.
+* **net:** net::send asks no CredentialSource for a TRACE and answers HttpError::Denied for one whose OutgoingRequest::body is not empty, where it swapped the value and sent the body.
+* **net:** net::send answers HttpError::Denied for an OutgoingRequest whose method is CONNECT, where it sent one. A caller that needs a tunnel dials a TcpSock through an endpoint of Protocol::Tcp.
+* **net:** MemoryBudget::peak, and so Usage::memory_peak, can pass the limit by one forced network read per open connection.
+* **gvl:** a Service of a Sandbox releasing the GVL no longer takes interrupts the Host App's own Thread.handle_interrupt mask defers; it takes them as that mask allows, as under gvl: :hold. The warning a run releasing the GVL gave on the main Thread is gone.
+* **vfs:** a FileOperations implementing iterate_shared must also return true from has_iterate_shared, or its listings answer NotADirectory.
+* **vfs:** a guest now holds one preopen, `/`, at descriptor 3, instead of one per outermost Mount named by its path. A Guest Binary built on wasi-libc is unaffected; one that reads a Mount through descriptor 3 directly walks from `/` now, or the Host App mounts its Filesystem at `/`. `kobako_runtime::mount::outermost_of` is removed; a Wasm Driver opens `Cred::root` instead.
+* **security:** a Sandbox whose nested mount path passes a host link, at its last name or above it, now fails each run with "stands nowhere: ELOOP" instead of standing where the link leads. Mount the directory the link leads to by its own path instead.
+
+### Features
+
+* **http:** stream a request body as the guest writes it ([ed2b571](https://github.com/elct9620/kobako/commit/ed2b571820d46b1fdfff577b3c8257fd7c63ce71))
+* **runtime:** tell how many datagrams a UDP socket holds unread ([48df527](https://github.com/elct9620/kobako/commit/48df52794238e2c13e27cc45f78e31e24101d82e))
+* **sandbox:** have a fork wait for the runs in progress, or raise where it cannot ([3c33928](https://github.com/elct9620/kobako/commit/3c3392818a0454cfd72fc720560afc32b0a04aa5))
+* **vfs:** preopen the guest's root alone, beneath which every Mount stands ([2a6d18d](https://github.com/elct9620/kobako/commit/2a6d18d78814f0529b15e109bbcd50f8b372e51b))
+* **wasmtime:** bound what one host call copies out of the guest by memory_limit ([044090e](https://github.com/elct9620/kobako/commit/044090eef9430584d970b0bd0a773fd37ce61ffc))
+
+
+### Bug Fixes
+
+* **codec:** hold every guest payload to the Codec's own 262144 values ([1eee6ec](https://github.com/elct9620/kobako/commit/1eee6ecaf578687e9785753afa475d269d3fa750))
+* **filesystem:** charge each host directory an Overlay holds to the caller ([437ada0](https://github.com/elct9620/kobako/commit/437ada00b268cf793cee8e7fadee1067dd0a4bf7))
+* **filesystem:** let a process drop every directory its Binds keep ([ecd9756](https://github.com/elct9620/kobako/commit/ecd9756bbfb828930864c658a969f80fc9bbbe3f))
+* **filesystem:** make way for a Bind's root when the host is out of descriptors ([ed7edd4](https://github.com/elct9620/kobako/commit/ed7edd40ea87e7ada687732eb28e6631e28b19a7))
+* **filesystem:** share one bound on the directories Binds keep ([e7f2ff2](https://github.com/elct9620/kobako/commit/e7f2ff26fc50ee36ef31ac025363986f2a7ee99b))
+* **fork:** tell a descendant apart from the ancestor whose pid it reuses ([15f6540](https://github.com/elct9620/kobako/commit/15f6540488a1a44a817a7f0349ca767a01fd0829))
+* **gvl:** have a run on a Fiber a callback starts hold locks as that run ([723db42](https://github.com/elct9620/kobako/commit/723db4236131c95f140bef07e583e014e2ac8168))
+* **gvl:** run each guest on a thread of its own, served by its caller ([7710c21](https://github.com/elct9620/kobako/commit/7710c212552415eaa4dd683d54e20d5aad89de26))
+* **memcg:** charge every growth from the run's Store past what the binary declares ([44c7a8b](https://github.com/elct9620/kobako/commit/44c7a8bdc444b96a5d34a137a72b4e2f3c292d80))
+* **net:** charge what a socket and an exchange hold as it arrives ([8c44cb4](https://github.com/elct9620/kobako/commit/8c44cb42b0bb996294715bd8eebe204707ea4c87))
+* **net:** declare close on every request the proxy sends ([0ef6aa1](https://github.com/elct9620/kobako/commit/0ef6aa12eb1c5497e098570cdaf51c6b7cf7495e))
+* **net:** draw each DNS query ID from the kernel ([99548ed](https://github.com/elct9620/kobako/commit/99548ed51cb73123a529072f49926b887a6a30e4))
+* **net:** give a dropped lookup's place back at once on every host ([a8f8c4a](https://github.com/elct9620/kobako/commit/a8f8c4a9d9188fa9132571a5b279bca0e4130c3b))
+* **net:** hold an open file for a socket still sending after its release ([d309bff](https://github.com/elct9620/kobako/commit/d309bff11cd22a323eef0695c19ef6db96532d2e))
+* **net:** keep a lookup's place in a Windows query until its routine runs ([537b7f5](https://github.com/elct9620/kobako/commit/537b7f566abb75b46b18ee958141bdd2e717262b))
+* **net:** keep an output stream's permit whole once its memory fills ([2b641cc](https://github.com/elct9620/kobako/commit/2b641ccee300a160d39c5edf691487d05ac4e365))
+* **net:** move each request on the thread that waits for it ([425f82a](https://github.com/elct9620/kobako/commit/425f82abc5fc0b78774d0ae4e448a13a547bac29))
+* **net:** never let a Windows lookup's completion wait on its cancel ([020673b](https://github.com/elct9620/kobako/commit/020673baaaf438e3bf62655101d43a87c0ee4760))
+* **net:** refuse CONNECT at the L7 proxy ([8c69128](https://github.com/elct9620/kobako/commit/8c69128e6548037c8c66f7cb444db85585a43a70))
+* **net:** shut a connection down as its exchange lets it go ([054e70a](https://github.com/elct9620/kobako/commit/054e70a2f467688297a9c640efb55cbd27e0553b))
+* **net:** swap nothing into a TRACE and refuse one with content ([2135449](https://github.com/elct9620/kobako/commit/21354496a920c073bdafdb738538e273bf60a49a))
+* **runtime:** answer a name no DNS query carries before the lookup holds it ([6b50f3a](https://github.com/elct9620/kobako/commit/6b50f3ad92fc0557f9485cc517b4931e2ea0a11a))
+* **runtime:** append through a Windows Bind in one step ([bcc692b](https://github.com/elct9620/kobako/commit/bcc692b788ea86e79af5416344c991c1ccc992f9))
+* **runtime:** count only the guest's descriptors against the open-file cap ([b0deca2](https://github.com/elct9620/kobako/commit/b0deca26519684729f37bf288a6a40f28968f9d0))
+* **runtime:** default an invocation's open files to 16 ([c091b90](https://github.com/elct9620/kobako/commit/c091b90f2590e4a4746e482cd6d8e8c45e58bc5d))
+* **runtime:** hand a socket what its event reported, so Windows hears a reset ([67874f7](https://github.com/elct9620/kobako/commit/67874f7e7a67604ab35c1fe8c123e17ab4f6092e))
+* **runtime:** hold 4 MiB in a Tmpfs given no size of its own ([23ad4fe](https://github.com/elct9620/kobako/commit/23ad4feaca61f0c320fffe6f29021ced42b5601e))
+* **runtime:** hold what the host keeps for a run by counts, not memory ([5428293](https://github.com/elct9620/kobako/commit/54282932e5f8a523d3d9e79275b846265102a22f))
+* **runtime:** keep the reactor's repolls through an interrupted wait ([5275c77](https://github.com/elct9620/kobako/commit/5275c777e56241597ca8a6d469b1fdfe69be2258))
+* **runtime:** let a TCP socket hear a reset that follows its peer's FIN ([dac6ecb](https://github.com/elct9620/kobako/commit/dac6ecba588867e734e7797f4153e54a659edbe2))
+* **runtime:** let a write trylock pass a line nobody was handed, as mutex_trylock ([de510f5](https://github.com/elct9620/kobako/commit/de510f53e3bb451c7f840aa6373ccf88dc7fcb4d))
+* **runtime:** let the process's open connections start unbounded ([55c03c5](https://github.com/elct9620/kobako/commit/55c03c51e10ebab0415ace38640c8595f86a321f))
+* **runtime:** number a hermetic invocation's entries in the order it meets them ([4e23399](https://github.com/elct9620/kobako/commit/4e23399eca979ae4526735c72e34133907dceeb3))
+* **runtime:** promise a reset past the peer's FIN no sooner than a write ([5de137c](https://github.com/elct9620/kobako/commit/5de137c94efad7aa69f5486af099d2da5f72f699))
+* **runtime:** reach a Windows Bind entry by any spelling its host folds ([0a38543](https://github.com/elct9620/kobako/commit/0a38543c42c73a8b0e9557f205ef663f925bf670))
+* **runtime:** read a Windows Bind's link as a guest path ([f1f04f6](https://github.com/elct9620/kobako/commit/f1f04f689d2da83f148b741a2a4abdf232d161f1))
+* **runtime:** remove a Windows Bind's link to a directory as itself ([f200e1e](https://github.com/elct9620/kobako/commit/f200e1ef157d1b12cc71c0f5efba42745a8e0738))
+* **runtime:** report a Windows Bind entry's times ([8584c90](https://github.com/elct9620/kobako/commit/8584c90e2f406edfeeb54477a330fd2f9937b602))
+* **runtime:** serve a directory lock's waiters in turn, as Linux's rwsem ([4ab9bd0](https://github.com/elct9620/kobako/commit/4ab9bd0e2e134ce10a1bd87f3d4924e2acc4c8e5))
+* **runtime:** set a time through a Windows Bind's descriptor opened to read ([397e0b5](https://github.com/elct9620/kobako/commit/397e0b52feec1d29a41212dfeb4227a4be4d8352))
+* **runtime:** spend a poll budget on each step an HTTP connection takes ([efea22b](https://github.com/elct9620/kobako/commit/efea22b06ede0b27e98a03d174cfc7b4b23ae5f4))
+* **runtime:** spend connection_limit before each lookup and dial leaves the host ([f958a44](https://github.com/elct9620/kobako/commit/f958a44ad39b9b3870685fbe23d911f4c4c3fe33))
+* **runtime:** stand a poll on each wait queue once ([ad9c2b5](https://github.com/elct9620/kobako/commit/ad9c2b503c56b604d2ea6ee16d5676f3d9bce312))
+* **runtime:** stop a listing and a copy up between steps once the run is to stop ([b2aebca](https://github.com/elct9620/kobako/commit/b2aebca6a83499b4659c95be17a2f68202932d74))
+* **runtime:** watch a socket for room only while a writer found none ([b7e1c4d](https://github.com/elct9620/kobako/commit/b7e1c4d9bcf53e8050dee44d7e68f726055a56ed))
+* **sched:** let a wait go on through a wakeup that raises nothing ([cf7f484](https://github.com/elct9620/kobako/commit/cf7f484ca645be1a0c64b0f9530b6e39034d3db3))
+* **security:** refuse a nested mount whose path passes a link ([71abead](https://github.com/elct9620/kobako/commit/71abead05818696ef9a2e2b9082bb871087cfa34))
+* **vfs:** climb out of the walk's own Filesystem mounted again ([1cf46c2](https://github.com/elct9620/kobako/commit/1cf46c2ba61af87631208ae2aed0471b419bb531))
+* **vfs:** keep each Filesystem's moves to the walks on it ([42062b9](https://github.com/elct9620/kobako/commit/42062b9c2f22e00f6317fa92ebd6abe2b3fd76b0))
+* **vfs:** refuse a listing of a file without iterate_shared before locking it ([34eb327](https://github.com/elct9620/kobako/commit/34eb3273cd537ccbd2b7a3592ece38da79d60d2f))
+* **vfs:** wake a name's waiters and a move's readers when a panic unwinds ([515343c](https://github.com/elct9620/kobako/commit/515343c71075517c7c4b9a05624df2ef733b62bc))
+* **wasmtime:** stop a guest that only computes once its run takes a fatal signal ([32990b6](https://github.com/elct9620/kobako/commit/32990b63cd6ae16c5d8a0e473a218d46d29c8919))
+
 ## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-runtime-v0.20.0...kobako-runtime-v0.21.0) (2026-11-18)
 
 
