@@ -6,16 +6,12 @@ require "test_helper"
 class TestE2ERubyFilesystemSync < Minitest::Test
   include E2eGuestHelper
 
-  Stat = Data.define(:directory, :size, :ino) do
-    def directory? = directory
-  end
-
   # One note, its file opened as +file_class+.
   class NoteFilesystem
     def initialize(file_class) = @file_class = file_class
 
     def open(_path, _flags) = @file_class.new
-    def stat(path) = Stat.new(directory: path.empty?, size: 5, ino: path.empty? ? 1 : 2)
+    def stat(path) = FilesystemStat.new(directory: path.empty?, size: 5, ino: path.empty? ? 1 : 2)
   end
 
   # A file answering the read subset and no fsync.

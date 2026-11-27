@@ -11,10 +11,6 @@ class TestE2ERubyFilesystemListing < Minitest::Test
   # Room for the guest to reach its first stat.
   TIMEOUT = 0.2
 
-  Stat = Data.define(:directory, :size, :ino) do
-    def directory? = directory
-  end
-
   # The files +a+, +b+, and +c+ at its root, the stat of +a+ taking as long
   # as the run's timeout from its own call, past the timeout that began
   # before it, each stat of a file recorded.
@@ -30,11 +26,11 @@ class TestE2ERubyFilesystemListing < Minitest::Test
     def children(_path) = %w[a b c]
 
     def stat(path)
-      return Stat.new(directory: true, size: 0, ino: 1) if path.empty?
+      return FilesystemStat.new(directory: true, size: 0, ino: 1) if path.empty?
 
       @asked << path
       sleep TIMEOUT if path == "a"
-      Stat.new(directory: false, size: 1, ino: path.ord)
+      FilesystemStat.new(directory: false, size: 1, ino: path.ord)
     end
   end
 

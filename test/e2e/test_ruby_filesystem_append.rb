@@ -7,10 +7,6 @@ require "test_helper"
 class TestE2ERubyFilesystemAppend < Minitest::Test
   include E2eGuestHelper
 
-  Stat = Data.define(:directory, :size, :ino) do
-    def directory? = directory
-  end
-
   # One note held in a String, its file opened as +file_class+.
   class NoteFilesystem
     attr_reader :note
@@ -21,7 +17,7 @@ class TestE2ERubyFilesystemAppend < Minitest::Test
     end
 
     def open(_path, _flags) = @file_class.new(@note)
-    def stat(path) = Stat.new(directory: path.empty?, size: @note.bytesize, ino: path.empty? ? 1 : 2)
+    def stat(path) = FilesystemStat.new(directory: path.empty?, size: @note.bytesize, ino: path.empty? ? 1 : 2)
   end
 
   # A file answering the write subset without an append.

@@ -7,10 +7,6 @@ require "test_helper"
 class TestE2ERubyFilesystemWalk < Minitest::Test
   include E2eGuestHelper
 
-  Stat = Data.define(:directory, :size, :ino) do
-    def directory? = directory
-  end
-
   # One file three directories deep, recording each path its `stat` is
   # asked about.
   class DeepFilesystem
@@ -31,10 +27,10 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
     def stat(path)
       @asked << path
       depth = DIRECTORIES.index(path)
-      return Stat.new(directory: true, size: 7, ino: depth + 1) if depth
+      return FilesystemStat.new(directory: true, size: 7, ino: depth + 1) if depth
       raise Errno::ENOENT, path unless path == "a/b/c/note.txt"
 
-      Stat.new(directory: false, size: 4, ino: DIRECTORIES.size + 1)
+      FilesystemStat.new(directory: false, size: 4, ino: DIRECTORIES.size + 1)
     end
   end
 
@@ -112,10 +108,10 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
     def open(path, _flags) = @names.fetch(path) { raise Errno::ENOENT, path }
 
     def stat(path)
-      return Stat.new(true, 0, 1) if path.empty?
+      return FilesystemStat.new(true, 0, 1) if path.empty?
       raise Errno::ENOENT, path unless @names.key?(path)
 
-      Stat.new(false, 105, 2)
+      FilesystemStat.new(false, 105, 2)
     end
 
     def unlink(path) = @names.delete(path)
@@ -152,9 +148,9 @@ class TestE2ERubyFilesystemWalk < Minitest::Test
 
     def stat(path)
       case path
-      when "" then Stat.new(true, 0, 1)
-      when "dir" then Stat.new(!@replaced, 0, 2)
-      when "dir/inner" then Stat.new(false, 4, 3)
+      when "" then FilesystemStat.new(true, 0, 1)
+      when "dir" then FilesystemStat.new(!@replaced, 0, 2)
+      when "dir/inner" then FilesystemStat.new(false, 4, 3)
       else raise Errno::ENOENT, path
       end
     end

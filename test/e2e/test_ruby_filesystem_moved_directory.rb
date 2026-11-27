@@ -10,10 +10,6 @@ class TestE2ERubyFilesystemMovedDirectory < Minitest::Test
 
   FIXTURE = TestPaths.fixture("minimal_moved_directory.wat")
 
-  Stat = Data.define(:directory, :size, :ino) do
-    def directory? = directory
-  end
-
   # Directories and files held by path, recording each path stat is asked.
   class TreeFilesystem
     attr_reader :asked
@@ -27,7 +23,7 @@ class TestE2ERubyFilesystemMovedDirectory < Minitest::Test
     def stat(path)
       @asked << path
       ino = @entries.fetch(path) { raise Errno::ENOENT, path }
-      Stat.new(directory: @directories.include?(path), size: 0, ino: ino)
+      FilesystemStat.new(directory: @directories.include?(path), size: 0, ino: ino)
     end
 
     def open(path, _flags) = raise(Errno::ENOENT, path)
@@ -65,7 +61,7 @@ class TestE2ERubyFilesystemMovedDirectory < Minitest::Test
     def stat(path)
       @asked << path
       ino = @entries.fetch(path) { raise Errno::ENOENT, path }
-      Stat.new(directory: @directories.include?(path), size: 0, ino: ino).tap { move_away if path == "dir" }
+      FilesystemStat.new(directory: @directories.include?(path), size: 0, ino: ino).tap { move_away if path == "dir" }
     end
 
     def open(path, _flags)

@@ -12,13 +12,11 @@ class TestE2ERubyFilesystemStat < Minitest::Test
   # 1,000 seconds and 500 nanoseconds past the epoch, as preview1 counts them.
   # Windows keeps a time to 100 nanoseconds, so the literal holds there too.
   MODIFIED = 1_000_000_000_500
+  # The one file each Filesystem here holds.
+  FILE_STAT = FilesystemStat.new(directory: false, size: 5, ino: 42)
 
   Fields = Data.define(:errnos, :path, :open, :listed) do
     def self.from(answer) = new(errnos: answer[0, 4], path: answer[4, 5], open: answer[9, 5], listed: answer[14])
-  end
-
-  Stat = Data.define(:directory, :size, :ino) do
-    def directory? = directory
   end
 
   # A stat recording all a +File::Stat+ does beyond what a Filesystem must.
@@ -44,7 +42,7 @@ class TestE2ERubyFilesystemStat < Minitest::Test
     def children(_path) = ["f"]
 
     def stat(path)
-      return Stat.new(directory: true, size: 0, ino: 1) if path.empty?
+      return FilesystemStat.new(directory: true, size: 0, ino: 1) if path.empty?
       raise Errno::ENOENT, path unless path == "f"
 
       @file_stat
@@ -66,7 +64,7 @@ class TestE2ERubyFilesystemStat < Minitest::Test
   # inode number comes from what its lookup recorded.
   # @behavior RF-028
   def test_an_open_file_keeps_the_identity_its_lookup_recorded
-    seen = fields(OneFileFilesystem.new(Stat.new(directory: false, size: 5, ino: 42), bare_file), profile: :permissive)
+    seen = fields(OneFileFilesystem.new(FILE_STAT, bare_file), profile: :permissive)
 
     assert_equal [0, 0, 0, 0], seen.errnos, "each preview1 call the fixture makes must succeed"
     refute_equal 0, seen.open[0],
@@ -83,7 +81,7 @@ class TestE2ERubyFilesystemStat < Minitest::Test
     file = bare_file
     opened_stat = recording_stat(nlink: 3)
     file.define_singleton_method(:stat) { opened_stat }
-    seen = fields(OneFileFilesystem.new(Stat.new(directory: false, size: 5, ino: 42), file), profile: :permissive)
+    seen = fields(OneFileFilesystem.new(FILE_STAT, file), profile: :permissive)
 
     assert_equal [3, MODIFIED, MODIFIED, MODIFIED], seen.open[1, 4],
                  "fd_filestat_get of a file answering stat, through a Ruby Filesystem, must report the count of " \
@@ -103,7 +101,7 @@ class TestE2ERubyFilesystemStat < Minitest::Test
   # literal: a Ruby Filesystem names a listed entry as a stat of it does.
   # @behavior RT-183
   def test_a_permissive_guest_reads_one_inode_number_in_a_stat_and_a_listing
-    seen = fields(OneFileFilesystem.new(Stat.new(directory: false, size: 5, ino: 42), bare_file), profile: :permissive)
+    seen = fields(OneFileFilesystem.new(FILE_STAT, bare_file), profile: :permissive)
 
     refute_equal 0, seen.listed,
                  "fd_readdir of a Ruby Filesystem's directory through a permissive guest must name an inode number"
@@ -113,7 +111,7 @@ class TestE2ERubyFilesystemStat < Minitest::Test
 
   # @behavior RT-183
   def test_a_hermetic_guest_reads_one_number_of_its_own_for_a_ruby_filesystems_file
-    seen = fields(OneFileFilesystem.new(Stat.new(directory: false, size: 5, ino: 42), bare_file), profile: :hermetic)
+    seen = fields(OneFileFilesystem.new(FILE_STAT, bare_file), profile: :hermetic)
     numbers = [seen.path[0], seen.open[0], seen.listed]
 
     assert_equal 1, numbers.uniq.size,
@@ -138,7 +136,7 @@ class TestE2ERubyFilesystemStat < Minitest::Test
 
   # @behavior RF-031
   def test_a_stat_recording_neither_reports_one_name_and_time_zero
-    seen = fields(OneFileFilesystem.new(Stat.new(directory: false, size: 5, ino: 42), bare_file), profile: :permissive)
+    seen = fields(OneFileFilesystem.new(FILE_STAT, bare_file), profile: :permissive)
 
     assert_equal [1, 0, 0, 0], seen.path[1, 4],
                  "path_filestat_get of a Ruby Filesystem's stat answering no nlink and no time must read one name " \
@@ -150,7 +148,7 @@ class TestE2ERubyFilesystemStat < Minitest::Test
     attr_reader :asked
 
     def initialize(names)
-      super(Stat.new(directory: false, size: 5, ino: 42), StringIO.new(+"hello"))
+      super(FILE_STAT, StringIO.new(+"hello"))
       @names = names
       @asked = []
     end

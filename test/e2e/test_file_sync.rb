@@ -7,10 +7,6 @@ require "test_helper"
 class TestE2EFileSync < Minitest::Test
   include E2eGuestHelper
 
-  Stat = Data.define(:directory, :size, :ino) do
-    def directory? = directory
-  end
-
   # One note, its file counting each sync it is asked for.
   class NoteFilesystem
     attr_reader :syncs
@@ -18,7 +14,7 @@ class TestE2EFileSync < Minitest::Test
     def initialize = @syncs = 0
 
     def open(_path, _flags) = NoteFile.new(self)
-    def stat(path) = Stat.new(directory: path.empty?, size: 5, ino: path.empty? ? 1 : 2)
+    def stat(path) = FilesystemStat.new(directory: path.empty?, size: 5, ino: path.empty? ? 1 : 2)
     def synced = @syncs += 1
   end
 

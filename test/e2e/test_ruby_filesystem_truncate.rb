@@ -7,10 +7,6 @@ require "test_helper"
 class TestE2ERubyFilesystemTruncate < Minitest::Test
   include E2eGuestHelper
 
-  Stat = Data.define(:directory, :size, :ino) do
-    def directory? = directory
-  end
-
   # One note, emptied when its open is handed TRUNC. Its file answers no
   # truncate, which the runtime would report as read-only if it asked.
   class NoteFilesystem
@@ -23,7 +19,7 @@ class TestE2ERubyFilesystemTruncate < Minitest::Test
       NoteFile.new(@note)
     end
 
-    def stat(path) = Stat.new(directory: path.empty?, size: @note.bytesize, ino: path.empty? ? 1 : 2)
+    def stat(path) = FilesystemStat.new(directory: path.empty?, size: @note.bytesize, ino: path.empty? ? 1 : 2)
   end
 
   # The note, open.
@@ -56,7 +52,7 @@ class TestE2ERubyFilesystemTruncate < Minitest::Test
   class ReplacedFilesystem < NoteFilesystem
     def replace = @ino = 3
 
-    def stat(path) = Stat.new(directory: path.empty?, size: note.bytesize, ino: path.empty? ? 1 : @ino || 2)
+    def stat(path) = FilesystemStat.new(directory: path.empty?, size: note.bytesize, ino: path.empty? ? 1 : @ino || 2)
   end
 
   # @behavior RF-034

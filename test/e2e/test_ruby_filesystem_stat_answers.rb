@@ -8,10 +8,6 @@ class TestE2ERubyFilesystemStatAnswers < Minitest::Test
   include E2eGuestHelper
 
   # A stat answering nothing a Filesystem may leave out.
-  Stat = Data.define(:directory, :size, :ino) do
-    def directory? = directory
-  end
-
   # A stat saying what kind of entry it reports, as +File::Stat+ does.
   KindStat = Data.define(:directory, :size, :ino, :ftype) do
     def directory? = directory
@@ -26,7 +22,7 @@ class TestE2ERubyFilesystemStatAnswers < Minitest::Test
     def open(_path, _flags) = raise("the object's open must not be asked")
 
     def stat(path)
-      return Stat.new(directory: true, size: 0, ino: 1) if path.empty?
+      return FilesystemStat.new(directory: true, size: 0, ino: 1) if path.empty?
       raise Errno::ENOENT, path unless path == "f"
 
       @file_stat
@@ -72,7 +68,8 @@ class TestE2ERubyFilesystemStatAnswers < Minitest::Test
   # +ino+ from two of them is two entries; a shared +dev+ makes it one.
   # @behavior RF-032
   def test_a_stat_naming_a_device_tells_filesystems_apart_by_it
-    assert_equal [false, true, false], [same_ino_alike?(Stat, Stat), same_ino_alike?(on_device(1), on_device(1)),
+    assert_equal [false, true, false], [same_ino_alike?(FilesystemStat, FilesystemStat),
+                                        same_ino_alike?(on_device(1), on_device(1)),
                                         same_ino_alike?(on_device(1), on_device(2))],
                  "File::Stat#ino through two Ruby Filesystems whose stat answers one ino must match only where both " \
                  "answer one dev"
