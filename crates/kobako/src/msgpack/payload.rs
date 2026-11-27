@@ -5,7 +5,7 @@ use std::sync::Arc;
 use kobako_codec::msgpack::codec::{Encode as _, Value};
 use kobako_codec::msgpack::payload::Arguments;
 
-use crate::error::{ArgumentKind, Error, Failure};
+use crate::error::{ArgumentKind, Error};
 use crate::handles::Handles;
 use crate::payload::RunPayload;
 use crate::receiver::Receiver;
@@ -65,12 +65,7 @@ fn wrap(handles: &Handles<'_>, arg: RunArg) -> Result<Value, Error> {
             "a run argument cannot carry a Handle; pass the host object as RunArg::Object",
         )),
         RunArg::Value(value) => Ok(value),
-        RunArg::Object(object) => handles.alloc(object).map(Value::Handle).map_err(|fault| {
-            Error::Sandbox(Box::new(Failure::host(
-                "Kobako::HandleExhaustedError",
-                fault.message,
-            )))
-        }),
+        RunArg::Object(object) => Ok(Value::Handle(handles.alloc(object)?)),
     }
 }
 

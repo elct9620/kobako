@@ -1,9 +1,8 @@
 //! The outcome position: a run's result read back as a value tree.
 
 use kobako_codec::msgpack::codec::{Decoder, Value, MAX_PAYLOAD_VALUES};
-use kobako_transport::envelope::{SANDBOX_ERROR, TRANSPORT_ERROR};
 
-use crate::error::{Error, Failure};
+use crate::error::Error;
 use crate::execution::Execution;
 
 impl Execution {
@@ -22,12 +21,10 @@ impl Execution {
 
     fn require_live_handles(&self, value: &Value) -> Result<(), Error> {
         match value {
-            Value::Handle(id) => self.resolve(*id).map(|_| ()).ok_or_else(|| {
-                Error::Sandbox(Box::new(Failure::host(
-                    SANDBOX_ERROR,
-                    format!("unknown Handle id: {id}"),
-                )))
-            }),
+            Value::Handle(id) => self
+                .resolve(*id)
+                .map(|_| ())
+                .ok_or_else(|| Error::unknown_handle(*id)),
             Value::Array(items) => items.iter().try_for_each(|v| self.require_live_handles(v)),
             Value::Map(pairs) => pairs.iter().try_for_each(|(key, val)| {
                 self.require_live_handles(key)?;
@@ -45,23 +42,19 @@ fn decode_value(body: &[u8]) -> Result<Value, Error> {
     Decoder::new(body)
         .with_value_budget(Some(MAX_PAYLOAD_VALUES))
         .read_sole_value()
-        .map_err(|err| wire_violation("Sandbox produced an invalid result value", &err))
-}
-
-fn wire_violation(message: &str, detail: &kobako_codec::msgpack::codec::Error) -> Error {
-    Error::Sandbox(Box::new(Failure {
-        diagnostic: Some(detail.to_string()),
-        ..Failure::host(TRANSPORT_ERROR, message)
-    }))
+        .map_err(Error::invalid_result)
 }
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use kobako_codec::msgpack::codec::Encoder;
-    use kobako_transport::envelope::Outcome;
+    use kobako_runtime::snapshot::Capture;
+    use kobako_transport::envelope::{Outcome, TRANSPORT_ERROR};
 
     use super::*;
-    use crate::execution::classify;
+    use crate::execution::{classify, Usage};
 
     // @behavior OC-006
     #[test]
@@ -72,6 +65,24 @@ mod tests {
             decode_value(&classify(outcome, "eval").unwrap()).unwrap(),
             Value::Int(42),
             "an ok arm carrying an encodable value must read back through the codec unchanged"
+        );
+    }
+
+    // @behavior OC-053
+    #[test]
+    fn a_value_naming_a_handle_never_issued_is_a_sandbox_failure() {
+        let execution = Execution::new(
+            Ok(Encoder::encode(&Value::Handle(5)).unwrap()),
+            Arc::default(),
+            Capture::default(),
+            Capture::default(),
+            Usage::default(),
+        );
+
+        assert!(
+            matches!(execution.value(), Err(Error::Sandbox(_))),
+            "Execution::value over a result naming a Handle id the invocation never issued \
+             must fail as a Sandbox failure"
         );
     }
 

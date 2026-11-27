@@ -8,6 +8,7 @@
 //! The entries are `Arc<dyn Receiver>`, so a Handle used as a dispatch
 //! target answers methods the same way a bound Service does.
 
+use std::fmt;
 use std::sync::{Arc, Mutex};
 
 use crate::receiver::{Fault, FaultKind, Receiver};
@@ -16,6 +17,40 @@ use crate::receiver::{Fault, FaultKind, Receiver};
 /// holds at most 1,000,000 of what a host hands its guest: the table is
 /// kobako's own, so it stays bounded whatever a Service returns.
 const MAX_HANDLES: u32 = 1_000_000;
+
+/// Why `Handles::alloc` bound nothing: the invocation's table already holds
+/// every Handle one invocation may issue.
+///
+/// A table issues Handles in two positions, and each has its own failure
+/// shape, so this converts into both: the `Fault` a Receiver answers a
+/// dispatch with, and the `Error` a run fails with before the guest starts.
+/// `?` therefore reports it whichever position the allocation sits in.
+///
+/// Non-exhaustive because only a table produces one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct HandleExhaustedError;
+
+impl fmt::Display for HandleExhaustedError {
+    /// The message the Ruby allocator raises.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "Out of handle allocations: too many host objects were \
+             referenced in a single invocation (limit {MAX_HANDLES})"
+        )
+    }
+}
+
+impl std::error::Error for HandleExhaustedError {}
+
+impl From<HandleExhaustedError> for Fault {
+    /// A dispatch whose answer cannot be bound is kobako failing the
+    /// Service, not the Service failing, so it answers on `internal`.
+    fn from(err: HandleExhaustedError) -> Self {
+        Fault::new(FaultKind::Internal, err.to_string())
+    }
+}
 
 /// The Sandbox-owned table: live entries plus the per-invocation
 /// monotonic counter. Ids are `1..=entries.len()`, so the entry vector
@@ -26,14 +61,10 @@ pub(crate) struct HandleTable {
 }
 
 impl HandleTable {
-    /// Bind `object` and return its fresh id, or refuse past `MAX_HANDLES`
-    /// with the message the Ruby allocator raises.
-    pub(crate) fn alloc(&mut self, object: Arc<dyn Receiver>) -> Result<u32, String> {
+    /// Bind `object` and return its fresh id, or refuse past `MAX_HANDLES`.
+    pub(crate) fn alloc(&mut self, object: Arc<dyn Receiver>) -> Result<u32, HandleExhaustedError> {
         if self.entries.len() as u32 >= MAX_HANDLES {
-            return Err(format!(
-                "Out of handle allocations: too many host objects were \
-                 referenced in a single invocation (limit {MAX_HANDLES})"
-            ));
+            return Err(HandleExhaustedError);
         }
         self.entries.push(object);
         Ok(self.entries.len() as u32)
@@ -67,12 +98,11 @@ impl<'a> Handles<'a> {
     ///
     /// An id rather than a `Value::Handle`, because each schema spells a
     /// Handle for itself; `Value::Handle(id)` is the bundled codec's spelling.
-    pub fn alloc(&self, object: Arc<dyn Receiver>) -> Result<u32, Fault> {
+    pub fn alloc(&self, object: Arc<dyn Receiver>) -> Result<u32, HandleExhaustedError> {
         self.table
             .lock()
             .expect("the Handle table mutex is never poisoned")
             .alloc(object)
-            .map_err(|message| Fault::new(FaultKind::Internal, message))
     }
 
     /// Resolve a Handle id to the live host object it stands for; `None`
@@ -139,6 +169,16 @@ mod tests {
             (Some(Ok(1_000_000)), true),
             "binding 1,000,000 objects in one run must issue the last the handle id \
              1,000,000, and must refuse to bind the next"
+        );
+    }
+
+    #[test]
+    fn exhaustion_answers_a_dispatch_as_kobakos_own_failure() {
+        assert_eq!(
+            Fault::from(HandleExhaustedError).kind,
+            FaultKind::Internal,
+            "a dispatch whose answer cannot be bound to a Handle must reach the guest as \
+             kobako's internal failure, not as the Service raising"
         );
     }
 

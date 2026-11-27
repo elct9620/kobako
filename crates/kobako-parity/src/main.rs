@@ -493,7 +493,7 @@ impl ValueReceiver for StubReceiver {
             Some(Behavior::Value(value)) => Ok(value.clone()),
             Some(Behavior::Raise(message)) => Err(Fault::new(FaultKind::Runtime, message.clone())),
             Some(Behavior::YieldEach) => yield_each(args, block),
-            Some(Behavior::Opaque(object)) => handles.alloc(object.clone()).map(Value::Handle),
+            Some(Behavior::Opaque(object)) => Ok(Value::Handle(handles.alloc(object.clone())?)),
             Some(Behavior::ReadLabel) => read_label(args, handles),
             Some(Behavior::Counter(count)) => {
                 Ok(Value::Int(count.fetch_add(1, Ordering::Relaxed) as i64 + 1))

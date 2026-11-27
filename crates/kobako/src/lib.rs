@@ -56,7 +56,7 @@ pub mod yielder;
 pub use error::{ArgumentKind, Error, Failure};
 pub use execution::{Execution, Usage};
 pub use extension::{Backend, Extension, Lifetime};
-pub use handles::Handles;
+pub use handles::{HandleExhaustedError, Handles};
 pub use kobako_runtime::filesystem::Filesystem;
 pub use kobako_runtime::mount::{Access, MountRequest};
 pub use kobako_runtime::policy::Policy;

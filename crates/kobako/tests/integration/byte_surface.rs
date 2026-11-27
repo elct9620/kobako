@@ -1,6 +1,8 @@
 //! Integration coverage for the byte-level payload surface — the entries
-//! a host uses when the payload's schema is its own: `RunPayload::from_bytes`,
-//! `Execution::payload`, `Receiver::call`, and `Yielder::call_payload`.
+//! a host uses when the payload's schema is its own: `RunPayload::from_bytes`
+//! and `from_fn`, `Execution::payload`, `Receiver::call`, and
+//! `Yielder::call_payload`, along with the failures such a host reports
+//! through them in kobako's own attribution.
 //!
 //! The bundled guest speaks MessagePack, so these tests build that schema's
 //! bytes themselves rather than reaching for the `Value` shortcuts. That is
@@ -16,7 +18,7 @@
 use std::sync::{Arc, Mutex};
 
 use kobako::handles::DetachedHandles;
-use kobako::{Fault, FaultKind, Handles, Receiver, RunPayload, Yielder};
+use kobako::{Error, Execution, Fault, FaultKind, Handles, Receiver, RunPayload, Yielder};
 use kobako_codec::msgpack::codec::{Decode, Decoder, Encode, Encoder, Value};
 use kobako_codec::msgpack::payload::Arguments;
 
@@ -238,5 +240,97 @@ fn call_payload_yields_with_host_encoded_bytes_and_returns_the_block_s_own() {
         Value::Int(21),
         "a yield driven on the byte seam must carry the host's encoded arguments into \
          the block and hand back the block's answer as bytes"
+    );
+}
+
+// @behavior T-012
+#[test]
+fn a_built_run_payload_past_the_handle_ceiling_fails_the_run_before_the_guest_starts() {
+    let Some(mut sandbox) = real_sandbox() else {
+        return;
+    };
+    sandbox
+        .preload("Echo", "class Echo; def self.call(value) = value; end")
+        .expect("preload the entrypoint");
+    let object: Arc<dyn Receiver> = ByteEcho::new();
+
+    let result = sandbox.run(
+        "Echo",
+        RunPayload::from_fn(move |handles| {
+            for _ in 0..=1_000_000 {
+                handles.alloc(object.clone())?;
+            }
+            Ok(run_args(Value::Nil))
+        }),
+    );
+
+    assert!(
+        matches!(&result, Err(Error::Sandbox(failure)) if failure.name == "Kobako::HandleExhaustedError"),
+        "a run payload built through RunPayload::from_fn that binds one host object more \
+         than an invocation may hold must fail the run as the Sandbox failure \
+         Kobako::HandleExhaustedError, reported with `?` alone"
+    );
+}
+
+/// A host schema of its own for a result: a text value, a Handle spelled as
+/// a bare integer id. Each failure it detects is reported through kobako's
+/// own constructors, so its attribution matches the bundled codec's.
+fn read_label(execution: &Execution) -> Result<String, Error> {
+    let bytes = execution.payload().map_err(Clone::clone)?;
+    match decode(bytes) {
+        Value::Str(text) => Ok(text),
+        Value::Int(id) => {
+            let id = u32::try_from(id).map_err(Error::invalid_result)?;
+            execution
+                .resolve(id)
+                .map(|_| "a live Handle".to_string())
+                .ok_or_else(|| Error::unknown_handle(id))
+        }
+        other => Err(Error::invalid_result(format!(
+            "expected text or a Handle id, found {other:?}"
+        ))),
+    }
+}
+
+// @behavior OC-003 OC-004 OC-005
+#[test]
+fn a_result_a_host_schema_cannot_read_fails_as_the_sandbox_with_its_detail_kept_aside() {
+    let Some(sandbox) = real_sandbox() else {
+        return;
+    };
+    let execution = sandbox.eval("[1, 2]").expect("the invocation runs");
+
+    let Err(Error::Sandbox(failure)) = read_label(&execution) else {
+        panic!(
+            "a result a host's own schema cannot read must fail as a Sandbox failure \
+             through Error::invalid_result"
+        );
+    };
+    assert!(
+        !failure.message.contains("expected text"),
+        "the failure's message must name an invalid result and not the schema's detail"
+    );
+    assert!(
+        failure
+            .diagnostic
+            .as_deref()
+            .is_some_and(|detail| detail.contains("expected text")),
+        "the schema's own account of the unreadable result must stay reachable as the \
+         failure's diagnostic"
+    );
+}
+
+// @behavior OC-053
+#[test]
+fn a_result_naming_a_handle_never_issued_fails_as_the_sandbox() {
+    let Some(sandbox) = real_sandbox() else {
+        return;
+    };
+    let execution = sandbox.eval("99").expect("the invocation runs");
+
+    assert!(
+        matches!(read_label(&execution), Err(Error::Sandbox(_))),
+        "a result whose host schema names a Handle id the invocation never issued must \
+         fail as a Sandbox failure through Error::unknown_handle"
     );
 }

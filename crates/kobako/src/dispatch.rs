@@ -243,9 +243,9 @@ mod tests {
                     let _ = block.call_values(&[Value::Int(0)]);
                     block.call_values(&[Value::Int(1)]).map_err(Fault::from)
                 }
-                "make" => handles
-                    .alloc(TaggedEntry("bob").into_receiver())
-                    .map(Value::Handle),
+                "make" => Ok(Value::Handle(
+                    handles.alloc(TaggedEntry("bob").into_receiver())?,
+                )),
                 "read_label" => {
                     // A Handle is an id wherever it travels; this schema
                     // spells one as `Value::Handle`, so reading it out is

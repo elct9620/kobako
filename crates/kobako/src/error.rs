@@ -12,6 +12,8 @@
 
 use std::fmt;
 
+use kobako_transport::envelope::{SANDBOX_ERROR, TRANSPORT_ERROR};
+
 pub use kobako_runtime::error::SetupError;
 
 /// One record of a failed invocation: the error name, message and
@@ -134,6 +136,45 @@ impl Error {
             kind,
             message: message.into(),
         }
+    }
+
+    /// The failure a result the payload codec cannot read raises: a wire
+    /// violation attributed to the Sandbox, as the bundled codec reports
+    /// one. `diagnostic` is the codec's own account, kept out of the
+    /// message so the caller reads a failure it can act on.
+    ///
+    /// Public because the result is read in whichever codec the host
+    /// chose, and a codec kobako does not ship owes the same attribution.
+    pub fn invalid_result(diagnostic: impl fmt::Display) -> Self {
+        Error::Sandbox(Box::new(Failure {
+            diagnostic: Some(diagnostic.to_string()),
+            ..Failure::host(TRANSPORT_ERROR, "Sandbox produced an invalid result value")
+        }))
+    }
+
+    /// The failure a result naming a Handle id this invocation never issued
+    /// raises. A guest cannot fabricate a Handle, so such an id means a
+    /// corrupted runtime, attributed to the Sandbox.
+    ///
+    /// Public for the same reason as `invalid_result`: walking a result for
+    /// Handles is the codec's, wherever that codec lives.
+    pub fn unknown_handle(id: u32) -> Self {
+        Error::Sandbox(Box::new(Failure::host(
+            SANDBOX_ERROR,
+            format!("unknown Handle id: {id}"),
+        )))
+    }
+}
+
+impl From<crate::handles::HandleExhaustedError> for Error {
+    /// A run payload whose host object cannot be bound fails before the
+    /// guest starts, attributed to the Sandbox as the Ruby allocator's
+    /// `Kobako::HandleExhaustedError` is.
+    fn from(err: crate::handles::HandleExhaustedError) -> Self {
+        Error::Sandbox(Box::new(Failure::host(
+            "Kobako::HandleExhaustedError",
+            err.to_string(),
+        )))
     }
 }
 
