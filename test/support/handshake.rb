@@ -5,14 +5,14 @@
 # says what never happened, which decides where to look next.
 module Handshake
   # Far past any slowdown, so reaching it means the other side jammed.
-  JAMMED_AFTER = 10
+  MAX_WAIT = 10
 
   # Wait until the block answers truthy, giving the other threads the CPU in
-  # between; flunk with +never+ once JAMMED_AFTER seconds pass.
+  # between; flunk with +never+ once MAX_WAIT seconds pass.
   def wait_until(never)
-    ends = Process.clock_gettime(Process::CLOCK_MONOTONIC) + JAMMED_AFTER
+    ends = Process.clock_gettime(Process::CLOCK_MONOTONIC) + MAX_WAIT
     until yield
-      flunk("#{never} within #{JAMMED_AFTER} s") if Process.clock_gettime(Process::CLOCK_MONOTONIC) > ends
+      flunk("#{never} within #{MAX_WAIT} s") if Process.clock_gettime(Process::CLOCK_MONOTONIC) > ends
       sleep 0.001
     end
   end

@@ -32,9 +32,9 @@ module Kobako
         began = Thread::Queue.new
         @release = Thread::Queue.new
         @thread = Thread.new { table.compile { |_| hold(began) } }
-        return if began.pop(timeout: Handshake::JAMMED_AFTER)
+        return if began.pop(timeout: Handshake::MAX_WAIT)
 
-        raise "the compile never reached the compiler within #{Handshake::JAMMED_AFTER} s; " \
+        raise "the compile never reached the compiler within #{Handshake::MAX_WAIT} s; " \
               "look at what Catalog::Snippets#compile did before calling it"
       end
 
@@ -42,9 +42,9 @@ module Kobako
       # instead of hanging the suite.
       def release
         @release << true
-        return if @thread.join(Handshake::JAMMED_AFTER)
+        return if @thread.join(Handshake::MAX_WAIT)
 
-        raise "the held compile did not end within #{Handshake::JAMMED_AFTER} s of its release; " \
+        raise "the held compile did not end within #{Handshake::MAX_WAIT} s of its release; " \
               "look at what holds the compile after the compiler answered"
       end
 

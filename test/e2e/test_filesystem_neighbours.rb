@@ -34,7 +34,9 @@ class TestE2EFilesystemNeighbours < Minitest::Test
 
     def wait_started(count)
       count.times do
-        raise "an attacker never reached its loop; its run failed first" unless @started.pop(timeout: 10)
+        next if @started.pop(timeout: Handshake::MAX_WAIT)
+
+        raise "an attacker never reached its loop; its run failed first"
       end
     end
   end
