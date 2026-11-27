@@ -37,6 +37,7 @@ One block here is deliberately written in one frontend's own names. The ancestry
 - `crates/kobako/src/execution.rs`
 - `crates/kobako/src/error.rs`
 - `crates/kobako/src/msgpack/execution.rs`
+- `crates/kobako/tests/integration/byte_surface.rs`
 - `wasm/kobako-mruby/src/flows/panic.rs`
 - `wasm/kobako-core/src/abi/downcall.rs`
 - `wasm/kobako-core/src/preamble.rs`
@@ -394,5 +395,17 @@ One block here is deliberately written in one frontend's own names. The ancestry
 | Step | Statement |
 | --- | --- |
 | Given | a guest answering an invocation as unsupported |
+| When | the outcome is read |
+| Then | it fails as a Sandbox failure rather than a trap |
+
+## `OC-053` A result naming a Handle the invocation never issued does not
+
+| Attribute | Value |
+| --- | --- |
+| relates | `OC-003` |
+
+| Step | Statement |
+| --- | --- |
+| Given | an invocation answering a Handle id its table never issued |
 | When | the outcome is read |
 | Then | it fails as a Sandbox failure rather than a trap |

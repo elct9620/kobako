@@ -173,6 +173,15 @@ host with its own Codec then implements the byte-level surface. `run` takes
 whichever payload it is handed, so the feature governs what a host is offered, never
 what it can reach.
 
+A failure the host's own Codec meets is reported in kobako's attribution, so a Host
+App rescues it the same whichever Codec met it.
+
+| The host's Codec meets | It reports |
+|---|---|
+| a host object past what one invocation holds | `?` on `Handles::alloc`, in a dispatch or a `RunPayload::from_fn` |
+| a result it cannot read | `Error::invalid_result`, with its own account as the diagnostic |
+| a result naming a Handle the invocation never issued | `Error::unknown_handle` |
+
 A type implementing two Codecs' receiver traits has two `into_receiver` in scope.
 Name one (`ValueReceiver::into_receiver(kv)`): binding an object is choosing the
 Codec the guest reaches it through.

@@ -70,8 +70,17 @@ for it on the wire.
 
 ```rust
 impl<'a> Handles<'a> {
-    pub fn alloc(&self, object: Arc<dyn Receiver>) -> Result<u32, Fault> {}
+    pub fn alloc(&self, object: Arc<dyn Receiver>) -> Result<u32, HandleExhaustedError> {}
 }
+```
+
+## `HandleExhaustedError`
+
+Why `Handles::alloc` bound nothing: the invocation's table holds all it may. It
+converts into the `Fault` a Receiver answers and the `Error` a run fails with.
+
+```rust
+pub struct HandleExhaustedError {}
 ```
 
 ## `Handles::resolve`
@@ -466,6 +475,28 @@ correction it offers.
 
 ```rust
 pub struct Failure {}
+```
+
+## `Error::invalid_result`
+
+The failure a host's own Codec reports for a result it cannot read. The Codec's
+account stays apart from the message.
+
+```rust
+impl Error {
+    pub fn invalid_result(diagnostic: impl Display) -> Self {}
+}
+```
+
+## `Error::unknown_handle`
+
+The failure a host's own Codec reports for a result naming a Handle the
+invocation never issued.
+
+```rust
+impl Error {
+    pub fn unknown_handle(id: u32) -> Self {}
+}
 ```
 
 ## `Receiver`
