@@ -122,41 +122,50 @@ This demo binds to `127.0.0.1` by default so the server is not reachable from th
 
 ## Puma vs Falcon
 
-Falcon is a Fiber-based reactor server, and Puma is a Thread-pool server. For this design Puma is faster at every concurrency, by 8% at `c=1` up to 22% at `c=100`. These are perceived numbers for a sizing decision, hardware-dependent and outside the `rake bench` suite.
+Falcon is a Fiber-based reactor server, and Puma is a Thread-pool server. Puma with `--gvl release` is the fastest here, reaching about 6,400 req/s from `c=10`. These are perceived numbers for a sizing decision, hardware-dependent and outside the `rake bench` suite.
 
 ```bash
-ruby examples/serverless/app.rb --type puma &    # or --type falcon
+ruby examples/serverless/app.rb --type puma --gvl hold &    # or --type falcon, --gvl release
 ab -n 500 -c 10 'http://127.0.0.1:9292/hello?name=alice'      # warm-up
 ab -n 3000 -c 100 'http://127.0.0.1:9292/hello?name=alice'    # also -c 1, 10, 50
 ```
 
 ### Measurement
 
-Both servers run single-process on macOS arm64, Ruby 3.4.7, YJIT off, kobako 0.32.0. Each request also pays one `req.params` Handle round-trip. Each cell is the median of three runs, alternating the two servers, with zero failed requests:
+Both servers run single-process on macOS arm64, Ruby 3.4.7, YJIT off, kobako 0.32.0, with the default cache. Each request also pays one `req.params` Handle round-trip. Each cell is the median of three runs, alternating the four setups, with zero failed requests:
 
-| Concurrency | Puma req/s | Falcon req/s |
-|-------------|------------|--------------|
-| 1           | 2,550      | 2,350        |
-| 10          | 3,700      | 3,240        |
-| 50          | 3,920      | 3,310        |
-| 100         | 3,940      | 3,240        |
+| Concurrency | Puma `hold` | Puma `release` |
+|-------------|-------------|----------------|
+| 1           | 4,370       | 4,210          |
+| 10          | 5,130       | 6,390          |
+| 50          | 5,070       | 6,320          |
+| 100         | 5,270       | 6,350          |
 
-Both plateau from `c=10`: past that, more concurrency only lengthens the queue, and p99 rises with it.
+| Concurrency | Falcon `hold` | Falcon `release` |
+|-------------|---------------|------------------|
+| 1           | 3,630         | 3,580            |
+| 10          | 4,380         | 4,400            |
+| 50          | 4,450         | 4,450            |
+| 100         | 4,490         | 4,230            |
 
-| Concurrency | Puma p99 | Falcon p99 |
-|-------------|----------|------------|
-| 1           | 1 ms     | 1 ms       |
-| 10          | 4 ms     | 4 ms       |
-| 50          | 18 ms    | 16 ms      |
-| 100         | 30 ms    | 36 ms      |
+All four plateau from `c=10`, and past that more concurrency only lengthens the queue. Every p99 stays at 1 ms or less at `c=1`:
 
-### Falcon's Disadvantage
+| Setup | p99 at `c=10` | p99 at `c=50` | p99 at `c=100` |
+|---|---|---|---|
+| Puma `hold` | 3 ms | 11 ms | 24 ms |
+| Puma `release` | 2 ms | 20 ms | 24 ms |
+| Falcon `hold` | 3 ms | 16 ms | 30 ms |
+| Falcon `release` | 3 ms | 17 ms | 28 ms |
 
-Two properties of this design leave a Fiber reactor nothing to overlap:
+### GVL Modes
 
-| Property | Effect on the reactor |
+`gvl: :release` drops the GVL while a guest runs, and only another Thread can use that time:
+
+| Server | What `release` changes |
 |---|---|
-| the guest keeps the GVL, under the default `gvl: :hold` | the Thread's other Fibers wait until the run ends |
-| `/hello`, `/sum`, `/shout`, `/echo` do no I/O | no Fiber ever yields |
+| Puma | its Threads run guests in parallel, 20–25% more from `c=10` |
+| Falcon | nothing: one Thread runs every request, so its Fibers wait out each run |
 
-A Service doing scheduler-aware I/O frees the Thread's other Fibers while its run waits. The [async-io demo](../async-io/README.md) shows that case, where a reactor overlaps the waits. This demo stays pure-compute so the wire path is easy to read.
+A single request pays a small handoff under `release`, as `c=1` shows. Falcon gains no overlap even with a scheduler offering `blocking_operation_wait`. A run hands its wait to a scheduler only when its guest outlasts a short spin. These runs end long before.
+
+These scripts do no I/O, so no Fiber ever yields. A Service doing scheduler-aware I/O frees the Thread's other Fibers while its run waits. The [async-io demo](../async-io/README.md) shows that case.
