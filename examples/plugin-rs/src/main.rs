@@ -57,10 +57,10 @@ fn main() -> ExitCode {
     // The same caps the Ruby gem exposes as `Sandbox` options; the
     // default profile is `Hermetic` - frozen clocks and entropy.
     let mut options = Options::default();
-    options.timeout = Some(Duration::from_secs(5));
-    options.memory_limit = Some(64 * 1024 * 1024);
-    options.stdout_limit = Some(64 * 1024);
-    options.stderr_limit = Some(64 * 1024);
+    options.limits.timeout = Some(Duration::from_secs(5));
+    options.limits.memory_limit = Some(64 * 1024 * 1024);
+    options.limits.stdout_limit = Some(64 * 1024);
+    options.limits.stderr_limit = Some(64 * 1024);
     let mut sandbox = match Sandbox::new(&wasm_path, options) {
         Ok(sandbox) => sandbox,
         Err(err) => {
