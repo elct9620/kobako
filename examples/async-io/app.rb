@@ -1,29 +1,22 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
 
-# Host-side async I/O demo: overlap many Sandboxes' external I/O on a
+# Host-side async I/O demo: overlap many invocations' external I/O on a
 # SINGLE OS thread using a Fiber scheduler (the `async` gem).
 #
 # The lesson this example encodes
 # -------------------------------
-# kobako's wasm dispatch is synchronous and Runtime holds at most one
-# active Invocation per OS thread; kobako does not provide async or
-# yield-resume execution. So you CANNOT do blocking I/O inside a Service
-# dispatch and then Fiber.yield around it — the wasm frame is still on the
-# native stack, and suspending it would corrupt the per-thread invocation
-# state.
+# Each guest runs on a thread kobako keeps, so a Fiber whose run is inside
+# a Service leaves its own Thread free for another Fiber's run. A Service
+# that waits on scheduler-aware I/O therefore yields the Fiber, and the
+# reactor starts or resumes another request while it waits:
 #
-# The safe shape is host-orchestrated continuation: the guest is a PURE
-# function, and all external I/O happens in host Ruby BETWEEN invocations,
-# where no wasm frame sits on the stack. At that point a Fiber scheduler is
-# free to suspend the waiting fiber and run another request's compute,
-# overlapping I/O waits across Sandboxes without spending a thread per
-# in-flight request.
+#   guest  Request.(id)            -> plan: decide what to fetch
+#   host   Resource::Fetcher.fetch -> the fiber yields here; another runs
+#   guest  (same run)              -> render the final result
 #
-#   guest #run(:Plan, id)      -> pure compute: decide what to fetch
-#   --- invocation unwound; no wasm frame on the native stack ---
-#   host fetch (async I/O)      -> the fiber yields here; another task runs
-#   guest #run(:Render, data)  -> pure compute: build the final result
+# The guest keeps every line of the request's logic; the host only owns the
+# I/O. Many Fibers may run on one Sandbox at once, as on many Threads.
 #
 # The fetch latency is SIMULATED with `sleep` (intercepted by the fiber
 # scheduler under Async) — the point is the concurrency structure, not a
@@ -63,7 +56,7 @@ require "bundler/inline"
 
 gemfile do
   source "https://rubygems.org"
-  gem "kobako", "~> 0.29.0"
+  gem "kobako", "~> 0.32.0"
   gem "async", "~> 2.46" unless options[:sequential]
 end
 
@@ -73,32 +66,17 @@ require "async" unless options[:sequential]
 # Example types are nested under AsyncIO so the file carries a single
 # top-level constant and reads top-down.
 module AsyncIO
-  # Phase 1 entrypoint. kobako guests have no I/O capability by
+  # The whole request, in the guest. kobako guests have no I/O capability by
   # construction — the build allowlist ships no I/O / network / sleep
-  # mrbgem — so the guest only decides WHICH external resource it needs and
-  # returns a descriptor. The host performs the fetch outside any dispatch
-  # frame.
-  PLAN = <<~'MRUBY'
-    Plan = ->(id) { "resource/#{id}" }
+  # mrbgem — so the guest reaches the outside world only through the Service
+  # the host binds.
+  REQUEST = <<~'MRUBY'
+    Request = ->(id) {
+      descriptor = "resource/#{id}"
+      value = Resource::Fetcher.fetch(id, descriptor)
+      "#{descriptor} => #{value}"
+    }
   MRUBY
-
-  # Phase 2 entrypoint. Takes the host-fetched payload — a wire Hash with
-  # string keys (positional Hash args round-trip their key types verbatim)
-  # — and produces the final result. Still pure compute.
-  RENDER = <<~'MRUBY'
-    Render = ->(data) { "#{data['descriptor']} => #{data['value']}" }
-  MRUBY
-
-  # Builds a Sandbox with both phases preloaded. Each concurrent request
-  # owns one so the trace reads one Sandbox per request; sharing a single
-  # Sandbox across the fibers would be equally safe, since the
-  # reactor only suspends a fiber between invocations.
-  def self.build_sandbox
-    sandbox = Kobako::Sandbox.new
-    sandbox.preload(code: PLAN, name: :Plan)
-    sandbox.preload(code: RENDER, name: :Render)
-    sandbox
-  end
 
   # Monotonic event log. Each line carries the OS thread it ran on, so the
   # async run visibly stays on one thread while requests interleave.
@@ -120,69 +98,61 @@ module AsyncIO
     end
   end
 
-  # Simulated external fetch. `sleep` is intercepted by the fiber scheduler
-  # under Async, so the waiting fiber yields and another request's compute
-  # runs while this one waits. The payload is a deterministic stand-in for
-  # whatever an HTTP body would carry.
+  # The Service a run calls for its external fetch. `sleep` is intercepted
+  # by the fiber scheduler under Async, so the waiting fiber yields while
+  # its run is inside this call, and another request runs meanwhile. The
+  # payload is a deterministic stand-in for whatever an HTTP body would
+  # carry. One object serves every run, so it keeps no per-request state.
   class Fetcher
-    def initialize(latency_ms)
+    def initialize(latency_ms, timeline)
       @latency = latency_ms / 1000.0
+      @timeline = timeline
     end
 
-    def fetch(descriptor)
+    def fetch(id, descriptor)
+      @timeline.record(id, "fetch:start  #{descriptor}")
       sleep(@latency)
+      @timeline.record(id, "fetch:done")
       descriptor.split("/").last.reverse
     end
   end
 
-  # One request's two-phase flow: plan (compute) -> fetch (I/O) -> render
-  # (compute). The fetch sits between two #run calls, never inside one.
-  class Request
-    def initialize(sandbox, fetcher, timeline)
-      @sandbox = sandbox
-      @fetcher = fetcher
-      @timeline = timeline
-    end
-
-    def process(id)
-      @timeline.record(id, "plan:start")
-      descriptor = @sandbox.run(:Plan, id).value
-      @timeline.record(id, "fetch:start  #{descriptor}")
-      value = @fetcher.fetch(descriptor)
-      @timeline.record(id, "fetch:done")
-      result = @sandbox.run(:Render, { "descriptor" => descriptor, "value" => value }).value
-      @timeline.record(id, "render:done  -> #{result}")
-      result
-    end
+  # One Sandbox for every request: each run gets its own guest, so the
+  # concurrent Fibers share no guest state.
+  def self.build_sandbox(fetcher)
+    sandbox = Kobako::Sandbox.new
+    sandbox.bind("Resource::Fetcher", fetcher)
+    sandbox.preload(code: REQUEST, name: :Request)
+    sandbox
   end
 
-  # One Request per concurrent task, each owning its own Sandbox.
-  def self.build_requests(count, fetcher, timeline)
-    Array.new(count) { Request.new(build_sandbox, fetcher, timeline) }
+  # One request: a single run that plans, fetches through the Service, and
+  # renders.
+  def self.process(sandbox, timeline, id)
+    timeline.record(id, "run:start")
+    result = sandbox.run(:Request, id).value
+    timeline.record(id, "run:done     -> #{result}")
+    result
   end
 
   # Runs every request concurrently on a single-thread async reactor. The
   # fetches overlap because the reactor schedules a waiting fiber's peers
-  # while it sleeps.
-  def self.run_async(count, fetcher, timeline)
-    requests = build_requests(count, fetcher, timeline)
-    measure { await_all(requests) }
-  end
-
-  def self.await_all(requests)
-    Async do
-      # Spawn one child task per request, then wait for every result. The
-      # reactor runs the children concurrently on this single thread.
-      tasks = requests.each_with_index.map { |req, id| Async { req.process(id) } }
-      tasks.map(&:wait)
-    end.wait
+  # while it sleeps inside the Service.
+  def self.run_async(count, sandbox, timeline)
+    measure do
+      Async do
+        # Spawn one child task per request, then wait for every result. The
+        # reactor runs the children concurrently on this single thread.
+        tasks = Array.new(count) { |id| Async { process(sandbox, timeline, id) } }
+        tasks.map(&:wait)
+      end.wait
+    end
   end
 
   # Blocking baseline: no reactor, so each request's fetch fully blocks the
   # thread and the total is the sum of the latencies.
-  def self.run_sequential(count, fetcher, timeline)
-    requests = build_requests(count, fetcher, timeline)
-    measure { requests.each_with_index.map { |req, id| req.process(id) } }
+  def self.run_sequential(count, sandbox, timeline)
+    measure { Array.new(count) { |id| process(sandbox, timeline, id) } }
   end
 
   # Runs the block and returns [block_result, elapsed_seconds].
@@ -193,8 +163,8 @@ module AsyncIO
   end
 end
 
-fetcher = AsyncIO::Fetcher.new(options[:latency])
 timeline = AsyncIO::Timeline.new
+sandbox = AsyncIO.build_sandbox(AsyncIO::Fetcher.new(options[:latency], timeline))
 mode = options[:sequential] ? "sequential (blocking)" : "async reactor (single thread)"
 
 puts "async-io demo: #{options[:count]} requests, ~#{options[:latency]}ms simulated fetch each"
@@ -203,9 +173,9 @@ puts
 
 results, elapsed =
   if options[:sequential]
-    AsyncIO.run_sequential(options[:count], fetcher, timeline)
+    AsyncIO.run_sequential(options[:count], sandbox, timeline)
   else
-    AsyncIO.run_async(options[:count], fetcher, timeline)
+    AsyncIO.run_async(options[:count], sandbox, timeline)
   end
 
 serialized_ms = options[:count] * options[:latency]

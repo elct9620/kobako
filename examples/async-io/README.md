@@ -1,21 +1,23 @@
-# Host-side Async I/O
+# Async IO Demo
 
-A self-contained script that overlaps many Sandboxes' external I/O on a **single OS thread** using a Fiber scheduler (the [`async`](https://github.com/socketry/async) gem). It is the I/O-bound companion to the [serverless demo](../serverless/README.md), whose Puma-vs-Falcon appendix explains why a pure-compute workload gains nothing from a Fiber server — this one shows the other half of the story: when the work waits on external I/O, a reactor lets one thread carry many in-flight requests at once.
+A self-contained script that overlaps many invocations' external I/O on a **single OS thread** using a Fiber scheduler (the [`async`](https://github.com/socketry/async) gem). It is the I/O-bound companion to the [serverless demo](../serverless/README.md), whose pure-compute scripts leave a Fiber server nothing to overlap.
 
-## The shape, and why it has to be this shape
+| Workload | A Fiber reactor |
+|---|---|
+| pure compute, as in serverless | has nothing to overlap |
+| waits on external I/O, as here | carries many in-flight requests on one thread |
 
-kobako's wasm dispatch is synchronous, and a Runtime holds at most one active Invocation per OS thread; kobako does not provide async or yield-resume execution. So you cannot do blocking I/O *inside* a Service dispatch and then yield the fiber around it — the wasm frame is still on the native stack, and suspending it would corrupt the per-thread invocation state.
+## Request Shape
 
-The safe arrangement is host-orchestrated continuation: the guest stays a pure function, and every external fetch happens in host Ruby *between* invocations, where no wasm frame sits on the stack. At that point the fiber scheduler is free to suspend the waiting request and run a peer's compute.
+Each request is one `#run`. The guest plans and renders, and a Service it calls does the fetch:
 
 ```
-guest #run(:Plan, id)      ->  pure compute: decide what to fetch
---- invocation unwound; no wasm frame on the native stack ---
-host fetch (async I/O)     ->  the fiber yields here; another request runs
-guest #run(:Render, data)  ->  pure compute: build the final result
+guest  Request.(id)              ->  plan: decide what to fetch
+host   Resource::Fetcher.fetch   ->  the fiber yields here; another request runs
+guest  (same run)                ->  render the final result
 ```
 
-Each `#run` is a short synchronous compute that never yields; the waiting lives entirely in the host gap between the two phases.
+Each guest runs on a thread kobako keeps. So a Fiber whose run waits inside a Service leaves its own Thread free for another Fiber's run. A Service waiting on scheduler-aware I/O thus yields the Fiber, and the reactor runs a peer meanwhile.
 
 ## Running
 
@@ -31,40 +33,56 @@ From a clone of the kobako repository, prefix with `bundle exec` so the local ch
 
 ## Configuration
 
-| Flag           | Purpose                                                            | Default |
-|----------------|-------------------------------------------------------------------|---------|
-| `--count N`    | Number of concurrent requests.                                    | `5`     |
-| `--latency MS` | Simulated fetch latency per request, in milliseconds.             | `300`   |
-| `--sequential` | Blocking baseline: no reactor, so the fetches serialize.          | off     |
+Three flags shape the workload. Each request's fetch sleeps for the given latency.
 
-## What to observe
+| Flag           | Purpose                                                 | Default |
+|----------------|---------------------------------------------------------|---------|
+| `--count N`    | Number of concurrent requests                           | `5`     |
+| `--latency MS` | Simulated fetch latency per request, in milliseconds    | `300`   |
+| `--sequential` | Blocking baseline: no reactor, so the fetches serialize | off     |
 
-The async run interleaves every request's plan and fetch on one thread, then completes them together once the overlapped waits elapse:
+## Expected Trace
+
+The async run starts every request and its fetch on one thread, then completes them together once the overlapped waits elapse:
 
 ```
 $ ruby examples/async-io/app.rb --count 4 --latency 200
 mode: async reactor (single thread)
 
-[+  628ms] [thread 584] [req 0] plan:start
-[+  630ms] [thread 584] [req 0] fetch:start  resource/0
-[+  630ms] [thread 584] [req 1] plan:start
-[+  631ms] [thread 584] [req 1] fetch:start  resource/1
-[+  631ms] [thread 584] [req 2] fetch:start  resource/2
-[+  631ms] [thread 584] [req 3] fetch:start  resource/3
-[+  831ms] [thread 584] [req 0] fetch:done
+[+    2ms] [thread 648] [req 0] run:start
+[+    3ms] [thread 648] [req 0] fetch:start  resource/0
+[+    3ms] [thread 648] [req 1] run:start
+[+    3ms] [thread 648] [req 1] fetch:start  resource/1
+[+    3ms] [thread 648] [req 2] run:start
+[+    3ms] [thread 648] [req 2] fetch:start  resource/2
+[+    3ms] [thread 648] [req 3] run:start
+[+    3ms] [thread 648] [req 3] fetch:start  resource/3
+[+  205ms] [thread 648] [req 0] fetch:done
 ...
-total wall time:          205ms
+total wall time:          203ms
 serialized would spend:   800ms (count x latency)
 ```
 
-Two things to read off the trace. Every line carries the same thread id, so the four requests genuinely share one OS thread rather than fanning out to a thread pool. And the total wall time tracks one fetch latency, not their sum — the reactor overlapped the four waits. Running `--sequential` shows the same workload taking `count x latency`, because without a reactor each fetch fully blocks the thread.
+Every line carries the same thread id, so the four requests share one OS thread. The total wall time tracks one fetch latency, not their sum, as the reactor overlapped the four waits. `--sequential` takes `count x latency`, because without a reactor each fetch blocks the thread.
 
-## Why this is safe
+## Shared Sandbox
 
-At the `host fetch` step the script is between invocations: no wasmtime frame is on the native stack, no dispatch is active, and no Invocation occupies the thread slot. That is the only window in which a fiber may suspend without violating the per-OS-thread single-invocation invariant. Keeping I/O out of the dispatch frame is what makes the reactor overlap legal — it is a property of the program structure, not of the scheduler.
+All requests run on one Sandbox, with the fetching Service bound once:
 
-Each concurrent request owns its own Sandbox so the trace reads one Sandbox per request. Sharing a single Sandbox across the fibers would be equally safe: a Sandbox holds no state from any run, and the reactor only ever suspends a fiber between invocations, so the thread's invocation slot is free whenever another fiber resumes.
+```ruby
+sandbox = Kobako::Sandbox.new
+sandbox.bind("Resource::Fetcher", fetcher)
+sandbox.preload(code: REQUEST, name: :Request)
+Async { 4.times.map { |id| Async { sandbox.run(:Request, id).value } }.map(&:wait) }
+```
+
+Each run gets its own guest, so the concurrent Fibers share no guest state. The bound `Fetcher` is reached by every run at once, so it keeps no per-request state.
 
 ## Caveat
 
-The fetch latency is simulated with `sleep` (intercepted by the fiber scheduler), so the script is a demonstration of the concurrency structure, not a benchmark. Real overlap depends on the I/O library being fiber-scheduler-aware; a blocking client that ignores the scheduler would serialize even under the reactor.
+The fetch latency is simulated with `sleep` (intercepted by the fiber scheduler), so the script demonstrates the concurrency structure and is no benchmark. Real overlap depends on the I/O library the Service calls:
+
+| Fetch client | Under the reactor |
+|---|---|
+| fiber-scheduler-aware | the waits overlap |
+| blocking, ignoring the scheduler | the waits serialize |
