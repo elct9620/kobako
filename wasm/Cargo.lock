@@ -229,7 +229,7 @@ checksum = "3bd1574e617a9a6c1f8f8181bd7e841e1f20e4277607ef28945765188d6284d4"
 
 [[package]]
 name = "kobako-codec"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "kobako-transport",
  "rmp",
@@ -237,14 +237,14 @@ dependencies = [
 
 [[package]]
 name = "kobako-core"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "kobako-transport",
 ]
 
 [[package]]
 name = "kobako-io"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "beni",
  "wit-bindgen-rust-macro",
@@ -252,7 +252,7 @@ dependencies = [
 
 [[package]]
 name = "kobako-json"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "beni",
  "serde_json",
@@ -260,7 +260,7 @@ dependencies = [
 
 [[package]]
 name = "kobako-mruby"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "beni",
  "kobako-codec",
@@ -270,7 +270,7 @@ dependencies = [
 
 [[package]]
 name = "kobako-regexp"
-version = "0.21.0"
+version = "0.22.0"
 dependencies = [
  "beni",
  "fancy-regex",
@@ -279,7 +279,7 @@ dependencies = [
 
 [[package]]
 name = "kobako-transport"
-version = "0.21.0"
+version = "0.22.0"
 
 [[package]]
 name = "kobako-wasm"
