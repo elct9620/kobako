@@ -160,9 +160,9 @@ A tier owes the whole three promises and nothing else. So each tier is proved al
 
 | Promise | States | Proved by |
 |---|---|---|
-| lock ordering | a holder waits only for a lower tier | the whole |
+| lock ordering | an owner waits only for a lower tier | the whole |
 | starvation freedom | a waiter that is to end gets it | each tier |
-| forward progress | a holder lets go, given those below do | each tier |
+| forward progress | an owner lets go, given those below do | each tier |
 
 ### Proof Levels
 
@@ -199,7 +199,7 @@ A rule removes the condition that would jam. It never detects a jam or cuts one 
 | waiting for room while holding | no charge waits; one past a cap fails |
 | one invocation paying for what another holds | a shared object is charged to none |
 | waiting while holding the GVL | giving it up first |
-| a holder that needs a guest's help to let go | the caller yields by itself |
+| an owner that needs a guest's help to let go | the caller yields by itself |
 | a wait that closes a cycle through a fork | the fork refuses instead |
 
 No deadline is part of a proof, and no interface exists to stop an invocation.

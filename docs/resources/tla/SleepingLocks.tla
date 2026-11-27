@@ -5,7 +5,7 @@
 \* handles and waits on from leaves its place as it was, so that is no step.
 \*
 \* Assumes: what an operation waits for below ends, and host app code
-\* returns, so a holder's operation ends. Nothing of who comes, or how often.
+\* returns, so an owner's operation ends. Nothing of who comes, or how often.
 \* Exclusive holds only: which readers share is alignment, and a test's.
 \*
 \* Breaks takes one rule away:
