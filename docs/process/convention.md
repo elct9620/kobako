@@ -177,7 +177,8 @@ A method is named for what it does, and each kind shows it this way.
 | acts | a verb, then its object | `preload`, `register_source` |
 | finds a thing by a key | the noun, `_by_`, and the key | `error_by_name` |
 | answers a part of its argument, changing nothing | the noun, then `_of` | `size_of`, `TypeId::of`, `request_of` |
-| makes or converts a value | `new`, `with_`, `for_`, `from_`, `into_`, `to_` | `with_nr_inodes`, `from_posix_name` |
+| makes or converts a value, hung from its type | `new`, `with_`, `for_`, `from_`, `into_`, `to_` | `with_nr_inodes`, `from_posix_name` |
+| makes a value, with no type to hang from | the noun it makes | `mpsc::channel`, Minitest's `let(:sandbox)` |
 | adds one more of a member it already holds | the member's noun, as `Command::arg` | `flag` |
 | runs a block under a condition | a preposition and the condition | `within_connection_budget { … }` |
 | acts for as long as its block runs | a verb, then its object, as `Dir.chdir` | `hold(name) { … }` |
@@ -185,6 +186,8 @@ A method is named for what it does, and each kind shows it this way.
 A preposition opens a name only where the call reads as a phrase without it, as `with_X(…)` and `within_X { … }` do. Elsewhere it stands after a verb.
 
 A noun names only a method that changes nothing, as the standard library's `size_of` does. One that charges, writes, or changes its receiver acts, so it takes a verb.
+
+A constructor hangs from the type it makes, as the Rust API Guidelines' constructors are static inherent methods. A free function or a test's helper has no such type. It is named for what it makes, as `mpsc::channel()` and tempfile's `tempdir()` are.
 
 ### Call-Site Reading
 
