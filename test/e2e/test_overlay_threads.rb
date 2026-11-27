@@ -56,7 +56,7 @@ class TestE2EOverlayThreads < Minitest::Test
       answers[0] = (answers << :running) && nested.call if answers.empty?
       raise Errno::ENOENT, path unless ["", "x"].include?(path)
 
-      Data.define(:directory?, :size, :ino).new(path.empty?, 0, path.empty? ? 1 : 2)
+      FilesystemStat.new(directory: path.empty?, size: 0, ino: path.empty? ? 1 : 2)
     end
     layer
   end
