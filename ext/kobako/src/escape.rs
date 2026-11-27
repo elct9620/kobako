@@ -276,7 +276,7 @@ fn start(scheduler_waits: bool) -> Arc<RunState> {
     // context, which a thread holding the GVL may.
     let thread = unsafe { rb_sys::rb_thread_current() };
     let task = (!scheduler_waits)
-        .then(|| running_on(thread))
+        .then(|| run_by_thread(thread))
         .flatten()
         .map_or_else(Current::default, |running| {
             Current::with_owner(&running.task)
@@ -293,7 +293,7 @@ fn start(scheduler_waits: bool) -> Arc<RunState> {
 }
 
 /// A run another Fiber has in progress on `thread`.
-fn running_on(thread: rb_sys::VALUE) -> Option<Arc<RunState>> {
+fn run_by_thread(thread: rb_sys::VALUE) -> Option<Arc<RunState>> {
     let on_thread: Vec<Arc<RunState>> = with_runs(|runs| {
         runs.by_fiber
             .values()
