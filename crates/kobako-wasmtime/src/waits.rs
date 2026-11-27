@@ -1,6 +1,7 @@
-//! How many waits a test's own thread makes. A process registers one
-//! Blocking, so every test here shares the one this module registers, and
-//! each counts only the waits of the thread that asked.
+//! How long a test waits on another thread, and how many waits its own
+//! thread makes. A process registers one Blocking, so every test here shares
+//! the one this module registers, and each counts only the waits of the
+//! thread that asked.
 
 use std::cell::RefCell;
 use std::sync::atomic::{AtomicUsize, Ordering};

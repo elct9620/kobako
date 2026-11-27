@@ -677,7 +677,7 @@ impl HttpHost for Invocation {
 mod tests {
     use std::io::{BufRead, BufReader, Write};
     use std::net::TcpListener;
-    use std::time::{Duration as Wait, Instant};
+    use std::time::Instant;
 
     use kobako_runtime::network;
     use kobako_runtime::sched::run_task;
@@ -685,6 +685,7 @@ mod tests {
     use super::super::IntoAnswer;
     use super::*;
     use crate::preview2::bindings::{ClocksHost, Host as _, IoHost};
+    use crate::waits::MAX_WAIT;
 
     // @behavior NW-225
     #[test]
@@ -770,7 +771,7 @@ mod tests {
         let endpoint = network::Endpoint::new("127.0.0.1", port).unwrap();
         let mut guest = guest(Some(vec![endpoint]));
         let started = Instant::now();
-        let headers = run_task(Some(started + Wait::from_secs(10)), || {
+        let headers = run_task(Some(started + MAX_WAIT), || {
             let request = greeting_request(&mut guest, &format!("127.0.0.1:{port}"))?;
             let request = guest.take_handle(request)?;
             let future = guest
@@ -822,7 +823,7 @@ mod tests {
         let endpoint = network::Endpoint::new("127.0.0.1", port).unwrap();
         let mut guest = guest(Some(vec![endpoint]));
         let started = Instant::now();
-        let (read_back, answer) = run_task(Some(started + Wait::from_secs(10)), || {
+        let (read_back, answer) = run_task(Some(started + MAX_WAIT), || {
             let options = guest.types_request_options_new()?;
             let unset = [
                 guest.types_request_options_connect_timeout(options)?,
@@ -864,23 +865,23 @@ mod tests {
             guest.types_future_incoming_response_drop(future)?;
             Ok::<_, wasmtime::Error>((read_back, answer))
         })
-        .expect("the calls answer");
-        let woke_by_itself = started.elapsed() < Wait::from_secs(5);
+        .expect(
+            "a request handled with a first-byte timeout must wake its future's pollable once \
+             the timeout passes, not at the run's deadline",
+        );
         server.join().unwrap();
         assert_eq!(
-            (read_back, answer, woke_by_itself),
+            (read_back, answer),
             (
                 (
                     [None, None, None],
                     [Ok(()), Ok(()), Ok(())],
                     [Some(7), Some(0), Some(9)]
                 ),
-                Some(ErrorCode::ConnectionReadTimeout),
-                true
+                Some(ErrorCode::ConnectionReadTimeout)
             ),
             "request-options must read back each of its three timeouts as set, and none of them \
-             until set, and a request handled with a first-byte timeout must wake its future's \
-             pollable once the timeout passes, not at the run's deadline, and answer \
+             until set, and a request handled with a first-byte timeout must answer \
              connection-read-timeout"
         );
     }
@@ -907,7 +908,7 @@ mod tests {
         let endpoint = network::Endpoint::new("127.0.0.1", port).unwrap();
         let mut guest = guest(Some(vec![endpoint]));
         let started = Instant::now();
-        let (status, kind, body, nothing) = run_task(Some(started + Wait::from_secs(10)), || {
+        let (status, kind, body, nothing) = run_task(Some(started + MAX_WAIT), || {
             let request = greeting_request(&mut guest, &format!("127.0.0.1:{port}"))?;
             let request = guest.take_handle(request)?;
             let future = guest
@@ -983,14 +984,14 @@ mod tests {
                 (&stream)
                     .write_all(b"HTTP/1.1 200 OK\r\ncontent-length: 100\r\n\r\npart")
                     .unwrap();
-                stream.set_read_timeout(Some(Wait::from_secs(5))).unwrap();
+                stream.set_read_timeout(Some(MAX_WAIT)).unwrap();
                 let mut rest = [0; 1];
                 matches!(std::io::Read::read(&mut reader, &mut rest), Ok(0))
             });
             let endpoint = network::Endpoint::new("127.0.0.1", port).unwrap();
             let mut guest = Some(guest(Some(vec![endpoint])));
             let started = Instant::now();
-            let body = run_task(Some(started + Wait::from_secs(10)), || {
+            let body = run_task(Some(started + MAX_WAIT), || {
                 let guest = guest.as_mut().unwrap();
                 let request = greeting_request(guest, &format!("127.0.0.1:{port}"))?;
                 let request = guest.take_handle(request)?;
@@ -1269,7 +1270,7 @@ mod tests {
         let endpoint = network::Endpoint::new("127.0.0.1", port).unwrap();
         let mut guest = guest(Some(vec![endpoint]));
         let started = Instant::now();
-        let (dropped, kind) = run_task(Some(started + Wait::from_secs(10)), || {
+        let (dropped, kind) = run_task(Some(started + MAX_WAIT), || {
             let request = greeting_request(&mut guest, &format!("127.0.0.1:{port}"))?;
             let request = guest.take_handle(request)?;
             let future = guest
@@ -1365,7 +1366,7 @@ mod tests {
 
     /// The error `future` answers once its request settles.
     fn settled_error(guest: &mut Invocation, future: FutureIncomingResponse) -> Option<ErrorCode> {
-        run_task(Some(Instant::now() + Wait::from_secs(10)), || {
+        run_task(Some(Instant::now() + MAX_WAIT), || {
             let ready = guest.types_future_incoming_response_subscribe(future)?;
             guest.poll_pollable_block(ready)?;
             guest.poll_pollable_drop(ready)?;
@@ -1421,7 +1422,7 @@ mod tests {
             network::Endpoint::new("127.0.0.1", port).unwrap()
         ]));
         let sent = (0..8 << 20).map(|i| (i % 251) as u8).collect::<Vec<_>>();
-        let deadline = Instant::now() + Wait::from_secs(20);
+        let deadline = Instant::now() + MAX_WAIT;
         let (most, unready, status) = run_task(Some(deadline), || {
             let request = greeting_request(&mut guest, &format!("127.0.0.1:{port}"))?;
             guest
