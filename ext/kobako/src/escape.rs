@@ -278,7 +278,9 @@ fn start(scheduler_waits: bool) -> Arc<RunState> {
     let task = (!scheduler_waits)
         .then(|| running_on(thread))
         .flatten()
-        .map_or_else(Current::default, |running| running.task.fresh_as());
+        .map_or_else(Current::default, |running| {
+            Current::with_owner(&running.task)
+        });
     Arc::new(RunState {
         task,
         held: Mutex::new(None),

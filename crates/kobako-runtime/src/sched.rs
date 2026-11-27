@@ -15,7 +15,7 @@ use crate::Errno;
 
 /// How a thread waits for a lock another thread holds, or for what another
 /// thread brings. A frontend whose threads share a lock of their own, as
-/// Ruby's threads share the GVL, gives that lock up for the wait, or a holder
+/// Ruby's threads share the GVL, gives that lock up for the wait, or an owner
 /// that needs it to finish never could.
 pub trait Blocking: Send + Sync {
     /// Run `wait`, which returns once the lock is taken or the event arrived.
@@ -58,7 +58,7 @@ pub(crate) fn current() -> TaskId {
     Current::get().state().id
 }
 
-/// A task as a lock knows its holder, the same on every thread carrying the
+/// A task as a lock knows its owner, the same on every thread carrying the
 /// task out, as Linux records a task and never the CPU it ran on.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TaskId(u64);
@@ -106,13 +106,13 @@ impl Default for Current {
 }
 
 impl Current {
-    /// A task nobody carries out yet that every lock knows as this one, as a
-    /// run its frontend starts inside this one's work: it holds what this one
-    /// holds and is refused what this one would wait on itself, while its
-    /// deadline and interrupts stay its own.
-    pub fn fresh_as(&self) -> Self {
+    /// A task nobody carries out yet that every lock knows as `owner`, as a
+    /// run its frontend starts while `owner` cannot go on until it ends: it
+    /// holds what `owner` holds and is refused what `owner` would wait on
+    /// itself, while its deadline and interrupts stay its own.
+    pub fn with_owner(owner: &Self) -> Self {
         Self(Arc::new(Mutex::new(State {
-            id: self.state().id,
+            id: owner.state().id,
             task: Task::default(),
             deadline: None,
             depth: 0,
