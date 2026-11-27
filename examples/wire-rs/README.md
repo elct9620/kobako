@@ -64,7 +64,7 @@ The caps the host hard-codes are the same knobs the Ruby gem exposes as `Kobako:
 | Option              | Value      | Purpose                                            |
 |---------------------|------------|----------------------------------------------------|
 | `timeout`       | 5 s        | Wall-clock cap for one invocation.                 |
-| `memory_limit`  | 64 MiB     | Guest linear-memory cap.                           |
+| `memory_limit`  | 64 MiB     | Guest memory, table, and GC heap growth cap.       |
 | `stdout_limit`  | 64 KiB     | Captured-stdout cap.                               |
 | `stderr_limit`  | 64 KiB     | Captured-stderr cap.                               |
 | `profile`       | `Hermetic` | Ambient-denial posture: frozen clocks and entropy. |

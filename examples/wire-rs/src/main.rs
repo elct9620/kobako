@@ -317,7 +317,7 @@ fn report_panic(panic: &Panic) {
 }
 
 /// An engine fault after the export started — wall-clock cap,
-/// linear-memory cap, or any other wasm trap. Captures and usage above
+/// memory cap, or any other wasm trap. Captures and usage above
 /// survive it.
 fn report_trap(trap: &Trap) {
     // The kind set is open: a cap this frontend has no wording for is
