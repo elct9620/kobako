@@ -118,24 +118,43 @@ Every `#run` executes against a fresh `mrb_state`, whether its Sandbox is new or
 
 This demo binds to `127.0.0.1` by default so the server is not reachable from the network. The mruby guest has no I/O, network, sleep, or random-seed gems built in (see `build_config/wasi.rb` for the allowlist), and no Services are bound — guest scripts can compute over the request env and that is all. Adding capabilities means binding host objects via `Sandbox#bind("MyService::KV", object)`, at which point the operator owns the trust boundary; see `examples/codemode/` for that pattern.
 
-## Appendix: Puma vs Falcon under this design
+## Puma vs Falcon
 
-Falcon is a Fiber-based reactor server and Puma is a Thread-pool server, so a natural question is whether the demo gains throughput by switching to Falcon. The short answer for *this* design is no — Puma is ~20-25% faster at every concurrency, because the bottleneck is not what either server is good at improving and the per-request RPC round-trips amplify Falcon's disadvantage.
+Falcon is a Fiber-based reactor server, and Puma is a Thread-pool server. For this design Puma is faster at every concurrency, by 8% at `c=1` up to 22% at `c=100`. These are perceived numbers for a sizing decision, hardware-dependent and outside the `rake bench` suite.
 
-Measured with `ab -n 3000 -c <conc>` against `GET /hello?name=alice` on macOS arm64, Ruby 3.4.7, YJIT off, kobako 0.26.0, both servers single-process with a per-request Sandbox, on the `Rack::Request`-as-Handle design (so each request also pays one in-script `req.params` Handle round-trip back to the host). Each server takes a 500-request warm-up first, and each cell is the median of three runs taken in alternating order across the two servers — zero failed requests in every run:
+```bash
+ruby examples/serverless/app.rb --type puma &    # or --type falcon
+ab -n 500 -c 10 'http://127.0.0.1:9292/hello?name=alice'      # warm-up
+ab -n 3000 -c 100 'http://127.0.0.1:9292/hello?name=alice'    # also -c 1, 10, 50
+```
 
-| Concurrency | Puma req/s | Puma p99 | Falcon req/s | Falcon p99 |
-|-------------|------------|----------|--------------|------------|
-| 1           | 4,220      | <1 ms    | 3,560        | 1 ms       |
-| 10          | 4,940      | 2 ms     | 4,040        | 3 ms       |
-| 50          | 4,960      | 17 ms    | 4,050        | 14 ms      |
-| 100         | 4,980      | 22 ms    | 3,980        | 31 ms      |
+### Measurement
 
-Puma plateaus at ~4.95k req/s and Falcon at ~4.0k req/s from `c=10` upwards. Beyond that, additional concurrency only lengthens the queue — p99 latency rises roughly linearly with concurrency on both sides — while throughput stays flat. Puma stays ~19-25% faster than Falcon at every concurrency tested; the gap holds roughly steady, widening slightly at `c=100`. Falcon's tail latency is not uniformly worse — at `c=50` the two sit within a few ms of each other — but at `c=100` its p99 is ~31 ms against Puma's ~22 ms.
+Both servers run single-process on macOS arm64, Ruby 3.4.7, YJIT off, kobako 0.32.0. Each request also pays one `req.params` Handle round-trip. Each cell is the median of three runs, alternating the two servers, with zero failed requests:
 
-Two properties of this design suppress Falcon's Fiber advantage:
+| Concurrency | Puma req/s | Falcon req/s |
+|-------------|------------|--------------|
+| 1           | 2,550      | 2,350        |
+| 10          | 3,700      | 3,240        |
+| 50          | 3,920      | 3,310        |
+| 100         | 3,940      | 3,240        |
 
-1. **The wasm segment blocks the thread that runs it.** An invocation is a synchronous call, so the fiber that issued it cannot yield until the guest returns — Falcon's reactor has nothing to overlap. Opting into `gvl: :release`, which drops the GVL while the guest runs, would let *other Threads* run their guest code in parallel, which is a Puma-shaped win; a single-threaded reactor has no other Thread to give the released time to.
-2. **The demo scripts perform no I/O.** Falcon wins when application code blocks on external I/O — an outbound HTTP fetch, a database round-trip, a slow upstream — because the Fiber yields and the reactor schedules another request. The `/hello`, `/sum`, `/shout`, `/echo` scripts here are pure computation, so there is nothing for the scheduler to overlap.
+Both plateau from `c=10`: past that, more concurrency only lengthens the queue, and p99 rises with it.
 
-Either property alone would already cap the win; both together flatten it. A design that binds I/O-doing Services (a Service that waits on real I/O releases the GVL inside Ruby's own I/O call) onto a Sandbox, and runs many requests that wait on those callbacks, would let Falcon overlap the wait windows across requests — and that is where the two servers' designs diverge. The demo deliberately stays in the pure-compute corner so the wire path is easy to read, which makes the corner the wrong place to choose Falcon over Puma.
+| Concurrency | Puma p99 | Falcon p99 |
+|-------------|----------|------------|
+| 1           | 1 ms     | 1 ms       |
+| 10          | 4 ms     | 4 ms       |
+| 50          | 18 ms    | 16 ms      |
+| 100         | 30 ms    | 36 ms      |
+
+### Falcon's Disadvantage
+
+Two properties of this design leave a Fiber reactor nothing to overlap:
+
+| Property | Effect on the reactor |
+|---|---|
+| the guest keeps the GVL, under the default `gvl: :hold` | the Thread's other Fibers wait until the run ends |
+| `/hello`, `/sum`, `/shout`, `/echo` do no I/O | no Fiber ever yields |
+
+A Service doing scheduler-aware I/O frees the Thread's other Fibers while its run waits. The [async-io demo](../async-io/README.md) shows that case, where a reactor overlaps the waits. This demo stays pure-compute so the wire path is easy to read.
