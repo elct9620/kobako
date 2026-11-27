@@ -13,8 +13,6 @@ class TestE2EOverlayThreads < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
 
-  DEADLINE = 30
-
   # Two Sandboxes, one per GVL mode in ARGV, each checking a path many
   # times through one Overlay whose Ruby Layer sleeps, handing the GVL to
   # the other Thread, while it answers.
@@ -37,9 +35,9 @@ class TestE2EOverlayThreads < Minitest::Test
     print threads.map(&:value).inspect
   RUBY
 
-  # What the child prints, or +:deadlocked+ when it outlives DEADLINE.
+  # What the child prints, or +:deadlocked+ when it outlives MAX_LIFETIME.
   def run_child(*modes)
-    run_ruby(CHILD, *modes.map(&:to_s), env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE)
+    run_ruby(CHILD, *modes.map(&:to_s))
   end
 
   # @behavior MT-019

@@ -13,8 +13,6 @@ class TestE2ENetworkForked < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
 
-  BOUND = 30
-
   SCRIPT = <<~RUBY
     require "kobako"
     require "socket"
@@ -58,7 +56,7 @@ class TestE2ENetworkForked < Minitest::Test
 
   # @behavior NW-237
   def test_a_forked_childs_guest_exchanges_data_as_its_parents_did
-    assert_equal "PING", run_ruby(SCRIPT, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: BOUND),
+    assert_equal "PING", run_ruby(SCRIPT),
                  "a TCPSocket a guest opens in a child forked after its parent's guest exchanged data " \
                  "must send and read back its bytes as in the parent"
   end

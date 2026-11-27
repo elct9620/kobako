@@ -7,6 +7,11 @@ require "tempfile"
 # Thread of the process able to run a timeout, so code that may deadlock
 # runs in a child instead.
 module ChildProcess
+  # The longest a child lives before it counts as deadlocked. It only ends a
+  # test that would never finish, so it sits past any slowdown a loaded host
+  # causes.
+  MAX_LIFETIME = 60
+
   # A child script's service that blocks a run on a Queue until the script
   # fills it, so the run stays in progress as long as the script needs. The
   # run tells the script it arrived, as a Thread's status reads "sleep" once
@@ -33,7 +38,7 @@ module ChildProcess
   # source tree's +lib+ on its load path, or +:deadlocked+ when it outlives
   # +deadline+ seconds. A child that fails flunks with what it wrote to
   # stderr, since nothing else tells a crash from a wrong answer.
-  def run_ruby(script, *, env:, deadline:)
+  def run_ruby(script, *, env: {}, deadline: MAX_LIFETIME)
     reader, writer = IO.pipe
     Tempfile.create("kobako-child") do |errors|
       pid = spawn_ruby(script, *, env: env, out: writer, err: errors.path)
@@ -47,18 +52,20 @@ module ChildProcess
     reader&.close
   end
 
-  # +script+ started as a child, its output going where +streams+ say. Off
-  # Windows the child leads a process group of its own, so what it forks dies
-  # with it.
-  def spawn_ruby(script, *, env:, **streams)
+  # +script+ started as a child, its output going where +streams+ say. The
+  # child reads the real guest binary's path from +KOBAKO_WASM+, beside what
+  # +env+ adds. Off Windows the child leads a process group of its own, so
+  # what it forks dies with it.
+  def spawn_ruby(script, *, env: {}, **streams)
     streams[:pgroup] = true unless Gem.win_platform?
-    Process.spawn(env, RbConfig.ruby, "-I", TestPaths.source("lib"), "-e", script, *, **streams)
+    Process.spawn(env.merge("KOBAKO_WASM" => E2eGuestHelper::REAL_WASM), RbConfig.ruby, "-I", TestPaths.source("lib"),
+                  "-e", script, *, **streams)
   end
 
   # Whether +pid+ exited within +deadline+ seconds; one that did not is
   # killed, with every process it forked, or a child stuck in a guest outlives
   # the test.
-  def finished_within?(pid, deadline)
+  def finished_within?(pid, deadline = MAX_LIFETIME)
     ends = Process.clock_gettime(Process::CLOCK_MONOTONIC) + deadline
     until Process.wait(pid, Process::WNOHANG)
       next sleep(0.05) if Process.clock_gettime(Process::CLOCK_MONOTONIC) < ends

@@ -15,8 +15,6 @@ class TestE2EInterruptOutsideRun < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
 
-  DEADLINE = 30
-
   CHILD = <<~RUBY
     require "kobako"
     class Stop < Exception; end
@@ -57,7 +55,7 @@ class TestE2EInterruptOutsideRun < Minitest::Test
 
   # @behavior S-217
   def test_an_interrupt_pending_as_an_overlay_build_waits_is_raised_there_and_spares_the_next_run
-    assert_equal '["Stop", 2]', run_ruby(CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE),
+    assert_equal '["Stop", 2]', run_ruby(CHILD),
                  "an interrupt pending as Kobako::Filesystem::Overlay.new starts waiting on a Tmpfs another " \
                  "Thread's Sandbox#eval writes must be raised by Overlay.new, and the Thread's next " \
                  "Sandbox#eval must answer 2"

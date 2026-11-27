@@ -44,7 +44,7 @@ class TestE2EIdleGuestThreads < Minitest::Test
   def test_runs_one_after_another_take_the_thread_the_last_one_left
     skip "only Linux names each thread in /proc" unless File.directory?("/proc/self/task")
 
-    assert_equal "[1, 1]", run_ruby(ONE_AFTER_ANOTHER, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 40),
+    assert_equal "[1, 1]", run_ruby(ONE_AFTER_ANOTHER),
                  "200 Sandbox#eval runs one after another, under gvl: :hold and then :release, must leave the " \
                  "process one guest thread, each run taking the thread the run before it left"
   end
@@ -53,7 +53,7 @@ class TestE2EIdleGuestThreads < Minitest::Test
   def test_a_run_after_the_guest_threads_were_left_idle_still_answers
     skip "only Linux names each thread in /proc" unless File.directory?("/proc/self/task")
 
-    assert_equal "[3, 0, 2, 1]", run_ruby(CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 40),
+    assert_equal "[3, 0, 2, 1]", run_ruby(CHILD),
                  "three Sandbox#eval runs at once must leave three guest threads, which must end after ten " \
                  "seconds idle, and a later Sandbox#eval(\"1 + 1\") must answer 2 on one guest thread it starts"
   end

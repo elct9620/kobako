@@ -12,8 +12,6 @@
 module ExhaustedChild
   include ChildProcess
 
-  DEADLINE = 60
-
   PRELUDE = <<~RUBY.freeze
     require "kobako"
     WASM = ENV.fetch("KOBAKO_WASM")
@@ -70,6 +68,6 @@ module ExhaustedChild
 
   # What +script+ prints, run after the prelude in a child of its own.
   def run_exhausted_child(script)
-    run_ruby(PRELUDE + script, env: { "KOBAKO_WASM" => E2eGuestHelper::REAL_WASM }, deadline: DEADLINE)
+    run_ruby(PRELUDE + script)
   end
 end

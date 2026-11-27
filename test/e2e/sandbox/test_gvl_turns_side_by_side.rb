@@ -9,8 +9,6 @@ class TestE2EGvlTurnsSideBySide < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
 
-  DEADLINE = 30
-
   SIDE_BY_SIDE = <<~RUBY
     require "kobako"
     tmpfs = Kobako::Filesystem::Tmpfs.new
@@ -28,7 +26,7 @@ class TestE2EGvlTurnsSideBySide < Minitest::Test
 
   # @behavior S-246
   def test_guests_of_two_runs_keeping_the_gvl_go_on_side_by_side
-    assert_equal "[:a, :b]", run_ruby(SIDE_BY_SIDE, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE),
+    assert_equal "[:a, :b]", run_ruby(SIDE_BY_SIDE),
                  "two Sandbox#eval calls with gvl: :hold on two Threads, whose guests each write a file on one " \
                  "Tmpfs and compute until the other's appears, twice in turn, must both answer"
   end

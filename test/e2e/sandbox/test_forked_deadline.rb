@@ -8,12 +8,10 @@ require "test_helper"
 # The parent runs once before forking, so whatever keeps time for the process
 # already exists when the child starts. The child runs a loop without end on
 # the parent's Sandbox and prints what ended it; a child the deadline never
-# reaches is killed past the test's own bound.
+# reaches is killed past a child's lifetime.
 class TestE2EForkedDeadline < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
-
-  BOUND = 30
 
   SCRIPT = <<~RUBY
     require "kobako"
@@ -39,7 +37,7 @@ class TestE2EForkedDeadline < Minitest::Test
 
   # @behavior S-216
   def test_a_deadline_cuts_a_forked_childs_endless_loop_short
-    assert_equal "TimeoutError", run_ruby(SCRIPT, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: BOUND),
+    assert_equal "TimeoutError", run_ruby(SCRIPT),
                  "a Sandbox#eval with timeout: 0.5 in a child forked after the parent ran it must raise " \
                  "Kobako::TimeoutError rather than loop forever"
   end

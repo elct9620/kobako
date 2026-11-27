@@ -16,8 +16,6 @@ class TestE2EGvlTurns < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
 
-  DEADLINE = 30
-
   # The hogs, each a guest writing the start file and then never ending in its
   # own way. A nested run or a guest block writes the file from where it never
   # ends, so no callback is left for the caller to switch threads in.
@@ -100,7 +98,6 @@ class TestE2EGvlTurns < Minitest::Test
   # What the main thread answers once the hog's guest started, or
   # +:deadlocked+.
   def run_beside(hog, victim, hog_gvl: :hold, victim_gvl: :hold)
-    run_ruby(CHILD, hog_gvl.to_s, hog.to_s, victim, victim_gvl.to_s,
-             env: { "KOBAKO_WASM" => REAL_WASM, "HOG" => HOGS.fetch(hog) }, deadline: DEADLINE)
+    run_ruby(CHILD, hog_gvl.to_s, hog.to_s, victim, victim_gvl.to_s, env: { "HOG" => HOGS.fetch(hog) })
   end
 end

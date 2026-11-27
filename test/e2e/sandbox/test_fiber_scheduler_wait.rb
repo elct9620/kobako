@@ -104,8 +104,7 @@ class TestE2EFiberSchedulerWait < Minitest::Test
   private
 
   def run_with_worker_pool(script)
-    env = { "KOBAKO_WASM" => REAL_WASM, "ASYNC_SCHEDULER_WORKER_POOL" => "true" }
-    run_ruby(script, env: env, deadline: 60)
+    run_ruby(script, env: { "ASYNC_SCHEDULER_WORKER_POOL" => "true" })
   rescue Minitest::Assertion => e
     raise unless e.message.include?("no-worker-pool")
 

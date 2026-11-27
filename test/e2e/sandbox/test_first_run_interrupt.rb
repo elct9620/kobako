@@ -20,8 +20,6 @@ class TestE2EFirstRunInterrupt < Minitest::Test
   include ChildProcess
   include Handshake
 
-  DEADLINE = 60
-
   def setup
     super
     require_child_sigint
@@ -71,10 +69,10 @@ class TestE2EFirstRunInterrupt < Minitest::Test
   def interrupt_child(child)
     Dir.mktmpdir("kobako-interrupt") do |gate|
       reader, writer = IO.pipe
-      pid = spawn_ruby(child, env: { "KOBAKO_WASM" => REAL_WASM, "GATE" => gate }, out: writer, err: File::NULL)
+      pid = spawn_ruby(child, env: { "GATE" => gate }, out: writer, err: File::NULL)
       writer.close
       interrupt_once_computing(gate, pid)
-      finished_within?(pid, DEADLINE) ? reader.read : :hung
+      finished_within?(pid) ? reader.read : :hung
     ensure
       reader&.close
     end

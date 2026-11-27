@@ -8,8 +8,6 @@
 module CollectionChild
   include ChildProcess
 
-  DEADLINE = 60
-
   # Thresholds no run reaches, so a collection during one is one asked for.
   PAST_ANY_RUN = {
     "RUBY_GC_MALLOC_LIMIT" => "4000000000",
@@ -40,7 +38,6 @@ module CollectionChild
   # What +script+ prints, run after the prelude with +args+ in a child
   # collecting by +thresholds+.
   def run_collection_child(script, *, thresholds:)
-    run_ruby(PRELUDE + script, *, env: thresholds.merge("KOBAKO_WASM" => E2eGuestHelper::REAL_WASM),
-                                  deadline: DEADLINE)
+    run_ruby(PRELUDE + script, *, env: thresholds)
   end
 end

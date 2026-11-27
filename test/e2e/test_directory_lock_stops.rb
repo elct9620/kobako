@@ -10,8 +10,6 @@ class TestE2EDirectoryLockStops < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
 
-  DEADLINE = 30
-
   # One Sandbox holding a directory while its mount's block waits to be told to
   # go on, and one waiting on that directory that either reaches its own timeout
   # or a Timeout interrupts; the holder still running shows neither waited for it.
@@ -48,7 +46,7 @@ class TestE2EDirectoryLockStops < Minitest::Test
   # @behavior MT-031 MT-032
   def test_a_sandbox_waiting_on_a_directory_stops_at_its_timeout_or_an_interrupt
     assert_equal '["Kobako::TimeoutError", "Timeout::Error", true, true]',
-                 run_ruby(CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE),
+                 run_ruby(CHILD),
                  "a Sandbox#eval waiting on a directory another Thread's Sandbox#mount block holds must raise " \
                  "its own timeout, and a Timeout around one must raise, while the block still holds it"
   end

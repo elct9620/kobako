@@ -95,7 +95,7 @@ class TestE2EWakeupDuringLookup < Minitest::Test
     define_method(:"test_a_lookup_goes_on_through_a_trap_that_only_sets_a_flag_under_#{gvl}") do
       skip "Windows has no SIGUSR1 to trap" if Gem.win_platform?
       assert_equal "Net::OpenTimeout hits=1",
-                   run_ruby(TRAP_CHILD, gvl.to_s, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 60),
+                   run_ruby(TRAP_CHILD, gvl.to_s),
                    "a guest's Net::HTTP lookup the Mock holds on the main Thread, with gvl: :#{gvl}, the process " \
                    "taking a SIGUSR1 whose trap only counts it, must run the trap once and go on waiting " \
                    "until its own open_timeout"

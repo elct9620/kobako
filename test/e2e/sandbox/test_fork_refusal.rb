@@ -65,7 +65,7 @@ class TestE2EForkRefusal < Minitest::Test
       ended = false
       trap("USR1") { seen << [fork_outcome.first, ended]; raise Stop }
       started = Queue.new
-      computing = Kobako::Sandbox.new(wasm_path: WASM, gvl: gvl, timeout: #{BOUND / 2}).bind("Started", -> { started << 1 })
+      computing = Kobako::Sandbox.new(wasm_path: WASM, gvl: gvl, timeout: #{MAX_LIFETIME / 2}).bind("Started", -> { started << 1 })
       Thread.new { started.pop; Process.kill("USR1", Process.pid) }
       begin
         computing.eval("Started.call; loop {}")

@@ -12,8 +12,6 @@
 module DescriptorChild
   include ChildProcess
 
-  DEADLINE = 60
-
   PRELUDE = <<~RUBY
     require "kobako"
     require "fileutils"
@@ -88,6 +86,6 @@ module DescriptorChild
 
   # What +script+ prints, run after the prelude in a child of its own.
   def run_descriptor_child(script)
-    run_ruby(PRELUDE + script, env: { "KOBAKO_WASM" => E2eGuestHelper::REAL_WASM }, deadline: DEADLINE)
+    run_ruby(PRELUDE + script)
   end
 end

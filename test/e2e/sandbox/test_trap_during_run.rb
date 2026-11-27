@@ -76,6 +76,6 @@ class TestE2ETrapDuringRun < Minitest::Test
   private
 
   def run_child(gvl, callback)
-    run_ruby(CHILD, gvl.to_s, callback.to_s, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 30)
+    run_ruby(CHILD, gvl.to_s, callback.to_s)
   end
 end

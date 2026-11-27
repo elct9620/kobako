@@ -11,8 +11,6 @@ class TestE2EServiceThrow < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
 
-  DEADLINE = 60
-
   CHILD = <<~RUBY
     require "kobako"
     Stat = Data.define(:directory, :size, :ino) { def directory? = directory }
@@ -36,7 +34,7 @@ class TestE2EServiceThrow < Minitest::Test
   %i[hold release].each do |gvl|
     # @behavior S-221
     define_method(:"test_a_services_throw_reaches_its_catch_past_a_close_that_catches_its_own_under_#{gvl}") do
-      assert_equal "42 closed=1", run_ruby(CHILD, gvl.to_s, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE),
+      assert_equal "42 closed=1", run_ruby(CHILD, gvl.to_s),
                    "a Service's throw :out, 42 must reach the Host App's catch(:out) around Sandbox#eval with " \
                    "gvl: :#{gvl}, while the guest's open file on a Ruby Filesystem whose close runs its own " \
                    "catch and throw is closed once"

@@ -12,8 +12,6 @@ class TestE2EInterruptedRun < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
 
-  DEADLINE = 60
-
   NEXT_RUN_CHILD = <<~RUBY
     require "kobako"
     require "timeout"
@@ -31,7 +29,7 @@ class TestE2EInterruptedRun < Minitest::Test
 
   # @behavior S-207
   def test_a_thread_whose_run_was_interrupted_runs_its_next_sandbox_as_usual
-    assert_equal "interrupted 42", run_ruby(NEXT_RUN_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE),
+    assert_equal "interrupted 42", run_ruby(NEXT_RUN_CHILD),
                  "a Timeout around a Sandbox#eval that released the GVL must raise Timeout::Error, and the next " \
                  "Sandbox#eval on that Thread must answer what its Service returned"
   end
@@ -70,7 +68,7 @@ class TestE2EInterruptedRun < Minitest::Test
 
   # @behavior S-208
   def test_an_interrupt_delivered_while_a_run_waits_reaches_the_host_app_once_the_run_ends
-    assert_equal "Timeout::Error", run_ruby(WAITING_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE),
+    assert_equal "Timeout::Error", run_ruby(WAITING_CHILD),
                  "a Timeout::Error raised into a Sandbox#eval waiting on a directory must reach the Host App " \
                  "once the run ends"
   end
@@ -90,7 +88,7 @@ class TestE2EInterruptedRun < Minitest::Test
 
   # @behavior S-218
   def test_a_services_timeout_fires_inside_a_sandbox_releasing_the_gvl
-    assert_equal "timed_out", run_ruby(SERVICE_TIMEOUT_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 20),
+    assert_equal "timed_out", run_ruby(SERVICE_TIMEOUT_CHILD),
                  "a Timeout inside a Service of a Sandbox with gvl: :release must fire while the Service runs"
   end
 
@@ -118,7 +116,7 @@ class TestE2EInterruptedRun < Minitest::Test
 
   # @behavior S-218
   def test_a_service_takes_an_interrupt_as_the_host_apps_own_mask_allows
-    assert_equal '[:slept, "poke"]', run_ruby(HOST_MASK_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: 20),
+    assert_equal '[:slept, "poke"]', run_ruby(HOST_MASK_CHILD),
                  "a Thread#raise during a Service of a Sandbox with gvl: :release, inside the Host App's " \
                  "Thread.handle_interrupt(Object => :never), must wait for the Service to finish and reach the " \
                  "Host App once its mask lifts"

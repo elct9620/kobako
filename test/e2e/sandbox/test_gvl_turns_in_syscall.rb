@@ -13,8 +13,9 @@ class TestE2EGvlTurnsInSyscall < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
 
-  # Shorter than the 45 s the kernel waits before it breaks a lease itself.
-  DEADLINE = 30
+  # A child's lifetime shorter than the 45 s the kernel waits before it breaks
+  # a lease itself, so a read the lease break let through is still a jam.
+  MAX_LEASED_LIFETIME = 30
 
   # Prints what the guest read; ARGV[0] says which thread runs it.
   CHILD = <<~RUBY
@@ -58,6 +59,6 @@ class TestE2EGvlTurnsInSyscall < Minitest::Test
   private
 
   def leased_read(thread)
-    run_ruby(CHILD, thread, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE)
+    run_ruby(CHILD, thread, deadline: MAX_LEASED_LIFETIME)
   end
 end

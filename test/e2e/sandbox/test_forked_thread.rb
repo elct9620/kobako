@@ -6,13 +6,11 @@ require "test_helper"
 #
 # The parent runs once before forking, so the process has already set up what
 # catches a guest's faults when the child starts. A child that cannot run
-# prints what the run raised; one that never answers is killed past the
-# test's own bound.
+# prints what the run raised; one that never answers is killed past a child's
+# lifetime.
 class TestE2EForkedThread < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
-
-  BOUND = 30
 
   SCRIPT = <<~RUBY
     require "kobako"
@@ -37,7 +35,7 @@ class TestE2EForkedThread < Minitest::Test
 
   # @behavior S-223
   def test_a_forked_child_runs_a_sandbox_on_a_thread_it_starts
-    assert_equal "2", run_ruby(SCRIPT, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: BOUND),
+    assert_equal "2", run_ruby(SCRIPT),
                  "Sandbox#eval(\"1 + 1\") on a Thread a child forked after the parent ran it must answer 2"
   end
 end

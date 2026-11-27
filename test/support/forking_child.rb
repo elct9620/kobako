@@ -1,15 +1,13 @@
 # frozen_string_literal: true
 
 # A child process that forks beside its own runs, through the real guest
-# binary. A child stuck in a fork is killed past BOUND rather than hanging
-# the suite. The prelude gives each script a service that blocks on a +Queue+,
-# the outcome of a fork as the script sees it, and that outcome read on
-# another thread within a bound, so a fork that does not answer at once
+# binary. A child stuck in a fork is killed past MAX_LIFETIME rather than
+# hanging the suite. The prelude gives each script a service that blocks on a
+# +Queue+, the outcome of a fork as the script sees it, and that outcome read
+# on another thread within a bound, so a fork that does not answer at once
 # never keeps the script from letting its runs go.
 module ForkingChild
   include ChildProcess
-
-  BOUND = 30
 
   # A +_fork+ hook a script prepends before its first sandbox, so it runs
   # inside kobako's own: +pause_a_fork+ starts a fork that stops there, runs
@@ -67,6 +65,6 @@ module ForkingChild
 
   # What +script+ prints, run after the prelude in a child.
   def run_forking_child(script)
-    run_ruby(PRELUDE + script, env: { "KOBAKO_WASM" => E2eGuestHelper::REAL_WASM }, deadline: BOUND)
+    run_ruby(PRELUDE + script)
   end
 end

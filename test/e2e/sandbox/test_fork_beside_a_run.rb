@@ -36,7 +36,7 @@ class TestE2EForkBesideARun < Minitest::Test
     Stop = Class.new(StandardError)
     print(%i[hold release].map do |gvl|
       started = Queue.new
-      computing = Kobako::Sandbox.new(wasm_path: WASM, gvl: gvl, timeout: #{BOUND / 2}).bind("Started", -> { started << 1 })
+      computing = Kobako::Sandbox.new(wasm_path: WASM, gvl: gvl, timeout: #{MAX_LIFETIME / 2}).bind("Started", -> { started << 1 })
       run = Thread.new do
         computing.eval("Started.call; loop {}")
       rescue Stop, Kobako::TimeoutError => e

@@ -11,8 +11,6 @@ class TestE2EHostFault < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
 
-  BOUND = 30
-
   SCRIPT = <<~RUBY
     require "kobako"
     Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM")).eval("1")
@@ -28,8 +26,8 @@ class TestE2EHostFault < Minitest::Test
   # @behavior S-224
   def test_a_fault_outside_the_guest_reaches_rubys_crash_report
     report = Tempfile.create("kobako-host-fault") do |errors|
-      pid = spawn_ruby(SCRIPT, env: { "KOBAKO_WASM" => REAL_WASM }, out: File::NULL, err: errors.path)
-      assert finished_within?(pid, BOUND), "a process that faults after Sandbox#eval must end"
+      pid = spawn_ruby(SCRIPT, out: File::NULL, err: errors.path)
+      assert finished_within?(pid), "a process that faults after Sandbox#eval must end"
       File.read(errors.path)
     end
     refute Process.last_status.success?, "a process that faults after Sandbox#eval must not exit cleanly"

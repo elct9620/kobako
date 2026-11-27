@@ -18,9 +18,6 @@ class TestE2EJourneysNeighbours < Minitest::Test
   GVL_MODES = %i[hold release].freeze
   CHILD = File.read(TestPaths.fixture("journey_neighbours.rb")).freeze
 
-  # Past any slowdown the neighbours cause, so reaching it means a jam.
-  DEADLINE = 120
-
   EXPECTED = [["event", "files", "files", "files", "gvl", "leaf refused Errno::EAGAIN Errno::EMFILE"],
               ["hello", "ping\n", 3_000_000, true], ["inner\n"], :refused, ["hello"], []].inspect.freeze
 
@@ -41,9 +38,9 @@ class TestE2EJourneysNeighbours < Minitest::Test
 
   # @behavior J-018
   def test_a_run_beside_every_kind_of_occupant_finishes_its_own_work
-    answers = GVL_MODES.map do |mode|
-      [mode, run_ruby(CHILD, mode.to_s, @host, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE)]
-    end
+    # Twice a child's lifetime, past any slowdown the neighbours cause, so
+    # reaching it means a jam.
+    answers = GVL_MODES.map { |mode| [mode, run_ruby(CHILD, mode.to_s, @host, deadline: 2 * MAX_LIFETIME)] }
 
     assert_equal GVL_MODES.map { |mode| [mode, EXPECTED] }, answers,
                  "a run beside neighbours computing without end, parking a directory, waiting on a busy socket, " \

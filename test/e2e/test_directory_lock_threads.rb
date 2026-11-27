@@ -15,8 +15,6 @@ class TestE2EDirectoryLockThreads < Minitest::Test
   include E2eGuestHelper
   include ChildProcess
 
-  DEADLINE = 30
-
   # One sandbox creating a file through an overlay whose lower Ruby layer,
   # asked about the new name holding the directory, goes on once a sandbox
   # holding the GVL waits looking in that directory.
@@ -113,7 +111,7 @@ class TestE2EDirectoryLockThreads < Minitest::Test
   # @behavior MT-030
   def test_a_sandbox_interrupted_while_it_waits_on_a_directory_leaves_the_directory_to_the_next
     assert_equal "[true, :timed_out, true]",
-                 run_ruby(INTERRUPTED_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE),
+                 run_ruby(INTERRUPTED_CHILD),
                  "a Timeout::Error raised into a Sandbox#eval waiting on a directory another Thread holds must " \
                  "reach the Host App, and a later Sandbox#eval must change that directory"
   end
@@ -122,7 +120,7 @@ class TestE2EDirectoryLockThreads < Minitest::Test
   # the GVL lets it finish while the looking Sandbox waits.
   # @behavior MT-029
   def test_a_sandbox_waiting_on_a_directory_a_mounts_block_holds_lets_the_block_finish
-    assert_equal "[true, true]", run_ruby(POLICY_CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE),
+    assert_equal "[true, true]", run_ruby(POLICY_CHILD),
                  "a Sandbox#eval holding the GVL that looks in a directory another Thread's Sandbox#eval holds " \
                  "while its Sandbox#mount block is asked about a change must let both finish"
   end
@@ -132,7 +130,7 @@ class TestE2EDirectoryLockThreads < Minitest::Test
   # take the GVL back and finish.
   # @behavior MT-026
   def test_a_sandbox_waiting_on_a_directory_another_threads_change_holds_lets_the_change_finish
-    assert_equal "[true, true]", run_ruby(CHILD, env: { "KOBAKO_WASM" => REAL_WASM }, deadline: DEADLINE),
+    assert_equal "[true, true]", run_ruby(CHILD),
                  "a Sandbox#eval holding the GVL that looks in a directory another Thread's Sandbox#eval " \
                  "holds while creating a file over a Ruby Layer must let both finish"
   end

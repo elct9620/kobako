@@ -26,8 +26,7 @@ class TestE2EMnThreads < Minitest::Test
   def test_runs_on_threads_of_rubys_mn_scheduler_answer
     skip "Ruby's M:N scheduler runs off Windows only" if Gem.win_platform?
 
-    env = { "KOBAKO_WASM" => REAL_WASM, "RUBY_MN_THREADS" => "1" }
-    assert_equal "true", run_ruby(CHILD, env: env, deadline: 60),
+    assert_equal "true", run_ruby(CHILD, env: { "RUBY_MN_THREADS" => "1" }),
                  "Sandbox#eval with gvl: :hold and :release on four Threads of Ruby's M:N scheduler, each " \
                  "calling a Service that passes the Thread, must answer every run"
   end
