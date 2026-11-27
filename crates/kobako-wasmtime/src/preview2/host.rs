@@ -2854,10 +2854,9 @@ mod tests {
     // @behavior NW-155
     #[test]
     fn a_flushing_streams_pollable_waits_until_what_it_flushes_has_left() {
-        let (mut guest, listener) = guest_and_listener();
+        let (mut guest, listener, family) = guest_filling_host_send_buffer();
         let port = listener.local_addr().unwrap().port();
-        let started = Instant::now();
-        let answers = run_task(Some(started + MAX_WAIT), || {
+        let answers = run_task(Some(Instant::now() + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
@@ -2878,28 +2877,10 @@ mod tests {
                 .into_answer()?
                 .expect("the listener accepts");
             let (mut peer, _) = listener.accept().unwrap();
-            // Fill the host's buffers and the socket's own, the peer reading
-            // nothing, so what a flush holds cannot leave.
-            let mut quiet = 0;
-            while quiet < 20 {
-                match guest
-                    .streams_output_stream_check_write(output)
-                    .into_answer()?
-                {
-                    Ok(0) => {
-                        quiet += 1;
-                        std::thread::sleep(Duration::from_millis(5));
-                    }
-                    Ok(room) => {
-                        quiet = 0;
-                        let chunk = vec![b'x'; room.min(4096) as usize];
-                        let _ = guest
-                            .streams_output_stream_write(output, chunk)
-                            .into_answer()?;
-                    }
-                    Err(_) => break,
-                }
-            }
+            // The host takes nothing more and the peer reads nothing, so
+            // what a flush holds cannot leave.
+            family.fill();
+            fill_output(&mut guest, output)?;
             guest
                 .streams_output_stream_flush(output)
                 .into_answer()?
