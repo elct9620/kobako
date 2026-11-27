@@ -8,7 +8,7 @@ require "tmpdir"
 # rule alone; this one shows the rules compose, so the run arrives.
 #
 # A jam leaves no thread of the process able to run a timeout, so each mode
-# walks in a child the test kills past a deadline. Every neighbour is in
+# walks in a child the test kills past its lifetime. Every neighbour is in
 # place before the run starts and still there as it ends, so none can have
 # finished early and left the run alone.
 class TestE2EJourneysNeighbours < Minitest::Test
@@ -40,7 +40,7 @@ class TestE2EJourneysNeighbours < Minitest::Test
   def test_a_run_beside_every_kind_of_occupant_finishes_its_own_work
     # Twice a child's lifetime, past any slowdown the neighbours cause, so
     # reaching it means a jam.
-    answers = GVL_MODES.map { |mode| [mode, run_ruby(CHILD, mode.to_s, @host, deadline: 2 * MAX_LIFETIME)] }
+    answers = GVL_MODES.map { |mode| [mode, run_ruby(CHILD, mode.to_s, @host, lifetime: 2 * MAX_LIFETIME)] }
 
     assert_equal GVL_MODES.map { |mode| [mode, EXPECTED] }, answers,
                  "a run beside neighbours computing without end, parking a directory, waiting on a busy socket, " \

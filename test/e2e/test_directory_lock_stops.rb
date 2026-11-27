@@ -4,7 +4,7 @@ require "test_helper"
 
 # E2E — a Sandbox waiting on a directory another Thread's Sandbox holds stops
 # when its own run is to stop, so a holder that never lets go cannot keep it.
-# The run is a child process the test kills past a deadline, as a wait that
+# The run is a child process the test kills past its lifetime, as a wait that
 # never stops leaves no Thread of the process able to run a timeout.
 class TestE2EDirectoryLockStops < Minitest::Test
   include E2eGuestHelper

@@ -11,7 +11,7 @@ require "test_helper"
 # a +Bind+ mount as it starts its endless part, and the child's main thread waits
 # for that file, so the other thread asks for the GVL only once the guest is
 # past every callback. The other thread sets no deadline of its own: how soon
-# it answers is the host's, and only the child's deadline ends a jam.
+# it answers is the host's, and only the child's lifetime ends a jam.
 class TestE2EGvlTurns < Minitest::Test
   include E2eGuestHelper
   include ChildProcess

@@ -9,8 +9,8 @@ require "test_helper"
 # The change holds the directory while it asks the Ruby Layer, which needs
 # the GVL; a Thread holding the GVL and waiting for the directory would keep
 # the change from ever finishing. A deadlock leaves no Thread of the process
-# able to run a timeout, so the run is a child process the test kills past a
-# deadline.
+# able to run a timeout, so the run is a child process the test kills past its
+# lifetime.
 class TestE2EDirectoryLockThreads < Minitest::Test
   include E2eGuestHelper
   include ChildProcess

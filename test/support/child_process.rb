@@ -3,7 +3,7 @@
 require "rbconfig"
 require "tempfile"
 
-# A Ruby child process a test kills past a deadline. A deadlock leaves no
+# A Ruby child process a test kills past its lifetime. A deadlock leaves no
 # Thread of the process able to run a timeout, so code that may deadlock
 # runs in a child instead.
 module ChildProcess
@@ -36,14 +36,14 @@ module ChildProcess
 
   # What +script+ prints, run as a child with +args+ under +env+ and the
   # source tree's +lib+ on its load path, or +:deadlocked+ when it outlives
-  # +deadline+ seconds. A child that fails flunks with what it wrote to
+  # a +lifetime+ of seconds. A child that fails flunks with what it wrote to
   # stderr, since nothing else tells a crash from a wrong answer.
-  def run_ruby(script, *, env: {}, deadline: MAX_LIFETIME)
+  def run_ruby(script, *, env: {}, lifetime: MAX_LIFETIME)
     reader, writer = IO.pipe
     Tempfile.create("kobako-child") do |errors|
       pid = spawn_ruby(script, *, env: env, out: writer, err: errors.path)
       writer.close
-      next :deadlocked unless finished_within?(pid, deadline)
+      next :deadlocked unless finished_within?(pid, lifetime)
 
       flunk "child failed (#{Process.last_status}):\n#{File.read(errors.path)}" unless Process.last_status.success?
       reader.read
@@ -62,11 +62,10 @@ module ChildProcess
                   "-e", script, *, **streams)
   end
 
-  # Whether +pid+ exited within +deadline+ seconds; one that did not is
-  # killed, with every process it forked, or a child stuck in a guest outlives
-  # the test.
-  def finished_within?(pid, deadline = MAX_LIFETIME)
-    ends = Process.clock_gettime(Process::CLOCK_MONOTONIC) + deadline
+  # Whether +pid+ exited within +seconds+; one that did not is killed, with
+  # every process it forked, or a child stuck in a guest outlives the test.
+  def finished_within?(pid, seconds = MAX_LIFETIME)
+    ends = Process.clock_gettime(Process::CLOCK_MONOTONIC) + seconds
     until Process.wait(pid, Process::WNOHANG)
       next sleep(0.05) if Process.clock_gettime(Process::CLOCK_MONOTONIC) < ends
 

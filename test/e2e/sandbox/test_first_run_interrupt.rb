@@ -13,7 +13,7 @@ require "tmpdir"
 # mount, which runs no Ruby, as it starts computing; the test sends the
 # signal once the file is there, so the signal lands while the guest computes
 # and never inside a callback. A guest that never ends on its own means only
-# the signal ends the run, and the child's deadline ends a run it never
+# the signal ends the run, and the child's lifetime ends a run it never
 # reached.
 class TestE2EFirstRunInterrupt < Minitest::Test
   include E2eGuestHelper
@@ -65,7 +65,7 @@ class TestE2EFirstRunInterrupt < Minitest::Test
   private
 
   # What +child+ prints once it is sent SIGINT after its guest started
-  # computing, or +:hung+ when it outlives the deadline.
+  # computing, or +:hung+ when it outlives its lifetime.
   def interrupt_child(child)
     Dir.mktmpdir("kobako-interrupt") do |gate|
       reader, writer = IO.pipe

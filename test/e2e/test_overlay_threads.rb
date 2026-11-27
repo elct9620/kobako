@@ -8,7 +8,7 @@ require "test_helper"
 # A Thread holding the Overlay's lock asks the Ruby Layer, which needs the
 # GVL; a Thread holding the GVL and waiting for the lock would keep it from
 # ever finishing. A deadlock leaves no Thread of the process able to run a
-# timeout, so each run is a child process the test kills past a deadline.
+# timeout, so each run is a child process the test kills past its lifetime.
 class TestE2EOverlayThreads < Minitest::Test
   include E2eGuestHelper
   include ChildProcess

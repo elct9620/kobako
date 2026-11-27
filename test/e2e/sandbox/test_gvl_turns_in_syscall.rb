@@ -59,6 +59,6 @@ class TestE2EGvlTurnsInSyscall < Minitest::Test
   private
 
   def leased_read(thread)
-    run_ruby(CHILD, thread, deadline: MAX_LEASED_LIFETIME)
+    run_ruby(CHILD, thread, lifetime: MAX_LEASED_LIFETIME)
   end
 end
