@@ -1,5 +1,32 @@
 # Changelog
 
+## [0.22.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.21.0...kobako-sdk-v0.22.0) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sdk:** Handles::alloc refuses the 1,000,001st Handle of an invocation with an internal fault instead of going on to 2**31 - 1.
+* **codec:** kobako-runtime drops Limits::value_budget; read kobako_codec::msgpack::codec::MAX_PAYLOAD_VALUES instead. A Sandbox whose memory_limit is above 4 MiB or None, or one built with_runtime, no longer accepts a guest payload of more than 262144 values.
+* **runtime:** `Limits::default().open_file_limit` is `Some(16)` instead of `Some(1024)`; set `open_file_limit` for an invocation that holds more at once.
+* **filesystem:** an Overlay directory over N Bind Layers takes N of an invocation's `open_file_limit`; raise the limit by the Layers each held directory spans.
+* **vfs:** a FileOperations implementing iterate_shared must also return true from has_iterate_shared, or its listings answer NotADirectory.
+* **sandbox:** `Kobako::Pool` and `Kobako::PoolTimeoutError` are removed. Share one `Kobako::Sandbox` across Threads instead; a Host App that needs a bound on concurrent runs or a checkout timeout keeps one of its own, such as a `Thread::SizedQueue` or the `connection_pool` gem.
+
+### Features
+
+* **sandbox:** remove Kobako::Pool, as Threads share one Sandbox ([f06ee29](https://github.com/elct9620/kobako/commit/f06ee2968231d1fb69334e46a878c42f161520ac))
+* **wasmtime:** let a forked child on macOS run Sandboxes on any Thread ([a78375a](https://github.com/elct9620/kobako/commit/a78375a440614eb14dee722365702bb3bab5a23c))
+
+
+### Bug Fixes
+
+* **codec:** hold every guest payload to the Codec's own 262144 values ([1eee6ec](https://github.com/elct9620/kobako/commit/1eee6ecaf578687e9785753afa475d269d3fa750))
+* **filesystem:** charge each host directory an Overlay holds to the caller ([437ada0](https://github.com/elct9620/kobako/commit/437ada00b268cf793cee8e7fadee1067dd0a4bf7))
+* **runtime:** default an invocation's open files to 16 ([c091b90](https://github.com/elct9620/kobako/commit/c091b90f2590e4a4746e482cd6d8e8c45e58bc5d))
+* **sdk:** compile a Sandbox's snippets outside its registry lock ([023f647](https://github.com/elct9620/kobako/commit/023f6470b8036f89b444e461128d6dfc84b0e9f1))
+* **sdk:** hold one invocation's Handle table to 1,000,000 entries ([1d9377f](https://github.com/elct9620/kobako/commit/1d9377fc56ca799d6c5e589a80a22f4fc55f805a))
+* **vfs:** refuse a listing of a file without iterate_shared before locking it ([34eb327](https://github.com/elct9620/kobako/commit/34eb3273cd537ccbd2b7a3592ece38da79d60d2f))
+
 ## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.20.0...kobako-sdk-v0.21.0) (2026-11-18)
 
 

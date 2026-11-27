@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.22.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.21.0...kobako-core-v0.22.0) (2026-11-27)
+
+
+### Bug Fixes
+
+* **guest:** free the lists the host hands the guest once they are read ([5830b96](https://github.com/elct9620/kobako/commit/5830b96ddd1c4cb31a73b6ba770f42eeabf4d09e))
+
 ## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-core-v0.20.0...kobako-core-v0.21.0) (2026-11-18)
 
 

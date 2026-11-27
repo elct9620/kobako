@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.22.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.21.0...kobako-codec-v0.22.0) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **codec:** kobako-runtime drops Limits::value_budget; read kobako_codec::msgpack::codec::MAX_PAYLOAD_VALUES instead. A Sandbox whose memory_limit is above 4 MiB or None, or one built with_runtime, no longer accepts a guest payload of more than 262144 values.
+
+### Bug Fixes
+
+* **codec:** hold every guest payload to the Codec's own 262144 values ([1eee6ec](https://github.com/elct9620/kobako/commit/1eee6ecaf578687e9785753afa475d269d3fa750))
+
 ## [0.21.0](https://github.com/elct9620/kobako/compare/kobako-codec-v0.20.0...kobako-codec-v0.21.0) (2026-11-18)
 
 

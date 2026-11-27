@@ -1,5 +1,130 @@
 # Changelog
 
+## [0.32.0](https://github.com/elct9620/kobako/compare/v0.31.0...v0.32.0) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **spec:** Kobako::Filesystem::Tmpfs.new without size: holds 4 MiB and 1025 entries instead of 64 MiB and 16385. Pass
+* **wasmtime:** a guest no longer reads EINTR from a call its run's deadline or interrupt ended; the run ends there as a timeout or an interrupt.
+* **runtime:** a listing, a walk, or a copy up in a run past its deadline or interrupted now answers EINTR mid-way instead of finishing.
+* **runtime:** a reader may now take a free directory ahead of a writer already waiting for it, and a trylock fails while any thread waits, so calls on a contended directory land in another order.
+* an invocation issuing its 1,000,001st Handle raises
+* **runtime:** connection_limit now also counts name lookups, failed dials, and each further address an HTTP request dials, so a run reaches the default 50 sooner; a socket to a new name spends two. Raise connection_limit for a script that needs more.
+* a Sandbox whose memory_limit is above 4 MiB, or nil, no longer accepts a guest payload of more than 262144 values; such a payload fails as it does under the default cap.
+* **spec:** memory_limit measures the guest's own memory only. A Host App that relied on it to cap host-side buffers caps them through open_connection_limit and open_file_limit instead.
+* **memcg:** a run whose start function, global initializers, table growth, or request grow past memory_limit now raises Kobako::MemoryLimitError, growth of several memories and the GC heap adds up, and Usage#memory_peak includes them. Raise memory_limit by that growth to keep the earlier headroom.
+* **spec:** a run whose start function, global initializers, table growth, or request grow past memory_limit now raises Kobako::MemoryLimitError, and growth of several memories and the GC heap adds up. Raise memory_limit by that growth to keep the earlier headroom.
+* **fork:** Kernel#fork, IO.popen("-") and Process.daemon raise RuntimeError while any Sandbox run is in progress on any Thread, where v0.31.0 forked. Fork before the runs start or once none is in progress, as a preforking server does before it serves, and retry a refused fork after the runs end.
+* **spec:** on Windows, a lookup dropped before it answers keeps its place against `open_connection_limit` until the host's query finishes, so a script dropping lookups and asking again at the cap may see `EAI_AGAIN` a moment longer.
+* **spec:** `open_file_limit` defaults to 16 instead of 1024. A script holding more files, sockets, or Overlay directories at once raises `Errno::EMFILE` sooner; pass `open_file_limit:` to `Sandbox.new` with the room the script needs.
+* **spec:** a script that closes a TCP connection with bytes the peer has not read keeps that connection counted against `open_file_limit` until the peer reads them, so opening another file right away may raise `Errno::EMFILE`; with no open file left, the closed connection resets and its unsent bytes are lost.
+* **filesystem:** `Kobako::Filesystem::Bind.new` raises `Errno::EMFILE` or `Errno::ENFILE` when the host is out of descriptors, where it raised `ArgumentError`; rescue `SystemCallError` for that case.
+* **spec:** `Kobako::Filesystem::Bind.new` raises `Errno::EMFILE` or `Errno::ENFILE` when the host is out of descriptors, where it raised `ArgumentError`; rescue `SystemCallError` for that case. A path that cannot be opened for any other reason still raises `ArgumentError`.
+* **spec:** An Overlay directory over N Bind Layers now takes N of `open_file_limit`, so a script holding such directories open meets the cap sooner; raise `open_file_limit` by the Layers each held directory spans. `Dir.glob` through a directory past the cap raises
+* **gvl:** gvl: :hold no longer serializes guests across Threads. A guest that outlasts one quantum may overlap another Thread's run and use more than one core. A Host App that relied on :hold to run guests one at a time, such as two guests reading and writing one Tmpfs, serializes those calls itself, for example with a Mutex around Sandbox#eval. RUBY_THREAD_TIMESLICE, set before Ruby starts, lengthens the quantum on Ruby 3.4 and later.
+* **spec:** gvl: :hold no longer serializes guests across Threads. A guest that outlasts one quantum may overlap another Thread's run and use more than one core. A Host App that relied on :hold to run guests one at a time, such as two guests reading and writing one Tmpfs, serializes those calls itself, for example with a Mutex around Sandbox#eval. RUBY_THREAD_TIMESLICE, set before Ruby starts, lengthens the quantum on Ruby 3.4 and later.
+* **spec:** Usage#memory_peak can pass memory_limit by a write's permitted room as well as a network read, at most 68 KiB more per open connection. A Host App that allows memory_peak one read past memory_limit allows that margin too.
+* **spec:** a guest's TRACE no longer carries a bound credential's value, where it was swapped in over HTTPS, and its source is not asked. A TRACE with a body raises Errno::EACCES where it was sent; send the body with another method.
+* **spec:** a guest's HTTP request whose method is CONNECT now raises Errno::EACCES where it was sent. A script that needs a tunnel or raw bytes opens a TCPSocket to an endpoint declared with protocol: :tcp.
+* **spec:** Usage#memory_peak can pass memory_limit by at most one network read per open connection, where it never did before. A Host App that checks memory_peak <= memory_limit allows that margin. Making a socket no longer answers ENOMEM for want of room for its buffers.
+* **gvl:** a Service of a Sandbox releasing the GVL no longer takes interrupts the Host App's own Thread.handle_interrupt mask defers; it takes them as that mask allows, as under gvl: :hold. The warning a run releasing the GVL gave on the main Thread is gone.
+* **sandbox:** `Kobako::Pool` and `Kobako::PoolTimeoutError` are removed. Share one `Kobako::Sandbox` across Threads instead; a Host App that needs a bound on concurrent runs or a checkout timeout keeps one of its own, such as a `Thread::SizedQueue` or the `connection_pool` gem.
+* **vfs:** a guest now holds one preopen, `/`, at descriptor 3, instead of one per outermost Mount named by its path. A Guest Binary built on wasi-libc is unaffected; one that reads a Mount through descriptor 3 directly walks from `/` now, or the Host App mounts its Filesystem at `/`. `kobako_runtime::mount::outermost_of` is removed; a Wasm Driver opens `Cred::root` instead.
+* **security:** a Sandbox whose nested mount path passes a host link, at its last name or above it, now fails each run with "stands nowhere: ELOOP" instead of standing where the link leads. Mount the directory the link leads to by its own path instead.
+
+### Features
+
+* **gvl:** hand a run's wait on its guest to the Fiber scheduler ([cace4d4](https://github.com/elct9620/kobako/commit/cace4d4cfb2fb168b2e69ab26b0374e48975e6c2))
+* **http:** stream a request body as the guest writes it ([ed2b571](https://github.com/elct9620/kobako/commit/ed2b571820d46b1fdfff577b3c8257fd7c63ce71))
+* **sandbox:** count each Sandbox's runs waiting, read through Sandbox#stat ([5cce9fc](https://github.com/elct9620/kobako/commit/5cce9fcdd87907577845b9e5e196ea341858b272))
+* **sandbox:** have a fork wait for the runs in progress, or raise where it cannot ([3c33928](https://github.com/elct9620/kobako/commit/3c3392818a0454cfd72fc720560afc32b0a04aa5))
+* **sandbox:** remove Kobako::Pool, as Threads share one Sandbox ([f06ee29](https://github.com/elct9620/kobako/commit/f06ee2968231d1fb69334e46a878c42f161520ac))
+* **vfs:** preopen the guest's root alone, beneath which every Mount stands ([2a6d18d](https://github.com/elct9620/kobako/commit/2a6d18d78814f0529b15e109bbcd50f8b372e51b))
+* **wasmtime:** let a forked child on macOS run Sandboxes on any Thread ([a78375a](https://github.com/elct9620/kobako/commit/a78375a440614eb14dee722365702bb3bab5a23c))
+
+
+### Bug Fixes
+
+* **bench:** let go of the mount suite's Binds before removing their trees ([0bbf4d7](https://github.com/elct9620/kobako/commit/0bbf4d74fd7a95b19d2e2be117663a9302a0e9fc))
+* **ext:** count a run waiting on a fork among a Sandbox's runs waiting ([332665a](https://github.com/elct9620/kobako/commit/332665a276014116232e668d5226706199dcf4e8))
+* **ext:** let Ruby count the native memory its objects own ([f9099a8](https://github.com/elct9620/kobako/commit/f9099a89838179471f0e353eed03274575dc7495))
+* **ext:** list a guest's thread idle before its caller hears the run ended ([d93f309](https://github.com/elct9620/kobako/commit/d93f309b4a5c60ffb1bb9b169ee91ca531441a05))
+* **ext:** raise TrapError for a run the host has no thread for ([034e7ec](https://github.com/elct9620/kobako/commit/034e7ecd12e0aad46a2609f19702100b34c452ca))
+* **filesystem:** collect garbage once before Bind.new gives up on descriptors ([effb018](https://github.com/elct9620/kobako/commit/effb018ca5205937d5f720ffb0abfb4a62afcbaa))
+* **filesystem:** keep a Ruby Filesystem's directory listing as the VFS asks first ([5118802](https://github.com/elct9620/kobako/commit/5118802b71bbbe04f68d6f21dde91af13e877d0b))
+* **fork:** drop the Binds' kept directories before a fork goes on ([c13dde5](https://github.com/elct9620/kobako/commit/c13dde5d3a38f85de8b0ad19b93c74012a884682))
+* **fork:** raise for a fork while any run is in progress ([5dc6ee6](https://github.com/elct9620/kobako/commit/5dc6ee61837207681b0612ba9f63bd6cec1ae5cc))
+* **guest:** free the lists the host hands the guest once they are read ([5830b96](https://github.com/elct9620/kobako/commit/5830b96ddd1c4cb31a73b6ba770f42eeabf4d09e))
+* **gvl:** end a guest's thread left idle for ten seconds ([be70303](https://github.com/elct9620/kobako/commit/be70303952e19e994e00e9ab92c66e4a6b524a57))
+* **gvl:** hand the GVL over each quantum while a run keeps it ([1e0d828](https://github.com/elct9620/kobako/commit/1e0d82802dbf1794744c2c724e013428bf4ca012))
+* **gvl:** have a run on a Fiber a callback starts hold locks as that run ([723db42](https://github.com/elct9620/kobako/commit/723db4236131c95f140bef07e583e014e2ac8168))
+* **gvl:** have the run's caller mark what the run pinned, rather than root it ([001c09f](https://github.com/elct9620/kobako/commit/001c09fc6c4272b92b843d138e4c39c9250fc614))
+* **gvl:** hold what Ruby delivers while the guest runs, in either mode ([12b3067](https://github.com/elct9620/kobako/commit/12b306780be7bcbcce013d05d635c10b5cd47888))
+* **gvl:** judge a run on another Fiber of the Thread as CRuby's Mutex does ([e63a23f](https://github.com/elct9620/kobako/commit/e63a23fcb5fbc2b6c28072c9e8122497f924eb06))
+* **gvl:** keep a Service's throw on its target past Ruby the run calls ([a4cffb7](https://github.com/elct9620/kobako/commit/a4cffb72a1b118a69abf461946d0675864961300))
+* **gvl:** run each guest on a thread of its own, served by its caller ([7710c21](https://github.com/elct9620/kobako/commit/7710c212552415eaa4dd683d54e20d5aad89de26))
+* hold every guest payload to the Codec's own 262144 values ([f5ba51d](https://github.com/elct9620/kobako/commit/f5ba51dc682e4afefdee9023186ce85367c6c293))
+* hold one invocation's Handle table to 1,000,000 entries ([7f37f5b](https://github.com/elct9620/kobako/commit/7f37f5b70b1c9befd45ea5913eac2efb8f290e09))
+* **memcg:** charge every growth from the run's Store past what the binary declares ([44c7a8b](https://github.com/elct9620/kobako/commit/44c7a8bdc444b96a5d34a137a72b4e2f3c292d80))
+* **net:** declare close on every request the proxy sends ([0ef6aa1](https://github.com/elct9620/kobako/commit/0ef6aa12eb1c5497e098570cdaf51c6b7cf7495e))
+* **net:** move each request on the thread that waits for it ([425f82a](https://github.com/elct9620/kobako/commit/425f82abc5fc0b78774d0ae4e448a13a547bac29))
+* **net:** shut a connection down as its exchange lets it go ([054e70a](https://github.com/elct9620/kobako/commit/054e70a2f467688297a9c640efb55cbd27e0553b))
+* **runtime:** answer a name no DNS query carries before the lookup holds it ([6b50f3a](https://github.com/elct9620/kobako/commit/6b50f3ad92fc0557f9485cc517b4931e2ea0a11a))
+* **runtime:** append through a Windows Bind in one step ([bcc692b](https://github.com/elct9620/kobako/commit/bcc692b788ea86e79af5416344c991c1ccc992f9))
+* **runtime:** count only the guest's descriptors against the open-file cap ([b0deca2](https://github.com/elct9620/kobako/commit/b0deca26519684729f37bf288a6a40f28968f9d0))
+* **runtime:** let a TCP socket hear a reset that follows its peer's FIN ([dac6ecb](https://github.com/elct9620/kobako/commit/dac6ecba588867e734e7797f4153e54a659edbe2))
+* **runtime:** let the process's open connections start unbounded ([55c03c5](https://github.com/elct9620/kobako/commit/55c03c51e10ebab0415ace38640c8595f86a321f))
+* **runtime:** promise a reset past the peer's FIN no sooner than a write ([5de137c](https://github.com/elct9620/kobako/commit/5de137c94efad7aa69f5486af099d2da5f72f699))
+* **runtime:** reach a Windows Bind entry by any spelling its host folds ([0a38543](https://github.com/elct9620/kobako/commit/0a38543c42c73a8b0e9557f205ef663f925bf670))
+* **runtime:** read a Windows Bind's link as a guest path ([f1f04f6](https://github.com/elct9620/kobako/commit/f1f04f689d2da83f148b741a2a4abdf232d161f1))
+* **runtime:** remove a Windows Bind's link to a directory as itself ([f200e1e](https://github.com/elct9620/kobako/commit/f200e1ef157d1b12cc71c0f5efba42745a8e0738))
+* **runtime:** serve a directory lock's waiters in turn, as Linux's rwsem ([4ab9bd0](https://github.com/elct9620/kobako/commit/4ab9bd0e2e134ce10a1bd87f3d4924e2acc4c8e5))
+* **runtime:** spend connection_limit before each lookup and dial leaves the host ([f958a44](https://github.com/elct9620/kobako/commit/f958a44ad39b9b3870685fbe23d911f4c4c3fe33))
+* **runtime:** stop a listing and a copy up between steps once the run is to stop ([b2aebca](https://github.com/elct9620/kobako/commit/b2aebca6a83499b4659c95be17a2f68202932d74))
+* **runtime:** watch a socket for room only while a writer found none ([b7e1c4d](https://github.com/elct9620/kobako/commit/b7e1c4d9bcf53e8050dee44d7e68f726055a56ed))
+* **sandbox:** refuse a run another Fiber starts while one on its Thread waits ([582795b](https://github.com/elct9620/kobako/commit/582795b80995fe94839e23462a5806ba6fd4f1f9))
+* **sched:** let a wait go on through a wakeup that raises nothing ([cf7f484](https://github.com/elct9620/kobako/commit/cf7f484ca645be1a0c64b0f9530b6e39034d3db3))
+* **sdk:** compile a Sandbox's snippets outside its registry lock ([023f647](https://github.com/elct9620/kobako/commit/023f6470b8036f89b444e461128d6dfc84b0e9f1))
+* **security:** refuse a nested mount whose path passes a link ([71abead](https://github.com/elct9620/kobako/commit/71abead05818696ef9a2e2b9082bb871087cfa34))
+* **test:** build the Rust oracles once before parallel_tests starts its processes ([5fe2bab](https://github.com/elct9620/kobako/commit/5fe2babf0586207e3dfbc20f52d1fc98b460d6bb))
+* **test:** fail the Ruby suite when parallel_test selects no file ([11120e1](https://github.com/elct9620/kobako/commit/11120e16a42af051118c61edfee181ae5febcac3))
+* **test:** let parallel_tests find the suite's files on Windows' command line ([12063ec](https://github.com/elct9620/kobako/commit/12063ec145342d1b0625c1d033c377e26d85937f))
+* **test:** let Windows find the Ruby suite's files again ([0066ac9](https://github.com/elct9620/kobako/commit/0066ac91274aac6b3677ff98f2359576bf9504af))
+* **test:** measure the GVL quantum once the guest's write returned ([98c3f3c](https://github.com/elct9620/kobako/commit/98c3f3cde94c89c6d85f5745ca01ba9d65a930cf))
+* **vfs:** climb out of the walk's own Filesystem mounted again ([1cf46c2](https://github.com/elct9620/kobako/commit/1cf46c2ba61af87631208ae2aed0471b419bb531))
+* **vfs:** keep each Filesystem's moves to the walks on it ([42062b9](https://github.com/elct9620/kobako/commit/42062b9c2f22e00f6317fa92ebd6abe2b3fd76b0))
+* **vfs:** wake a name's waiters and a move's readers when a panic unwinds ([515343c](https://github.com/elct9620/kobako/commit/515343c71075517c7c4b9a05624df2ef733b62bc))
+* **wasmtime:** answer random_get a page at a time into the guest's buffer ([d55aa1d](https://github.com/elct9620/kobako/commit/d55aa1da4082902e3b3f6b664b64ac50ee25d9b0))
+* **wasmtime:** ask the OS for a permissive guest's entropy on each draw ([fcfaca4](https://github.com/elct9620/kobako/commit/fcfaca49d0067d1d372e24e680004d04cd0f41ee))
+* **wasmtime:** end a run as a host call returns once the run is to stop ([f5840c6](https://github.com/elct9620/kobako/commit/f5840c687f91d18fb01bb426d577f9c4e208b277))
+* **wasmtime:** fail a refused growth as memory.grow does, not by ending the run ([8cd50be](https://github.com/elct9620/kobako/commit/8cd50bed12c18ea0b906b3e2fe1d6310194e34f2))
+* **wasmtime:** stop a guest that only computes once its run takes a fatal signal ([32990b6](https://github.com/elct9620/kobako/commit/32990b63cd6ae16c5d8a0e473a218d46d29c8919))
+
+
+### Performance Improvements
+
+* **gvl:** spin before a guest's thread sleeps waiting for the next run ([5719de5](https://github.com/elct9620/kobako/commit/5719de5110e03563dbca6df4e7bf487b58de8c20))
+* **test:** build the Rust oracles into the ext's target directory ([002e594](https://github.com/elct9620/kobako/commit/002e594eb5deea86fa5380e21a1c9433cb98a291))
+* **wasmtime:** cache compiled Guest Binaries on disk on Windows too ([76ca86e](https://github.com/elct9620/kobako/commit/76ca86e3aab83d239e1d0b4ebbcd21e2aec14bf3))
+
+
+### Documentation
+
+* **spec:** bound what the host holds for a run by counts, not its memory ([7d13f7e](https://github.com/elct9620/kobako/commit/7d13f7e710468ee2c41f8f2d9a34995088584c14))
+* **spec:** charge a socket's buffers as they fill, past the limit by one read ([066bbb7](https://github.com/elct9620/kobako/commit/066bbb73073da88e557f73067c1e1629fdee92b6))
+* **spec:** count a connection still closing as an open file of its invocation ([6c0a1c2](https://github.com/elct9620/kobako/commit/6c0a1c2bd261e79a7681b8f603d27b4240490f05))
+* **spec:** count a run's memory from its Store, past what the binary declares ([c85722d](https://github.com/elct9620/kobako/commit/c85722d6c630d5bf5dce0a3702f575e5016c6667))
+* **spec:** count each host directory an Overlay holds against the cap ([c38a813](https://github.com/elct9620/kobako/commit/c38a8131fae81c643d69ab04d84d9ed36520e198))
+* **spec:** default the open-file cap to what leaves the Host App room ([82561d8](https://github.com/elct9620/kobako/commit/82561d8336a0b4d02ad488430a49a73f2517694b))
+* **spec:** hand the GVL over each quantum while a run keeps it ([412cec6](https://github.com/elct9620/kobako/commit/412cec6e0f5502acb19a8c9b1f8fb858667caf19))
+* **spec:** hold 4 MiB in a Tmpfs given no size of its own ([3d94256](https://github.com/elct9620/kobako/commit/3d94256ecedee7de6592ba6d1a47fea9cc8b2e6c))
+* **spec:** hold a cancelled lookup's place until the host's query ends ([3c21b80](https://github.com/elct9620/kobako/commit/3c21b80790663bb6bdd430a62c38fd9f00cb4404))
+* **spec:** keep a credential and content out of a TRACE ([6a3ea2b](https://github.com/elct9620/kobako/commit/6a3ea2b0a70ecfc7b4a292c77d0fe847932826b6))
+* **spec:** keep the room an output stream permits, its memory counted ([d2c2254](https://github.com/elct9620/kobako/commit/d2c2254fa4905685ae35063cc47e0caaa2c51e70))
+* **spec:** make a Bind while the host is out of descriptors as Dir.new does ([4d2d11b](https://github.com/elct9620/kobako/commit/4d2d11bcd5e365085ce9b551025f7b0d7d998b03))
+* **spec:** refuse a CONNECT request unsent ([7852298](https://github.com/elct9620/kobako/commit/785229802adf81a7c3264b79e9eee88a5bdcb02d))
+
 ## [0.31.0](https://github.com/elct9620/kobako/compare/v0.30.0...v0.31.0) (2026-11-18)
 
 
