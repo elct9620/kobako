@@ -1,10 +1,10 @@
 # Serverless Demo
 
-A self-contained Rack application that dispatches `GET /:name` to an operator-supplied mruby script. Each route's script defines a named entrypoint constant. The app preloads it into a fresh `Kobako::Sandbox` per request and calls it as shown below.
+A self-contained Rack application that dispatches `GET /:name` to an operator-supplied mruby script. Each route's script defines a named entrypoint constant. The app keeps one `Kobako::Sandbox` per route with that entrypoint preloaded, and runs it as shown below.
 
 ```
-GET /hello ─> Sandbox.new ─> #preload(Hello) ─> #run(:Hello, GuestRequest) ─> [status, headers, body]
-                                                         │
+GET /hello ─> SandboxCache#fetch(:Hello) ─> #run(:Hello, GuestRequest) ─> [status, headers, body]
+               (built once: Sandbox.new + #preload)       │
                                        req.params ─> Handle ─> host Rack::Request
 ```
 
@@ -17,6 +17,8 @@ The script uses `bundler/inline`, so it resolves its own dependencies on first r
 ```bash
 ruby examples/serverless/app.rb                # Puma (default)
 ruby examples/serverless/app.rb --type falcon
+ruby examples/serverless/app.rb --gvl release  # guests run in parallel across Threads
+ruby examples/serverless/app.rb --cache-size 2 # keep at most 2 Sandboxes
 ```
 
 From a clone of the kobako repository, prefix with `bundle exec` so the local kobako checkout is used.
@@ -25,18 +27,20 @@ First launch downloads `kobako`, `rack`, `rackup`, and the chosen server gem. CL
 
 ```bash
 $ ruby examples/serverless/app.rb --type puma
-Serverless demo on http://127.0.0.1:9292 (handler: Rackup::Handler::Puma)
+Serverless demo on http://127.0.0.1:9292 (handler: Rackup::Handler::Puma, gvl: hold, cache: 5)
 ```
 
 ## Configuration
 
-One flag picks the server, and two variables pick where it listens. An unknown `--type` fails at startup.
+Three flags pick the server and how Sandboxes run, and two variables pick where it listens. An unknown `--type` or `--gvl` fails at startup.
 
-| Flag / Variable | Purpose                         | Default     |
-|-----------------|---------------------------------|-------------|
-| `--type TYPE`   | Rack handler: `puma` or `falcon` | `puma`      |
-| `HOST` env      | Interface the server binds to   | `127.0.0.1` |
-| `PORT` env      | TCP port the server listens on  | `9292`      |
+| Flag / Variable  | Purpose                            | Default     |
+|------------------|------------------------------------|-------------|
+| `--type TYPE`    | Rack handler: `puma` or `falcon`   | `puma`      |
+| `--gvl MODE`     | Each Sandbox's `gvl:`: `hold` or `release` | `hold` |
+| `--cache-size N` | Most Sandboxes kept at once        | `5`         |
+| `HOST` env       | Interface the server binds to      | `127.0.0.1` |
+| `PORT` env       | TCP port the server listens on     | `9292`      |
 
 ## Trying it out
 
@@ -101,18 +105,16 @@ ruby examples/serverless/app.rb --type falcon
 
 The same `Serverless::App` and the same wire path serve both — switching handlers exercises Rack 3 compatibility without changing any application code.
 
-## Per-request Sandboxes
+## Sandbox Cache
 
-Each `GET /:name` constructs a fresh `Kobako::Sandbox`, preloads one snippet, and invokes it once. The boot state is baked into the artifact, so the request pays little for it:
+The invocation is the unit of isolation, and the Sandbox is the unit of reuse. Every `#run` executes against a fresh `mrb_state` with its own Handles. So a script's globals, instance variables, and class-level changes never reach the next request, though its Sandbox serves them all.
 
-| Step | Cost |
+| Request on a route | Pays |
 |---|---|
-| `Sandbox.new`, warm | about 3 µs |
-| `#preload` plus the `#run` that replays the snippet | about 80 µs |
+| the first | `Sandbox.new`, `#preload`, and one compile of the snippet |
+| every later one | a `#run` that replays the compiled snippet |
 
-The construction figure is the `Sandbox.new` steady state in the root [`benchmark/README.md`](../../benchmark/README.md).
-
-Every `#run` executes against a fresh `mrb_state`, whether its Sandbox is new or reused. So a script's globals, instance variables, and class-level changes never reach the next invocation. A Sandbox holds no state from any run, so Threads may share one. The [multi-tenant demo](../multi-tenant/README.md) takes that route, each invocation naming its own identity.
+`SandboxCache` keeps one Sandbox per route, with only that route preloaded, so a run replays one snippet. A Sandbox may serve many Threads at once, so a request takes it without a checkout, and the lock guards only the table. Past `--cache-size`, the route used longest ago gives its Sandbox up. The [multi-tenant demo](../multi-tenant/README.md) shares one Sandbox the same way, each invocation naming its own identity.
 
 ## Security caveats
 

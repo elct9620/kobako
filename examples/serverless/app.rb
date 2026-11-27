@@ -6,8 +6,12 @@
 # entrypoint constant and invoked via #run(:Entrypoint, GuestRequest.new(env)),
 # returning a Rack response triplet [status, headers, body] directly.
 #
-# Each request builds a fresh Kobako::Sandbox, preloads only the matched
-# route, and invokes it once; every #run runs a fresh mrb_state.
+# A Sandbox holds no state from any run: every #run gets a fresh mrb_state
+# and its own Handles, so the invocation is the unit of isolation and the
+# Sandbox is the unit of reuse. The app keeps one Sandbox per route, with
+# only that route preloaded, in a cache of bounded size. A route's first
+# request pays the Sandbox's setup and the one compile of its snippet;
+# every later request only replays it.
 #
 # The request is a non-wire-representable host object, so kobako's
 # #run host→guest auto-wrap allocates a Handle for
@@ -20,6 +24,8 @@
 # Usage:
 #   ruby examples/serverless/app.rb                # Puma
 #   ruby examples/serverless/app.rb --type falcon
+#   ruby examples/serverless/app.rb --gvl release  # guests run in parallel across Threads
+#   ruby examples/serverless/app.rb --cache-size 2 # keep at most 2 Sandboxes
 #
 # Parsing CLI flags before bundler/inline runs is deliberate: only the
 # server gem the operator picked is added to the inline Gemfile, so
@@ -28,13 +34,21 @@
 require "optparse"
 
 SERVER_TYPES = %w[puma falcon].freeze
+GVL_MODES = %w[hold release].freeze
+DEFAULT_CACHE_SIZE = 5
 
-options = { type: "puma" }
+options = { type: "puma", gvl: "hold", cache_size: DEFAULT_CACHE_SIZE }
 OptionParser.new do |opts|
   opts.banner = "Usage: ruby examples/serverless/app.rb [options]"
   opts.on("--type TYPE", SERVER_TYPES,
           "Rack handler to start (#{SERVER_TYPES.join(", ")}; default: puma)") do |type|
     options[:type] = type
+  end
+  opts.on("--gvl MODE", GVL_MODES, "GVL mode of each Sandbox (#{GVL_MODES.join(", ")}; default: hold)") do |mode|
+    options[:gvl] = mode
+  end
+  opts.on("--cache-size N", Integer, "Most Sandboxes kept at once (default: #{DEFAULT_CACHE_SIZE})") do |size|
+    options[:cache_size] = size
   end
   opts.on("-h", "--help", "Show this help") do
     warn opts
@@ -106,14 +120,44 @@ module Serverless
     MRUBY
   }.freeze
 
+  # At most +size+ Sandboxes, one per route, each with only its route's
+  # entrypoint preloaded. A Sandbox may serve many Threads at once, so a
+  # request takes it without checking it out; the lock guards only the
+  # table. Past +size+, the route used longest ago gives its Sandbox up.
+  class SandboxCache
+    def initialize(size:, gvl:)
+      @size = size
+      @gvl = gvl
+      @sandboxes = {}
+      @lock = Mutex.new
+    end
+
+    def fetch(entrypoint, source)
+      @lock.synchronize do
+        # Re-inserting moves the route to the newest end of the Hash.
+        @sandboxes[entrypoint] = @sandboxes.delete(entrypoint) || build(entrypoint, source)
+      end
+    end
+
+    private
+
+    def build(entrypoint, source)
+      @sandboxes.delete(@sandboxes.each_key.first) if @sandboxes.size >= @size
+      sandbox = Kobako::Sandbox.new(gvl: @gvl)
+      sandbox.preload(code: source, name: entrypoint)
+      sandbox
+    end
+  end
+
   # Rack-compatible application. Routes +GET /:name+ to +ROUTES[name]+ and
-  # runs the matched entrypoint in a Sandbox of its own. The root path +/+
-  # lists the available scripts so the demo is self-discoverable.
+  # runs the matched entrypoint on its route's cached Sandbox. The root
+  # path +/+ lists the available scripts so the demo is self-discoverable.
   class App
     PLAIN = { "content-type" => "text/plain" }.freeze
 
-    def initialize(routes)
+    def initialize(routes, cache)
       @routes = routes
+      @cache = cache
     end
 
     def call(env)
@@ -132,13 +176,11 @@ module Serverless
 
     private
 
-    # Builds a fresh Sandbox, preloads only the matched route's entrypoint,
-    # and invokes it once, so concurrent requests share no guest state.
+    # Each run gets its own guest, so requests sharing a Sandbox share no
+    # guest state.
     def invoke(entry, rack_env)
       entrypoint, source = entry
-      sandbox = Kobako::Sandbox.new
-      sandbox.preload(code: source, name: entrypoint)
-      sandbox.run(entrypoint, GuestRequest.new(rack_env)).value
+      @cache.fetch(entrypoint, source).run(entrypoint, GuestRequest.new(rack_env)).value
     end
 
     def index
@@ -164,9 +206,11 @@ if __FILE__ == $PROGRAM_NAME
   port = Integer(ENV.fetch("PORT", "9292"))
   host = ENV.fetch("HOST", "127.0.0.1")
 
-  app = Serverless::App.new(Serverless::ROUTES)
+  cache = Serverless::SandboxCache.new(size: options[:cache_size], gvl: options[:gvl].to_sym)
+  app = Serverless::App.new(Serverless::ROUTES, cache)
 
   handler = Rackup::Handler.get(options[:type])
-  warn "Serverless demo on http://#{host}:#{port} (handler: #{handler.name})"
+  warn "Serverless demo on http://#{host}:#{port} " \
+       "(handler: #{handler.name}, gvl: #{options[:gvl]}, cache: #{options[:cache_size]})"
   handler.run(app, Host: host, Port: port)
 end
