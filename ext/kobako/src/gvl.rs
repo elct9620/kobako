@@ -140,8 +140,8 @@ fn holds() -> bool {
     !GVL_RELEASED.with(|g| g.get())
 }
 
-/// A thread waits for a lock or a host-side event without the GVL, so a
-/// holder asking a Filesystem written in Ruby, or a mount's block, can take
+/// A thread waits for a lock or a host-side event without the GVL, so an
+/// owner asking a Filesystem written in Ruby, or a mount's block, can take
 /// the GVL and finish, and other Threads run while the guest sleeps.
 pub(crate) struct GvlFreeWait;
 
