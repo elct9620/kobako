@@ -6,28 +6,37 @@ code can freely "edit" files while the directory on the host stays
 untouched.
 
 ```
-guest File.write("/disk/sample.txt") ─> Overlay ─┬─ Temporary  :read_write ─> takes the copy
-guest File.read("/disk/sample.txt")  ─>          └─ Directory  :read       ─> examples/vfs
+guest File.write("/disk/sample.txt") ─> Overlay ─┬─ upper  Tmpfs  ─> takes the copy, this run only
+guest File.read("/disk/sample.txt")  ─>          └─ lower  Bind   ─> examples/vfs, never written
 ```
 
 ## Mount Shape
 
-`Sandbox#mount` places a Filesystem at a guest path. An Overlay stacks
-Layers into one view, the first added on top. A change to a file in the
-read-only Directory first copies it up into the Temporary Layer.
+`Sandbox#mount` places a Filesystem at a guest path. An Overlay stacks a
+Tmpfs over read-only lower Layers, as Linux's overlayfs does. A change to a
+file in the Bind first copies it up into the Tmpfs.
+
+Every invocation reaches the same Filesystem a Sandbox mounts. So the
+Sandbox mounts the host directory read-only, and each run replaces it
+through `ctx.mount` with an Overlay over a Tmpfs of its own.
 
 ```ruby
-overlay = Kobako::Filesystem::Overlay.new
-  .layer(Kobako::Filesystem::Temporary.new, access: :read_write) # empty every run
-  .layer(Kobako::Filesystem::Directory.new(__dir__))              # never written
-sandbox.mount("/disk", overlay, access: :read_write) do |path, access|
-  access == :read || path == "/disk/sample.txt"
+allow = ->(path, access) { access == :read || path == "/disk/sample.txt" }
+disk = Kobako::Filesystem::Bind.new(__dir__)
+sandbox.mount("/disk", disk, &allow)
+
+sandbox.eval(source) do |ctx|
+  overlay = Kobako::Filesystem::Overlay.new(
+    lower: [disk],                       # never written
+    upper: Kobako::Filesystem::Tmpfs.new # takes every change, this run only
+  )
+  ctx.mount("/disk", overlay, access: :read_write, &allow)
 end
 ```
 
-### Fresh Layer
+### Fresh Tmpfs
 
-A Temporary starts empty at every invocation. That one choice gives two
+Each run starts on a new, empty Tmpfs. That one choice gives two
 guarantees:
 
 | Scope | A write |
@@ -68,13 +77,13 @@ ships next to the script holding `hello from the host disk`.
 $ ruby examples/vfs/app.rb
 vfs overlay demo — the guest's File over a host directory it cannot change
 
-invocation 1 — write then read (one Temporary Layer):
+invocation 1 — write then read (its own Tmpfs):
   read  before write : "hello from the host disk\n"   # the host directory
-  write "patched in memory\n"                       # copied up into the Temporary Layer
+  write "patched in memory\n"                       # copied up into the Tmpfs
   read  after  write : "patched in memory\n"  # the changed view
   File.basename ran in the guest: "sample.txt"
 
-invocation 2 — a fresh Temporary Layer, read only:
+invocation 2 — a new Tmpfs, read only:
   read               : "hello from the host disk\n"   # the host directory again
 
 refusals — what the mount does not grant:
@@ -94,13 +103,12 @@ unchanged.
 ## Safety Properties
 
 Each guest operation reaches the host only as far as the table says. The
-fresh Temporary Layer is the mechanism that keeps one invocation's writes
-from the next.
+Tmpfs each run mounts is what keeps one invocation's writes from the next.
 
 | Operation | Reaches |
 |---|---|
-| `File.write` | the Temporary Layer only, never the host |
-| `File.read` | the Temporary Layer, or the directory beneath the mount |
+| `File.write` | the run's Tmpfs only, never the host |
+| `File.read` | the run's Tmpfs, or the directory beneath the mount |
 | a path the block refuses or outside the mount | nothing |
 
 The mount block judges each open and each change by guest path, and it can
