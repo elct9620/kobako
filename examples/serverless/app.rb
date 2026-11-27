@@ -48,6 +48,8 @@ OptionParser.new do |opts|
     options[:gvl] = mode
   end
   opts.on("--cache-size N", Integer, "Most Sandboxes kept at once (default: #{DEFAULT_CACHE_SIZE})") do |size|
+    raise OptionParser::InvalidArgument, "#{size} (keep at least one Sandbox)" unless size.positive?
+
     options[:cache_size] = size
   end
   opts.on("-h", "--help", "Show this help") do
