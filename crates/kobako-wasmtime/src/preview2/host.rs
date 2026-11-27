@@ -1222,6 +1222,7 @@ mod tests {
     use super::super::bindings::{Host as _, HttpHost};
     use super::super::error::IntoAnswer;
     use super::*;
+    use crate::waits::MAX_WAIT;
     use crate::wasi::Wasi;
     use kobako_runtime::network;
     use kobako_runtime::profile::Profile;
@@ -1489,7 +1490,7 @@ mod tests {
             instantiate(Invocation::hermetic(Some(vec![endpoint]), |config| {
                 config.limits.memory_limit = memory_limit
             }));
-        let outgoing = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+        let outgoing = run_task(Some(Instant::now() + MAX_WAIT), || {
             let guest = store.data_mut();
             let network = guest.instance_network_instance_network()?;
             let socket = guest
@@ -1618,7 +1619,7 @@ mod tests {
         let started = Instant::now();
         let pollable =
             call::<i64, i32>(&mut store, &instance, "subscribe", 50_000_000).expect("a pollable");
-        run_task(Some(started + Duration::from_secs(10)), || {
+        run_task(Some(started + MAX_WAIT), || {
             call::<(i32, i32), ()>(&mut store, &instance, "poll", (pollable, 1))
         })
         .expect("the poll answers");
@@ -1817,7 +1818,7 @@ mod tests {
                 .with_addresses(vec![network::Addresses::Local]),
         );
         let started = Instant::now();
-        let (handed, connected) = run_task(Some(started + Duration::from_secs(10)), || {
+        let (handed, connected) = run_task(Some(started + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let stream = guest
                 .ip_name_lookup_resolve_addresses(network, "localhost".to_string())
@@ -1898,7 +1899,7 @@ mod tests {
             None,
         );
         let at = |port| ipv4((127, 0, 0, 1), port);
-        let answers = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+        let answers = run_task(Some(Instant::now() + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let tcp = guest
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
@@ -2221,44 +2222,43 @@ mod tests {
                 .with_protocol(network::Protocol::Tcp)
         };
         let mut guest = limited_network_guest([tcp(open), tcp(closed)], None);
-        let (during, failure, after) =
-            run_task(Some(Instant::now() + Duration::from_secs(10)), || {
-                let network = guest.instance_network_instance_network()?;
-                let connecting = guest
-                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
-                    .into_answer()?
-                    .expect("a network makes a socket");
+        let (during, failure, after) = run_task(Some(Instant::now() + MAX_WAIT), || {
+            let network = guest.instance_network_instance_network()?;
+            let connecting = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_connect(connecting, network, ipv4((127, 0, 0, 1), open))
+                .into_answer()?
+                .expect("an endpoint names the listener");
+            let during = guest
+                .tcp_tcp_socket_local_address(connecting)
+                .into_answer()?;
+            let refused = guest
+                .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
+                .into_answer()?
+                .expect("a network makes a socket");
+            guest
+                .tcp_tcp_socket_start_connect(refused, network, ipv4((127, 0, 0, 1), closed))
+                .into_answer()?
+                .expect("an endpoint names the closed port");
+            let settled = guest.tcp_tcp_socket_subscribe(refused)?;
+            guest.poll_pollable_block(settled)?;
+            let failure = guest
+                .tcp_tcp_socket_finish_connect(refused)
+                .into_answer()?
+                .err();
+            let after = (
+                guest.tcp_tcp_socket_local_address(refused).into_answer()?,
                 guest
-                    .tcp_tcp_socket_start_connect(connecting, network, ipv4((127, 0, 0, 1), open))
+                    .tcp_tcp_socket_remote_address(refused)
                     .into_answer()?
-                    .expect("an endpoint names the listener");
-                let during = guest
-                    .tcp_tcp_socket_local_address(connecting)
-                    .into_answer()?;
-                let refused = guest
-                    .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
-                    .into_answer()?
-                    .expect("a network makes a socket");
-                guest
-                    .tcp_tcp_socket_start_connect(refused, network, ipv4((127, 0, 0, 1), closed))
-                    .into_answer()?
-                    .expect("an endpoint names the closed port");
-                let settled = guest.tcp_tcp_socket_subscribe(refused)?;
-                guest.poll_pollable_block(settled)?;
-                let failure = guest
-                    .tcp_tcp_socket_finish_connect(refused)
-                    .into_answer()?
-                    .err();
-                let after = (
-                    guest.tcp_tcp_socket_local_address(refused).into_answer()?,
-                    guest
-                        .tcp_tcp_socket_remote_address(refused)
-                        .into_answer()?
-                        .err(),
-                );
-                Ok::<_, wasmtime::Error>((during, failure, after))
-            })
-            .expect("the connects answer");
+                    .err(),
+            );
+            Ok::<_, wasmtime::Error>((during, failure, after))
+        })
+        .expect("the connects answer");
         assert_eq!(
             (during, failure, after),
             (
@@ -2281,7 +2281,7 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let port = listener.local_addr().unwrap().port();
         let mut guest = network_guest(network::Endpoint::new("127.0.0.1", port).unwrap());
-        let answers = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+        let answers = run_task(Some(Instant::now() + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
@@ -2324,7 +2324,7 @@ mod tests {
                 .unwrap()
                 .with_protocol(network::Protocol::Udp),
         );
-        let answers = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+        let answers = run_task(Some(Instant::now() + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
                 .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
@@ -2364,7 +2364,7 @@ mod tests {
                 .unwrap()
                 .with_protocol(network::Protocol::Udp),
         );
-        let batches = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+        let batches = run_task(Some(Instant::now() + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
                 .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
@@ -2445,7 +2445,7 @@ mod tests {
             }),
             None,
         );
-        let received = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+        let received = run_task(Some(Instant::now() + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
                 .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
@@ -2527,7 +2527,7 @@ mod tests {
     #[test]
     fn a_udp_socket_streams_only_with_a_peer_it_names() {
         let peer = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
-        peer.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+        peer.set_read_timeout(Some(MAX_WAIT)).unwrap();
         let port = peer.local_addr().unwrap().port();
         let mut guest = network_guest(
             network::Endpoint::new("127.0.0.1", port)
@@ -2537,7 +2537,7 @@ mod tests {
         let at = |port| ipv4((127, 0, 0, 1), port);
         let any = |port| ipv4((0, 0, 0, 0), port);
         let started = Instant::now();
-        let (fixed, peerless, answer) = run_task(Some(started + Duration::from_secs(10)), || {
+        let (fixed, peerless, answer) = run_task(Some(started + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let fixed_socket = guest
                 .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
@@ -2751,7 +2751,7 @@ mod tests {
     fn a_tcp_sockets_send_buffer_grows_once_it_connects() {
         let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
-        let sizes = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+        let sizes = run_task(Some(Instant::now() + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let mut sizes = Vec::new();
             for set in [None, Some(1000)] {
@@ -2811,7 +2811,7 @@ mod tests {
     fn a_read_of_nothing_after_a_failed_read_answers_closed() {
         let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
-        let answers = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+        let answers = run_task(Some(Instant::now() + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let (_, input, output) = connect_loopback(&mut guest, network, port)?;
             let (peer, _) = listener.accept().unwrap();
@@ -2820,7 +2820,7 @@ mod tests {
                 .streams_output_stream_blocking_write_and_flush(output, b"unread".to_vec())
                 .into_answer()?
                 .expect("the bytes leave");
-            peer.set_read_timeout(Some(Duration::from_secs(10)))?;
+            peer.set_read_timeout(Some(MAX_WAIT))?;
             let arrived = peer.peek(&mut [0; 1]);
             assert!(
                 arrived.as_ref().is_ok_and(|n| *n > 0),
@@ -2857,7 +2857,7 @@ mod tests {
         let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
         let started = Instant::now();
-        let answers = run_task(Some(started + Duration::from_secs(30)), || {
+        let answers = run_task(Some(started + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
@@ -3139,7 +3139,7 @@ mod tests {
     fn a_tcp_sockets_pollable_waits_only_on_its_connect() {
         let (mut guest, listener, family) = guest_filling_host_send_buffer();
         let port = listener.local_addr().unwrap().port();
-        let answered = run_task(Some(Instant::now() + crate::waits::MAX_WAIT), || {
+        let answered = run_task(Some(Instant::now() + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let fresh = guest
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
@@ -3234,7 +3234,7 @@ mod tests {
         let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
         let started = Instant::now();
-        let (permitted, within, past) = run_task(Some(started + Duration::from_secs(10)), || {
+        let (permitted, within, past) = run_task(Some(started + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let (_, _, output) = connect_loopback(&mut guest, network, port)?;
             let permitted = guest
@@ -3264,7 +3264,7 @@ mod tests {
         let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
         let started = Instant::now();
-        let (empty, byte) = run_task(Some(started + Duration::from_secs(10)), || {
+        let (empty, byte) = run_task(Some(started + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let (_, _, output) = connect_loopback(&mut guest, network, port)?;
             guest
@@ -3294,7 +3294,7 @@ mod tests {
         let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
         let started = Instant::now();
-        let written = run_task(Some(started + Duration::from_secs(10)), || {
+        let written = run_task(Some(started + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let (socket, _, output) = connect_loopback(&mut guest, network, port)?;
             let permit = guest
@@ -3318,8 +3318,7 @@ mod tests {
         // left before its end arrives.
         drop(guest);
         let (mut peer, _) = listener.accept().expect("the listener accepts");
-        peer.set_read_timeout(Some(Duration::from_secs(10)))
-            .unwrap();
+        peer.set_read_timeout(Some(MAX_WAIT)).unwrap();
         let mut heard = Vec::new();
         std::io::Read::read_to_end(&mut peer, &mut heard)
             .expect("the peer must hear the guest's end once the guest is gone");
@@ -3349,7 +3348,7 @@ mod tests {
         store.limiter(
             |state: &mut Invocation| -> &mut dyn wasmtime::ResourceLimiter { state.limiter_mut() },
         );
-        let deadline = Instant::now() + Duration::from_secs(10);
+        let deadline = Instant::now() + MAX_WAIT;
         let input = run_task(Some(deadline), || {
             let guest = store.data_mut();
             let network = guest.instance_network_instance_network()?;
@@ -3385,8 +3384,7 @@ mod tests {
     /// What `peer` reads up to its end, failing past ten seconds, so a stream
     /// that never ends fails rather than hangs.
     fn read_to_end(peer: &mut std::net::TcpStream) -> Vec<u8> {
-        peer.set_read_timeout(Some(Duration::from_secs(10)))
-            .unwrap();
+        peer.set_read_timeout(Some(MAX_WAIT)).unwrap();
         let mut got = Vec::new();
         std::io::Read::read_to_end(peer, &mut got).expect(
             "the peer must read the stream to its end within ten seconds; a timeout means \
@@ -3401,7 +3399,7 @@ mod tests {
         let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
         let sndbuf = kobako_runtime::net::MAX_SOCKET_BUFFER as u64;
-        let sent = run_task(Some(Instant::now() + Duration::from_secs(10)), || {
+        let sent = run_task(Some(Instant::now() + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let (socket, _, output) = connect_loopback(&mut guest, network, port)?;
             let first = offset_pattern(0, 1024);
@@ -3456,7 +3454,7 @@ mod tests {
     fn an_output_stream_polls_unready_while_it_permits_nothing() {
         let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
-        let deadline = Instant::now() + Duration::from_secs(20);
+        let deadline = Instant::now() + MAX_WAIT;
         let (socket, output, writable, mut written) = run_task(Some(deadline), || {
             let network = guest.instance_network_instance_network()?;
             let (socket, _, output) = connect_loopback(&mut guest, network, port)?;
@@ -3483,7 +3481,7 @@ mod tests {
             }
             panic!(
                 "a TCP output stream whose peer never reads must come to permit nothing and poll \
-                 unready within twenty seconds; wrote {written}"
+                 unready within {MAX_WAIT:?}; wrote {written}"
             );
         })
         .expect("the calls answer");
@@ -3537,7 +3535,7 @@ mod tests {
         let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
         let started = Instant::now();
-        let answers = run_task(Some(started + Duration::from_secs(10)), || {
+        let answers = run_task(Some(started + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let (socket, _, output) = connect_loopback(&mut guest, network, port)?;
             guest
@@ -3562,7 +3560,7 @@ mod tests {
     fn a_blocking_flush_after_the_send_side_shut_answers_closed_though_bytes_wait() {
         let (mut guest, listener, family) = guest_filling_host_send_buffer();
         let port = listener.local_addr().unwrap().port();
-        let answers = run_task(Some(Instant::now() + crate::waits::MAX_WAIT), || {
+        let answers = run_task(Some(Instant::now() + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
@@ -3615,7 +3613,7 @@ mod tests {
         let (mut guest, listener) = guest_and_listener();
         let port = listener.local_addr().unwrap().port();
         let started = Instant::now();
-        let answers = run_task(Some(started + Duration::from_secs(10)), || {
+        let answers = run_task(Some(started + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
@@ -3726,7 +3724,7 @@ mod tests {
                 .with_protocol(network::Protocol::Udp),
         );
         let started = Instant::now();
-        let sent = run_task(Some(started + Duration::from_secs(10)), || {
+        let sent = run_task(Some(started + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
                 .udp_create_socket_create_udp_socket(IpAddressFamily::Ipv4)
@@ -3809,7 +3807,7 @@ mod tests {
             }]
         };
         let (unpermitted, permit, sent, spent) = run_task(
-            Some(Instant::now() + Duration::from_secs(10)),
+            Some(Instant::now() + MAX_WAIT),
             || -> wasmtime::Result<_> {
                 let network = guest.instance_network_instance_network()?;
                 let socket = guest
@@ -3875,7 +3873,7 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let mut guest = loopback_guest(listener.local_addr().unwrap().port());
         let answers = run_task(
-            Some(Instant::now() + Duration::from_secs(10)),
+            Some(Instant::now() + MAX_WAIT),
             || -> wasmtime::Result<_> {
                 let socket = guest
                     .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
@@ -3919,7 +3917,7 @@ mod tests {
         let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
         let mut guest = loopback_guest(listener.local_addr().unwrap().port());
         let started = Instant::now();
-        let answer = run_task(Some(started + Duration::from_secs(10)), || {
+        let answer = run_task(Some(started + MAX_WAIT), || {
             let socket = guest
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
                 .into_answer()?
@@ -4108,7 +4106,7 @@ mod tests {
             .with_addresses(vec![network::Addresses::Local]);
         let mut guest = limited_network_guest([endpoint], Some(4));
         let started = Instant::now();
-        let connected = run_task(Some(started + Duration::from_secs(10)), || {
+        let connected = run_task(Some(started + MAX_WAIT), || {
             let network = guest.instance_network_instance_network()?;
             let socket = guest
                 .tcp_create_socket_create_tcp_socket(IpAddressFamily::Ipv4)
