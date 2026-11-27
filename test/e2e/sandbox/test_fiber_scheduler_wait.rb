@@ -56,7 +56,7 @@ class TestE2EFiberSchedulerWait < Minitest::Test
   # lets go, and once on an Enumerator it resumes, which waits on the block's
   # run while that run waits on it, until the inner run's timeout. Each case
   # has a scheduler of its own, as the worker pool runs one wait at a time.
-  OWN_HOLDER_CHILD = PRELUDE + <<~RUBY
+  OWN_LOCKS_CHILD = PRELUDE + <<~RUBY
     write_beside = lambda do |on_fiber|
       tmpfs = Kobako::Filesystem::Tmpfs.new
       inner = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release, timeout: 1)
@@ -81,7 +81,7 @@ class TestE2EFiberSchedulerWait < Minitest::Test
 
   # @behavior S-266
   def test_a_run_on_a_fiber_a_fiber_scheduler_takes_the_wait_of_holds_locks_as_its_own_run
-    assert_equal "[:wrote, Kobako::TimeoutError]", run_with_worker_pool(OWN_HOLDER_CHILD),
+    assert_equal "[:wrote, Kobako::TimeoutError]", run_with_worker_pool(OWN_LOCKS_CHILD),
                  "a Sandbox#eval with gvl: :release on an Async task a mount's block schedules and leaves must " \
                  "write once the block's run lets go of the Tmpfs, and one on an Enumerator the block resumes " \
                  "must fail only at its timeout"
