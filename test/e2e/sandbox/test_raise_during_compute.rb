@@ -15,7 +15,7 @@ class TestE2ERaiseDuringCompute < Minitest::Test
 
   # Far past any slowdown, so a run reaching it means the raise or kill never
   # landed.
-  JAMMED_AFTER = 30
+  MAX_RUN_TIME = 30
 
   %i[hold release].each do |gvl|
     # @behavior S-230
@@ -66,7 +66,7 @@ class TestE2ERaiseDuringCompute < Minitest::Test
   # a callable, once the guest has called back to say it started.
   def start_computing(gvl, &body)
     started = Thread::Queue.new
-    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl, timeout: JAMMED_AFTER)
+    sandbox = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl, timeout: MAX_RUN_TIME)
                              .bind("Started", -> { started << true })
     runner = Thread.new { body.call(-> { sandbox.eval(COMPUTE) }) }
     runner.report_on_exception = false

@@ -26,7 +26,7 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
 
   # Far past any slowdown, so a flood still running then means its neighbour
   # jammed; the flood ending first turns the test red.
-  JAMMED_AFTER = 30
+  MAX_RUN_TIME = 30
 
   # Ends the flood once the neighbour answered, so no run waits out a deadline.
   class Stop < StandardError
@@ -73,7 +73,7 @@ class TestE2EGvlMemoryNeighbors < Minitest::Test
   # its guest opened /data on the way to the flood.
   def new_flooder(mode, begun)
     Kobako::Sandbox.new(wasm_path: TestPaths.fixture("minimal_random_flood.wat"),
-                        profile: :permissive, gvl: mode, timeout: JAMMED_AFTER, memory_limit: nil)
+                        profile: :permissive, gvl: mode, timeout: MAX_RUN_TIME, memory_limit: nil)
                    .mount("/data", Kobako::Filesystem::Tmpfs.new, access: :read) { begun << true }
   end
 

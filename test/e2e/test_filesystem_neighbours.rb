@@ -16,7 +16,7 @@ class TestE2EFilesystemNeighbours < Minitest::Test
   GVL_MODES = %i[hold release].freeze
   ROUNDS = 10
   # Far past any slowdown, so reaching it means the run jammed.
-  JAMMED_AFTER = 60
+  MAX_RUN_TIME = 60
 
   # What every attacker asks between rounds, and how the test knows each one
   # is in its loop.
@@ -122,7 +122,7 @@ class TestE2EFilesystemNeighbours < Minitest::Test
     crowd = Crowd.new
     attackers = start_attackers(filesystem, mode, crowd)
     crowd.wait_started(attackers.size)
-    answer = sandbox(filesystem, mode, JAMMED_AFTER).eval(VICTIM).value
+    answer = sandbox(filesystem, mode, MAX_RUN_TIME).eval(VICTIM).value
     there = attackers.all?(&:alive?)
     crowd.stop
     [answer, there, attackers.map(&:value).all? { |rounds| rounds.is_a?(Integer) && rounds.positive? }]
@@ -133,7 +133,7 @@ class TestE2EFilesystemNeighbours < Minitest::Test
   def start_attackers(filesystem, mode, crowd)
     Array.new(ATTACKS.size) do |i|
       script = format(ATTACKER, round: format(ATTACKS[i], i: i))
-      Thread.new { sandbox(filesystem, mode, JAMMED_AFTER * 2).bind("Crowd::Ctl", crowd).eval(script).value }
+      Thread.new { sandbox(filesystem, mode, MAX_RUN_TIME * 2).bind("Crowd::Ctl", crowd).eval(script).value }
     end
   end
 
