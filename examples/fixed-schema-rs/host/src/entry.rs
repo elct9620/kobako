@@ -19,7 +19,7 @@
 
 use std::sync::Arc;
 
-use kobako::{Error, RunPayload, Sandbox};
+use kobako::{RunPayload, Sandbox};
 use prost::Message;
 
 use crate::schema::EntryRequest;
@@ -63,10 +63,10 @@ pub fn invoke(sandbox: &Sandbox, body: &[u8]) -> Result<Vec<u8>, String> {
             // Built rather than final: the id standing for this request's
             // capability is issued by the table the verb is about to
             // create, so the payload cannot be finished before then.
-            RunPayload::build(move |handles| {
+            RunPayload::from_fn(move |handles| {
                 let id = handles
                     .alloc(Arc::new(Session::new(scoped, b"req/".to_vec())))
-                    .map_err(|fault| Error::Argument(fault.message))?;
+                    .expect("an invocation's first Handle fits its table");
                 Ok(EntryRequest {
                     body: body.to_vec(),
                     env: id,

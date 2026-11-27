@@ -88,7 +88,7 @@ fn run(wasm_path: &Path, mode: Option<&str>) -> Result<(), String> {
 /// preload the entrypoint `--run` calls.
 fn open(wasm_path: &Path) -> Result<Sandbox, String> {
     let mut options = Options::default();
-    options.timeout = Some(Duration::from_secs(30));
+    options.limits.timeout = Some(Duration::from_secs(30));
     let mut sandbox =
         Sandbox::new(wasm_path, options).map_err(|err| format!("cannot load the guest: {err}"))?;
 

@@ -45,7 +45,8 @@ pub(crate) fn init(mrb: &Mrb, service: RModule) -> Result<(), Error> {
 /// for scripts while the wire still issues Handles.
 pub(crate) fn mint(mrb: &Mrb, id: u32) -> Result<Value, Error> {
     let value = session_class(mrb)?.new_instance(mrb, (id as i32,))?;
-    Ok(value.freeze(mrb))
+    value.freeze(mrb);
+    Ok(value)
 }
 
 /// The id `value` stands for, refusing anything that is not a Session.
@@ -82,7 +83,8 @@ fn initialize(mrb: &Mrb, self_: RObject, id: i32) -> Result<Value, Error> {
 // The original goes unread: mruby copies the ivar before the hook runs,
 // so freezing the copy is all that is left to do.
 fn initialize_copy(mrb: &Mrb, self_: Value, _original: Value) -> Result<Value, Error> {
-    Ok(self_.freeze(mrb))
+    self_.freeze(mrb);
+    Ok(self_)
 }
 
 fn not_constructible(mrb: &Mrb, _self: Value, _args: &[Value]) -> Result<Value, Error> {
