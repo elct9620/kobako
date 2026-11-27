@@ -55,7 +55,7 @@ A run's guest stands on a thread of its own, and its caller serves what the gues
 | the guest's | the Wasm frames, and the sleeping locks the run takes | its caller's answer to a callback |
 | the caller's | the GVL for a callback, or a quantum as it waits under `:hold` | the guest's next callback or its end |
 
-A lock knows its holder by the run, which a run nested in a callback shares. So a nested run asking for its own run's lock is answered, never left waiting. A run on another Fiber of the Thread holds as that run too, as CRuby's Mutex judges such a Fiber. One whose waits a Fiber scheduler takes holds as itself. The caller returns only once its guest ends. `Handoff.tla` checks both.
+A deadline, an interrupt, or a signal stops a run at these points.
 
 | Stop | Reaches the guest |
 |---|---|
@@ -63,6 +63,18 @@ A lock knows its holder by the run, which a run nested in a callback shares. So 
 | a signal Ruby sends the run | handled at its next wait, tick, or caller's yield, as `exit_to_user_mode` does |
 
 Some contention shows only under `:release` or a long `:hold` run, such as a `..` meeting a rename on a shared Filesystem. It is a lock's scope showing, not the GVL's.
+
+#### Lock Owners
+
+A lock knows its owner by the run, never by the thread carrying it out. Some runs share the owner of another run.
+
+| Run | Owns locks as |
+|---|---|
+| nested in a callback | the callback's run |
+| on another Fiber of the Thread | the run in progress there, as CRuby's Mutex judges |
+| one whose waits a Fiber scheduler takes | itself |
+
+So a nested run asking for its own run's lock is answered, never left waiting. The caller returns only once its guest ends, and `Handoff.tla` checks both. A resumed run whose waits a scheduler takes waits until its deadline, which `HandoffResumedScheduled` reaches.
 
 #### Idle Threads
 
@@ -315,7 +327,7 @@ A run's caller never returns when its Fiber is left suspended in a callback, or 
 
 ## Models
 
-The models check the group order and each edge's rule with TLC. A model of a broken rule must still deadlock, so each proves its rule holds the order up; each `.cfg` opens with its expected outcome.
+The models check the group order and each edge's rule with TLC. A model of a broken rule must still deadlock or break its invariant, so each proves its rule holds the order up. Each `.cfg` opens with its expected outcome.
 
 | Model | Checks | Expect |
 |---|---|---|
@@ -326,8 +338,11 @@ The models check the group order and each edge's rule with TLC. A model of a bro
 | `HostMutex` | a callback waiting on a Host App Mutex | deadlock |
 | `NestedRun` | a callback's run reaching back to another callback's Filesystem | deadlock |
 | `Handoff` | a guest's thread served by its caller, with a nested run and an interrupt | ok |
-| `HandoffThreadIdentity` | the same with each lock knowing its holder by thread | deadlock |
+| `HandoffThreadIdentity` | the same with each lock knowing its owner by thread | deadlock |
 | `HandoffNoJoin` | the caller returning before its guest ends | deadlock |
+| `HandoffScheduled` | a nested run on a Fiber a scheduler runs, left running | ok |
+| `HandoffScheduledShared` | the same owning locks as the outer run | violated |
+| `HandoffResumedScheduled` | a resumed nested run whose waits a scheduler takes | deadlock |
 | `HandoffIdle` | an idle thread ending beside a run taking it | ok |
 | `HandoffIdleUnlocked` | the same with the thread deciding apart from leaving the list | deadlock |
 | `ForkGate` | a fork beside runs that wait, nest, join it, or are collected | ok |
