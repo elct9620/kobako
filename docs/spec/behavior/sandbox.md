@@ -2155,7 +2155,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | --- | --- |
 | Given | a mount's block, run while its run holds the Tmpfs's directory, that runs another Sandbox on another Fiber |
 | When | that run writes to the same Tmpfs |
-| Then | the write fails at once as a deadlock, never waiting on its own run. It does on an Enumerator and on a Fiber made without storage. CRuby raises the same way for a Mutex another Fiber of the Thread holds. A run on another Thread is a run of its own |
+| Then | the write fails at once as a deadlock, never waiting on its own run. It does on an Enumerator and on a Fiber made without storage, while no Fiber scheduler takes its waits. CRuby raises the same way for a Mutex another Fiber of the Thread holds. A run on another Thread is a run of its own |
 
 ## `S-234` A run waiting on its guest lets a Fiber scheduler run the Thread's other Fibers
 
