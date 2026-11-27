@@ -51,6 +51,42 @@ class TestE2EFiberSchedulerWait < Minitest::Test
     print [ended == :deadline, sandbox.eval("1 + 1").value].inspect
   RUBY
 
+  # A mount's block runs another Sandbox on the same Tmpfs as its run writes:
+  # once on a task it schedules and leaves, which waits until the block's run
+  # lets go, and once on an Enumerator it resumes, which waits on the block's
+  # run while that run waits on it, until the inner run's timeout. Each case
+  # has a scheduler of its own, as the worker pool runs one wait at a time.
+  OWN_HOLDER_CHILD = PRELUDE + <<~RUBY
+    write_beside = lambda do |on_fiber|
+      tmpfs = Kobako::Filesystem::Tmpfs.new
+      inner = Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release, timeout: 1)
+                             .mount("/data", tmpfs, access: :read_write)
+      write = lambda do
+        inner.eval('File.write("/data/b", "2"); :wrote').value
+      rescue Kobako::SandboxError, Kobako::TimeoutError => e
+        e.class
+      end
+      Sync do |task|
+        seen = nil
+        Kobako::Sandbox.new(wasm_path: ENV.fetch("KOBAKO_WASM"), gvl: :release)
+                       .mount("/data", tmpfs, access: :read_write) { seen ||= on_fiber.call(task, write) }
+                       .eval('File.write("/data/a", "1")')
+        seen.respond_to?(:wait) ? seen.wait : seen
+      end
+    end
+    scheduled = write_beside.call(->(task, write) { task.async { write.call } })
+    resumed = write_beside.call(->(_task, write) { Enumerator.new { |y| y << write.call }.next })
+    print [scheduled, resumed].inspect
+  RUBY
+
+  # @behavior S-266
+  def test_a_run_on_a_fiber_a_fiber_scheduler_takes_the_wait_of_holds_locks_as_its_own_run
+    assert_equal "[:wrote, Kobako::TimeoutError]", run_with_worker_pool(OWN_HOLDER_CHILD),
+                 "a Sandbox#eval with gvl: :release on an Async task a mount's block schedules and leaves must " \
+                 "write once the block's run lets go of the Tmpfs, and one on an Enumerator the block resumes " \
+                 "must fail only at its timeout"
+  end
+
   # @behavior S-234
   def test_a_run_waiting_on_its_guest_lets_a_fiber_scheduler_run_other_fibers
     assert_equal "[:met, :met]", run_with_worker_pool(OVERLAP_CHILD),

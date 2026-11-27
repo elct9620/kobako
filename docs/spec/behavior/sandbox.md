@@ -2145,7 +2145,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | When | no run starts for ten seconds, and then one does |
 | Then | the run answers on a thread it starts, and the idle threads have ended. A run taking a thread as it ends still gets its own job run. A run started once another has returned takes the thread that run left. An idle thread is kept as long as a blocking pool keeps one |
 
-## `S-233` A run on a Fiber a callback starts holds locks as the callback's run
+## `S-233` A run on another Fiber of a Thread whose run is in progress holds locks as that run
 
 | Attribute | Value |
 | --- | --- |
@@ -2153,9 +2153,9 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 
 | Step | Statement |
 | --- | --- |
-| Given | a mount's block, run while its run holds the Tmpfs's directory, that runs another Sandbox on an Enumerator |
+| Given | a mount's block, run while its run holds the Tmpfs's directory, that runs another Sandbox on another Fiber |
 | When | that run writes to the same Tmpfs |
-| Then | the write fails at once as a deadlock, never waiting on its own run. The Fiber inherits the run's mark through its storage. One made without storage, or another Thread, is a run of its own |
+| Then | the write fails at once as a deadlock, never waiting on its own run. It does on an Enumerator and on a Fiber made without storage. CRuby raises the same way for a Mutex another Fiber of the Thread holds. A run on another Thread is a run of its own |
 
 ## `S-234` A run waiting on its guest lets a Fiber scheduler run the Thread's other Fibers
 
@@ -2529,3 +2529,16 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | Given | a Sandbox whose run waits on a fork under way |
 | When | the Host App reads `Sandbox#stat(:runs_waiting)` while it waits, and after the fork returns |
 | Then | the count holds that run while it waits, and no run once it enters |
+
+## `S-266` A run on a Fiber a Fiber scheduler takes the wait of holds locks as a run of its own
+
+| Attribute | Value |
+| --- | --- |
+| refines | `S-233` |
+| relates | `S-234` |
+
+| Step | Statement |
+| --- | --- |
+| Given | a Fiber scheduler that runs a blocking operation on another thread, and Sandboxes releasing the GVL |
+| When | a mount's block schedules a Fiber whose Sandbox writes to the Tmpfs, then returns without waiting for it |
+| Then | the write waits until the block's run lets go of the directory, then succeeds. CRuby hands a Mutex wait to the scheduler the same way. A run on a Fiber the block resumes and waits on fails only at its timeout |

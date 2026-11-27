@@ -47,33 +47,34 @@ class TestE2ERunOnAnotherFiber < Minitest::Test
   end
 
   # @behavior S-233
-  def test_a_run_on_a_fiber_a_callback_starts_holds_locks_as_the_callbacks_run
-    %i[hold release].each do |gvl|
-      assert_equal [Kobako::SandboxError, true], write_from_enumerator_in_mount_block(gvl),
-                   "a Sandbox#eval (gvl: #{gvl}) an Enumerator runs inside a mount's block, writing to the Tmpfs " \
+  def test_a_run_on_another_fiber_of_a_thread_whose_run_is_in_progress_holds_locks_as_that_run
+    fibers = { "an Enumerator" => ->(write) { Enumerator.new { |y| y << write.call }.next },
+               "a Fiber made with storage: nil" => ->(write) { Fiber.new(storage: nil) { write.call }.resume } }
+    %i[hold release].product(fibers.keys).each do |gvl, fiber|
+      assert_equal [Kobako::SandboxError, true], write_from_fiber_in_mount_block(gvl, &fibers[fiber]),
+                   "a Sandbox#eval (gvl: #{gvl}) on #{fiber} inside a mount's block, writing to the Tmpfs " \
                    "the block's run holds, must fail at once as a deadlock"
     end
   end
 
   private
 
-  # What a run on an Enumerator raises, writing to the +Tmpfs+ whose directory
-  # the outer run holds while its mount's block runs it, beside whether it
-  # answered within a second.
-  def write_from_enumerator_in_mount_block(gvl)
+  # What a run on the Fiber +on_fiber+ starts raises, writing to the +Tmpfs+
+  # whose directory the outer run holds while its mount's block runs it,
+  # beside whether it answered within a second.
+  def write_from_fiber_in_mount_block(gvl, &on_fiber)
     tmpfs = Kobako::Filesystem::Tmpfs.new
     inner = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl, timeout: 5).mount("/data", tmpfs, access: :read_write)
     seen = nil
     outer = Kobako::Sandbox.new(wasm_path: REAL_WASM, gvl: gvl).mount("/data", tmpfs, access: :read_write) do
-      seen ||= Enumerator.new { |y| y << within(1) { rescue_error { inner.eval('File.write("/data/b", "2")') } } }.next
+      seen ||= on_fiber.call(-> { within(1) { rescue_error { inner.eval('File.write("/data/b", "2")') } } })
     end
     outer.eval('File.write("/data/a", "1")')
     seen
   end
 
   def rescue_error
-    yield
-    nil
+    yield && nil
   rescue Kobako::SandboxError, Kobako::TimeoutError => e
     e.class
   end

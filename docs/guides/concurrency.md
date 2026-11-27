@@ -128,15 +128,27 @@ Overlay's Layer is built once with the Overlay and shared by every run.
 | a Mutex another Thread holds while it runs a Sandbox on the Filesystem | both Threads wait |
 | `Thread#join` or `Queue#pop` on such a Thread | the same |
 | a run whose Mounts lead back to this Filesystem's callbacks | two such runs may wait on each other |
-| a run on a Fiber it starts, as an `Enumerator` does, reaching this Filesystem | refused at once as a deadlock |
-| the same Fiber made with `storage: nil` | waits as another Thread's run does |
+| a run on another Fiber of this Thread | as [Other Fibers](#other-fibers) sets |
 | work on the calling Thread alone | safe |
-
-A run marks each Fiber it starts through Fiber storage, under `:kobako_run`. A
-Fiber inheriting the mark holds locks as that run.
 
 Either side ends such a wait: the waiting run at its `timeout`, or an interrupt
 of either Thread. The callback's own wait never ends alone.
+
+### Other Fibers
+
+A run a callback starts on another Fiber of its Thread holds locks as the
+callback's run. CRuby refuses a Mutex another Fiber of the Thread owns the same
+way. Where a Fiber scheduler takes the run's waits, the run holds locks of its
+own, as CRuby leaves a Mutex wait to the scheduler.
+
+| The Fiber, reaching this Filesystem | Effect |
+|---|---|
+| an `Enumerator`, or any Fiber with no such scheduler | refused at once as a deadlock |
+| one the scheduler runs, left running | waits until the callback returns |
+| one the scheduler runs, resumed and waited on | waits, until its `timeout` |
+
+The scheduler cannot switch back to the Fiber that resumed the waiting one. So
+neither goes on until the run's `timeout`.
 
 ### Wait Conditions
 

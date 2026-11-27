@@ -28,7 +28,6 @@ fn init(ruby: &Ruby) -> Result<(), Error> {
     // registration is the one that stands.
     let _ = kobako_runtime::sched::register_blocking(Box::new(gvl::GvlFreeWait));
     gvl::register(kobako)?;
-    escape::register(kobako)?;
     fork::register(kobako)?;
     runtime::register(ruby, kobako)?;
     filesystem::register(ruby, kobako)?;

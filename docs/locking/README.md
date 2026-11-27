@@ -55,7 +55,7 @@ A run's guest stands on a thread of its own, and its caller serves what the gues
 | the guest's | the Wasm frames, and the sleeping locks the run takes | its caller's answer to a callback |
 | the caller's | the GVL for a callback, or a quantum as it waits under `:hold` | the guest's next callback or its end |
 
-A lock knows its holder by the run, which a run nested in a callback shares. So a nested run asking for its own run's lock is answered, never left waiting. A run on a Fiber a callback starts on the same Thread holds as that run too, through the mark Fiber storage carries. The caller returns only once its guest ends. `Handoff.tla` checks both.
+A lock knows its holder by the run, which a run nested in a callback shares. So a nested run asking for its own run's lock is answered, never left waiting. A run on another Fiber of the Thread holds as that run too, as CRuby's Mutex judges such a Fiber. One whose waits a Fiber scheduler takes holds as itself. The caller returns only once its guest ends. `Handoff.tla` checks both.
 
 | Stop | Reaches the guest |
 |---|---|

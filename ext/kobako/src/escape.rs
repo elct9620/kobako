@@ -14,13 +14,13 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, PoisonError, Weak};
+use std::sync::{Arc, Mutex, PoisonError};
 
 use kobako_runtime::fork::ProcessLocal;
 use kobako_runtime::sched::Current;
 use kobako_runtime::wait::{do_poll, poll_wait, PollTable, WaitQueueHead};
 use magnus::value::BoxValue;
-use magnus::{prelude::*, Error as MagnusError, RClass, RModule, Ruby, TypedData, Value};
+use magnus::{Error as MagnusError, Ruby, Value};
 
 use super::handoff::{self, Line};
 
@@ -117,7 +117,8 @@ pub(super) fn let_runs_in() {
 /// One outermost run on a Fiber and the runs nested in its callbacks.
 pub(super) struct RunState {
     /// The task every thread carrying the run out shares, so a lock its
-    /// guest holds knows a nested run's guest as the same holder.
+    /// guest holds knows a nested run's guest, or a guest of a run another
+    /// Fiber of the Thread starts meanwhile, as the same owner.
     task: Current,
     held: Mutex<Option<Escape>>,
     /// Whether `held` holds an error, read by the guest's own thread.
@@ -131,9 +132,6 @@ pub(super) struct RunState {
     pins: Mutex<Vec<rb_sys::VALUE>>,
     /// The Ruby Thread the run started on, pinned so it stays where it stands.
     thread: rb_sys::VALUE,
-    /// The run whose callback started the Fiber this run is on, whose locks
-    /// know this run as their holder.
-    within: Option<Weak<RunState>>,
 }
 
 impl RunState {
@@ -201,19 +199,25 @@ pub(super) struct Run {
 
 impl Run {
     /// Enter a run on the calling Fiber: a nested one shares the run its
-    /// Fiber is in, an outermost one starts a run of its own. One on a Fiber a
-    /// callback started on the same Thread is known to locks as the run whose
-    /// callback it is, as the Fiber inherits that run's mark.
+    /// Fiber is in, an outermost one starts a run of its own. Locks know an
+    /// outermost one as the run another Fiber of the Thread has in progress,
+    /// as CRuby refuses a Mutex another Fiber of the Thread owns, unless
+    /// `scheduler_waits` says a Fiber scheduler takes the run's waits, as
+    /// CRuby leaves a Mutex wait to the scheduler.
     ///
     /// An outermost run waits while a fork is under way, counted in
     /// `waiting`, its Sandbox's runs waiting, and raises what interrupts that
     /// wait.
-    pub(super) fn enter(ruby: &Ruby, waiting: &AtomicUsize) -> Result<Self, MagnusError> {
+    pub(super) fn enter(
+        ruby: &Ruby,
+        waiting: &AtomicUsize,
+        scheduler_waits: bool,
+    ) -> Result<Self, MagnusError> {
         let fiber = fiber_id();
         let state = match with_runs(|runs| runs.by_fiber.get(&fiber).cloned()) {
             Some(state) => state,
             None => {
-                let state = start(ruby);
+                let state = start(scheduler_waits);
                 let entered = with_runs(|runs| {
                     if runs.forks == 0 {
                         runs.by_fiber.insert(fiber, state.clone());
@@ -264,27 +268,18 @@ impl Drop for Run {
     }
 }
 
-/// The Fiber storage key a run's mark stands under. Fiber storage is copied
-/// into each Fiber and Thread made where it is set, so a Fiber a callback
-/// starts carries the mark of the run whose callback it is.
-const MARK: &str = "kobako_run";
-
-/// A run as the Fibers its callbacks start see it.
-#[magnus::wrap(class = "Kobako::RunMark", free_immediately, size)]
-pub(super) struct RunMark(Weak<RunState>);
-
-/// Start an outermost run on the calling Fiber, and leave its mark there. One
-/// on a Fiber a callback started, on the Thread of that callback's run while
-/// it runs, holds locks as that run.
-fn start(ruby: &Ruby) -> Arc<RunState> {
+/// Start an outermost run on the calling Fiber. Unless a Fiber scheduler takes
+/// its waits, locks know it as a run another Fiber of the Thread has in
+/// progress: no such run goes on while this Thread waits.
+fn start(scheduler_waits: bool) -> Arc<RunState> {
     // SAFETY: `rb_thread_current` reads the calling thread's own execution
     // context, which a thread holding the GVL may.
     let thread = unsafe { rb_sys::rb_thread_current() };
-    let within = running_mark(ruby, thread);
-    let task = within
-        .as_ref()
-        .map_or_else(Current::default, |within| within.task.fresh_as());
-    let state = Arc::new(RunState {
+    let task = (!scheduler_waits)
+        .then(|| running_on(thread))
+        .flatten()
+        .map_or_else(Current::default, |running| running.task.fresh_as());
+    Arc::new(RunState {
         task,
         held: Mutex::new(None),
         pending: Arc::default(),
@@ -292,42 +287,19 @@ fn start(ruby: &Ruby) -> Arc<RunState> {
         lines: Mutex::new(Vec::new()),
         pins: Mutex::new(vec![thread]),
         thread,
-        within: within.as_ref().map(Arc::downgrade),
+    })
+}
+
+/// A run another Fiber has in progress on `thread`.
+fn running_on(thread: rb_sys::VALUE) -> Option<Arc<RunState>> {
+    let on_thread: Vec<Arc<RunState>> = with_runs(|runs| {
+        runs.by_fiber
+            .values()
+            .filter(|state| state.thread == thread)
+            .cloned()
+            .collect()
     });
-    let mark = ruby.obj_wrap(RunMark(Arc::downgrade(&state)));
-    let _ = fiber_class(ruby).funcall::<_, _, Value>("[]=", (ruby.to_symbol(MARK), mark));
-    state
-}
-
-/// The run the calling Fiber's mark leads to that still runs on `thread`,
-/// following each run to the one it was started within.
-fn running_mark(ruby: &Ruby, thread: rb_sys::VALUE) -> Option<Arc<RunState>> {
-    let mark: Value = fiber_class(ruby)
-        .funcall("[]", (ruby.to_symbol(MARK),))
-        .ok()?;
-    let mut run = <&RunMark>::try_convert(mark).ok()?.0.upgrade();
-    while let Some(state) = run {
-        if state.thread == thread && state.is_running() {
-            return Some(state);
-        }
-        run = state.within.as_ref().and_then(Weak::upgrade);
-    }
-    None
-}
-
-fn fiber_class(ruby: &Ruby) -> RClass {
-    ruby.class_object()
-        .const_get("Fiber")
-        .expect("Ruby defines Fiber")
-}
-
-/// Defines the class the `#[magnus::wrap]` name resolves to, and looks it up
-/// once, before any object is wrapped.
-pub(crate) fn register(kobako: RModule) -> Result<(), MagnusError> {
-    let ruby = Ruby::get().expect("Ruby thread");
-    kobako.define_class("RunMark", ruby.class_object())?;
-    RunMark::class(&ruby);
-    Ok(())
+    on_thread.into_iter().find(|state| state.is_running())
 }
 
 /// Move the run `fiber` is in to the guest `line` leads to, as the collector

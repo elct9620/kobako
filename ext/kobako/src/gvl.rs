@@ -34,7 +34,7 @@ use magnus::gc::Marker;
 use magnus::rb_sys::FromRawValue;
 use magnus::typed_data::DataTypeFunctions;
 use magnus::TypedData;
-use magnus::{prelude::*, Error as MagnusError, RModule, Ruby, Value};
+use magnus::{prelude::*, Error as MagnusError, RClass, RModule, Ruby, Value};
 
 use super::errors;
 use super::escape;
@@ -295,7 +295,7 @@ where
     R: Send + 'static,
     F: FnOnce() -> R + Send + 'static,
 {
-    let run = escape::Run::enter(ruby, waiting)?;
+    let run = escape::Run::enter(ruby, waiting, release && scheduler_takes_waits(ruby))?;
     let f = setup()?;
     let ran = serve(ruby, release, waiting, run.state(), f)?;
     fork::tell_pitchfork_past_trust(ruby);
@@ -503,6 +503,27 @@ const RB_NOGVL_INTR_FAIL: c_int = 0x1;
 /// `blocking_operation_wait`, which runs it on another thread while the Fiber
 /// waits; a Ruby without the hook ignores it.
 const RB_NOGVL_OFFLOAD_SAFE: c_int = 0x4;
+
+/// Whether the calling Fiber's scheduler takes a wait `rb_nogvl` offers with
+/// `RB_NOGVL_OFFLOAD_SAFE`, as Ruby 3.4 and later hand one to a scheduler
+/// that defines `blocking_operation_wait`.
+fn scheduler_takes_waits(ruby: &Ruby) -> bool {
+    let offers = (
+        rb_sys::RUBY_API_VERSION_MAJOR,
+        rb_sys::RUBY_API_VERSION_MINOR,
+    ) >= (3, 4);
+    offers
+        && ruby
+            .class_object()
+            .const_get::<_, RClass>("Fiber")
+            .and_then(|fiber| fiber.funcall::<_, _, Value>("current_scheduler", ()))
+            .is_ok_and(|scheduler| {
+                !scheduler.is_nil()
+                    && scheduler
+                        .respond_to("blocking_operation_wait", true)
+                        .unwrap_or(false)
+            })
+}
 
 /// What a wait without the GVL hands Ruby's unblocking function.
 struct Unblock<'a> {
