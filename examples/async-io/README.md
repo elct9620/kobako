@@ -1,11 +1,11 @@
 # Async IO Demo
 
-A self-contained script that overlaps many invocations' external I/O on a **single OS thread** using a Fiber scheduler (the [`async`](https://github.com/socketry/async) gem). It is the I/O-bound companion to the [serverless demo](../serverless/README.md), whose pure-compute scripts leave a Fiber server nothing to overlap.
+A self-contained script that overlaps many invocations' external I/O on a **single OS thread** using a Fiber scheduler (the [`async`](https://github.com/socketry/async) gem). It is the I/O-bound companion to the [serverless demo](../serverless/README.md), whose pure-compute scripts leave a Fiber server nothing to overlap. `--compute` shows the other side: what it takes for runs that compute to overlap.
 
 | Workload | A Fiber reactor |
 |---|---|
-| pure compute, as in serverless | has nothing to overlap |
-| waits on external I/O, as here | carries many in-flight requests on one thread |
+| waits on external I/O in a Service, as here | carries many in-flight requests on one thread |
+| computes in the guest, with `--compute` | overlaps it only under the conditions in [Fiber Overlap](#fiber-overlap) |
 
 ## Request Shape
 
@@ -27,19 +27,23 @@ The script uses `bundler/inline`, so it resolves its own dependencies on first r
 ruby examples/async-io/app.rb                  # async reactor, single thread
 ruby examples/async-io/app.rb --sequential     # blocking baseline
 ruby examples/async-io/app.rb --count 8 --latency 250
+ruby examples/async-io/app.rb --compute        # guests compute; runs serialize
+ASYNC_SCHEDULER_WORKER_POOL=true ruby examples/async-io/app.rb --compute --gvl release  # Ruby 4.0: runs overlap
 ```
 
 From a clone of the kobako repository, prefix with `bundle exec` so the local checkout is used. CLI parsing runs before `bundler/inline`, so `--sequential` does not pull in the `async` dependency it would not use.
 
 ## Configuration
 
-Three flags shape the workload. Each request's fetch sleeps for the given latency.
+Five flags shape the workload. In `--compute` mode each guest loops 4 million times instead of fetching, and one run alone sets the latency the serialized total counts.
 
 | Flag           | Purpose                                                 | Default |
 |----------------|---------------------------------------------------------|---------|
 | `--count N`    | Number of concurrent requests                           | `5`     |
 | `--latency MS` | Simulated fetch latency per request, in milliseconds    | `300`   |
-| `--sequential` | Blocking baseline: no reactor, so the fetches serialize | off     |
+| `--sequential` | Blocking baseline: no reactor, so the requests serialize | off     |
+| `--compute`    | Each guest computes instead of calling the Service      | off     |
+| `--gvl MODE`   | The Sandbox's `gvl:`: `hold` or `release`               | `hold`  |
 
 ## Expected Trace
 
@@ -47,30 +51,56 @@ The async run starts every request and its fetch on one thread, then completes t
 
 ```
 $ ruby examples/async-io/app.rb --count 4 --latency 200
-mode: async reactor (single thread)
+mode: async reactor (single thread), gvl: hold, ruby 3.4.7, ASYNC_SCHEDULER_WORKER_POOL=false
 
-[+    2ms] [thread 648] [req 0] run:start
-[+    3ms] [thread 648] [req 0] fetch:start  resource/0
-[+    3ms] [thread 648] [req 1] run:start
-[+    3ms] [thread 648] [req 1] fetch:start  resource/1
-[+    3ms] [thread 648] [req 2] run:start
-[+    3ms] [thread 648] [req 2] fetch:start  resource/2
-[+    3ms] [thread 648] [req 3] run:start
-[+    3ms] [thread 648] [req 3] fetch:start  resource/3
-[+  205ms] [thread 648] [req 0] fetch:done
+[+    2ms] [thread 664] [req 0] run:start
+[+    3ms] [thread 664] [req 0] fetch:start  resource/0
+[+    3ms] [thread 664] [req 1] run:start
+[+    3ms] [thread 664] [req 1] fetch:start  resource/1
+[+    3ms] [thread 664] [req 2] run:start
+[+    3ms] [thread 664] [req 2] fetch:start  resource/2
+[+    3ms] [thread 664] [req 3] run:start
+[+    3ms] [thread 664] [req 3] fetch:start  resource/3
+[+  203ms] [thread 664] [req 0] fetch:done
 ...
-total wall time:          203ms
+total wall time:          201ms
 serialized would spend:   800ms (count x latency)
 ```
 
 Every line carries the same thread id, so the four requests share one OS thread. The total wall time tracks one fetch latency, not their sum, as the reactor overlapped the four waits. `--sequential` takes `count x latency`, because without a reactor each fetch blocks the thread.
+
+## Fiber Overlap
+
+Whether a run lets the Thread's other Fibers go on depends on what the run waits for. Five requests, each a 300 ms fetch or about 275 ms of guest compute:
+
+| Each run | Setup | Total for five |
+|---|---|---|
+| waits in a Service | any Ruby, either `--gvl` | 302–304 ms |
+| computes in the guest | `--gvl hold`, with or without a worker pool | 1,373–1,384 ms |
+| computes in the guest | `--gvl release`, on Ruby 3.4 or without a worker pool | 1,362–1,384 ms |
+| computes in the guest | `--gvl release`, Ruby 4.0, worker pool | 286 ms |
+
+A guest keeping the GVL leaves the Thread's other Fibers waiting until its run ends. A guest releasing it hands its wait to a scheduler offering `blocking_operation_wait`. Async offers that hook with its worker pool on Ruby 4.0, set by `ASYNC_SCHEDULER_WORKER_POOL=true`. A run hands its wait over only once its guest outlasts a short spin, so a brief run never needs the pool.
+
+### Compute Traces
+
+The two compute cases differ in when each run starts. Without the hook the runs take turns; with it they start together. The excerpts drop the thread id and the result:
+
+```
+--compute (gvl: hold)                         --compute --gvl release, Ruby 4.0, worker pool
+[+  276ms] [req 0] run:start                  [+  275ms] [req 0] run:start
+[+  549ms] [req 0] run:done                   [+  276ms] [req 1] run:start
+[+  550ms] [req 1] run:start                  ...
+[+  824ms] [req 1] run:done                   [+  560ms] [req 0] run:done
+...                                           [+  560ms] [req 1] run:done
+```
 
 ## Shared Sandbox
 
 All requests run on one Sandbox, with the fetching Service bound once:
 
 ```ruby
-sandbox = Kobako::Sandbox.new
+sandbox = Kobako::Sandbox.new(gvl: :hold)
 sandbox.bind("Resource::Fetcher", fetcher)
 sandbox.preload(code: REQUEST, name: :Request)
 Async { 4.times.map { |id| Async { sandbox.run(:Request, id).value } }.map(&:wait) }

@@ -18,6 +18,13 @@
 # The guest keeps every line of the request's logic; the host only owns the
 # I/O. Many Fibers may run on one Sandbox at once, as on many Threads.
 #
+# A run spent computing in the guest is another matter. While the guest
+# keeps the GVL, the Thread's other Fibers wait until the run ends. A guest
+# releasing it (--gvl release) hands its wait to a scheduler offering
+# `blocking_operation_wait`, which Async does on Ruby 4.0 with its worker
+# pool (ASYNC_SCHEDULER_WORKER_POOL=true); only then do computing runs
+# overlap. --compute shows each case.
+#
 # The fetch latency is SIMULATED with `sleep` (intercepted by the fiber
 # scheduler under Async) — the point is the concurrency structure, not a
 # benchmark. Run with --sequential to see the same workload serialize when
@@ -27,6 +34,8 @@
 #   ruby examples/async-io/app.rb                   # async reactor, one thread
 #   ruby examples/async-io/app.rb --sequential      # blocking baseline
 #   ruby examples/async-io/app.rb --count 8 --latency 250
+#   ruby examples/async-io/app.rb --compute         # guests compute; runs serialize
+#   ASYNC_SCHEDULER_WORKER_POOL=true ruby examples/async-io/app.rb --compute --gvl release
 #
 # Parsing CLI flags before bundler/inline runs is deliberate: --sequential
 # needs no reactor, so the `async` gem is only added to the inline Gemfile
@@ -34,7 +43,9 @@
 
 require "optparse"
 
-options = { count: 5, latency: 300, sequential: false }
+GVL_MODES = %w[hold release].freeze
+
+options = { count: 5, latency: 300, sequential: false, compute: false, gvl: "hold" }
 OptionParser.new do |opts|
   opts.banner = "Usage: ruby examples/async-io/app.rb [options]"
   opts.on("--count N", Integer, "Number of concurrent requests (default: 5)") do |count|
@@ -45,6 +56,12 @@ OptionParser.new do |opts|
   end
   opts.on("--sequential", "Blocking baseline: no reactor, fetches serialize") do
     options[:sequential] = true
+  end
+  opts.on("--compute", "Each guest computes instead of fetching through a Service") do
+    options[:compute] = true
+  end
+  opts.on("--gvl MODE", GVL_MODES, "The Sandbox's GVL mode (#{GVL_MODES.join(", ")}; default: hold)") do |mode|
+    options[:gvl] = mode
   end
   opts.on("-h", "--help", "Show this help") do
     warn opts
@@ -75,6 +92,16 @@ module AsyncIO
       descriptor = "resource/#{id}"
       value = Resource::Fetcher.fetch(id, descriptor)
       "#{descriptor} => #{value}"
+    }
+  MRUBY
+
+  # A request that only computes: no Service call, so the whole run is the
+  # guest's own work.
+  COMPUTE = <<~'MRUBY'
+    Compute = ->(id) {
+      i = 0
+      i += 1 while i < 4_000_000
+      "work/#{id} => #{i}"
     }
   MRUBY
 
@@ -119,18 +146,18 @@ module AsyncIO
 
   # One Sandbox for every request: each run gets its own guest, so the
   # concurrent Fibers share no guest state.
-  def self.build_sandbox(fetcher)
-    sandbox = Kobako::Sandbox.new
+  def self.build_sandbox(fetcher, gvl)
+    sandbox = Kobako::Sandbox.new(gvl: gvl)
     sandbox.bind("Resource::Fetcher", fetcher)
     sandbox.preload(code: REQUEST, name: :Request)
+    sandbox.preload(code: COMPUTE, name: :Compute)
     sandbox
   end
 
-  # One request: a single run that plans, fetches through the Service, and
-  # renders.
-  def self.process(sandbox, timeline, id)
+  # One request: a single run of +entrypoint+.
+  def self.process(sandbox, timeline, entrypoint, id)
     timeline.record(id, "run:start")
-    result = sandbox.run(:Request, id).value
+    result = sandbox.run(entrypoint, id).value
     timeline.record(id, "run:done     -> #{result}")
     result
   end
@@ -138,12 +165,12 @@ module AsyncIO
   # Runs every request concurrently on a single-thread async reactor. The
   # fetches overlap because the reactor schedules a waiting fiber's peers
   # while it sleeps inside the Service.
-  def self.run_async(count, sandbox, timeline)
+  def self.run_async(count, sandbox, timeline, entrypoint)
     measure do
       Async do
         # Spawn one child task per request, then wait for every result. The
         # reactor runs the children concurrently on this single thread.
-        tasks = Array.new(count) { |id| Async { process(sandbox, timeline, id) } }
+        tasks = Array.new(count) { |id| Async { process(sandbox, timeline, entrypoint, id) } }
         tasks.map(&:wait)
       end.wait
     end
@@ -151,8 +178,8 @@ module AsyncIO
 
   # Blocking baseline: no reactor, so each request's fetch fully blocks the
   # thread and the total is the sum of the latencies.
-  def self.run_sequential(count, sandbox, timeline)
-    measure { Array.new(count) { |id| process(sandbox, timeline, id) } }
+  def self.run_sequential(count, sandbox, timeline, entrypoint)
+    measure { Array.new(count) { |id| process(sandbox, timeline, entrypoint, id) } }
   end
 
   # Runs the block and returns [block_result, elapsed_seconds].
@@ -164,21 +191,29 @@ module AsyncIO
 end
 
 timeline = AsyncIO::Timeline.new
-sandbox = AsyncIO.build_sandbox(AsyncIO::Fetcher.new(options[:latency], timeline))
+sandbox = AsyncIO.build_sandbox(AsyncIO::Fetcher.new(options[:latency], timeline), options[:gvl].to_sym)
+entrypoint = options[:compute] ? :Compute : :Request
 mode = options[:sequential] ? "sequential (blocking)" : "async reactor (single thread)"
+pool = ENV.fetch("ASYNC_SCHEDULER_WORKER_POOL", "false")
 
-puts "async-io demo: #{options[:count]} requests, ~#{options[:latency]}ms simulated fetch each"
-puts "mode: #{mode}"
-puts
-
-results, elapsed =
-  if options[:sequential]
-    AsyncIO.run_sequential(options[:count], sandbox, timeline)
+# A computing run takes as long as it takes, so one run alone is the unit
+# the serialized total is counted in.
+latency_ms =
+  if options[:compute]
+    AsyncIO.measure { sandbox.run(:Compute, 0) }.last * 1000
   else
-    AsyncIO.run_async(options[:count], sandbox, timeline)
+    options[:latency]
   end
 
-serialized_ms = options[:count] * options[:latency]
+work = options[:compute] ? "guest compute (#{latency_ms.round}ms alone)" : "~#{options[:latency]}ms simulated fetch"
+puts "async-io demo: #{options[:count]} requests, #{work} each"
+puts "mode: #{mode}, gvl: #{options[:gvl]}, ruby #{RUBY_VERSION}, ASYNC_SCHEDULER_WORKER_POOL=#{pool}"
+puts
+
+runner = options[:sequential] ? :run_sequential : :run_async
+results, elapsed = AsyncIO.public_send(runner, options[:count], sandbox, timeline, entrypoint)
+
+serialized_ms = (options[:count] * latency_ms).round
 puts
 puts format("total wall time:        %5dms", (elapsed * 1000).round)
 puts format("serialized would spend: %5dms (count x latency)", serialized_ms)
