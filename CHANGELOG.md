@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.32.1](https://github.com/elct9620/kobako/compare/v0.32.0...v0.32.1) (2026-11-28)
+
+
+### Performance Improvements
+
+* **ext:** let at most half the CPUs spin waiting on a run's other side ([96d8beb](https://github.com/elct9620/kobako/commit/96d8beb450ab00d106ac61b3c41c83a52d1d33d2))
+
 ## [0.32.0](https://github.com/elct9620/kobako/compare/v0.31.0...v0.32.0) (2026-11-27)
 
 
