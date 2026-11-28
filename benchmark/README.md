@@ -1,6 +1,6 @@
 # Benchmarks
 
-Kobako maintains a regression benchmark suite: nine performance dimensions gated at release ([`support/roster.rb`](support/roster.rb)), five characterization suites, and the regexp variant profile. The table names each one.
+Kobako maintains a regression benchmark suite: nine performance dimensions gated at release ([`support/roster.rb`](support/roster.rb)), six characterization suites, and the regexp variant profile. The table names each one.
 
 | Dimension                     | Standing                       |
 |-------------------------------|--------------------------------|
@@ -15,6 +15,7 @@ Kobako maintains a regression benchmark suite: nine performance dimensions gated
 | Host per-invocation cost      | gated                          |
 | Multi-thread                  | characterization               |
 | `gvl:` scheduling             | characterization               |
+| Handoff waits                 | characterization               |
 | Per-Sandbox RSS               | characterization               |
 | Guest-side setup scaling      | characterization               |
 | Mount block                   | characterization               |
@@ -431,6 +432,18 @@ Three readings follow:
 2. The dispatch arm settles at a stable ~0.5× from 2 Threads up. Every dispatch re-acquires the GVL, and that handoff costs more than the released span saves. That makes `:release` a net loss for dispatch-heavy work.
 3. The shared-Sandbox arm tracks the distinct-Sandbox one to within a few percent, confirming that sharing a Sandbox costs no parallelism.
 
+#### Handoff waits ([`concurrent/handoff.rb`](concurrent/handoff.rb))
+
+The waits between a run's caller and its guest's thread. Each wait spins before it sleeps, and at most half the CPUs spin at once. A run's cost therefore moves with how many Threads wait together and for how long. The anchor above predates the suite; its figures arrive with the next `bench:all` round.
+
+| Arm     | Varies                                   | Records                      |
+|---------|------------------------------------------|------------------------------|
+| threads | 1–32 Threads on one Sandbox, 0–10 Service calls, `hold` and `release` | runs/s and CPU per run |
+| gap     | an idle span of 0 or 2 ms before each run | median run                   |
+| mixed   | two long runs beside three 1-call runs   | runs/s of each               |
+
+Read a cell against its neighbours in the same capture. Spinning shows as CPU per run, sleeping as fewer runs/s, and the CPU count of the machine decides where the bound starts to bite.
+
 #### Memory cost ([`memory.rb`](memory.rb))
 
 The suite reads two lenses. External RSS sampling (`ps -o rss=`) never reaches inside the Sandbox's mruby heap. The `memory_peak` reader reports the invocation's `memory.grow` delta in guest linear memory. Together they give the granularity that capacity planning needs without per-invocation instrumentation, which kobako does not offer.
@@ -585,6 +598,7 @@ bundle exec rake bench                   # every gated benchmark (CI-friendly, p
 bundle exec rake bench:full              # adds the 16 MiB codec payload sweep
 bundle exec rake bench:concurrent        # multi-Thread characterization (#7)
 bundle exec rake bench:gvl_scheduling    # gvl: hold-vs-release wall-clock scaling
+bundle exec rake bench:handoff           # waits between a run's caller and its guest's thread
 bundle exec rake bench:memory            # per-Sandbox RSS characterization (#8)
 bundle exec rake bench:preload_dispatch  # #preload + #run dispatch on its own (gated #9; bench runs it too)
 bundle exec rake bench:dispatch_glue     # dispatch-glue isolation on its own (gated #10; bench runs it too)

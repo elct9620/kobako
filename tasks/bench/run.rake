@@ -46,6 +46,9 @@ namespace :bench do
   desc "Run gvl: hold-vs-release scaling characterization (not in release gate)."
   task(:gvl_scheduling) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/concurrent/gvl_scheduling.rb" } }
 
+  desc "Run the waits between a run's caller and its guest's thread (not in release gate)."
+  task(:handoff) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/concurrent/handoff.rb" } }
+
   desc "Run memory characterization benchmark (not in release gate)."
   task(:memory) { Kobako::Bench::Lock.hold { sh "bundle exec ruby benchmark/memory.rb" } }
 

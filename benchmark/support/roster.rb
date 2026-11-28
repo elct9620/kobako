@@ -38,6 +38,7 @@ module Kobako
       concurrent
       guest_setup
       gvl_scheduling
+      handoff
       memory
       mount
       regexp
@@ -63,6 +64,7 @@ module Kobako
       "memory" => "samples RSS across 10 000 invocations; the workload is fixed in the probe",
       "concurrent/threads" => "wall-clock across Thread counts; the workload is fixed in the probe",
       "concurrent/gvl_scheduling" => "wall-clock hold-vs-release sweep; the workload is fixed in the probe",
+      "concurrent/handoff" => "wall-clock sweep over Thread counts and gaps; the workload is fixed in the probe",
       "regexp" => "drives the kobako+regexp-unicode variant, which rake compile does not build"
     }.freeze
   end
