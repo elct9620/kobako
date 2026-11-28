@@ -34,6 +34,39 @@ const GUEST_STACK: usize = 8 << 20;
 /// callback is often back sooner than a sleep and a wakeup take.
 const SPINS: u32 = 20_000;
 
+/// The waits of this process spinning at once, at most half its CPUs, as Go's
+/// scheduler keeps its spinning threads to half the busy processors in
+/// `findRunnable`: a spinning wait holds a CPU the side it waits on may need.
+/// A wait past the limit sleeps at once. Unlike Go, the limit counts every CPU
+/// rather than the busy ones, and a wait spins while other threads are ready
+/// to run, as kobako sees no run queue.
+struct Spinners {
+    count: AtomicUsize,
+    limit: usize,
+}
+
+impl Spinners {
+    fn new() -> Self {
+        Self {
+            count: AtomicUsize::new(0),
+            limit: thread::available_parallelism().map_or(1, |cpus| (cpus.get() / 2).max(1)),
+        }
+    }
+
+    /// Look for `filled` within the spin, unless the limit is reached.
+    fn spin(&self, filled: &AtomicBool) {
+        if self.count.fetch_add(1, Ordering::AcqRel) < self.limit {
+            for _ in 0..SPINS {
+                if filled.load(Ordering::Acquire) {
+                    break;
+                }
+                std::hint::spin_loop();
+            }
+        }
+        self.count.fetch_sub(1, Ordering::AcqRel);
+    }
+}
+
 /// How long a guest's thread waits idle for the next run before it ends, as
 /// tokio's blocking pool keeps an idle thread.
 const IDLE_LIMIT: Duration = Duration::from_secs(10);
@@ -75,26 +108,23 @@ struct Mailbox<T> {
     /// Whether a wait is to return empty-handed, leaving what comes next for
     /// the wait after it.
     woken: AtomicBool,
+    spinners: Arc<Spinners>,
 }
 
 impl<T> Mailbox<T> {
-    fn new() -> Self {
+    fn new(spinners: Arc<Spinners>) -> Self {
         Self {
             values: Mutex::new(VecDeque::new()),
             filled: AtomicBool::new(false),
             arrived: Condvar::new(),
             woken: AtomicBool::new(false),
+            spinners,
         }
     }
 
     /// What arrives within the spin, or `None` without sleeping.
     fn take_spinning(&self) -> Option<T> {
-        for _ in 0..SPINS {
-            if self.filled.load(Ordering::Acquire) {
-                break;
-            }
-            std::hint::spin_loop();
-        }
+        self.spinners.spin(&self.filled);
         let mut values = self.values.lock().unwrap_or_else(PoisonError::into_inner);
         let value = values.pop_front();
         self.filled.store(!values.is_empty(), Ordering::Release);
@@ -134,12 +164,7 @@ impl<T> Mailbox<T> {
     }
 
     fn take(&self) -> T {
-        for _ in 0..SPINS {
-            if self.filled.load(Ordering::Acquire) {
-                break;
-            }
-            std::hint::spin_loop();
-        }
+        self.spinners.spin(&self.filled);
         let mut values = self.values.lock().unwrap_or_else(PoisonError::into_inner);
         loop {
             if let Some(value) = values.pop_front() {
@@ -407,8 +432,25 @@ struct Worker {
     jobs: Arc<Mailbox<GuestJob>>,
 }
 
-/// The guest threads waiting for a run, this process's own.
-static IDLE: ProcessLocal<Vec<Worker>> = ProcessLocal::new();
+/// This process's own guest threads: those waiting for a run, and the waits
+/// spinning on either side of a run, so a forked child counts none of its
+/// parent's.
+struct Guests {
+    idle: Vec<Worker>,
+    spinners: Arc<Spinners>,
+}
+
+static GUESTS: ProcessLocal<Guests> = ProcessLocal::new();
+
+/// Run `f` on this process's guest threads.
+fn guests<R>(f: impl FnOnce(&mut Guests) -> R) -> R {
+    GUESTS.with(|guests| {
+        f(guests.get_or_insert_with(|| Guests {
+            idle: Vec::new(),
+            spinners: Arc::new(Spinners::new()),
+        }))
+    })
+}
 
 /// Start `run` on a guest's thread carrying `task`, and hand back the line its
 /// caller serves until `Message::Done`. The run owns all it reads, as its
@@ -421,9 +463,10 @@ pub(crate) fn start(
     waiting: Arc<AtomicUsize>,
     run: impl FnOnce() + Send + 'static,
 ) -> io::Result<Arc<Line>> {
+    let (idle, spinners) = guests(|guests| (guests.idle.pop(), guests.spinners.clone()));
     let line = Arc::new(Line {
-        to_caller: Mailbox::new(),
-        to_guest: Mailbox::new(),
+        to_caller: Mailbox::new(spinners.clone()),
+        to_guest: Mailbox::new(spinners.clone()),
         keeps_gvl,
         turn: Mutex::new(Instant::now()),
         pending,
@@ -440,16 +483,15 @@ pub(crate) fn start(
         guest_line.ended.store(true, Ordering::SeqCst);
         Box::new(move || guest_line.to_caller.put(Message::Done(panic)))
     });
-    let idle = IDLE.with(|idle| idle.get_or_insert_with(Vec::new).pop());
     match idle {
         Some(worker) => worker.jobs.put(guest_job),
-        None => spawn(guest_job)?,
+        None => spawn(guest_job, spinners)?,
     }
     Ok(line)
 }
 
-fn spawn(first: GuestJob) -> io::Result<()> {
-    let jobs = Arc::new(Mailbox::new());
+fn spawn(first: GuestJob, spinners: Arc<Spinners>) -> io::Result<()> {
+    let jobs = Arc::new(Mailbox::new(spinners));
     jobs.put(first);
     thread::Builder::new()
         .name("kobako-guest".into())
@@ -462,10 +504,7 @@ fn spawn(first: GuestJob) -> io::Result<()> {
                 None => jobs.take(),
             };
             let report = job();
-            IDLE.with(|idle| {
-                idle.get_or_insert_with(Vec::new)
-                    .push(Worker { jobs: jobs.clone() })
-            });
+            guests(|guests| guests.idle.push(Worker { jobs: jobs.clone() }));
             report();
         })?;
     Ok(())
@@ -474,8 +513,8 @@ fn spawn(first: GuestJob) -> io::Result<()> {
 /// Take the thread waiting on `jobs` off the idle list, unless a caller took
 /// it first; both happen under the list's lock, so never both.
 fn leave_idle(jobs: &Arc<Mailbox<GuestJob>>) -> bool {
-    IDLE.with(|idle| {
-        let idle = idle.get_or_insert_with(Vec::new);
+    guests(|guests| {
+        let idle = &mut guests.idle;
         match idle
             .iter()
             .position(|worker| Arc::ptr_eq(&worker.jobs, jobs))

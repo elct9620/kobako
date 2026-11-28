@@ -2167,7 +2167,7 @@ The guest-side output surface is how `IO` and the Kernel writers behave inside t
 | --- | --- |
 | Given | a Fiber scheduler that runs a blocking operation on another thread, and Sandboxes releasing the GVL |
 | When | two Fibers on one Thread each run a guest that computes until the other's has begun |
-| Then | both runs finish, so the scheduler ran the other Fiber while each waited. A run hands its wait to the scheduler only once a callback did not come back within a spin |
+| Then | both runs finish, so the scheduler ran the other Fiber while each waited. A run hands its wait to the scheduler once a callback did not come back within a spin. It skips the spin while half the CPUs already spin |
 
 ## `S-235` A Fiber scheduler stopping a Fiber whose run waits on its guest ends that run
 
