@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.23.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.22.0...kobako-sdk-v0.23.0) (2026-11-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* **kobako:** `Handles::alloc` returns `Result<u32, HandleExhaustedError>` instead of `Result<u32, Fault>`. `?` inside `Receiver::call` keeps working through `From<HandleExhaustedError> for Fault`; code that mapped the `Fault` itself converts with `Fault::from` first.
+
+### Features
+
+* **kobako:** let a host's own Codec report what the bundled one does ([dc68ad5](https://github.com/elct9620/kobako/commit/dc68ad532920629fb0230a13dda8ed3acd964b74))
+
 ## [0.22.0](https://github.com/elct9620/kobako/compare/kobako-sdk-v0.21.0...kobako-sdk-v0.22.0) (2026-11-27)
 
 

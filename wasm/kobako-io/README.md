@@ -31,7 +31,7 @@ through WASI 0.2. Any guest shell exporting `cabi_realloc` can compose it.
 
 ```toml
 [dependencies]
-kobako-io = "0.22.0" # x-release-please-version
+kobako-io = "0.23.0" # x-release-please-version
 ```
 
 ```rust
